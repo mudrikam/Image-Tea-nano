@@ -486,15 +486,28 @@ class ImageTableWidget(QWidget):
             self.table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.table_tab_layout.addWidget(self.table)
+        
+        # Progress section with label
+        progress_layout = QVBoxLayout()
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(2)
+        
+        self.progress_label = QLabel("Ready")
+        self.progress_label.setAlignment(Qt.AlignLeft)
+        self.progress_label.setStyleSheet("font-size: 9pt; color: #666; margin: 0px; padding: 0px;")
+        progress_layout.addWidget(self.progress_label)
+        
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat('')
+        self.progress_bar.setTextVisible(False)  # Disable text on progress bar
+        self.progress_bar.setFixedHeight(20)  # Fixed height to prevent resizing
         self.progress_bar.setVisible(True)
         self.progress_bar.setToolTip("Shows progress for batch operations")
-        self.table_tab_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_bar)
+        
+        self.table_tab_layout.addLayout(progress_layout)
         self.tab_widget.addTab(self.table_tab, "Table")
         self.thumbnail_tab = QWidget()
         self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
@@ -1255,3 +1268,33 @@ class ImageTableWidget(QWidget):
             print(f"Preview error: {e}")
         self._preview_cache[filepath] = None
         return None
+
+    def set_progress_info(self, label_text, value=None, maximum=None, visible=True):
+        """Set progress information with separate label and bar"""
+        if hasattr(self, 'progress_label'):
+            self.progress_label.setText(label_text)
+        
+        if hasattr(self, 'progress_bar'):
+            if value is not None:
+                self.progress_bar.setValue(value)
+            if maximum is not None:
+                self.progress_bar.setMaximum(maximum)
+            self.progress_bar.setVisible(visible)
+
+    def get_progress_format_text(self, mode, service=None, api_key=None):
+        """Generate formatted progress text"""
+        mode_text = {
+            "all": "for all files",
+            "selected": "for selected files", 
+            "failed": "for failed files",
+            "rolling": "using Rolling APIs"
+        }.get(mode, mode)
+        
+        base_text = f"Generating metadata ({mode_text})"
+        
+        if service and api_key:
+            # Show last 5 characters of API key
+            masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
+            base_text += f" - {service}: {masked_key}"
+        
+        return base_text

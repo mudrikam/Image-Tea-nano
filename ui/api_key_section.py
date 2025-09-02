@@ -165,6 +165,29 @@ class ApiKeySectionWidget(QWidget):
     def get_current_model(self):
         return self.selected_model_name
 
+    def set_current_api_by_details(self, api_key, service, model):
+        """Set the current API key selection by matching api_key, service, and model"""
+        service_capitalized = service.capitalize() if service else ""
+        
+        # First set the correct service in model combo
+        for i in range(self.model_combo.count()):
+            if self.model_combo.itemText(i) == service_capitalized:
+                self.model_combo.blockSignals(True)
+                self.model_combo.setCurrentIndex(i)
+                self.model_combo.blockSignals(False)
+                self._refresh_api_key_combo(service_capitalized)
+                break
+        
+        # Then set the correct API key
+        for i in range(self.api_key_combo.count()):
+            combo_api_key = self.api_key_combo.itemData(i)
+            if combo_api_key == api_key:
+                self.api_key_combo.blockSignals(True)
+                self.api_key_combo.setCurrentIndex(i)
+                self.api_key_combo.blockSignals(False)
+                self._on_api_combo_changed(i)
+                break
+
     def refresh(self):
         self._populate_models()
         if self.model_combo.count() > 0:

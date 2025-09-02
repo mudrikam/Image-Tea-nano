@@ -41,6 +41,16 @@ class MainStatusBar(QStatusBar):
     def set_status(self, text):
         self.status_label.setText(text)
 
+    def set_api_info(self, service=None, api_key=None):
+        """Set API information in the status bar"""
+        if service and api_key:
+            # Show last 5 characters of API key
+            masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
+            api_text = f"Using API: {service} ({masked_key})"
+            self.set_status(api_text)
+        else:
+            self.set_status("")
+
     def update_version_and_commit(self):
         update_path = os.path.join(BASE_PATH, "configs", "update_config.json")
         if os.path.exists(update_path):
