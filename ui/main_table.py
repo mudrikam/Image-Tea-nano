@@ -743,7 +743,6 @@ class ImageTableWidget(QWidget):
                 filepath = item.text()
         if filepath:
             self.grid_manager.update_thumbnail_status(filepath, status)
-            # Update status in _all_rows_cache for realtime sync (convert tuple to list, update, then back to tuple)
             for i, row in enumerate(self._all_rows_cache):
                 if row[1] == filepath:
                     row_list = list(row)
@@ -751,6 +750,7 @@ class ImageTableWidget(QWidget):
                         row_list[6] = status
                         self._all_rows_cache[i] = tuple(row_list)
                     break
+        self._highlight_selected_row()
 
     def _status_color(self, status):
         if status == "processing":
@@ -954,12 +954,14 @@ class ImageTableWidget(QWidget):
         else:
             self.table.setStyleSheet("")
         for row in range(self.table.rowCount()):
+            status_item = self.table.item(row, 8)
+            status_val = status_item.text().lower() if status_item else ""
             if not (selected_rows and row == selected_rows[0].row()):
+                status_color = self._status_color(status_val)
                 for col in range(self.table.columnCount()):
                     item = self.table.item(row, col)
                     if item:
-                        status_val = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
-                        item.setBackground(QBrush(self._status_color(status_val)))
+                        item.setBackground(QBrush(status_color))
 
     def _on_thumbnail_clicked(self, row, col, file_info):
         filepath = file_info.get('filepath', '')
