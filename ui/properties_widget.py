@@ -274,7 +274,10 @@ class PropertiesWidget(QWidget):
                 value_label.setWordWrap(True)
                 value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
                 value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                value_label.setStyleSheet("font-size: 8pt;")
+                if label_text in ("Title", "Description", "Shutterstock Category", "Adobe Stock Category"):
+                    value_label.setStyleSheet("font-size: 11pt;")
+                else:
+                    value_label.setStyleSheet("font-size: 8pt;")
                 self.content_layout.addWidget(label)
                 self.content_layout.addWidget(value_label)
                 self.fields.append(value_label)
