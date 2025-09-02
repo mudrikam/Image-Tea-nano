@@ -113,7 +113,9 @@ def sanitize_text(text):
     if not text:
         return text
     text = text.replace('"', '').replace("'", "")
-    text = re.sub(r'[\\/:*?<>|]', '', text)
+    # Replace all punctuation except comma with space
+    text = re.sub(r'[^\w\s,]', ' ', text)
+    # Collapse multiple spaces
     text = re.sub(r'\s+', ' ', text)
     text = text.strip()
     return text
@@ -229,7 +231,11 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             meta = json.loads(text)
             title = meta.get('title', '')
             description = meta.get('description', '')
-            tags = ', '.join(meta.get('tags', [])) if isinstance(meta.get('tags'), list) else str(meta.get('tags', ''))
+            tags = meta.get('tags', [])
+            if isinstance(tags, list):
+                tags = ', '.join([str(tag).strip() for tag in tags])
+            else:
+                tags = str(tags)
             tags = tags.lower()
             category = meta.get('category', {})
             error_message = ''

@@ -92,14 +92,16 @@ class FileMetadataDialog(QDialog):
         form.addRow("Description:", desc_row)
 
         tags_row = QHBoxLayout()
-        self.tags_edit = QLineEdit(tags)
+        self.tags_edit = QTextEdit(tags)
+        self.tags_edit.setFixedHeight(60)
+        self.tags_edit.setLineWrapMode(QTextEdit.WidgetWidth)
         tags_row.addWidget(self.tags_edit)
         copy_tags_btn = QPushButton()
         copy_tags_btn.setIcon(qta.icon("fa6s.copy"))
         copy_tags_btn.setToolTip("Copy Tags")
         copy_tags_btn.setFlat(True)
         copy_tags_btn.setFixedWidth(28)
-        copy_tags_btn.clicked.connect(lambda: self.copy_with_tooltip(self.tags_edit.text(), copy_tags_btn, "Tags"))
+        copy_tags_btn.clicked.connect(lambda: self.copy_with_tooltip(self.tags_edit.toPlainText(), copy_tags_btn, "Tags"))
         tags_row.addWidget(copy_tags_btn)
         form.addRow("Tags:", tags_row)
 
@@ -214,7 +216,7 @@ class FileMetadataDialog(QDialog):
             return
         title = self.title_edit.text()
         description = self.description_edit.toPlainText()
-        tags = self.tags_edit.text()
+        tags = self.tags_edit.toPlainText()
         self.db.update_metadata(self.filepath, title, description, tags)
         file_id = None
         for row in self.db.get_all_files():

@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout
+from PySide6.QtCore import Qt, QRect, QPoint, QSize
 from PySide6.QtGui import QPixmap, QImage
 import os
 
@@ -10,6 +10,211 @@ try:
         PILLOW_FORMATS.add(ext.lower())
 except ImportError:
     PILLOW_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp', '.eps', '.svg', '.pdf'}
+
+def _levenshtein(a, b):
+    if a == b:
+        return 0
+    if len(a) == 0:
+        return len(b)
+    if len(b) == 0:
+        return len(a)
+    v0 = list(range(len(b) + 1))
+    v1 = [0] * (len(b) + 1)
+    for i in range(len(a)):
+        v1[0] = i + 1
+        for j in range(len(b)):
+            cost = 0 if a[i] == b[j] else 1
+            v1[j + 1] = min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost)
+        v0, v1 = v1, v0
+    return v0[len(b)]
+
+def _is_similar(tag, other_tag):
+    tag_l = tag.lower()
+    other_l = other_tag.lower()
+    if tag_l == other_l:
+        return True
+    # Only consider substring if length > 3
+    if len(tag_l) > 3 and tag_l in other_l:
+        return True
+    if len(other_l) > 3 and other_l in tag_l:
+        return True
+    # Only consider Levenshtein for words longer than 4 and distance <= 2
+    if len(tag_l) > 4 and len(other_l) > 4:
+        dist = _levenshtein(tag_l, other_l)
+        if dist <= 2:
+            return True
+    return False
+
+class FlowLayout(QLayout):
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super(FlowLayout, self).__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self.itemList = []
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if index >= 0 and index < len(self.itemList):
+            return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if index >= 0 and index < len(self.itemList):
+            return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self.doLayout(QRect(0, 0, width, 0), True)
+        return height
+
+    def setGeometry(self, rect):
+        super(FlowLayout, self).setGeometry(rect)
+        self.doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        size += QSize(2 * self.contentsMargins().top(), 2 * self.contentsMargins().top())
+        return size
+
+    def doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+
+        for item in self.itemList:
+            wid = item.widget()
+            spaceX = self.spacing() + wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Horizontal)
+            spaceY = self.spacing() + wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Vertical)
+            nextX = x + item.sizeHint().width() + spaceX
+            if nextX - spaceX > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+
+            if not testOnly:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+
+        return y + lineHeight - rect.y()
+
+class TagsPillWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.flow_layout = FlowLayout(self, spacing=4)
+        self.flow_layout.setContentsMargins(0, 0, 0, 0)
+        self.tags = []
+        self.similar_indices = set()
+
+    def set_tags(self, tags_text):
+        self.clear_tags()
+        if not tags_text:
+            return
+        tags = [tag.strip() for tag in tags_text.split(',') if tag.strip()]
+        self.tags = tags
+        self.similar_indices = set()
+        # Detect similar tags
+        for i, tag in enumerate(tags):
+            for j in range(i + 1, len(tags)):
+                if _is_similar(tag, tags[j]):
+                    self.similar_indices.add(i)
+                    self.similar_indices.add(j)
+        for i, tag in enumerate(tags):
+            pill = self._create_pill(tag, i)
+            self.flow_layout.addWidget(pill)
+
+    def _create_pill(self, tag_text, index):
+        pill = QLabel(tag_text)
+        pill.setAlignment(Qt.AlignCenter)
+        pill.setWordWrap(False)
+        if index in getattr(self, "similar_indices", set()):
+            bg_color = "rgba(244, 67, 54, 0.25)"
+            border_color = "rgba(244, 67, 54, 0.7)"
+            style = f"""
+                QLabel {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 8pt;
+                    font-weight: 500;
+                }}
+            """
+        elif index < 5:
+            bg_color = "rgba(255, 235, 59, 0.2)"
+            border_color = "rgba(255, 193, 7, 0.5)"
+            style = f"""
+                QLabel {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 8pt;
+                    font-weight: 500;
+                }}
+            """
+        elif index < 15:
+            bg_color = "rgba(113, 204, 0, 0.3)"
+            border_color = "rgba(113, 204, 0, 0.5)"
+            style = f"""
+                QLabel {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 8pt;
+                    font-weight: 500;
+                }}
+            """
+        else:
+            bg_color = "rgba(158, 158, 158, 0.2)"
+            border_color = "rgba(158, 158, 158, 0.5)"
+            style = f"""
+                QLabel {{
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 8pt;
+                    font-weight: 500;
+                }}
+            """
+        pill.setStyleSheet(style)
+        pill.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        pill.adjustSize()
+        return pill
+
+    def clear_tags(self):
+        while self.flow_layout.count():
+            child = self.flow_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        self.tags = []
+        self.similar_indices = set()
 
 class PropertiesWidget(QWidget):
     def __init__(self, parent=None):
@@ -50,21 +255,34 @@ class PropertiesWidget(QWidget):
             "Filepath", "Filename", "Title", "Description", "Tags", "Status", "Original Filename",
             "Shutterstock Category", "Adobe Stock Category"
         ]
+        
+        # Create tags pill widget
+        self.tags_pill_widget = TagsPillWidget()
+        
         for idx, label_text in enumerate(field_names):
             label = QLabel(f"<b>{label_text}:</b>")
             label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            value_label = QLabel("")
-            value_label.setWordWrap(True)
-            value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-            value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            value_label.setStyleSheet("font-size: 8pt;")
-            self.content_layout.addWidget(label)
-            self.content_layout.addWidget(value_label)
+            
+            if label_text == "Tags":
+                # Use pill widget for tags
+                self.content_layout.addWidget(label)
+                self.content_layout.addWidget(self.tags_pill_widget)
+                self.fields.append(self.tags_pill_widget)  # Store pill widget
+            else:
+                # Use regular label for other fields
+                value_label = QLabel("")
+                value_label.setWordWrap(True)
+                value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                value_label.setStyleSheet("font-size: 8pt;")
+                self.content_layout.addWidget(label)
+                self.content_layout.addWidget(value_label)
+                self.fields.append(value_label)
+                setattr(self, f"{label_text.lower().replace(' ', '_')}_val", value_label)
+            
             self._add_separator()
-            self.fields.append(value_label)
             self.labels.append(label_text)
             self.label_widgets.append(label)
-            setattr(self, f"{label_text.lower().replace(' ', '_')}_val", value_label)
 
         content.setLayout(self.content_layout)
         scroll.setWidget(content)
@@ -86,8 +304,11 @@ class PropertiesWidget(QWidget):
     def set_properties(self, row_data):
         if not row_data:
             self.preview_label.clear()
-            for value_label in self.fields:
-                value_label.setText("")
+            for i, field in enumerate(self.fields):
+                if isinstance(field, TagsPillWidget):
+                    field.clear_tags()
+                else:
+                    field.setText("")
             if self.db:
                 files = self.db.get_all_files()
                 if files:
@@ -173,8 +394,11 @@ class PropertiesWidget(QWidget):
         for label_widget, label_text in zip(self.label_widgets, label_texts):
             label_widget.setText(f"<b>{label_text}:</b>")
 
-        for value_label, val in zip(self.fields, values):
-            value_label.setText(val)
+        for i, (field, val) in enumerate(zip(self.fields, values)):
+            if isinstance(field, TagsPillWidget):
+                field.set_tags(val)
+            else:
+                field.setText(val)
 
         filepath = values[0]
         if filepath == self._last_preview_filepath and filepath in self._preview_cache:
