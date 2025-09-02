@@ -489,22 +489,23 @@ class ImageTableWidget(QWidget):
         
         # Progress section with label
         progress_layout = QVBoxLayout()
-        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setContentsMargins(4, 4, 4, 4)
         progress_layout.setSpacing(2)
         
         self.progress_label = QLabel("Ready")
         self.progress_label.setAlignment(Qt.AlignLeft)
-        self.progress_label.setStyleSheet("font-size: 9pt; color: #666; margin: 0px; padding: 0px;")
+        self.progress_label.setStyleSheet("font-size: 9pt; color: #666;")
         progress_layout.addWidget(self.progress_label)
         
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)  # Disable text on progress bar
-        self.progress_bar.setFixedHeight(20)  # Fixed height to prevent resizing
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(20)
         self.progress_bar.setVisible(True)
         self.progress_bar.setToolTip("Shows progress for batch operations")
+        self.progress_bar.setStyleSheet("QProgressBar { margin-left: 2px; margin-right: 2px; }")
         progress_layout.addWidget(self.progress_bar)
         
         self.table_tab_layout.addLayout(progress_layout)
