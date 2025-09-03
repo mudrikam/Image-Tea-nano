@@ -72,7 +72,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     if DisclaimerDialog.check_and_show():
         window = ImageTeaMainWindow()
-        window.resize(900, 600)
+        window.resize(900, 700)
         window.show()
         sys.exit(app.exec())
     else:

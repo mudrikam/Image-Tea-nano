@@ -11,6 +11,35 @@ from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 import qtawesome as qta
 import os
 
+class NoDataWidget(QWidget):
+    """Widget to display 'No files to load' message consistently across all tabs"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        
+        # Icon
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
+        
+        # Text
+        text_label = QLabel("No files to load")
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
+        
+        # Sub text
+        sub_text = QLabel("Import files or adjust search criteria")
+        sub_text.setAlignment(Qt.AlignCenter)
+        sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
+        
+        layout.addStretch(1)
+        layout.addWidget(icon_label)
+        layout.addWidget(text_label)
+        layout.addWidget(sub_text)
+        layout.addStretch(1)
+
 try:
     from PIL import Image
     PILLOW_FORMATS = set()
@@ -537,6 +566,12 @@ class ImageTableWidget(QWidget):
         self.table_tab = QWidget()
         self.table_tab_layout = QVBoxLayout(self.table_tab)
         self.table_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Table container with overlay support
+        table_container = QWidget()
+        table_container_layout = QVBoxLayout(table_container)
+        table_container_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.table = QTableWidget(0, 9, self)
         self.table.setHorizontalHeaderLabels([
             "", "Filepath", "Filename", "Title", "Description", "Tags", "Title Length", "Tag Count", "Status"
@@ -546,9 +581,58 @@ class ImageTableWidget(QWidget):
         for col in range(0, 9):
             self.table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.table_tab_layout.addWidget(self.table)
+        table_container_layout.addWidget(self.table)
         
-        # Progress section with label
+        # No data overlay for table (initially hidden)
+        self.table_no_data_overlay = NoDataWidget()
+        self.table_no_data_overlay.setVisible(False)
+        table_container_layout.addWidget(self.table_no_data_overlay)
+        
+        self.table_tab_layout.addWidget(table_container)
+        self.tab_widget.addTab(self.table_tab, "Table")
+        self.thumbnail_tab = QWidget()
+        self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
+        self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.thumbnail_scroll = QScrollArea(self.thumbnail_tab)
+        self.thumbnail_scroll.setWidgetResizable(True)
+        self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
+        self.thumbnail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.thumbnail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.thumbnail_tab_layout.addWidget(self.thumbnail_scroll)
+        self.thumbnail_content = QWidget()
+        self.thumbnail_scroll.setWidget(self.thumbnail_content)
+        self.thumbnail_flow = FlowLayout(margin=10, spacing=10)
+        self.thumbnail_content.setLayout(self.thumbnail_flow)
+        
+        # No data overlay for thumbnails (initially hidden)
+        self.thumbnail_no_data_overlay = NoDataWidget()
+        self.thumbnail_no_data_overlay.setVisible(False)
+        self.thumbnail_tab_layout.addWidget(self.thumbnail_no_data_overlay)
+        
+        self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail")
+        self.details_tab = QWidget()
+        self.details_tab_layout = QVBoxLayout(self.details_tab)
+        self.details_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.details_scroll = QScrollArea(self.details_tab)
+        self.details_scroll.setWidgetResizable(True)
+        self.details_scroll.setFrameShape(QFrame.NoFrame)
+        self.details_tab_layout.addWidget(self.details_scroll)
+        self.details_content = QWidget()
+        self.details_scroll.setWidget(self.details_content)
+        self.details_vbox = QVBoxLayout(self.details_content)
+        self.details_vbox.setContentsMargins(10, 10, 10, 10)
+        self.details_vbox.setSpacing(10)
+        
+        # No data overlay for details (initially hidden)
+        self.details_no_data_overlay = NoDataWidget()
+        self.details_no_data_overlay.setVisible(False)
+        self.details_tab_layout.addWidget(self.details_no_data_overlay)
+        
+        self.tab_widget.addTab(self.details_tab, "Details")
+        
+        # Progress section - moved after tab widget so it's visible in all tabs
         progress_layout = QVBoxLayout()
         progress_layout.setContentsMargins(4, 4, 4, 4)
         progress_layout.setSpacing(2)
@@ -564,58 +648,13 @@ class ImageTableWidget(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(20)
-        self.progress_bar.setVisible(True)
+        self.progress_bar.setVisible(False)
         self.progress_bar.setToolTip("Shows progress for batch operations")
         self.progress_bar.setStyleSheet("QProgressBar { margin-left: 2px; margin-right: 2px; }")
         progress_layout.addWidget(self.progress_bar)
         
-        self.table_tab_layout.addLayout(progress_layout)
-        self.tab_widget.addTab(self.table_tab, "Table")
-        self.thumbnail_tab = QWidget()
-        self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
-        self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.addLayout(progress_layout)
         
-        # Thumbnail progress bar
-        self.thumbnail_progress = QProgressBar(self.thumbnail_tab)
-        self.thumbnail_progress.setVisible(False)
-        self.thumbnail_progress.setFixedHeight(15)
-        self.thumbnail_progress.setTextVisible(False)
-        self.thumbnail_progress.setStyleSheet("QProgressBar { margin: 2px; }")
-        self.thumbnail_tab_layout.addWidget(self.thumbnail_progress)
-        
-        self.thumbnail_scroll = QScrollArea(self.thumbnail_tab)
-        self.thumbnail_scroll.setWidgetResizable(True)
-        self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
-        self.thumbnail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.thumbnail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.thumbnail_tab_layout.addWidget(self.thumbnail_scroll)
-        self.thumbnail_content = QWidget()
-        self.thumbnail_scroll.setWidget(self.thumbnail_content)
-        self.thumbnail_flow = FlowLayout(margin=10, spacing=10)
-        self.thumbnail_content.setLayout(self.thumbnail_flow)
-        self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail")
-        self.details_tab = QWidget()
-        self.details_tab_layout = QVBoxLayout(self.details_tab)
-        self.details_tab_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Details progress bar
-        self.details_progress = QProgressBar(self.details_tab)
-        self.details_progress.setVisible(False)
-        self.details_progress.setFixedHeight(15)
-        self.details_progress.setTextVisible(False)
-        self.details_progress.setStyleSheet("QProgressBar { margin: 2px; }")
-        self.details_tab_layout.addWidget(self.details_progress)
-        
-        self.details_scroll = QScrollArea(self.details_tab)
-        self.details_scroll.setWidgetResizable(True)
-        self.details_scroll.setFrameShape(QFrame.NoFrame)
-        self.details_tab_layout.addWidget(self.details_scroll)
-        self.details_content = QWidget()
-        self.details_scroll.setWidget(self.details_content)
-        self.details_vbox = QVBoxLayout(self.details_content)
-        self.details_vbox.setContentsMargins(10, 10, 10, 10)
-        self.details_vbox.setSpacing(10)
-        self.tab_widget.addTab(self.details_tab, "Details")
         self.details_card_cache = {}  # cache for details cards
         self._donation_dialog_shown = False
         self.table.selectionModel().selectionChanged.connect(self._emit_stats)
@@ -718,6 +757,17 @@ class ImageTableWidget(QWidget):
     def _populate_table_with_rows(self, rows):
         """Populate table with given rows"""
         self.table.setRowCount(0)
+        
+        if not rows:
+            # Hide table, show no data overlay
+            self.table.setVisible(False)
+            self.table_no_data_overlay.setVisible(True)
+            return
+        else:
+            # Show table, hide no data overlay
+            self.table.setVisible(True)
+            self.table_no_data_overlay.setVisible(False)
+        
         for row in rows:
             row_idx = self.table.rowCount()
             self.table.insertRow(row_idx)
@@ -988,8 +1038,9 @@ class ImageTableWidget(QWidget):
         
         try:
             # Show progress bar
-            self.thumbnail_progress.setVisible(True)
-            self.thumbnail_progress.setValue(0)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            self.progress_label.setText("Loading thumbnails...")
             
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
@@ -1004,8 +1055,9 @@ class ImageTableWidget(QWidget):
                 }
                 files_data.append(file_info)
                 
-            self.thumbnail_progress.setMaximum(len(files_data) if files_data else 1)
+            self.progress_bar.setMaximum(len(files_data) if files_data else 1)
                 
+            # Clear current thumbnails
             current_keys = set(self.grid_manager._widget_cache.keys())
             new_keys = set(f['filepath'] for f in files_data)
             for key in current_keys - new_keys:
@@ -1017,26 +1069,34 @@ class ImageTableWidget(QWidget):
                 widget = item.widget()
                 if widget:
                     widget.setParent(None)
-            if files_data:
+            
+            if not files_data:
+                # Hide thumbnail content, show no data overlay
+                self.thumbnail_scroll.setVisible(False)
+                self.thumbnail_no_data_overlay.setVisible(True)
+            else:
+                # Show thumbnail content, hide no data overlay
+                self.thumbnail_scroll.setVisible(True)
+                self.thumbnail_no_data_overlay.setVisible(False)
+                
                 for i, file_info in enumerate(files_data):
                     widget = self.grid_manager._create_image_widget(file_info)
                     self.thumbnail_flow.addWidget(widget)
                     
-                    # Update progress
-                    self.thumbnail_progress.setValue(i + 1)
-                    if i % 5 == 0:  # Process events every 5 items
+                    # Update progress with visual feedback
+                    self.progress_bar.setValue(i + 1)
+                    self.progress_label.setText(f"Loading thumbnails... ({i + 1}/{len(files_data)})")
+                    
+                    # Process events every few items for incremental rendering
+                    if i % 3 == 0:
                         QApplication.processEvents()
                         
                 self.thumbnail_flow.invalidate()
-            else:
-                no_data_label = QLabel("No images found")
-                no_data_label.setAlignment(Qt.AlignCenter)
-                self.thumbnail_flow.addWidget(no_data_label)
-                
-            self._update_thumbnail_checklist_style()
+                self._update_thumbnail_checklist_style()
             
             # Hide progress bar
-            self.thumbnail_progress.setVisible(False)
+            self.progress_bar.setVisible(False)
+            self.progress_label.setText("Ready")
             
         finally:
             self._refreshing_thumbnails = False
@@ -1223,8 +1283,9 @@ class ImageTableWidget(QWidget):
         
         try:
             # Show progress bar
-            self.details_progress.setVisible(True)
-            self.details_progress.setValue(0)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            self.progress_label.setText("Loading details...")
             
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
@@ -1237,7 +1298,7 @@ class ImageTableWidget(QWidget):
                     widget.setParent(None)
             
             rows = self._current_rows
-            self.details_progress.setMaximum(len(rows) if rows else 1)
+            self.progress_bar.setMaximum(len(rows) if rows else 1)
             
             # Remove cache for files not in current page
             current_filepaths = set(row[1] for row in rows)
@@ -1250,11 +1311,16 @@ class ImageTableWidget(QWidget):
                         del self.grid_manager._pixmap_cache[filepath]
             
             if not rows:
-                label = QLabel("No data found")
-                label.setAlignment(Qt.AlignCenter)
-                self.details_vbox.addWidget(label)
-                self.details_progress.setVisible(False)
+                # Hide details content, show no data overlay
+                self.details_scroll.setVisible(False)
+                self.details_no_data_overlay.setVisible(True)
+                self.progress_bar.setVisible(False)
+                self.progress_label.setText("Ready")
                 return
+            else:
+                # Show details content, hide no data overlay
+                self.details_scroll.setVisible(True)
+                self.details_no_data_overlay.setVisible(False)
             
             for i, row in enumerate(rows):
                 filepath = row[1]
@@ -1266,11 +1332,17 @@ class ImageTableWidget(QWidget):
                     self.details_card_cache[filepath] = card
                 self.details_vbox.addWidget(card)
                 
-                # Update progress
-                self.details_progress.setValue(i + 1)
+                # Update progress with visual feedback
+                self.progress_bar.setValue(i + 1)
+                self.progress_label.setText(f"Loading details... ({i + 1}/{len(rows)})")
+                
+                # Process events every few items for incremental rendering
+                if i % 2 == 0:  # Process more frequently for details since they're larger
+                    QApplication.processEvents()
             
             # Hide progress bar
-            self.details_progress.setVisible(False)
+            self.progress_bar.setVisible(False)
+            self.progress_label.setText("Ready")
             
         finally:
             self._refreshing_details = False
