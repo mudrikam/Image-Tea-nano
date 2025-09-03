@@ -1524,8 +1524,3 @@ class ImageTableWidget(QWidget):
             base_text += f" - {service}: {masked_key}"
         
         return base_text
-
-    def get_current_page_cache(self):
-        """Get current page data cache"""
-        cache_key = f"page_{self.current_page}_{self.page_size}_{self.search_edit.text()}"
-        return self.page_cache.get(cache_key, [])

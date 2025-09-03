@@ -443,13 +443,12 @@ def batch_generate_metadata(window):
             
     elif mode == "selected":
         # For "selected" mode, only get checked items from current page
-        current_page_rows = window.table.get_current_page_cache()
         for row_idx in range(window.table.table.rowCount()):
             checkbox_item = window.table.table.item(row_idx, 0)
             if checkbox_item and checkbox_item.checkState() == Qt.Checked:
                 # Find the corresponding row in current page data
-                if row_idx < len(current_page_rows):
-                    rows.append(current_page_rows[row_idx])
+                if row_idx < len(window.table._current_rows):
+                    rows.append(window.table._current_rows[row_idx])
                     
     elif mode == "failed":
         # For "failed" mode, get all failed files across all pages

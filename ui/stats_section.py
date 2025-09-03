@@ -40,7 +40,7 @@ class StatsSectionWidget(QWidget):
         file_stats_layout.setContentsMargins(0, 0, 0, 0)
         file_stats_layout.setSpacing(1)
         file_stats_layout.setAlignment(Qt.AlignTop)
-        file_total_widget, self.label_total = make_icon_label("fa6s.images", "Total Images: 0")
+        file_total_widget, self.label_total = make_icon_label("fa6s.file", "Total Files: 0")
         file_selected_widget, self.label_selected = make_icon_label("fa6s.square-check", "Selected: 0")
         file_failed_widget, self.label_failed = make_icon_label("fa6s.circle-xmark", "Failed: 0")
         file_success_widget, self.label_success = make_icon_label("fa6s.circle-check", "Success: 0")
@@ -104,7 +104,7 @@ class StatsSectionWidget(QWidget):
         self.reset_token_btn.clicked.connect(self._reset_token_stats)
 
     def update_stats(self, total, selected, failed, success=0, draft=0):
-        self.label_total.setText(f"Total Images: {total}")
+        self.label_total.setText(f"Total Files: {total}")
         self.label_selected.setText(f"Selected: {selected}")
         self.label_failed.setText(f"Failed: {failed}")
         self.label_success.setText(f"Success: {success}")
