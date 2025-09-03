@@ -402,10 +402,7 @@ def batch_generate_metadata(window):
         return
 
     mode = "all"
-    selected_ids = []
-    row_map = {}
     if hasattr(window, "gen_mode_combo"):
-        mode_idx = window.gen_mode_combo.currentIndex()
         mode_text = window.gen_mode_combo.currentText().lower()
         if "selected" in mode_text:
             mode = "selected"
@@ -415,28 +412,81 @@ def batch_generate_metadata(window):
             mode = "all"  # Rolling APIs processes all files
         else:
             mode = "all"
+    
+    # Get rows based on pagination-aware approach
     rows = []
-    all_rows = window.db.get_all_files()
+    row_map = {}
+    
     if mode == "all":
-        rows = all_rows
+        # For "all" mode, get all files across all pages
+        search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+        total_count = window.db.get_files_count(search_text)
+        if total_count == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+            window.table.progress_bar.setVisible(False)
+            return
+        
+        # Get all files using pagination to avoid memory issues for very large datasets
+        page_size = 1000  # Use larger page size for batch processing
+        current_page = 1
+        while True:
+            page_rows = window.db.get_files_paginated(
+                page=current_page, 
+                page_size=page_size, 
+                search_text=search_text
+            )
+            if not page_rows:
+                break
+            rows.extend(page_rows)
+            current_page += 1
+            
     elif mode == "selected":
-        table_widget = window.table.table
-        selected_ids = []
-        for row_idx in range(table_widget.rowCount()):
-            checkbox_item = table_widget.item(row_idx, 0)
+        # For "selected" mode, only get checked items from current page
+        current_page_rows = window.table.get_current_page_cache()
+        for row_idx in range(window.table.table.rowCount()):
+            checkbox_item = window.table.table.item(row_idx, 0)
             if checkbox_item and checkbox_item.checkState() == Qt.Checked:
-                id_data = checkbox_item.data(Qt.UserRole)
-                if id_data is not None:
-                    try:
-                        selected_ids.append(int(id_data))
-                        row_map[int(id_data)] = row_idx
-                    except Exception:
-                        print(f"[DEBUG] Failed to parse id from checkbox row {row_idx}: {id_data}")
-        print(f"[DEBUG] Selected IDs for generate: {selected_ids}")
-        rows = [row for row in all_rows if row[0] in selected_ids]
+                # Find the corresponding row in current page data
+                if row_idx < len(current_page_rows):
+                    rows.append(current_page_rows[row_idx])
+                    
     elif mode == "failed":
-        rows = [row for row in all_rows if row[6] == "failed"]
-    if mode == "selected" and not selected_ids:
+        # For "failed" mode, get all failed files across all pages
+        search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+        total_count = window.db.get_files_count(search_text)
+        if total_count == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+            window.table.progress_bar.setVisible(False)
+            return
+            
+        page_size = 1000
+        current_page = 1
+        while True:
+            page_rows = window.db.get_files_paginated(
+                page=current_page, 
+                page_size=page_size, 
+                search_text=search_text
+            )
+            if not page_rows:
+                break
+            # Filter only failed files
+            for row in page_rows:
+                status = row[6] if len(row) > 6 else ""
+                if status and status.lower() == "failed":
+                    rows.append(row)
+            current_page += 1
+    
+    # Create row mapping for pagination-aware status updates
+    for idx, row in enumerate(rows):
+        filepath = row[1]
+        row_map[filepath] = {
+            'batch_index': idx,
+            'row_data': row
+        }
+        
+    if mode == "selected" and not rows:
         print("[DEBUG] No rows checked for Selected Only mode.")
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "No Files", "No files selected (checkbox) to process.")
@@ -724,21 +774,16 @@ def _run_next_batch(window):
     table_widget = window.table.table
     for row in batch:
         filepath = row[1]
-        # Update status in _all_rows_cache to "processing" for this filepath
-        for i, cache_row in enumerate(window.table._all_rows_cache):
-            if cache_row[1] == filepath:
-                cache_row_list = list(cache_row)
-                if len(cache_row_list) > 6:
-                    cache_row_list[6] = "processing"
-                    window.table._all_rows_cache[i] = tuple(cache_row_list)
-                break
         # Update status in database to "processing"
         window.db.update_file_status(filepath, "processing")
+        
+        # Find and update row in current table view
         for row_idx in range(table_widget.rowCount()):
             item = table_widget.item(row_idx, 1)
             if item and item.data(Qt.UserRole) == filepath:
                 batch_indices.append(row_idx)
                 window.table.set_row_status_color(row_idx, "processing")
+                break
     
     worker = BatchWorker(api_key, model, batch, service, metadata_func, row_map, 
                         stop_flag=stop_flag, api_keys_list=api_keys_list, is_rolling_mode=is_rolling_mode, 
@@ -880,16 +925,7 @@ def _run_next_batch(window):
             if token_total > 0 and title:  # If we got content and tokens were used
                 window.db.insert_api_token_stats(image_path, result_service, result_model, token_input, token_output, token_total)
             
-            # Update cache status for this filepath
-            for i, cache_row in enumerate(window.table._all_rows_cache):
-                if cache_row[1] == image_path:
-                    cache_row_list = list(cache_row)
-                    if len(cache_row_list) > 6:
-                        cache_row_list[6] = final_status
-                        window.table._all_rows_cache[i] = tuple(cache_row_list)
-                    break
-            
-            # Update UI row colors
+            # Update UI row colors in current table view (if visible)
             for row_idx in range(table_widget.rowCount()):
                 item = table_widget.item(row_idx, 1)
                 if item and item.data(Qt.UserRole) == image_path:
@@ -1047,14 +1083,6 @@ def cleanup_stuck_processing_files(window):
                 print(f"[CLEANUP] Cleaning stuck processing file: {filepath}")
                 # Update database to failed status
                 window.db.update_file_status(filepath, "failed")
-                # Update cache
-                for i, cache_row in enumerate(window.table._all_rows_cache):
-                    if cache_row[1] == filepath:
-                        cache_row_list = list(cache_row)
-                        if len(cache_row_list) > 6:
-                            cache_row_list[6] = "failed"
-                            window.table._all_rows_cache[i] = tuple(cache_row_list)
-                        break
                 # Update UI
                 window.table.set_row_status_color(row_idx, "failed")
                 cleanup_count += 1

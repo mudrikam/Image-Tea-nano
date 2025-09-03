@@ -164,6 +164,39 @@ class ImageTeaDB:
             c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files')
             return c.fetchall()
 
+    def get_files_count(self, search_text=None):
+        """Get total count of files, optionally filtered by search"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if search_text and search_text.strip():
+                search_pattern = f"%{search_text.strip()}%"
+                c.execute('''SELECT COUNT(*) FROM files 
+                           WHERE filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?''',
+                         (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+            else:
+                c.execute('SELECT COUNT(*) FROM files')
+            row = c.fetchone()
+            return row[0] if row else 0
+
+    def get_files_paginated(self, page=1, page_size=20, search_text=None):
+        """Get files with pagination support"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            offset = (page - 1) * page_size
+            
+            if search_text and search_text.strip():
+                search_pattern = f"%{search_text.strip()}%"
+                c.execute('''SELECT id, filepath, filename, title, description, tags, status, original_filename 
+                           FROM files 
+                           WHERE filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?
+                           LIMIT ? OFFSET ?''',
+                         (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, page_size, offset))
+            else:
+                c.execute('''SELECT id, filepath, filename, title, description, tags, status, original_filename 
+                           FROM files 
+                           LIMIT ? OFFSET ?''', (page_size, offset))
+            return c.fetchall()
+
     def get_all_api_keys(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
