@@ -229,31 +229,61 @@ class ImageTeaDB:
     def batch_update_file_paths(self, rename_results):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            for old_filepath, new_filepath, old_filename, new_filename, success, error in rename_results:
+            for result in rename_results:
+                old_filepath, old_filename, new_filename, new_filepath, success, error = result
                 if success and new_filepath and new_filename:
-                    c.execute('UPDATE files SET filepath=?, filename=? WHERE filepath=?', (new_filepath, new_filename, old_filepath))
+                    # Check if original_filename is empty, if so save the old filename as original
+                    c.execute('SELECT original_filename FROM files WHERE filepath=?', (old_filepath,))
+                    row = c.fetchone()
+                    if row and (not row[0] or row[0] == new_filename):
+                        # Save original filename for first rename or if original was same as new
+                        c.execute('UPDATE files SET filepath=?, filename=?, original_filename=? WHERE filepath=?', 
+                                (new_filepath, new_filename, old_filename, old_filepath))
+                    else:
+                        # Keep existing original_filename
+                        c.execute('UPDATE files SET filepath=?, filename=? WHERE filepath=?', 
+                                (new_filepath, new_filename, old_filepath))
             conn.commit()
 
     def undo_rename(self, filepaths):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             for filepath in filepaths:
-                c.execute('SELECT original_filename, filename, filepath FROM files WHERE filepath=?', (filepath,))
+                c.execute('SELECT original_filename, filename, filepath FROM files WHERE filepath=? OR filename=?', (filepath, filepath))
                 row = c.fetchone()
                 if row:
                     original_filename, current_filename, current_filepath = row
-                    dirpath = os.path.dirname(current_filepath)
+                    
+                    # Handle case where filepath/filename columns might be swapped
+                    if current_filepath and os.path.exists(current_filepath):
+                        actual_current_path = current_filepath
+                    elif current_filename and os.path.exists(current_filename):
+                        actual_current_path = current_filename
+                    else:
+                        continue
+                    
+                    # Skip if no original filename or same as current
+                    if not original_filename or original_filename == os.path.basename(actual_current_path):
+                        continue
+                    
+                    dirpath = os.path.dirname(actual_current_path)
                     original_filepath = os.path.join(dirpath, original_filename)
-                    if os.path.abspath(current_filepath) == os.path.abspath(original_filepath):
+                    
+                    if os.path.abspath(actual_current_path) == os.path.abspath(original_filepath):
                         continue
+                        
                     if os.path.exists(original_filepath):
-                        print(f"Undo rename failed: {original_filepath} already exists.")
                         continue
+                        
                     try:
-                        os.rename(current_filepath, original_filepath)
-                        c.execute('UPDATE files SET filepath=?, filename=? WHERE filepath=?', (original_filepath, original_filename, current_filepath))
+                        os.rename(actual_current_path, original_filepath)
+                        # Update database and clear original_filename since it's restored
+                        c.execute('UPDATE files SET filepath=?, filename=?, original_filename=? WHERE filepath=? OR filename=?', 
+                                (original_filepath, original_filename, original_filename, actual_current_path, actual_current_path))
                     except Exception as e:
-                        print(f"Undo rename error: {current_filepath} -> {original_filepath} | {e}")
+                        pass
+                else:
+                    pass
             conn.commit()
 
     def clear_all_metadata(self):

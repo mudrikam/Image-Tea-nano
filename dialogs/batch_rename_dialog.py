@@ -1,12 +1,125 @@
 import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QComboBox, QRadioButton, QButtonGroup, QGroupBox,
-    QFormLayout, QLineEdit, QCheckBox, QLabel, QHBoxLayout, QSpinBox, QPushButton, QWidget, QMessageBox
+    QFormLayout, QLineEdit, QCheckBox, QLabel, QHBoxLayout, QSpinBox, QPushButton, QWidget, QMessageBox,
+    QProgressDialog
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from datetime import datetime
 import re
 import qtawesome as qta
+
+class UndoRenameWorkerThread(QThread):
+    progress_updated = Signal(int, str)  # current, status_text
+    finished_signal = Signal(int, int)  # success_count, fail_count
+    
+    def __init__(self, files, db):
+        super().__init__()
+        self.files = files
+        self.db = db
+        
+    def run(self):
+        try:
+            success_count = 0
+            fail_count = 0
+            
+            for i, filepath in enumerate(self.files):
+                # Update progress
+                current_file = os.path.basename(filepath) if filepath else "Unknown"
+                self.progress_updated.emit(i, f"Undoing rename: {current_file}")
+                
+                try:
+                    # Use database undo_rename for single file
+                    self.db.undo_rename([filepath])
+                    success_count += 1
+                except Exception as e:
+                    fail_count += 1
+            
+            # Final progress update
+            self.progress_updated.emit(len(self.files), "Undo rename completed")
+            
+            self.finished_signal.emit(success_count, fail_count)
+            
+        except Exception as e:
+            self.finished_signal.emit(0, len(self.files))
+
+class RenameWorkerThread(QThread):
+    progress_updated = Signal(int, str)  # current, status_text
+    finished_signal = Signal(list, int, int)  # results, success_count, fail_count
+    
+    def __init__(self, files, pattern_func, db):
+        super().__init__()
+        self.files = files
+        self.pattern_func = pattern_func
+        self.db = db
+        
+    def run(self):
+        try:
+            results = []
+            success_count = 0
+            fail_count = 0
+            
+            total_files = len(self.files)
+            
+            for i, file_info in enumerate(self.files):
+                # Update progress with current file being processed
+                current_file = os.path.basename(file_info['filepath']) if file_info['filepath'] else file_info['filename']
+                self.progress_updated.emit(i, f"Renaming: {current_file}")
+                
+                # Generate new filename
+                try:
+                    new_filename = self.pattern_func(file_info, i)
+                    
+                    # Perform rename
+                    old_path = file_info['filepath']
+                    if old_path and os.path.exists(old_path):
+                        directory = os.path.dirname(old_path)
+                        new_path = os.path.join(directory, new_filename)
+                        
+                        # Check if new filename already exists
+                        if os.path.exists(new_path) and new_path != old_path:
+                            result = (old_path, file_info['filename'], new_filename, old_path, False, "File already exists")
+                            fail_count += 1
+                        else:
+                            try:
+                                os.rename(old_path, new_path)
+                                result = (old_path, file_info['filename'], new_filename, new_path, True, None)
+                                success_count += 1
+                            except Exception as rename_error:
+                                result = (old_path, file_info['filename'], new_filename, old_path, False, str(rename_error))
+                                fail_count += 1
+                    else:
+                        result = (old_path, file_info['filename'], new_filename, old_path, False, "File not found")
+                        fail_count += 1
+                        
+                except Exception as e:
+                    # Create failed result for pattern generation error
+                    result = (
+                        file_info['filepath'],
+                        file_info['filename'], 
+                        file_info['filename'],  # Keep original name
+                        file_info['filepath'],
+                        False,
+                        f"Pattern error: {str(e)}"
+                    )
+                    fail_count += 1
+                
+                results.append(result)
+                
+                # Update progress after each file (show current count)
+                self.progress_updated.emit(i + 1, f"Processed {i + 1}/{total_files} files")
+            
+            # Final progress update
+            self.progress_updated.emit(total_files, "Updating database...")
+            
+            # Update database
+            if results:
+                self.db.batch_update_file_paths(results)
+            
+            self.finished_signal.emit(results, success_count, fail_count)
+            
+        except Exception as e:
+            self.finished_signal.emit([], 0, len(self.files))
 
 class BatchRenameDialog(QDialog):
     VAR_COLORS = {
@@ -303,36 +416,54 @@ class BatchRenameDialog(QDialog):
 
     def do_rename(self):
         mode = self.combo_mode.currentText()
+        
+        # Get files from database, not just current page
         if mode == "Rename All":
-            file_rows = [row for row in range(self.table_widget.table.rowCount())]
+            # Get all files from database
+            all_files_db = self.db.get_all_files()
+            files = []
+            for db_row in all_files_db:
+                # db_row structure: [id, filepath, filename, title, description, tags, category, status, ...]
+                if len(db_row) >= 8:
+                    files.append({
+                        "filepath": db_row[1],
+                        "filename": db_row[2],
+                        "title": db_row[3] or "",
+                        "description": db_row[4] or "",
+                        "tags": db_row[5] or "",
+                        "status": db_row[7] if len(db_row) > 7 else "",
+                        "row": -1  # Not applicable for database rows
+                    })
         else:
+            # Get only selected files from current page
             file_rows = []
             for row in range(self.table_widget.table.rowCount()):
                 checkbox_item = self.table_widget.table.item(row, 0)
                 if checkbox_item and checkbox_item.checkState() == Qt.Checked:
                     file_rows.append(row)
+            
             if not file_rows:
                 QMessageBox.information(self, "No Selection", "No rows checked for renaming.")
                 return
 
-        files = []
-        for row in file_rows:
-            filepath_item = self.table_widget.table.item(row, 1)
-            filepath = filepath_item.data(Qt.UserRole) if filepath_item else None
-            filename = self.table_widget.table.item(row, 2).text()
-            title = self.table_widget.table.item(row, 3).text()
-            description = self.table_widget.table.item(row, 4).text()
-            tags = self.table_widget.table.item(row, 5).text()
-            status = self.table_widget.table.item(row, 8).text()
-            files.append({
-                "filepath": filepath,
-                "filename": filename,
-                "title": title,
-                "description": description,
-                "tags": tags,
-                "status": status,
-                "row": row
-            })
+            files = []
+            for row in file_rows:
+                filepath_item = self.table_widget.table.item(row, 1)
+                filepath = filepath_item.data(Qt.UserRole) if filepath_item else None
+                filename = self.table_widget.table.item(row, 2).text()
+                title = self.table_widget.table.item(row, 3).text()
+                description = self.table_widget.table.item(row, 4).text()
+                tags = self.table_widget.table.item(row, 5).text()
+                status = self.table_widget.table.item(row, 8).text()
+                files.append({
+                    "filepath": filepath,
+                    "filename": filename,
+                    "title": title,
+                    "description": description,
+                    "tags": tags,
+                    "status": status,
+                    "row": row
+                })
 
         def sanitize_title(title):
             if not title:
@@ -403,37 +534,82 @@ class BatchRenameDialog(QDialog):
         confirm = QMessageBox.question(
             self,
             "Confirm Rename",
-            "Are you sure you want to rename the selected files? After renaming, you can restore the previous filename using Undo Rename if needed.",
+            f"Are you sure you want to rename {len(files)} files? After renaming, you can restore the previous filename using Undo Rename if needed.",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
             return
 
-        from helpers.file_renaming_helper import batch_rename_files
+        # Create progress dialog
+        self.progress_dialog = QProgressDialog("Preparing to rename files...", "Cancel", 0, len(files), self)
+        self.progress_dialog.setWindowTitle("Batch Rename Progress")
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.show()
+        
+        # Create and start worker thread
+        self.rename_worker = RenameWorkerThread(files, pattern_func, self.db)
+        self.rename_worker.progress_updated.connect(self._on_progress_updated)
+        self.rename_worker.finished_signal.connect(self._on_rename_finished)
+        self.progress_dialog.canceled.connect(self._on_progress_canceled)
+        
+        # Disable dialog buttons during rename
+        self.rename_btn.setEnabled(False)
+        self.undo_btn.setEnabled(False)
+        
+        self.rename_worker.start()
 
-        try:
-            results = batch_rename_files(files, pattern_func)
-            self.db.batch_update_file_paths(results)
-            self.table_widget.refresh_table()
+    def _on_progress_updated(self, current, status_text):
+        if hasattr(self, 'progress_dialog') and self.progress_dialog is not None:
+            try:
+                self.progress_dialog.setValue(current)
+                self.progress_dialog.setLabelText(status_text)
+            except (AttributeError, RuntimeError):
+                # Dialog may have been closed already
+                pass
 
-            success_count = sum(1 for r in results if r[4])
-            fail_count = len(results) - success_count
-            msg = f"Renaming completed.\nSuccess: {success_count}\nFailed: {fail_count}"
-            if fail_count > 0:
-                msg += "\nSome files could not be renamed. See console for details."
-                for r in results:
-                    if not r[4]:
-                        print(f"Failed to rename: {r[0]} -> {r[2]} | Error: {r[5]}")
-            QMessageBox.information(self, "Batch Rename", msg)
-        except Exception as e:
-            print("Batch rename error:", e)
-            raise
+    def _on_progress_canceled(self):
+        if hasattr(self, 'rename_worker') and self.rename_worker:
+            self.rename_worker.terminate()
+            self.rename_worker.wait()
+        self._cleanup_progress()
+
+    def _on_rename_finished(self, results, success_count, fail_count):
+        self._cleanup_progress()
+        
+        # Refresh table
+        self.table_widget.refresh_table()
+
+        # Show completion message
+        msg = f"Renaming completed.\nSuccess: {success_count}\nFailed: {fail_count}"
+        if fail_count > 0:
+            msg += "\nSome files could not be renamed. Check the table for details."
+        
+        QMessageBox.information(self, "Batch Rename", msg)
+
+    def _cleanup_progress(self):
+        # Re-enable dialog buttons
+        self.rename_btn.setEnabled(True)
+        self.undo_btn.setEnabled(True)
+        
+        # Close progress dialog safely
+        if hasattr(self, 'progress_dialog') and self.progress_dialog is not None:
+            try:
+                self.progress_dialog.close()
+            except (AttributeError, RuntimeError):
+                pass
+            self.progress_dialog = None
 
     def do_undo_rename(self):
         mode = self.combo_mode.currentText()
         if mode == "Rename All":
-            file_rows = [row for row in range(self.table_widget.table.rowCount())]
+            # Get all files from database, not from current page
+            # get_all_files() returns: (id, filepath, filename, title, description, tags, status, original_filename)
+            all_files = self.db.get_all_files()
+            files = [file_tuple[1] for file_tuple in all_files if file_tuple[1]]  # index 1 is filepath
         else:
+            # Selected Only - get from checked rows
             file_rows = []
             for row in range(self.table_widget.table.rowCount()):
                 checkbox_item = self.table_widget.table.item(row, 0)
@@ -443,25 +619,83 @@ class BatchRenameDialog(QDialog):
                 QMessageBox.information(self, "No Selection", "No rows checked for undo rename.")
                 return
 
-        files = []
-        for row in file_rows:
-            filepath_item = self.table_widget.table.item(row, 1)
-            filepath = filepath_item.data(Qt.UserRole) if filepath_item else None
-            files.append(filepath)
+            files = []
+            for row in file_rows:
+                filepath_item = self.table_widget.table.item(row, 1)
+                filepath = filepath_item.data(Qt.UserRole) if filepath_item else None
+                if filepath:
+                    files.append(filepath)
+
+        if not files:
+            QMessageBox.information(self, "No Files", "No files found to undo rename.")
+            return
 
         confirm = QMessageBox.question(
             self,
             "Confirm Undo Rename",
-            "Are you sure you want to undo rename for the selected files? This will restore their original filenames if possible.",
+            f"Are you sure you want to undo rename for {len(files)} files? This will restore their original filenames if possible.",
             QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
             return
 
-        try:
-            self.db.undo_rename(files)
-            self.table_widget.refresh_table()
-            QMessageBox.information(self, "Undo Rename", "Undo rename completed. Filenames restored to their original names.")
-        except Exception as e:
-            print("Undo rename error:", e)
-            raise
+        # Create progress dialog for undo rename
+        self.undo_progress_dialog = QProgressDialog("Preparing to undo rename...", "Cancel", 0, len(files), self)
+        self.undo_progress_dialog.setWindowTitle("Undo Rename Progress")
+        self.undo_progress_dialog.setWindowModality(Qt.WindowModal)
+        self.undo_progress_dialog.setMinimumDuration(0)
+        self.undo_progress_dialog.setValue(0)
+        self.undo_progress_dialog.show()
+        
+        # Create and start undo worker thread
+        self.undo_worker = UndoRenameWorkerThread(files, self.db)
+        self.undo_worker.progress_updated.connect(self._on_undo_progress_updated)
+        self.undo_worker.finished_signal.connect(self._on_undo_finished)
+        self.undo_progress_dialog.canceled.connect(self._on_undo_progress_canceled)
+        
+        # Disable dialog buttons during undo
+        self.rename_btn.setEnabled(False)
+        self.undo_btn.setEnabled(False)
+        
+        self.undo_worker.start()
+
+    def _on_undo_progress_updated(self, current, status_text):
+        if hasattr(self, 'undo_progress_dialog') and self.undo_progress_dialog is not None:
+            try:
+                self.undo_progress_dialog.setValue(current)
+                self.undo_progress_dialog.setLabelText(status_text)
+            except (AttributeError, RuntimeError):
+                # Dialog may have been closed already
+                pass
+
+    def _on_undo_progress_canceled(self):
+        if hasattr(self, 'undo_worker') and self.undo_worker:
+            self.undo_worker.terminate()
+            self.undo_worker.wait()
+        self._cleanup_undo_progress()
+
+    def _on_undo_finished(self, success_count, fail_count):
+        self._cleanup_undo_progress()
+        
+        # Refresh table
+        self.table_widget.refresh_table()
+
+        # Show completion message
+        msg = f"Undo rename completed.\nSuccess: {success_count}\nFailed: {fail_count}"
+        if fail_count > 0:
+            msg += "\nSome files could not be restored. Check the table for details."
+        
+        QMessageBox.information(self, "Undo Rename", msg)
+
+    def _cleanup_undo_progress(self):
+        # Re-enable dialog buttons
+        self.rename_btn.setEnabled(True)
+        self.undo_btn.setEnabled(True)
+        
+        # Close undo progress dialog safely
+        if hasattr(self, 'undo_progress_dialog') and self.undo_progress_dialog is not None:
+            try:
+                self.undo_progress_dialog.close()
+            except (AttributeError, RuntimeError):
+                pass
+            self.undo_progress_dialog = None

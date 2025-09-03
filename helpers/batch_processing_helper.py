@@ -741,6 +741,13 @@ def batch_generate_metadata(window):
         'current_api_index': 0  # Track current API across batches
     }
     window.is_generating = True
+    
+    # Start the generation timer for elapsed time calculation
+    if hasattr(window, "stats_section"):
+        window.stats_section.start_generation_timer()
+        # Set the processing target to the total number of files being processed
+        window.stats_section.set_processing_target(len(rows))
+    
     _set_gen_btn_stop_state(window, True)
     window._gen_total_time_start = time.perf_counter()
     _run_next_batch(window)
@@ -1040,6 +1047,10 @@ def _run_next_batch(window):
         update_token_stats_ui(window)
         window.table.refresh_table()
         
+        # Update stats for real-time estimation
+        if hasattr(window.table, '_emit_stats'):
+            window.table._emit_stats()
+        
         # Update progress display
         current_mode = state.get('mode', 'all')
         if is_rolling_mode:
@@ -1102,11 +1113,21 @@ def stop_generate_metadata(window):
             QApplication.processEvents()
             worker.stop()
     window.is_generating = False
+    
+    # Stop the estimation timer but keep the stats visible
+    if hasattr(window, "stats_section"):
+        window.stats_section.stop_estimation_timer()
+    
     window.table.refresh_table()
     print("[STOP] Metadata generation stopped and UI reset.")
 
 def _on_generation_finished(window, errors, stopped=False):
     window.is_generating = False
+    
+    # Stop the estimation timer but keep the final stats visible
+    if hasattr(window, "stats_section"):
+        window.stats_section.stop_estimation_timer()
+    
     _set_gen_btn_stop_state(window, False)
     table_widget = window.table.table
     
