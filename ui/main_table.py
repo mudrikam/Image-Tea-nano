@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QMessageBox, QAbstractItemView, QHeaderView,
     QVBoxLayout, QWidget, QProgressBar, QMenu, QLabel, QHBoxLayout, QLineEdit,
-    QPushButton, QToolTip, QTabWidget, QScrollArea, QFrame, QLayout
+    QPushButton, QToolTip, QTabWidget, QScrollArea, QFrame, QLayout, QComboBox,
+    QSpacerItem, QSizePolicy, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent
 from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage
@@ -352,14 +353,20 @@ class GridManager:
             if not file_info:
                 return
             backend_row = None
-            parent_widget = widget.parent()
-            while parent_widget and not hasattr(parent_widget, '_all_rows_cache'):
-                parent_widget = parent_widget.parent()
-            if parent_widget and hasattr(parent_widget, '_all_rows_cache'):
-                for row in parent_widget._all_rows_cache:
+            # Look for row in current page first, then search in database if not found
+            for row in self._current_rows:
+                if row[1] == file_info['filepath']:
+                    backend_row = row
+                    break
+            
+            # If not found in current page, search in database
+            if backend_row is None:
+                all_files = self.db.get_all_files()
+                for row in all_files:
                     if row[1] == file_info['filepath']:
                         backend_row = row
                         break
+            
             if backend_row is None:
                 print(f"Error: backend_row not found for filepath {file_info['filepath']}")
                 return
@@ -431,6 +438,17 @@ class ImageTableWidget(QWidget):
         self.db = db
         self._properties_widget = getattr(parent, "properties_widget", None)
         self._main_window = parent
+        
+        # Pagination state
+        self.current_page = 1
+        self.page_size = 20
+        self.total_count = 0
+        self.search_text = ""
+        self._page_cache = {}  # Cache data per page
+        self._current_rows = []  # Current page rows
+        self._refreshing_details = False  # Flag to prevent multiple refresh calls
+        self._refreshing_thumbnails = False  # Flag to prevent multiple thumbnail refresh calls
+        
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         search_layout = QHBoxLayout()
@@ -465,11 +483,54 @@ class ImageTableWidget(QWidget):
         reload_btn.setFixedWidth(28)
         reload_btn.setToolTip("Reload/refresh data from database")
         reload_btn.clicked.connect(self._on_reload_clicked)
+        
+        # Pagination controls
+        self.prev_btn = QPushButton(self)
+        self.prev_btn.setIcon(qta.icon("fa6s.chevron-left"))
+        self.prev_btn.setFlat(True)
+        self.prev_btn.setFocusPolicy(Qt.NoFocus)
+        self.prev_btn.setFixedWidth(32)
+        self.prev_btn.setToolTip("Previous page")
+        self.prev_btn.clicked.connect(self._on_prev_page)
+        
+        self.page_spinner = QSpinBox(self)
+        self.page_spinner.setMinimum(1)
+        self.page_spinner.setMaximum(1)
+        self.page_spinner.setValue(1)
+        self.page_spinner.setFixedWidth(60)
+        self.page_spinner.setToolTip("Current page")
+        self.page_spinner.valueChanged.connect(self._on_page_spinner_changed)
+        
+        self.total_pages_label = QLabel("/1")
+        self.total_pages_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.total_pages_label.setMinimumWidth(30)
+        self.total_pages_label.setStyleSheet("font-weight: bold; color: #555;")
+        
+        self.next_btn = QPushButton(self)
+        self.next_btn.setIcon(qta.icon("fa6s.chevron-right"))
+        self.next_btn.setFlat(True)
+        self.next_btn.setFocusPolicy(Qt.NoFocus)
+        self.next_btn.setFixedWidth(32)
+        self.next_btn.setToolTip("Next page")
+        self.next_btn.clicked.connect(self._on_next_page)
+        
+        self.page_size_combo = QComboBox(self)
+        self.page_size_combo.addItems(["10", "20", "30", "50", "100"])
+        self.page_size_combo.setCurrentText("20")
+        self.page_size_combo.setFixedWidth(60)
+        self.page_size_combo.setToolTip("Items per page")
+        self.page_size_combo.currentTextChanged.connect(self._on_page_size_changed)
+        
         search_layout.addWidget(search_icon_btn)
         search_layout.addWidget(self.search_edit)
         search_layout.addWidget(paste_btn)
         search_layout.addWidget(clear_btn)
         search_layout.addWidget(reload_btn)
+        search_layout.addWidget(self.prev_btn)
+        search_layout.addWidget(self.page_spinner)
+        search_layout.addWidget(self.total_pages_label)
+        search_layout.addWidget(self.next_btn)
+        search_layout.addWidget(self.page_size_combo)
         self.layout.addLayout(search_layout)
         self.tab_widget = QTabWidget(self)
         self.layout.addWidget(self.tab_widget)
@@ -513,6 +574,15 @@ class ImageTableWidget(QWidget):
         self.thumbnail_tab = QWidget()
         self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
         self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Thumbnail progress bar
+        self.thumbnail_progress = QProgressBar(self.thumbnail_tab)
+        self.thumbnail_progress.setVisible(False)
+        self.thumbnail_progress.setFixedHeight(15)
+        self.thumbnail_progress.setTextVisible(False)
+        self.thumbnail_progress.setStyleSheet("QProgressBar { margin: 2px; }")
+        self.thumbnail_tab_layout.addWidget(self.thumbnail_progress)
+        
         self.thumbnail_scroll = QScrollArea(self.thumbnail_tab)
         self.thumbnail_scroll.setWidgetResizable(True)
         self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
@@ -527,6 +597,15 @@ class ImageTableWidget(QWidget):
         self.details_tab = QWidget()
         self.details_tab_layout = QVBoxLayout(self.details_tab)
         self.details_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Details progress bar
+        self.details_progress = QProgressBar(self.details_tab)
+        self.details_progress.setVisible(False)
+        self.details_progress.setFixedHeight(15)
+        self.details_progress.setTextVisible(False)
+        self.details_progress.setStyleSheet("QProgressBar { margin: 2px; }")
+        self.details_tab_layout.addWidget(self.details_progress)
+        
         self.details_scroll = QScrollArea(self.details_tab)
         self.details_scroll.setWidgetResizable(True)
         self.details_scroll.setFrameShape(QFrame.NoFrame)
@@ -545,7 +624,7 @@ class ImageTableWidget(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-        self._all_rows_cache = []
+        self._current_rows = []  # Current page data
         self.grid_manager = GridManager()
         self.grid_manager.set_status_color_func(self._status_color)
         self.grid_manager.setup_grid_click_handler(self.thumbnail_content, self._on_thumbnail_clicked)
@@ -565,7 +644,118 @@ class ImageTableWidget(QWidget):
         self._open_metadata_dialog_by_filepath = _open_metadata_dialog_by_filepath
 
     def _on_reload_clicked(self):
+        self._page_cache.clear()  # Clear pagination cache
         self.refresh_table()
+
+    def _on_prev_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.page_spinner.setValue(self.current_page)
+            self._load_page_data()
+            self._update_pagination_ui()
+
+    def _on_next_page(self):
+        total_pages = max(1, (self.total_count + self.page_size - 1) // self.page_size)
+        if self.current_page < total_pages:
+            self.current_page += 1
+            self.page_spinner.setValue(self.current_page)
+            self._load_page_data()
+            self._update_pagination_ui()
+
+    def _on_page_spinner_changed(self, page_num):
+        if page_num != self.current_page:
+            self.current_page = page_num
+            self._load_page_data()
+            self._update_pagination_ui()
+
+    def _on_page_size_changed(self, size_text):
+        new_size = int(size_text)
+        if new_size != self.page_size:
+            self.page_size = new_size
+            self.current_page = 1  # Reset to first page
+            self.page_spinner.setValue(1)
+            self._page_cache.clear()  # Clear cache
+            self._load_page_data()
+            self._update_pagination_ui()
+
+    def _update_pagination_ui(self):
+        total_pages = max(1, (self.total_count + self.page_size - 1) // self.page_size)
+        
+        # Update spinner
+        self.page_spinner.setMaximum(total_pages)
+        self.page_spinner.setValue(self.current_page)
+        
+        # Update total pages label
+        self.total_pages_label.setText(f"/{total_pages}")
+        
+        # Update button states
+        self.prev_btn.setEnabled(self.current_page > 1)
+        self.next_btn.setEnabled(self.current_page < total_pages)
+
+    def _load_page_data(self):
+        """Load data for current page"""
+        cache_key = (self.current_page, self.page_size, self.search_text)
+        
+        if cache_key in self._page_cache:
+            self._current_rows = self._page_cache[cache_key]
+        else:
+            self._current_rows = list(self.db.get_files_paginated(
+                page=self.current_page, 
+                page_size=self.page_size, 
+                search_text=self.search_text if self.search_text.strip() else None
+            ))
+            self._page_cache[cache_key] = self._current_rows
+        
+        self._populate_table_with_rows(self._current_rows)
+        self._emit_stats()
+        
+        # Update tabs if they are active
+        if self.tab_widget.currentIndex() == 1:
+            self.refresh_thumbnail_grid()
+        elif self.tab_widget.currentIndex() == 2:
+            self._refresh_details_cards()
+
+    def _populate_table_with_rows(self, rows):
+        """Populate table with given rows"""
+        self.table.setRowCount(0)
+        for row in rows:
+            row_idx = self.table.rowCount()
+            self.table.insertRow(row_idx)
+            checkbox_item = QTableWidgetItem()
+            checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            checkbox_item.setCheckState(Qt.Unchecked)
+            checkbox_item.setData(Qt.UserRole, row[0])
+            self.table.setItem(row_idx, 0, checkbox_item)
+            display_values = list(row[1:7])
+            if len(display_values) > 0:
+                short_fp = self._shorten_filepath(display_values[0])
+                fp_item = QTableWidgetItem(short_fp)
+                fp_item.setData(Qt.UserRole, display_values[0])
+                self.table.setItem(row_idx, 1, fp_item)
+                for col, val in enumerate(display_values[1:], start=2):
+                    item = QTableWidgetItem(str(val) if val is not None else "")
+                    if col == 2:
+                        item.setTextAlignment(Qt.AlignCenter)
+                    self.table.setItem(row_idx, col, item)
+            title_val = row[3] if len(row) > 3 and row[3] is not None else ""
+            title_len = len(title_val)
+            title_len_item = QTableWidgetItem(str(title_len))
+            title_len_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 6, title_len_item)
+            tags_val = row[5] if len(row) > 5 and row[5] is not None else ""
+            tag_count = len([t for t in tags_val.split(",") if t.strip()]) if tags_val else 0
+            tag_count_item = QTableWidgetItem(str(tag_count))
+            tag_count_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 7, tag_count_item)
+            status_val = row[6] if len(row) > 6 and row[6] is not None else ""
+            status_item = QTableWidgetItem(str(status_val))
+            status_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row_idx, 8, status_item)
+            color = self._status_color(status_val)
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row_idx, col)
+                if item:
+                    item.setBackground(QBrush(color))
 
     def _on_tab_changed(self, idx):
         if self.tab_widget.tabText(idx) == "Thumbnail":
@@ -583,60 +773,16 @@ class ImageTableWidget(QWidget):
         self.search_edit.clear()
 
     def _on_search_text_changed(self, text):
-        self._filter_table(text)
-        if self.tab_widget.currentIndex() == 1:
-            self.refresh_thumbnail_grid()
-            self._sync_thumbnail_selection_with_table()
-        if self.tab_widget.currentIndex() == 2:
-            self._refresh_details_cards()
+        self.search_text = text.strip()
+        self.current_page = 1  # Reset to first page on search
+        self._page_cache.clear()  # Clear cache
+        self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
+        self._load_page_data()
+        self._update_pagination_ui()
 
     def _filter_table(self, text):
-        text = text.strip().lower()
-        if not text:
-            self._all_rows_cache = list(self.db.get_all_files())
-        if not self._all_rows_cache:
-            self._all_rows_cache = list(self.db.get_all_files())
-        self.table.setRowCount(0)
-        for row in self._all_rows_cache:
-            if not text or self._row_matches_search(row, text):
-                row_idx = self.table.rowCount()
-                self.table.insertRow(row_idx)
-                checkbox_item = QTableWidgetItem()
-                checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-                checkbox_item.setCheckState(Qt.Unchecked)
-                checkbox_item.setData(Qt.UserRole, row[0])
-                self.table.setItem(row_idx, 0, checkbox_item)
-                display_values = list(row[1:7])
-                if len(display_values) > 0:
-                    short_fp = self._shorten_filepath(display_values[0])
-                    fp_item = QTableWidgetItem(short_fp)
-                    fp_item.setData(Qt.UserRole, display_values[0])
-                    self.table.setItem(row_idx, 1, fp_item)
-                    for col, val in enumerate(display_values[1:], start=2):
-                        item = QTableWidgetItem(str(val) if val is not None else "")
-                        if col == 2:
-                            item.setTextAlignment(Qt.AlignCenter)
-                        self.table.setItem(row_idx, col, item)
-                title_val = row[3] if len(row) > 3 and row[3] is not None else ""
-                title_len = len(title_val)
-                title_len_item = QTableWidgetItem(str(title_len))
-                title_len_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row_idx, 6, title_len_item)
-                tags_val = row[5] if len(row) > 5 and row[5] is not None else ""
-                tag_count = len([t for t in tags_val.split(",") if t.strip()]) if tags_val else 0
-                tag_count_item = QTableWidgetItem(str(tag_count))
-                tag_count_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row_idx, 7, tag_count_item)
-                status_val = row[6] if len(row) > 6 and row[6] is not None else ""
-                status_item = QTableWidgetItem(str(status_val))
-                status_item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row_idx, 8, status_item)
-                color = self._status_color(status_val)
-                for col in range(self.table.columnCount()):
-                    item = self.table.item(row_idx, col)
-                    if item:
-                        item.setBackground(QBrush(color))
-        self._emit_stats()
+        # This method is now replaced by pagination logic
+        pass
 
     def _row_matches_search(self, row, text):
         for value in row[1:6]:
@@ -735,6 +881,25 @@ class ImageTableWidget(QWidget):
         status_item = self.table.item(row_idx, status_col)
         if status_item:
             status_item.setText(status.capitalize())
+        
+        # Update current page data and cache
+        if 0 <= row_idx < len(self._current_rows):
+            row_list = list(self._current_rows[row_idx])
+            if len(row_list) > 6:
+                row_list[6] = status
+                self._current_rows[row_idx] = tuple(row_list)
+                
+                # Update cache for current page
+                cache_key = (self.current_page, self.page_size, self.search_text)
+                if cache_key in self._page_cache:
+                    cache_rows = list(self._page_cache[cache_key])
+                    if 0 <= row_idx < len(cache_rows):
+                        cache_row_list = list(cache_rows[row_idx])
+                        if len(cache_row_list) > 6:
+                            cache_row_list[6] = status
+                            cache_rows[row_idx] = tuple(cache_row_list)
+                            self._page_cache[cache_key] = cache_rows
+        
         filepath = None
         item = self.table.item(row_idx, 1)
         if item:
@@ -743,13 +908,6 @@ class ImageTableWidget(QWidget):
                 filepath = item.text()
         if filepath:
             self.grid_manager.update_thumbnail_status(filepath, status)
-            for i, row in enumerate(self._all_rows_cache):
-                if row[1] == filepath:
-                    row_list = list(row)
-                    if len(row_list) > 6:
-                        row_list[6] = status
-                        self._all_rows_cache[i] = tuple(row_list)
-                    break
         self._highlight_selected_row()
 
     def _status_color(self, status):
@@ -791,10 +949,13 @@ class ImageTableWidget(QWidget):
             status_item.setText(str(status_val))
 
     def refresh_table(self):
-        self._all_rows_cache = list(self.db.get_all_files())
-        self._filter_table(self.search_edit.text())
-        total_files = self.table.rowCount()
-        if total_files >= 100:
+        self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
+        self._page_cache.clear()  # Clear cache on refresh
+        self._load_page_data()
+        self._update_pagination_ui()
+        
+        # Check for donation dialog based on total count
+        if self.total_count >= 100:
             if not self._donation_dialog_shown and not is_donation_optout_today():
                 self._donation_dialog_shown = True
                 dialog = DonateDialog(self, show_not_today=True)
@@ -810,6 +971,7 @@ class ImageTableWidget(QWidget):
                 dialog.exec()
         else:
             self._donation_dialog_shown = False
+        
         self.data_refreshed.emit()
         if self.tab_widget.currentIndex() == 1:
             self.refresh_thumbnail_grid()
@@ -818,43 +980,66 @@ class ImageTableWidget(QWidget):
             self._refresh_details_cards()
 
     def refresh_thumbnail_grid(self):
-        files = []
-        text = self.search_edit.text().strip().lower()
-        if not text:
-            files = list(self.db.get_all_files())
-        else:
-            files = [row for row in self._all_rows_cache if self._row_matches_search(row, text)]
-        files_data = []
-        for row in files:
-            file_info = {
-                'filepath': row[1],
-                'filename': row[2],
-                'extension': os.path.splitext(row[2])[1],
-                'status': row[6] if len(row) > 6 else ""
-            }
-            files_data.append(file_info)
-        current_keys = set(self.grid_manager._widget_cache.keys())
-        new_keys = set(f['filepath'] for f in files_data)
-        for key in current_keys - new_keys:
-            widget = self.grid_manager._widget_cache.pop(key, None)
-            if widget:
-                widget.deleteLater()
-        while self.thumbnail_flow.count():
-            item = self.thumbnail_flow.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.setParent(None)
-        # Add widgets in the same order as files_data to ensure left-to-right, top-to-bottom
-        if files_data:
-            for file_info in files_data:
-                widget = self.grid_manager._create_image_widget(file_info)
-                self.thumbnail_flow.addWidget(widget)
-            self.thumbnail_flow.invalidate()
-        else:
-            no_data_label = QLabel("No images found")
-            no_data_label.setAlignment(Qt.AlignCenter)
-            self.thumbnail_flow.addWidget(no_data_label)
-        self._update_thumbnail_checklist_style()
+        # Prevent multiple simultaneous calls
+        if self._refreshing_thumbnails:
+            return
+        
+        self._refreshing_thumbnails = True
+        
+        try:
+            # Show progress bar
+            self.thumbnail_progress.setVisible(True)
+            self.thumbnail_progress.setValue(0)
+            
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            files_data = []
+            for row in self._current_rows:
+                file_info = {
+                    'filepath': row[1],
+                    'filename': row[2],
+                    'extension': os.path.splitext(row[2])[1],
+                    'status': row[6] if len(row) > 6 else ""
+                }
+                files_data.append(file_info)
+                
+            self.thumbnail_progress.setMaximum(len(files_data) if files_data else 1)
+                
+            current_keys = set(self.grid_manager._widget_cache.keys())
+            new_keys = set(f['filepath'] for f in files_data)
+            for key in current_keys - new_keys:
+                widget = self.grid_manager._widget_cache.pop(key, None)
+                if widget:
+                    widget.deleteLater()
+            while self.thumbnail_flow.count():
+                item = self.thumbnail_flow.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.setParent(None)
+            if files_data:
+                for i, file_info in enumerate(files_data):
+                    widget = self.grid_manager._create_image_widget(file_info)
+                    self.thumbnail_flow.addWidget(widget)
+                    
+                    # Update progress
+                    self.thumbnail_progress.setValue(i + 1)
+                    if i % 5 == 0:  # Process events every 5 items
+                        QApplication.processEvents()
+                        
+                self.thumbnail_flow.invalidate()
+            else:
+                no_data_label = QLabel("No images found")
+                no_data_label.setAlignment(Qt.AlignCenter)
+                self.thumbnail_flow.addWidget(no_data_label)
+                
+            self._update_thumbnail_checklist_style()
+            
+            # Hide progress bar
+            self.thumbnail_progress.setVisible(False)
+            
+        finally:
+            self._refreshing_thumbnails = False
 
     def _sync_thumbnail_selection_with_table(self):
         selected_rows = self.table.selectionModel().selectedRows()
@@ -886,35 +1071,53 @@ class ImageTableWidget(QWidget):
             row = selected[0].row()
             return [self.table.item(row, col).data(Qt.DisplayRole) if self.table.item(row, col) else "" for col in range(self.table.columnCount())]
         return None
+    
+    def get_all_checked_rows(self):
+        """Get all checked rows from current page and return their data"""
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            checkbox_item = self.table.item(row, 0)
+            if checkbox_item and checkbox_item.checkState() == Qt.Checked:
+                if row < len(self._current_rows):
+                    checked_rows.append(self._current_rows[row])
+        return checked_rows
+    
+    def get_all_files_for_processing(self, mode="all"):
+        """Get files for batch processing based on mode"""
+        if mode == "all":
+            return list(self.db.get_all_files())
+        elif mode == "selected":
+            return self.get_all_checked_rows()
+        elif mode == "failed":
+            all_files = self.db.get_all_files()
+            return [row for row in all_files if len(row) > 6 and row[6] and row[6].strip().lower() == "failed"]
+        return []
 
     def _emit_stats(self):
-        total = self.table.rowCount()
+        # Stats are calculated from current page only for selected/checked
+        # but total/failed/success/draft from ALL data
+        page_total = self.table.rowCount()
         checked = 0
-        failed = 0
-        success = 0
-        draft = 0
         status_col = 8
-        for row in range(total):
+        for row in range(page_total):
             checkbox_item = self.table.item(row, 0)
             if checkbox_item and checkbox_item.checkState() == Qt.Checked:
                 checked += 1
-            status_item = self.table.item(row, status_col)
-            if status_item:
-                status_text = status_item.text().strip().lower()
-                if status_text == "failed":
-                    failed += 1
-                elif status_text == "success":
-                    success += 1
-                elif status_text == "draft":
-                    draft += 1
+        
+        # Get total stats from database for all data
+        all_files = self.db.get_all_files()
+        total = len(all_files)
+        failed = sum(1 for row in all_files if len(row) > 6 and row[6] and row[6].strip().lower() == "failed")
+        success = sum(1 for row in all_files if len(row) > 6 and row[6] and row[6].strip().lower() == "success")
+        draft = sum(1 for row in all_files if len(row) > 6 and row[6] and row[6].strip().lower() == "draft")
+        
         self.stats_changed.emit(total, checked, failed, success, draft)
 
     def _on_item_changed(self, item):
         if item.column() == 0:
             self._emit_stats()
             self._update_thumbnail_checklist_style()
-        if self.tab_widget.currentIndex() == 2:
-            self._refresh_details_cards()
+        # Details cards don't need refresh when checkbox changes
 
     def _on_selection_changed(self, selected, deselected):
         if self._properties_widget is None:
@@ -924,8 +1127,8 @@ class ImageTableWidget(QWidget):
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
             idx = selected_rows[0].row()
-            if 0 <= idx < len(self._all_rows_cache):
-                row = self._all_rows_cache[idx]
+            if 0 <= idx < len(self._current_rows):
+                row = self._current_rows[idx]
                 title = row[3] if len(row) > 3 and row[3] is not None else ""
                 tags = row[5] if len(row) > 5 and row[5] is not None else ""
                 title_length = len(title)
@@ -938,9 +1141,7 @@ class ImageTableWidget(QWidget):
             self._properties_widget.set_properties(None)
         if self.tab_widget.currentIndex() == 1:
             self._sync_thumbnail_selection_with_table()
-        if self.tab_widget.currentIndex() == 2:
-            self._refresh_details_cards()
-        # Highlight selected row with green background
+        # Details cards don't need refresh on selection change
         self._highlight_selected_row()
 
     def _highlight_selected_row(self):
@@ -973,7 +1174,7 @@ class ImageTableWidget(QWidget):
                 self.table.selectRow(row_idx)
                 break
         if self._properties_widget:
-            for row in self._all_rows_cache:
+            for row in self._current_rows:
                 if row[1] == filepath:
                     title = row[3] if len(row) > 3 and row[3] is not None else ""
                     tags = row[5] if len(row) > 5 and row[5] is not None else ""
@@ -982,8 +1183,7 @@ class ImageTableWidget(QWidget):
                     row_data = [row[0]] + list(row[1:7]) + [row[7] if len(row) > 7 else ""] + [str(title_length), str(tag_count)]
                     self._properties_widget.set_properties(row_data)
                     break
-        if self.tab_widget.currentIndex() == 2:
-            self._refresh_details_cards()
+        # Details cards don't need refresh on thumbnail click
 
     def _update_thumbnail_checklist_style(self):
         checked_filepaths = []
@@ -1015,42 +1215,65 @@ class ImageTableWidget(QWidget):
             self.refresh_table()
 
     def _refresh_details_cards(self):
-        # Remove all widgets from layout, but keep cache
-        for i in reversed(range(self.details_vbox.count())):
-            item = self.details_vbox.itemAt(i)
-            widget = item.widget()
-            if widget:
-                widget.setParent(None)
-        rows = []
-        text = self.search_edit.text().strip().lower()
-        if not text:
-            rows = list(self.db.get_all_files())
-        else:
-            rows = [row for row in self._all_rows_cache if self._row_matches_search(row, text)]
-        # Remove cache for files not in rows
-        current_filepaths = set(row[1] for row in rows)
-        for filepath in list(self.details_card_cache.keys()):
-            if filepath not in current_filepaths:
-                widget = self.details_card_cache.pop(filepath)
+        # Prevent multiple simultaneous calls
+        if self._refreshing_details:
+            return
+        
+        self._refreshing_details = True
+        
+        try:
+            # Show progress bar
+            self.details_progress.setVisible(True)
+            self.details_progress.setValue(0)
+            
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+            
+            # Remove all widgets from layout, but keep cache
+            for i in reversed(range(self.details_vbox.count())):
+                item = self.details_vbox.itemAt(i)
+                widget = item.widget()
                 if widget:
                     widget.setParent(None)
-                # Hapus juga pixmap cache jika ingin sinkron
-                if filepath in self.grid_manager._pixmap_cache:
-                    del self.grid_manager._pixmap_cache[filepath]
-        if not rows:
-            label = QLabel("No data found")
-            label.setAlignment(Qt.AlignCenter)
-            self.details_vbox.addWidget(label)
-            return
-        for row in rows:
-            filepath = row[1]
-            if filepath in self.details_card_cache:
-                card = self.details_card_cache[filepath]
-                self._update_details_card(card, row, self.grid_manager)
-            else:
-                card = self._create_details_card(row, self.grid_manager)
-                self.details_card_cache[filepath] = card
-            self.details_vbox.addWidget(card)
+            
+            rows = self._current_rows
+            self.details_progress.setMaximum(len(rows) if rows else 1)
+            
+            # Remove cache for files not in current page
+            current_filepaths = set(row[1] for row in rows)
+            for filepath in list(self.details_card_cache.keys()):
+                if filepath not in current_filepaths:
+                    widget = self.details_card_cache.pop(filepath)
+                    if widget:
+                        widget.setParent(None)
+                    if filepath in self.grid_manager._pixmap_cache:
+                        del self.grid_manager._pixmap_cache[filepath]
+            
+            if not rows:
+                label = QLabel("No data found")
+                label.setAlignment(Qt.AlignCenter)
+                self.details_vbox.addWidget(label)
+                self.details_progress.setVisible(False)
+                return
+            
+            for i, row in enumerate(rows):
+                filepath = row[1]
+                if filepath in self.details_card_cache:
+                    card = self.details_card_cache[filepath]
+                    self._update_details_card(card, row, self.grid_manager)
+                else:
+                    card = self._create_details_card(row, self.grid_manager)
+                    self.details_card_cache[filepath] = card
+                self.details_vbox.addWidget(card)
+                
+                # Update progress
+                self.details_progress.setValue(i + 1)
+            
+            # Hide progress bar
+            self.details_progress.setVisible(False)
+            
+        finally:
+            self._refreshing_details = False
 
     def _create_details_card(self, row, grid_manager):
         frame = QFrame()

@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QFileDialog
 import os
 from helpers.metadata_helper.metadata_operation import read_metadata_pyexiv2, read_metadata_video
+from dialogs.import_progress_dialog import ImportProgressDialog
 
 try:
     from PIL import Image
@@ -25,31 +26,14 @@ def import_files(parent, db, file_paths=None):
         )
     else:
         files = file_paths
-    added = 0
-    video_exts = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
-    extra_exts = {'.svg', '.eps', '.pdf'}
-    for path in files:
-        if os.path.isfile(path):
-            fname = os.path.basename(path)
-            ext = os.path.splitext(path)[1].lower()
-            if ext in video_exts:
-                try:
-                    t, d, tg = read_metadata_video(path)
-                except Exception as e:
-                    print(f"[IMPORT ERROR] {fname}: {e}")
-                    t, d, tg = None, None, None
-            elif ext in PILLOW_FORMATS or ext in extra_exts:
-                try:
-                    t, d, tg = read_metadata_pyexiv2(path)
-                except Exception as e:
-                    print(f"[IMPORT ERROR] {fname}: {e}")
-                    t, d, tg = None, None, None
-            else:
-                print(f"[IMPORT SKIP] {fname}: Unsupported file extension {ext}")
-                continue
-            title = t if t else None
-            description = d if d else None
-            tags = tg if tg else None
-            db.add_file(path, fname, title, description, tags, status="draft", original_filename=fname)
-            added += 1
-    return bool(added)
+    
+    if not files:
+        return False
+        
+    # Tampilkan progress dialog dan jalankan import
+    progress_dialog = ImportProgressDialog(files, db, parent)
+    progress_dialog.start_import()
+    result = progress_dialog.exec()
+    
+    # Return True jika import berhasil (dialog accepted atau ada file yang berhasil diimport)
+    return result == ImportProgressDialog.Accepted or progress_dialog.imported_files > 0
