@@ -2,7 +2,6 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QL
 import datetime
 from PySide6.QtCore import Qt
 from dialogs.add_api_key_dialog import AddApiKeyDialog
-from ui.file_dnd_widget import DragDropWidget
 import qtawesome as qta
 from ui.main_table import ImageTableWidget
 from ui.prompt_section import PromptSectionWidget
@@ -41,9 +40,6 @@ def setup_ui(self):
 
     self.prompt_section = PromptSectionWidget(self)
     layout.addWidget(self.prompt_section)
-
-    self.dnd_widget = DragDropWidget(self)
-    layout.addWidget(self.dnd_widget)
 
     main_content_layout = QHBoxLayout()
     self.table = ImageTableWidget(self, db=self.db)

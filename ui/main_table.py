@@ -8,6 +8,9 @@ from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as Q
 from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
+from ui.file_dnd_widget import DragDropWidget
+import qtawesome as qta
+import os
 import qtawesome as qta
 import os
 
@@ -15,30 +18,60 @@ class NoDataWidget(QWidget):
     """Widget to display 'No files to load' message consistently across all tabs"""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAcceptDrops(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
         
         # Icon
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
+        self.icon_label = QLabel()
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
         
         # Text
-        text_label = QLabel("No files to load")
-        text_label.setAlignment(Qt.AlignCenter)
-        text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
+        self.text_label = QLabel("No files to load")
+        self.text_label.setAlignment(Qt.AlignCenter)
+        self.text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
         
         # Sub text
-        sub_text = QLabel("Import files or adjust search criteria")
-        sub_text.setAlignment(Qt.AlignCenter)
-        sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
+        self.sub_text = QLabel("Import files or drag and drop files here")
+        self.sub_text.setAlignment(Qt.AlignCenter)
+        self.sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
         
         layout.addStretch(1)
-        layout.addWidget(icon_label)
-        layout.addWidget(text_label)
-        layout.addWidget(sub_text)
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.text_label)
+        layout.addWidget(self.sub_text)
         layout.addStretch(1)
+        
+        # Initialize drag and drop functionality
+        video_exts = {
+            ".mp4", ".mpeg", ".mov", ".avi", ".flv",
+            ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
+        }
+        extra_exts = {'.svg', '.eps', '.pdf'}
+        self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in self._supported_exts:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            mainwin = self.window()
+            if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+                from helpers.file_importer import import_files
+                if import_files(mainwin, mainwin.db, file_paths=paths):
+                    mainwin.table.refresh_table()
 
 try:
     from PIL import Image
@@ -458,6 +491,113 @@ class GridManager:
             return
         grid_widget._callback_function = callback_function
 
+class DragDropScrollArea(QScrollArea):
+    """Scroll area that supports drag and drop"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        
+        # Initialize drag and drop functionality
+        video_exts = {
+            ".mp4", ".mpeg", ".mov", ".avi", ".flv",
+            ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
+        }
+        extra_exts = {'.svg', '.eps', '.pdf'}
+        self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in self._supported_exts:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            mainwin = self.window()
+            if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+                from helpers.file_importer import import_files
+                if import_files(mainwin, mainwin.db, file_paths=paths):
+                    mainwin.table.refresh_table()
+
+class DragDropThumbnailTab(QWidget):
+    """Thumbnail tab widget with drag and drop support"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._parent_table = parent
+        
+        # Initialize drag and drop functionality
+        video_exts = {
+            ".mp4", ".mpeg", ".mov", ".avi", ".flv",
+            ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
+        }
+        extra_exts = {'.svg', '.eps', '.pdf'}
+        self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in self._supported_exts:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            mainwin = self.window()
+            if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+                from helpers.file_importer import import_files
+                if import_files(mainwin, mainwin.db, file_paths=paths):
+                    mainwin.table.refresh_table()
+
+class DragDropTableTab(QWidget):
+    """Table tab widget with drag and drop support"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._parent_table = parent
+        
+        # Initialize drag and drop functionality
+        video_exts = {
+            ".mp4", ".mpeg", ".mov", ".avi", ".flv",
+            ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
+        }
+        extra_exts = {'.svg', '.eps', '.pdf'}
+        self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in self._supported_exts:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            mainwin = self.window()
+            if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+                from helpers.file_importer import import_files
+                if import_files(mainwin, mainwin.db, file_paths=paths):
+                    mainwin.table.refresh_table()
+
 class ImageTableWidget(QWidget):
     stats_changed = Signal(int, int, int, int, int)
     data_refreshed = Signal()
@@ -563,9 +703,19 @@ class ImageTableWidget(QWidget):
         self.layout.addLayout(search_layout)
         self.tab_widget = QTabWidget(self)
         self.layout.addWidget(self.tab_widget)
-        self.table_tab = QWidget()
+        
+        # Table tab
+        self.table_tab = DragDropTableTab(self)
         self.table_tab_layout = QVBoxLayout(self.table_tab)
         self.table_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Drop Files tab
+        self.add_files_tab = QWidget()
+        self.add_files_tab_layout = QVBoxLayout(self.add_files_tab)
+        self.add_files_tab_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.dnd_widget = DragDropWidget(self.add_files_tab)
+        self.add_files_tab_layout.addWidget(self.dnd_widget)
         
         # Table container with overlay support
         table_container = QWidget()
@@ -589,18 +739,19 @@ class ImageTableWidget(QWidget):
         table_container_layout.addWidget(self.table_no_data_overlay)
         
         self.table_tab_layout.addWidget(table_container)
-        self.tab_widget.addTab(self.table_tab, "Table")
-        self.thumbnail_tab = QWidget()
+        
+        self.thumbnail_tab = DragDropThumbnailTab(self)
         self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
         self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.thumbnail_scroll = QScrollArea(self.thumbnail_tab)
+        self.thumbnail_scroll = DragDropScrollArea(self.thumbnail_tab)
         self.thumbnail_scroll.setWidgetResizable(True)
         self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
         self.thumbnail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.thumbnail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.thumbnail_tab_layout.addWidget(self.thumbnail_scroll)
         self.thumbnail_content = QWidget()
+        self.thumbnail_content.setAcceptDrops(True)
         self.thumbnail_scroll.setWidget(self.thumbnail_content)
         self.thumbnail_flow = FlowLayout(margin=10, spacing=10)
         self.thumbnail_content.setLayout(self.thumbnail_flow)
@@ -610,7 +761,6 @@ class ImageTableWidget(QWidget):
         self.thumbnail_no_data_overlay.setVisible(False)
         self.thumbnail_tab_layout.addWidget(self.thumbnail_no_data_overlay)
         
-        self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail")
         self.details_tab = QWidget()
         self.details_tab_layout = QVBoxLayout(self.details_tab)
         self.details_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -631,6 +781,13 @@ class ImageTableWidget(QWidget):
         self.details_tab_layout.addWidget(self.details_no_data_overlay)
         
         self.tab_widget.addTab(self.details_tab, "Details")
+        
+        # Add all tabs in proper order (ensuring Drop Files tab is properly positioned)
+        self.tab_widget.clear()
+        self.tab_widget.addTab(self.table_tab, "Table")
+        self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail") 
+        self.tab_widget.addTab(self.details_tab, "Details")
+        self.tab_widget.addTab(self.add_files_tab, "Add Files")
         
         # Progress section - moved after tab widget so it's visible in all tabs
         progress_layout = QVBoxLayout()
