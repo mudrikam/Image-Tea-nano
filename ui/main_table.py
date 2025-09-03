@@ -96,6 +96,8 @@ class FlowLayout(QLayout):
     def addItem(self, item):
         self._itemList.append(item)
         self.updateGeometry()
+        # Force immediate layout update to prevent stacking
+        self.invalidate()
 
     def count(self):
         return len(self._itemList)
@@ -122,6 +124,8 @@ class FlowLayout(QLayout):
     def setGeometry(self, rect):
         super().setGeometry(rect)
         self.doLayout(rect, False)
+        # Force immediate update of all items
+        self.update()
 
     def sizeHint(self):
         return self.minimumSize()
@@ -139,33 +143,54 @@ class FlowLayout(QLayout):
         y = rect.y()
         lineHeight = 0
         right = rect.x() + rect.width()
+        margin = self.contentsMargins()
+        
+        # Ensure we have a valid width
+        if right <= x:
+            return 0
+        
         for item in self._itemList:
             widget = item.widget()
             if widget and not widget.isVisible():
                 continue
+                
             spaceX = self.spacing()
             spaceY = self.spacing()
             itemSize = item.sizeHint()
             nextX = x + itemSize.width() + spaceX
+            
+            # Check if we need to wrap to next line
             if nextX - spaceX > right and x > rect.x():
-                x = rect.x()
-                y = y + lineHeight + spaceY
+                x = rect.x()  # Reset to left margin
+                y = y + lineHeight + spaceY  # Move to next line
                 nextX = x + itemSize.width() + spaceX
                 lineHeight = 0
+                
             if not testOnly:
+                # Force explicit positioning to prevent stacking
                 item.setGeometry(QRect(QtQPoint(x, y), itemSize))
+                if widget:
+                    widget.move(x, y)
+                    widget.resize(itemSize)
+                
             x = nextX
             lineHeight = max(lineHeight, itemSize.height())
+            
         return y + lineHeight - rect.y()
 
     def invalidate(self):
         super().invalidate()
         self.updateGeometry()
+        # Force a complete re-layout to prevent stacking issues
+        if self.parent():
+            self.parent().update()
 
     def updateGeometry(self):
         parent = self.parentWidget()
         if parent is not None:
             parent.updateGeometry()
+            # Ensure proper layout refresh
+            self.update()
 
 class GridManager:
     def __init__(self):
@@ -624,7 +649,14 @@ class ImageTableWidget(QWidget):
         self.search_edit = QLineEdit(self)
         self.search_edit.setPlaceholderText("Search...")
         self.search_edit.setClearButtonEnabled(False)
-        self.search_edit.textChanged.connect(self._on_search_text_changed)
+        
+        # Setup search timer for delayed search (wait for user to finish typing)
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self._perform_search)
+        
+        # Connect to text changed with delay
+        self.search_edit.textChanged.connect(self._on_search_text_changed_delayed)
         search_icon_btn = QPushButton(self)
         search_icon_btn.setIcon(qta.icon("fa6s.magnifying-glass"))
         search_icon_btn.setFlat(True)
@@ -826,7 +858,19 @@ class ImageTableWidget(QWidget):
         self.grid_manager.setup_grid_click_handler(self.thumbnail_content, self._on_thumbnail_clicked)
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         self._inject_open_metadata_dialog_for_grid()
+        
+        # Install event filter for resize events
+        self.thumbnail_scroll.installEventFilter(self)
+        
         self.refresh_table()
+
+    def eventFilter(self, obj, event):
+        """Handle resize events to force thumbnail layout refresh"""
+        if obj == self.thumbnail_scroll and event.type() == QEvent.Resize:
+            # Only refresh if we're on thumbnail tab
+            if self.tab_widget.currentIndex() == 1:
+                QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
+        return super().eventFilter(obj, event)
 
     def _inject_open_metadata_dialog_for_grid(self):
         def _open_metadata_dialog_by_filepath(filepath):
@@ -842,6 +886,9 @@ class ImageTableWidget(QWidget):
     def _on_reload_clicked(self):
         self._page_cache.clear()  # Clear pagination cache
         self.refresh_table()
+        # Force thumbnail layout refresh if we're on thumbnail tab
+        if self.tab_widget.currentIndex() == 1:  # Thumbnail tab
+            QTimer.singleShot(100, self._force_thumbnail_layout_refresh)
 
     def _on_prev_page(self):
         if self.current_page > 1:
@@ -908,6 +955,8 @@ class ImageTableWidget(QWidget):
         # Update tabs if they are active
         if self.tab_widget.currentIndex() == 1:
             self.refresh_thumbnail_grid()
+            # Force layout refresh after a short delay
+            QTimer.singleShot(50, self._force_thumbnail_layout_refresh)
         elif self.tab_widget.currentIndex() == 2:
             self._refresh_details_cards()
 
@@ -966,26 +1015,86 @@ class ImageTableWidget(QWidget):
 
     def _on_tab_changed(self, idx):
         if self.tab_widget.tabText(idx) == "Thumbnail":
+            # Force immediate layout refresh when switching to thumbnail tab
+            QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
             self.refresh_thumbnail_grid()
             self._sync_thumbnail_selection_with_table()
         elif self.tab_widget.tabText(idx) == "Details":
             self._refresh_details_cards()
 
+    def _force_thumbnail_layout_refresh(self):
+        """Force thumbnail layout to refresh properly"""
+        if hasattr(self, 'thumbnail_content') and hasattr(self, 'thumbnail_flow'):
+            # Get current geometry
+            content_rect = self.thumbnail_content.rect()
+            
+            # Force layout recalculation
+            self.thumbnail_flow.invalidate()
+            
+            # Set geometry explicitly if valid
+            if content_rect.width() > 0 and content_rect.height() > 0:
+                self.thumbnail_flow.setGeometry(content_rect)
+            
+            # Update all components
+            self.thumbnail_content.updateGeometry()
+            self.thumbnail_content.update()
+            self.thumbnail_scroll.updateGeometry()
+            
+            # Process events to apply changes
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+
     def _on_paste_clicked(self):
+        # Stop any pending search timer
+        self.search_timer.stop()
+        
         clipboard = QGuiApplication.clipboard()
         text = clipboard.text()
         self.search_edit.setText(text)
+        
+        # Immediately perform search after paste
+        self._pending_search_text = text.strip()
+        self._perform_search()
 
     def _on_clear_search(self):
+        # Stop any pending search timer
+        self.search_timer.stop()
+        
+        # Clear the search field
         self.search_edit.clear()
+        
+        # Immediately perform search with empty text
+        self._pending_search_text = ''
+        self._perform_search()
 
-    def _on_search_text_changed(self, text):
-        self.search_text = text.strip()
+    def _on_search_text_changed_delayed(self, text):
+        """Handle search text change with delay - restart timer on each keystroke"""
+        # Stop current timer if running
+        self.search_timer.stop()
+        
+        # Store the search text temporarily
+        self._pending_search_text = text.strip()
+        
+        # Start timer with 800ms delay (user stops typing for 0.8 seconds)
+        self.search_timer.start(800)
+
+    def _perform_search(self):
+        """Perform the actual search after delay"""
+        # Get the pending search text
+        text = getattr(self, '_pending_search_text', '')
+        
+        # Perform the search
+        self.search_text = text
         self.current_page = 1  # Reset to first page on search
         self._page_cache.clear()  # Clear cache
         self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
         self._load_page_data()
         self._update_pagination_ui()
+
+    def _on_search_text_changed(self, text):
+        """Legacy method - now handled by delayed search"""
+        # This method is kept for compatibility but not used
+        pass
 
     def _filter_table(self, text):
         # This method is now replaced by pagination logic
@@ -1248,7 +1357,21 @@ class ImageTableWidget(QWidget):
                     if i % 3 == 0:
                         QApplication.processEvents()
                         
+                # Force complete layout refresh to prevent stacking issues
                 self.thumbnail_flow.invalidate()
+                self.thumbnail_content.updateGeometry()
+                self.thumbnail_scroll.updateGeometry()
+                
+                # Force layout recalculation by setting geometry explicitly
+                content_rect = self.thumbnail_content.rect()
+                if content_rect.width() > 0:
+                    self.thumbnail_flow.setGeometry(content_rect)
+                
+                # Multiple process events to ensure layout is properly applied
+                QApplication.processEvents()
+                self.thumbnail_content.update()
+                QApplication.processEvents()
+                
                 self._update_thumbnail_checklist_style()
             
             # Hide progress bar
@@ -1742,6 +1865,8 @@ class ImageTableWidget(QWidget):
             "all": "for all files",
             "selected": "for selected files", 
             "failed": "for failed files",
+            "draft": "starting from first draft file",
+            "stopped": "resuming from first stopped file",
             "rolling": "using Rolling APIs"
         }.get(mode, mode)
         

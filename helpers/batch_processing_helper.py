@@ -408,6 +408,10 @@ def batch_generate_metadata(window):
             mode = "selected"
         elif "failed" in mode_text:
             mode = "failed"
+        elif "draft" in mode_text:
+            mode = "draft"
+        elif "stopped" in mode_text or "resume" in mode_text:
+            mode = "stopped"
         elif "rolling" in mode_text:
             mode = "all"  # Rolling APIs processes all files
         else:
@@ -477,6 +481,98 @@ def batch_generate_metadata(window):
                     rows.append(row)
             current_page += 1
     
+    elif mode == "draft":
+        # For "draft" mode, get all files starting from the first draft file
+        search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+        total_count = window.db.get_files_count(search_text)
+        if total_count == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+            window.table.progress_bar.setVisible(False)
+            return
+            
+        page_size = 1000
+        current_page = 1
+        first_draft_found = False
+        
+        while True:
+            page_rows = window.db.get_files_paginated(
+                page=current_page, 
+                page_size=page_size, 
+                search_text=search_text
+            )
+            if not page_rows:
+                break
+            
+            # Look for first draft file in this page
+            for row in page_rows:
+                status = row[6] if len(row) > 6 else ""
+                
+                # If we haven't found the first draft yet, keep looking
+                if not first_draft_found:
+                    if status and status.lower() == "draft":
+                        first_draft_found = True
+                        rows.append(row)
+                    # Skip non-draft files until we find the first draft
+                    continue
+                else:
+                    # Once we found the first draft, add all remaining files
+                    rows.append(row)
+            
+            current_page += 1
+            
+        # If no draft files found, show message
+        if not first_draft_found:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Draft Only", "No draft files found to process.")
+            return
+    
+    elif mode == "stopped":
+        # For "stopped" mode, get all files starting from the first stopped file
+        search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+        total_count = window.db.get_files_count(search_text)
+        if total_count == 0:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+            window.table.progress_bar.setVisible(False)
+            return
+            
+        page_size = 1000
+        current_page = 1
+        first_stopped_found = False
+        
+        while True:
+            page_rows = window.db.get_files_paginated(
+                page=current_page, 
+                page_size=page_size, 
+                search_text=search_text
+            )
+            if not page_rows:
+                break
+            
+            # Look for first stopped file in this page
+            for row in page_rows:
+                status = row[6] if len(row) > 6 else ""
+                
+                # If we haven't found the first stopped yet, keep looking
+                if not first_stopped_found:
+                    if status and status.lower() == "stopped":
+                        first_stopped_found = True
+                        rows.append(row)
+                    # Skip non-stopped files until we find the first stopped
+                    continue
+                else:
+                    # Once we found the first stopped, add all remaining files
+                    rows.append(row)
+            
+            current_page += 1
+            
+        # If no stopped files found, show message
+        if not first_stopped_found:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(window, "Resume Stopped", "No stopped files found to resume from.")
+            return
+    
     # Create row mapping for pagination-aware status updates
     for idx, row in enumerate(rows):
         filepath = row[1]
@@ -489,6 +585,16 @@ def batch_generate_metadata(window):
         print("[DEBUG] No rows checked for Selected Only mode.")
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "No Files", "No files selected (checkbox) to process.")
+        return
+    elif mode == "draft" and not rows:
+        print("[DEBUG] No draft files found for Draft Only mode.")
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(window, "Draft Only", "No draft files found to process.")
+        return
+    elif mode == "stopped" and not rows:
+        print("[DEBUG] No stopped files found for Resume Stopped mode.")
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(window, "Resume Stopped", "No stopped files found to resume from.")
         return
     if not rows:
         print("[DEBUG] No rows to process after filtering.")

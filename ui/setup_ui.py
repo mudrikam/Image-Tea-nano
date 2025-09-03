@@ -72,7 +72,7 @@ def setup_ui(self):
 
     gen_group_layout = QVBoxLayout()
     self.gen_mode_combo = QComboBox()
-    self.gen_mode_combo.addItems(["Generate All", "Selected Only", "Failed Only", "Rolling APIs"])
+    self.gen_mode_combo.addItems(["Generate All", "Selected Only", "Failed Only", "Draft Only", "Resume Stopped", "Rolling APIs"])
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
 
@@ -96,6 +96,10 @@ def setup_ui(self):
             self.gen_btn.setToolTip("Generate metadata only for selected files")
         elif mode == "Failed Only":
             self.gen_btn.setToolTip("Generate metadata only for files that previously failed")
+        elif mode == "Draft Only":
+            self.gen_btn.setToolTip("Generate metadata starting from the first draft file onwards")
+        elif mode == "Resume Stopped":
+            self.gen_btn.setToolTip("Resume generation starting from the first stopped file onwards")
         elif mode == "Rolling APIs":
             self.gen_btn.setToolTip("Generate metadata using all available API keys automatically when one fails")
         else:
