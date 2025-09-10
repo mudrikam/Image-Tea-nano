@@ -200,7 +200,7 @@ class BatchWorker(QThread):
                         from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
                         import time
                         t0 = time.perf_counter()
-                        title, description, tags, category, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -209,7 +209,7 @@ class BatchWorker(QThread):
                         self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
                         
                         result = {
-                            "title": title, "description": description, "tags": tags, "category": category,
+                            "title": title, "description": description, "tags": tags, "category": category, "filetype": filetype,
                             "token_input": token_input, "token_output": token_output, "token_total": token_total,
                             "image_path": image_path, "error_message": error_message,
                             "service": current_service, "model": current_model
@@ -218,7 +218,7 @@ class BatchWorker(QThread):
                         from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
                         import time
                         t0 = time.perf_counter()
-                        title, description, tags, category, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -227,7 +227,7 @@ class BatchWorker(QThread):
                         self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
                         
                         result = {
-                            "title": title, "description": description, "tags": tags, "category": category,
+                            "title": title, "description": description, "tags": tags, "category": category, "filetype": filetype,
                             "token_input": token_input, "token_output": token_output, "token_total": token_total,
                             "image_path": image_path, "error_message": error_message,
                             "service": current_service, "model": current_model
@@ -662,10 +662,10 @@ def batch_generate_metadata(window):
         from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
-                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             import time
             t0 = time.perf_counter()
-            title, description, tags, category, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -678,6 +678,7 @@ def batch_generate_metadata(window):
                 "description": description,
                 "tags": tags,
                 "category": category,
+                "filetype": filetype,
                 "token_input": token_input,
                 "token_output": token_output,
                 "token_total": token_total,
@@ -688,10 +689,10 @@ def batch_generate_metadata(window):
         from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
-                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             import time
             t0 = time.perf_counter()
-            title, description, tags, category, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -704,6 +705,7 @@ def batch_generate_metadata(window):
                 "description": description,
                 "tags": tags,
                 "category": category,
+                "filetype": filetype,
                 "token_input": token_input,
                 "token_output": token_output,
                 "token_total": token_total,
@@ -1015,6 +1017,7 @@ def _run_next_batch(window):
             token_output = result.get("token_output")
             token_total = result.get("token_total")
             category = result.get("category")
+            filetype = result.get("filetype")
             result_service = result.get("service", service)
             result_model = result.get("model", model)
             error_message = result.get("error_message", "")
@@ -1027,6 +1030,19 @@ def _run_next_batch(window):
                         break
                 if file_id is not None and isinstance(category, dict) and len(category) > 0:
                     window.db.save_category_mapping(file_id, category)
+            
+            # Save filetype if provided and valid
+            if filetype and filetype in ["Photo", "Illustration"]:
+                file_id = None
+                for row in batch:
+                    if row[1] == image_path:
+                        file_id = row[0]
+                        break
+                if file_id is not None:
+                    # Clear existing file types for this file first
+                    window.db.delete_file_types_for_file(file_id)
+                    # Add new file type
+                    window.db.add_file_type(file_id, filetype)
             
             # Determine status based on title and error
             final_status = "success" if title and not error_message else "failed"

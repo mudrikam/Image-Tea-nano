@@ -121,6 +121,7 @@ class EditPromptDialog(QDialog):
             data["prompt"]["general_guides"] = self.general_guides_edit.toPlainText()
             data["prompt"]["strict_donts"] = self.strict_donts_edit.toPlainText()
             data["prompt"]["negative_prompt"] = self.negative_prompt_edit.toPlainText()
+            
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             self.accept()

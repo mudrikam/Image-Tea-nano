@@ -122,7 +122,7 @@ def sanitize_text(text):
 
 def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None):
     if stop_flag and stop_flag.get('stop'):
-        return '', '', '', {}, '', 0, 0, 0
+        return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
     try:
         ext = os.path.splitext(image_path)[1].lower()
@@ -134,7 +134,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 "Silakan gunakan gambar atau pilih layanan Gemini untuk video. "
                 "Jika di masa depan OpenAI sudah mendukung video, fitur ini akan segera ditambahkan."
             )
-            return '', '', '', {}, error_message, 0, 0, 0
+            return '', '', '', {}, '', error_message, 0, 0, 0
         client = OpenAI(api_key=api_key)
         if not prompt:
             (
@@ -175,7 +175,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         compressed_path = compress_and_save_image(image_path)
         if not compressed_path:
             error_message = f"[OpenAI ERROR] Failed to compress image: {image_path}"
-            return '', '', '', {}, error_message, 0, 0, 0
+            return '', '', '', {}, '', error_message, 0, 0, 0
         with open(compressed_path, "rb") as f:
             image_bytes = f.read()
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -190,7 +190,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             }
         ]
         if stop_flag and stop_flag.get('stop'):
-            return '', '', '', {}, '', 0, 0, 0
+            return '', '', '', {}, '', '', 0, 0, 0
         response = client.responses.create(
             model=model,
             input=messages
@@ -238,22 +238,24 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 tags = str(tags)
             tags = tags.lower()
             category = meta.get('category', {})
+            filetype = meta.get('filetype', '')
             error_message = ''
         except Exception as e:
             print(f"[OpenAI JSON PARSE ERROR] {e}")
             title = description = tags = ''
             category = {}
+            filetype = ''
             error_message = f"[OpenAI JSON PARSE ERROR] {e}"
         if title:
             title = title_case_except(title)
             title = sanitize_text(title)
         if description:
             description = sanitize_text(description)
-        return title, description, tags, category, error_message, token_input, token_output, token_total
+        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total
     except Exception as e:
         error_message = f"[OpenAI ERROR] {e}"
         print(error_message)
-        return '', '', '', {}, error_message, 0, 0, 0
+        return '', '', '', {}, '', error_message, 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_openai_generation_time(duration_ms)

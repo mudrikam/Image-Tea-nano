@@ -34,7 +34,7 @@ def _adobe_stock_format(file, adobe_map, category_mapping):
     category_text = str(adobe_cat_id) if adobe_cat_id is not None else ""
     return f'{filename},"{title}","{tags}","{category_text}",'
 
-def _shutterstock_format(file, shutterstock_map, category_mapping):
+def _shutterstock_format(file, shutterstock_map, category_mapping, db):
     filename = file[2]
     description = file[4] if file[4] is not None else ""
     tags = file[5] if file[5] is not None else ""
@@ -54,9 +54,22 @@ def _shutterstock_format(file, shutterstock_map, category_mapping):
         categories = shutterstock_map.get(str(primary), '')
     elif secondary:
         categories = shutterstock_map.get(str(secondary), '')
+    
+    # Get file type from database
+    illustration = "yes"  # default
+    try:
+        file_types = db.get_file_types(file_id)
+        if file_types:
+            file_type = file_types[0][1]  # Get the first file type
+            if file_type.lower() == "photo":
+                illustration = "no"
+            elif file_type.lower() == "illustration":
+                illustration = "yes"
+    except Exception as e:
+        print(f"Error getting file type for file {file_id}: {e}")
+    
     editorial = "no"
     mature_content = "no"
-    illustration = "yes"
     return f'{filename},"{description}","{tags}","{categories}",{editorial},{mature_content},{illustration}'
 
 def _123rf_format(file):
@@ -158,7 +171,7 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
         rows = []
         header = "Filename,Description,Keywords,Categories,Editorial,Mature content,illustration"
         for file in files:
-            rows.append(_shutterstock_format(file, shutterstock_map, category_mapping))
+            rows.append(_shutterstock_format(file, shutterstock_map, category_mapping, db))
             if progress_callback:
                 progress_callback()
         if rows:

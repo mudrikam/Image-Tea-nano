@@ -122,7 +122,7 @@ def sanitize_text(text):
 
 def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None):
     if stop_flag and stop_flag.get('stop'):
-        return '', '', '', '', 0, 0, 0
+        return '', '', '', '', '', 0, 0, 0
     start_time = time.perf_counter()
     try:
         client = genai.Client(api_key=api_key)
@@ -183,18 +183,18 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 waited += poll_interval
             if status != 'ACTIVE':
                 print(f"[Gemini ERROR] File {file_id} not ACTIVE after upload, status: {status}")
-                return '', '', '', '', 0, 0, 0
+                return '', '', '', '', '', 0, 0, 0
             contents = [myfile, prompt]
         else:
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
                 print(f"[Gemini ERROR] Failed to compress image: {image_path}")
-                return '', '', '', '', 0, 0, 0
+                return '', '', '', '', '', 0, 0, 0
             with open(compressed_path, 'rb') as f:
                 image_bytes = f.read()
             contents = [types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'), prompt]
         if stop_flag and stop_flag.get('stop'):
-            return '', '', '', '', 0, 0, 0
+            return '', '', '', '', '', 0, 0, 0
         response = client.models.generate_content(
             model=model,
             contents=contents
@@ -240,21 +240,23 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 tags = str(tags)
             tags = tags.lower()
             category = meta.get('category', {})
+            filetype = meta.get('filetype', '')
             error_message = ''
         except Exception as e:
             print(f"[Gemini JSON PARSE ERROR] {e}")
             title = description = tags = ''
             category = {}
+            filetype = ''
             error_message = f"[Gemini JSON PARSE ERROR] {e}"
         if title:
             title = title_case_except(title)
             title = sanitize_text(title)
         if description:
             description = sanitize_text(description)
-        return title, description, tags, category, error_message, token_input, token_output, token_total
+        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total
     except Exception as e:
         print(f"[Gemini ERROR] {e}")
-        return '', '', '', {}, f"[Gemini ERROR] {e}", 0, 0, 0
+        return '', '', '', {}, '', f"[Gemini ERROR] {e}", 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_gemini_generation_time(duration_ms)

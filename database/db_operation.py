@@ -46,6 +46,13 @@ class ImageTeaDB:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS files_type_assign (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER,
+                file_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(file_id) REFERENCES files(id)
+            )''')
             c.execute('''CREATE TABLE IF NOT EXISTS category_mapping (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_id INTEGER,
@@ -155,6 +162,7 @@ class ImageTeaDB:
             file_ids = [row[0] for row in c.fetchall()]
             if file_ids:
                 c.executemany('DELETE FROM category_mapping WHERE file_id=?', [(fid,) for fid in file_ids])
+                c.executemany('DELETE FROM files_type_assign WHERE file_id=?', [(fid,) for fid in file_ids])
             c.execute('DELETE FROM files')
             conn.commit()
 
@@ -291,6 +299,7 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('UPDATE files SET title=NULL, description=NULL, tags=NULL, status="draft"')
             c.execute('DELETE FROM category_mapping WHERE file_id IN (SELECT id FROM files)')
+            c.execute('DELETE FROM files_type_assign WHERE file_id IN (SELECT id FROM files)')
             conn.commit()
 
     def save_category_mapping(self, file_id, category_dict):
@@ -381,4 +390,33 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('DELETE FROM api_tokens')
+            conn.commit()
+
+    def add_file_type(self, file_id, file_type):
+        """Add a file type for a file (files_type_assign table). file_type should be 'Photo' or 'Illustration'."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO files_type_assign (file_id, file_type)
+                         VALUES (?, ?)''', (file_id, file_type))
+            conn.commit()
+
+    def get_file_types(self, file_id):
+        """Return all type records for a file_id (id, file_type, created_at)."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, file_type, created_at FROM files_type_assign WHERE file_id=?', (file_id,))
+            return c.fetchall()
+
+    def delete_file_types_for_file(self, file_id):
+        """Remove all type records for a given file_id."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM files_type_assign WHERE file_id=?', (file_id,))
+            conn.commit()
+
+    def clear_all_file_types(self):
+        """Clear all file type assignments."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM files_type_assign')
             conn.commit()
