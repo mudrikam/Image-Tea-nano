@@ -62,6 +62,13 @@ class ImageTeaDB:
                 FOREIGN KEY(file_id) REFERENCES files(id),
                 FOREIGN KEY(platform_id) REFERENCES platform_list(id)
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS generated_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER,
+                prompt TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(file_id) REFERENCES files(id)
+            )''')
             conn.commit()
 
     def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None):
@@ -420,3 +427,74 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('DELETE FROM files_type_assign')
             conn.commit()
+
+    # --- Generated prompts helpers ---
+    def add_generated_prompt(self, file_id, prompt):
+        """Insert a generated prompt for a file."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO generated_prompts (file_id, prompt) VALUES (?, ?)''', (file_id, prompt))
+            conn.commit()
+
+    def get_generated_prompts_for_file(self, file_id):
+        """Return all generated prompts for a given file_id ordered by created_at desc."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts WHERE file_id=? ORDER BY created_at DESC', (file_id,))
+            return c.fetchall()
+
+    def get_all_generated_prompts(self):
+        """Return all generated prompts (id, file_id, prompt, created_at)."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts ORDER BY created_at DESC')
+            return c.fetchall()
+
+    def delete_generated_prompts_for_file(self, file_id):
+        """Delete all generated prompts for a given file_id."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompts WHERE file_id=?', (file_id,))
+            conn.commit()
+    
+    def clear_all_generated_prompts(self):
+        """Delete all generated prompts."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompts')
+            conn.commit()
+    
+    def get_generated_prompts_paginated(self, page=1, page_size=20):
+        """Get generated prompts with pagination support"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            offset = (page - 1) * page_size
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
+                       FROM generated_prompts gp 
+                       ORDER BY gp.created_at DESC 
+                       LIMIT ? OFFSET ?''', (page_size, offset))
+            return c.fetchall()
+    
+    def get_generated_prompts_count(self):
+        """Get total count of generated prompts"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM generated_prompts')
+            row = c.fetchone()
+            return row[0] if row else 0
+    
+    def update_generated_prompt(self, prompt_id, new_prompt_text):
+        """Update a generated prompt text"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE generated_prompts SET prompt=? WHERE id=?', (new_prompt_text, prompt_id))
+            conn.commit()
+    
+    def get_generated_prompt_by_id(self, prompt_id):
+        """Get a single generated prompt by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
+                       FROM generated_prompts gp 
+                       WHERE gp.id = ?''', (prompt_id,))
+            return c.fetchone()

@@ -7,7 +7,7 @@
     "strict_donts": "- No brand, trademark, company, celebrity, or personal names\n- No event/news references, copyrighted/protected content\n- No editorial/journalistic material, offensive/sensitive terms\n- No specific landmarks (unless generic), dates, temporal events\n- No product/model names or camera/tech specs\n- No duplicating meaning\n- No Product Model Numbers or Tech Specs\n- No special characters in any metadata field",
     "unique_token": "- This request is unique (timestamp: _TIMESTAMP_, token: _TOKEN_) and must always be processed as a new, uncached request.",
     "negative_prompt": "Do not include brand, trademark, company, celebrity, or personal names; event/news references; copyrighted/protected content; editorial/journalistic material; offensive/sensitive terms; specific landmarks (unless generic); dates; temporal events; product/model names; or camera/tech details.",
-  "system_prompt": "RESPONSE FORMAT (Strict JSON with ALL fields required):\n{\n  \"title\": \"Title here (titlecase)\",\n  \"description\": \"Description of the image or video.\",\n  \"tags\": [\"tag1\", \"tag2\", \"tag3\"],\n  \"filetype\": \"Photo|Illustration\",\n  \"category\": {\n    \"shutterstock\": { \"primary\": <number>, \"secondary\": <number> },\n    \"adobe_stock\": <number>\n  }\n}\n\nVALIDATION RULES:\n1. Use DOUBLE quotes for all strings\n2. All fields (title, description, tags, filetype, category) are required\n3. The \"filetype\" field must be either \"Photo\" or \"Illustration\"\n4. Response must be valid JSON\n",
+    "system_prompt": "RESPONSE FORMAT (Strict JSON with ALL fields required):\n{\n  \"title\": \"Title here (titlecase)\",\n  \"description\": \"Description of the image or video.\",\n  \"tags\": [\"tag1\", \"tag2\", \"tag3\"],\n  \"filetype\": \"Photo|Illustration\",\n  \"category\": {\n    \"shutterstock\": { \"primary\": <number>, \"secondary\": <number> },\n    \"adobe_stock\": <number>\n  }\n}\n\nVALIDATION RULES:\n1. Use DOUBLE quotes for all strings\n2. All fields (title, description, tags, filetype, category) are required\n3. The \"filetype\" field must be either \"Photo\" or \"Illustration\"\n4. Response must be valid JSON\n",
     "custom_prompt": ""
   },
   "min_title_length": 50,
@@ -61,6 +61,13 @@
     "25": "Transportation",
     "26": "Vintage"
   },
+  "prompt_generator": {
+    "instructions": "Generate creative and diverse prompts for AI image generation. Each prompt should be unique and detailed, specifying the subject, setting, mood, style, and any relevant details to inspire high-quality image creation. Avoid repetition and ensure a wide range of themes and concepts are covered.",
+    "settings": {
+      "prompt_length": 200,
+      "prompts_per_file": 10
+    }
+  },
   "adobe_stock_category_map": {
     "1": "Animals",
     "2": "Buildings and Architecture",
@@ -87,8 +94,7 @@
   "category": {
     "shutterstock": "",
     "adobe_stock": ""
-  }
-  ,
+  },
   "file_types": [
     "Photo",
     "Illustration"
