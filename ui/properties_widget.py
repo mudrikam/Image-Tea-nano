@@ -252,7 +252,7 @@ class PropertiesWidget(QWidget):
         self.labels = []
         self.label_widgets = []
         field_names = [
-            "Filepath", "Filename", "Title", "Description", "Tags", "Status", "Original Filename",
+            "Filepath", "Filename", "Title", "Description", "Tags", "Status", "File Type", "Original Filename",
             "Shutterstock Category", "Adobe Stock Category"
         ]
         
@@ -340,25 +340,15 @@ class PropertiesWidget(QWidget):
             f"Description ({desc_length})",
             f"Tags ({tag_count})",
             "Status",
+            "File Type",
             "Original Filename",
             "Shutterstock Category",
             "Adobe Stock Category"
         ]
 
-        values = [
-            str(row_data[1]) if len(row_data) > 1 else "",
-            str(row_data[2]) if len(row_data) > 2 else "",
-            title,
-            description,
-            tags,
-            str(row_data[6]) if len(row_data) > 6 else "",
-            str(row_data[7]) if len(row_data) > 7 else "",
-            "",
-            ""
-        ]
-
         shutterstock_cat_text = ""
         adobe_cat_text = ""
+        filetype_text = ""
 
         db = self.db
         file_id = row_data[0]
@@ -388,11 +378,26 @@ class PropertiesWidget(QWidget):
                         break
                 if adobe_cat_id:
                     adobe_cat_text = adobe_map.get(str(adobe_cat_id), str(adobe_cat_id))
+                
+                # Get file type
+                file_types = db.get_file_types(file_id)
+                if file_types:
+                    filetype_text = file_types[0][1]  # Get the first file type
             except Exception as e:
                 print(f"Error loading category mapping: {e}")
 
-        values[7] = shutterstock_cat_text
-        values[8] = adobe_cat_text
+        values = [
+            str(row_data[1]) if len(row_data) > 1 else "",  # Filepath
+            str(row_data[2]) if len(row_data) > 2 else "",  # Filename
+            title,                                          # Title
+            description,                                    # Description
+            tags,                                          # Tags
+            str(row_data[6]) if len(row_data) > 6 else "",  # Status
+            filetype_text,                                 # File Type
+            str(row_data[7]) if len(row_data) > 7 else "",  # Original Filename
+            shutterstock_cat_text,                         # Shutterstock Category
+            adobe_cat_text                                 # Adobe Stock Category
+        ]
 
         for label_widget, label_text in zip(self.label_widgets, label_texts):
             label_widget.setText(f"<b>{label_text}:</b>")
