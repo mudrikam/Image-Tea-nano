@@ -1490,6 +1490,7 @@ class ImageTableWidget(QWidget):
             self.table.setStyleSheet(
                 "QTableWidget::item:selected {"
                 "background-color: rgba(88, 165, 0, 51);"
+                "color: black;"
                 "}"
             )
         else:
