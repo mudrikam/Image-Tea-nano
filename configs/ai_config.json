@@ -62,19 +62,41 @@
     "26": "Vintage"
   },
   "prompt_generator": {
-    "instructions": "Analyze this image and generate creative, detailed prompts for AI image generation. Create unique variations based on visual content, including subject, setting, mood, style, and observed details. Ensure diverse themes without repetition. Focus on prompts that would generate similar or related images.",
-    "requirements": [
-      "Each prompt should be approximately {prompt_length} characters long",
-      "Prompts must be unique and detailed, based on visual content",
-      "Specify subject, setting, mood, style, and relevant details",
-      "Ensure wide range of variations inspired by image content",
-      "Avoid repetition between prompts",
-      "Focus on creating prompts for similar or related images"
-    ],
+    "instructions": {
+      "image_generation": "Analyze this image and generate creative, detailed prompts for AI image generation. Create unique variations based on visual content, including subject, setting, mood, style, and observed details. Ensure diverse themes without repetition. Focus on prompts that would generate similar or related images.",
+      "video_generation": "Analyze this image and generate creative, detailed prompts for AI video generation. Create dynamic variations that describe motion, transitions, camera movements, and temporal elements. Focus on how the scene could evolve over time, including potential actions, movements, atmospheric changes, and cinematic techniques."
+    },
+    "requirements": {
+      "image_generation": [
+        "Each prompt should be approximately {prompt_length} characters long",
+        "Prompts must be unique and detailed, based on visual content",
+        "Specify subject, setting, mood, style, and relevant details",
+        "Include aspect ratio specification: {aspect_ratio}",
+        "Ensure wide range of variations inspired by image content",
+        "Variation level: {variation_level}/10 - {variation_description}",
+        "Apply variation level to style, mood, composition, and creative interpretation",
+        "Avoid repetition between prompts - each must be distinctly different",
+        "Focus on creating prompts for similar or related images"
+      ],
+      "video_generation": [
+        "Each prompt should be approximately {prompt_length} characters long",
+        "Prompts must describe dynamic scenes with motion and temporal elements",
+        "Include camera movements, transitions, and cinematic techniques",
+        "Specify aspect ratio for video: {aspect_ratio}",
+        "Describe how the scene evolves over time (3-10 seconds)",
+        "Variation level: {variation_level}/10 - {variation_description}",
+        "Apply variation to cinematography, pacing, and visual storytelling",
+        "Include atmospheric changes, lighting transitions, or character actions",
+        "Focus on creating engaging video sequences based on the image content"
+      ]
+    },
     "response_format": {
       "type": "json",
       "structure": {
-        "prompts": ["prompt 1 text here...", "prompt 2 text here..."]
+        "prompts": [
+          "prompt 1 text here...",
+          "prompt 2 text here..."
+        ]
       },
       "validation_rules": [
         "Return exactly {prompts_per_file} prompts in array",
@@ -83,12 +105,42 @@
         "Response must be valid JSON",
         "NO explanation, markdown, or extra text",
         "Base all prompts on visual content of image",
+        "Include aspect ratio in each prompt: {aspect_ratio}",
         "Consider metadata context if provided, but prioritize visual analysis"
       ]
     },
+    "prompt_types": {
+      "image_generation": "Image Generation",
+      "video_generation": "Video Generation"
+    },
+    "aspect_ratios": {
+      "1:1": "Square (1:1)",
+      "4:3": "Standard (4:3)",
+      "3:2": "Classic (3:2)",
+      "16:9": "Widescreen (16:9)",
+      "21:9": "Ultrawide (21:9)",
+      "9:16": "Portrait (9:16)",
+      "2:3": "Portrait Classic (2:3)",
+      "3:4": "Portrait Standard (3:4)"
+    },
     "settings": {
       "prompt_length": 200,
-      "prompts_per_file": 10
+      "prompts_per_file": 1,
+      "prompt_type": "image_generation",
+      "aspect_ratio": "4:3",
+      "variation_level": 5
+    },
+    "variation_levels": {
+      "1": "Very Similar - Minor variations",
+      "2": "Similar - Small variations",
+      "3": "Somewhat Similar - Moderate variations",
+      "4": "Moderately Different - Balanced variations",
+      "5": "Noticeably Different - Noticeable variations",
+      "6": "Different - Clear variations",
+      "7": "Very Different - Major variations",
+      "8": "Dramatically Different - Strong variations",
+      "9": "Completely Different Style - Extreme variations",
+      "10": "Totally Different - Maximum variations"
     }
   },
   "adobe_stock_category_map": {

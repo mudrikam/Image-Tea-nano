@@ -129,8 +129,25 @@ class PromptGeneratorDialog(QDialog):
 			self.selected_model_name = self.api_key_section.get_current_model()
 
 		# Top options HBox (no frame, keep layout compact)
-		# Options layout: Prompt Length, Prompts Per File, and Page Size
+		# Options layout: Prompt Type, Aspect Ratio, Prompt Length, Prompts Per File
 		options_layout = QHBoxLayout()
+		
+		# Prompt Type combo
+		type_label = QLabel("Type")
+		self.prompt_type_combo = QComboBox()
+		self.prompt_type_combo.setMinimumWidth(120)
+		self.prompt_type_combo.setToolTip("Select prompt generation type")
+		options_layout.addWidget(type_label)
+		options_layout.addWidget(self.prompt_type_combo)
+		
+		# Aspect Ratio combo  
+		ratio_label = QLabel("Aspect Ratio")
+		self.aspect_ratio_combo = QComboBox()
+		self.aspect_ratio_combo.setMinimumWidth(120)
+		self.aspect_ratio_combo.setToolTip("Select aspect ratio for generated prompts")
+		options_layout.addWidget(ratio_label)
+		options_layout.addWidget(self.aspect_ratio_combo)
+		
 		# Prompt length
 		length_label = QLabel("Prompt Length")
 		self.prompt_length_spin = QSpinBox()
@@ -151,6 +168,16 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(perfile_label)
 		options_layout.addWidget(self.prompts_per_file_spin)
 		
+		# Variation Level
+		variation_label = QLabel("Variation")
+		self.variation_level_spin = QSpinBox()
+		self.variation_level_spin.setMinimum(1)
+		self.variation_level_spin.setMaximum(10)
+		self.variation_level_spin.setValue(5)
+		self.variation_level_spin.setToolTip("Control how different each prompt should be (1=very similar, 10=completely different)")
+		options_layout.addWidget(variation_label)
+		options_layout.addWidget(self.variation_level_spin)
+		
 		# push remaining space to the right
 		options_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		main_layout.addLayout(options_layout)
@@ -159,14 +186,56 @@ class PromptGeneratorDialog(QDialog):
 		cfg = self.load_ai_config()
 		pg_section = cfg.get('prompt_generator', {}) if isinstance(cfg, dict) else {}
 		settings = pg_section.get('settings', {}) if isinstance(pg_section, dict) else {}
+		prompt_types = pg_section.get('prompt_types', {}) if isinstance(pg_section, dict) else {}
+		aspect_ratios = pg_section.get('aspect_ratios', {}) if isinstance(pg_section, dict) else {}
+		
+		# Populate prompt type combo
+		if prompt_types:
+			for key, display_name in prompt_types.items():
+				self.prompt_type_combo.addItem(display_name, key)
+		else:
+			# Default options if config not available
+			self.prompt_type_combo.addItem("Image Generation", "image_generation")
+			self.prompt_type_combo.addItem("Video Generation", "video_generation")
+		
+		# Populate aspect ratio combo
+		if aspect_ratios:
+			for key, display_name in aspect_ratios.items():
+				self.aspect_ratio_combo.addItem(display_name, key)
+		else:
+			# Default options if config not available
+			self.aspect_ratio_combo.addItem("Widescreen (16:9)", "16:9")
+			self.aspect_ratio_combo.addItem("Square (1:1)", "1:1")
+			self.aspect_ratio_combo.addItem("Portrait (9:16)", "9:16")
+		
+		# Load saved values
 		if isinstance(settings.get('prompt_length'), int):
 			self.prompt_length_spin.setValue(settings.get('prompt_length'))
 		if isinstance(settings.get('prompts_per_file'), int):
 			self.prompts_per_file_spin.setValue(settings.get('prompts_per_file'))
+		if isinstance(settings.get('variation_level'), int):
+			self.variation_level_spin.setValue(settings.get('variation_level'))
+		
+		# Set saved prompt type
+		saved_prompt_type = settings.get('prompt_type', 'image_generation')
+		for i in range(self.prompt_type_combo.count()):
+			if self.prompt_type_combo.itemData(i) == saved_prompt_type:
+				self.prompt_type_combo.setCurrentIndex(i)
+				break
+		
+		# Set saved aspect ratio
+		saved_aspect_ratio = settings.get('aspect_ratio', '16:9')
+		for i in range(self.aspect_ratio_combo.count()):
+			if self.aspect_ratio_combo.itemData(i) == saved_aspect_ratio:
+				self.aspect_ratio_combo.setCurrentIndex(i)
+				break
 
 		# Save options when changed
 		self.prompt_length_spin.valueChanged.connect(self.save_options_to_config)
 		self.prompts_per_file_spin.valueChanged.connect(self.save_options_to_config)
+		self.variation_level_spin.valueChanged.connect(self.save_options_to_config)
+		self.prompt_type_combo.currentIndexChanged.connect(self.save_options_to_config)
+		self.aspect_ratio_combo.currentIndexChanged.connect(self.save_options_to_config)
 
 		# Load prompts from DB if available
 		if self.db:
@@ -633,6 +702,9 @@ class PromptGeneratorDialog(QDialog):
 			cfg['prompt_generator']['settings'] = {}
 		cfg['prompt_generator']['settings']['prompt_length'] = int(self.prompt_length_spin.value())
 		cfg['prompt_generator']['settings']['prompts_per_file'] = int(self.prompts_per_file_spin.value())
+		cfg['prompt_generator']['settings']['variation_level'] = int(self.variation_level_spin.value())
+		cfg['prompt_generator']['settings']['prompt_type'] = self.prompt_type_combo.currentData() or 'image_generation'
+		cfg['prompt_generator']['settings']['aspect_ratio'] = self.aspect_ratio_combo.currentData() or '16:9'
 		cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
 		try:
 			with open(cfg_path, 'w', encoding='utf-8') as f:

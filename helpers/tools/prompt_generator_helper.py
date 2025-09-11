@@ -14,35 +14,65 @@ def load_prompt_generator_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         pg_config = data.get('prompt_generator', {})
-        instructions = pg_config.get('instructions', '')
-        requirements = pg_config.get('requirements', [])
+        instructions = pg_config.get('instructions', {})
+        requirements = pg_config.get('requirements', {})
         response_format = pg_config.get('response_format', {})
         settings = pg_config.get('settings', {})
+        prompt_types = pg_config.get('prompt_types', {})
+        aspect_ratios = pg_config.get('aspect_ratios', {})
+        variation_levels = pg_config.get('variation_levels', {})
+        
         prompt_length = settings.get('prompt_length', 150)
         prompts_per_file = settings.get('prompts_per_file', 5)
-        return instructions, requirements, response_format, prompt_length, prompts_per_file
+        prompt_type = settings.get('prompt_type', 'image_generation')
+        aspect_ratio = settings.get('aspect_ratio', '16:9')
+        variation_level = settings.get('variation_level', 5)
+        
+        return instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels
     except Exception as e:
         print(f"Failed to load prompt generator config: {e}")
-        return "", [], {}, 150, 5
+        return {}, {}, {}, 150, 5, 'image_generation', '16:9', 5, {}, {}, {}
 
-def create_prompt_generation_request(instructions, requirements, response_format, prompt_length, prompts_per_file, filename=None, metadata_context=None):
-    """Create a prompt for AI to analyze an image and generate image generation prompts"""
+def create_prompt_generation_request(instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, filename=None, metadata_context=None):
+    """Create a prompt for AI to analyze an image and generate prompts based on type and aspect ratio"""
     batch_token = generate_token(16)
     batch_timestamp = generate_timestamp()
     
-    # Build main instruction
-    prompt = f"{instructions}\n\n"
+    # Get instruction based on prompt type
+    if isinstance(instructions, dict):
+        instruction_text = instructions.get(prompt_type, instructions.get('image_generation', ''))
+    else:
+        instruction_text = str(instructions)
     
-    # Add requirements section
+    # Get variation description
+    variation_description = variation_levels.get(str(variation_level), f"Level {variation_level} variation")
+    
+    # Build main instruction
+    prompt = f"{instruction_text}\n\n"
+    
+    # Add requirements section based on prompt type
     if requirements:
-        prompt += "REQUIREMENTS:\n"
-        for req in requirements:
-            formatted_req = req.format(prompt_length=prompt_length, prompts_per_file=prompts_per_file)
-            prompt += f"- {formatted_req}\n"
-        prompt += "\n"
+        if isinstance(requirements, dict):
+            req_list = requirements.get(prompt_type, requirements.get('image_generation', []))
+        else:
+            req_list = requirements
+            
+        if req_list:
+            prompt += "REQUIREMENTS:\n"
+            for req in req_list:
+                formatted_req = req.format(
+                    prompt_length=prompt_length, 
+                    prompts_per_file=prompts_per_file,
+                    aspect_ratio=aspect_ratio,
+                    variation_level=variation_level,
+                    variation_description=variation_description
+                )
+                prompt += f"- {formatted_req}\n"
+            prompt += "\n"
     
     # Add batch info
-    prompt += f"BATCH INFO:\n- batch_token: {batch_token}\n- batch_timestamp: {batch_timestamp}\n\n"
+    prompt += f"BATCH INFO:\n- batch_token: {batch_token}\n- batch_timestamp: {batch_timestamp}\n"
+    prompt += f"- prompt_type: {prompt_type}\n- aspect_ratio: {aspect_ratio}\n- variation_level: {variation_level}/10\n\n"
     
     # Add context if provided
     if filename:
@@ -71,12 +101,16 @@ def create_prompt_generation_request(instructions, requirements, response_format
         if validation_rules:
             prompt += "VALIDATION RULES:\n"
             for i, rule in enumerate(validation_rules, 1):
-                formatted_rule = rule.format(prompt_length=prompt_length, prompts_per_file=prompts_per_file)
+                formatted_rule = rule.format(
+                    prompt_length=prompt_length, 
+                    prompts_per_file=prompts_per_file,
+                    aspect_ratio=aspect_ratio
+                )
                 prompt += f"{i}. {formatted_rule}\n"
     
     return prompt
 
-def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag=None):
+def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None):
     """Generate prompts for a single file using AI service by analyzing the actual image"""
     if stop_flag and stop_flag.get('stop'):
         return []
@@ -119,7 +153,7 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     # Create the prompt generation request
     prompt = create_prompt_generation_request(
         instructions, requirements, response_format, prompt_length, prompts_per_file, 
-        filename or original_filename, metadata_context
+        prompt_type, aspect_ratio, variation_level, variation_levels, filename or original_filename, metadata_context
     )
     
     try:
@@ -334,7 +368,7 @@ def parse_ai_prompt_response(text):
         print(f"Raw response: {text}")
         return []
 
-def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
+def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
     """Generate prompts for all files in the database"""
     if stop_flag and stop_flag.get('stop'):
         return 0
@@ -368,7 +402,7 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
             # Generate prompts for this file
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info, 
-                instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag
             )
             
             # Save prompts to database with token statistics
@@ -418,13 +452,13 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
         return 0
     
     # Load configuration
-    instructions, requirements, response_format, prompt_length, prompts_per_file = load_prompt_generator_config()
+    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
     
     if file_ids is None:
         # Generate for all files
         return generate_prompts_for_all_files(
             db, api_key, service, model, 
-            instructions, requirements, response_format, prompt_length, prompts_per_file, 
+            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels,
             stop_flag, progress_callback, prompt_saved_callback, file_callback
         )
     else:
@@ -448,7 +482,7 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
             
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info,
-                instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag
             )
             
             for prompt_data in prompts_data:
