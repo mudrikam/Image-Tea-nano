@@ -62,7 +62,30 @@
     "26": "Vintage"
   },
   "prompt_generator": {
-    "instructions": "Generate creative and diverse prompts for AI image generation. Each prompt should be unique and detailed, specifying the subject, setting, mood, style, and any relevant details to inspire high-quality image creation. Avoid repetition and ensure a wide range of themes and concepts are covered.",
+    "instructions": "Analyze this image and generate creative, detailed prompts for AI image generation. Create unique variations based on visual content, including subject, setting, mood, style, and observed details. Ensure diverse themes without repetition. Focus on prompts that would generate similar or related images.",
+    "requirements": [
+      "Each prompt should be approximately {prompt_length} characters long",
+      "Prompts must be unique and detailed, based on visual content",
+      "Specify subject, setting, mood, style, and relevant details",
+      "Ensure wide range of variations inspired by image content",
+      "Avoid repetition between prompts",
+      "Focus on creating prompts for similar or related images"
+    ],
+    "response_format": {
+      "type": "json",
+      "structure": {
+        "prompts": ["prompt 1 text here...", "prompt 2 text here..."]
+      },
+      "validation_rules": [
+        "Return exactly {prompts_per_file} prompts in array",
+        "Each prompt should be around {prompt_length} characters",
+        "Use double quotes for all strings",
+        "Response must be valid JSON",
+        "NO explanation, markdown, or extra text",
+        "Base all prompts on visual content of image",
+        "Consider metadata context if provided, but prioritize visual analysis"
+      ]
+    },
     "settings": {
       "prompt_length": 200,
       "prompts_per_file": 10

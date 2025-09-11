@@ -15,69 +15,68 @@ def load_prompt_generator_config():
             data = json.load(f)
         pg_config = data.get('prompt_generator', {})
         instructions = pg_config.get('instructions', '')
+        requirements = pg_config.get('requirements', [])
+        response_format = pg_config.get('response_format', {})
         settings = pg_config.get('settings', {})
         prompt_length = settings.get('prompt_length', 150)
         prompts_per_file = settings.get('prompts_per_file', 5)
-        return instructions, prompt_length, prompts_per_file
+        return instructions, requirements, response_format, prompt_length, prompts_per_file
     except Exception as e:
         print(f"Failed to load prompt generator config: {e}")
-        return "", 150, 5
+        return "", [], {}, 150, 5
 
-def create_prompt_generation_request(instructions, prompt_length, prompts_per_file, filename=None, metadata_context=None):
+def create_prompt_generation_request(instructions, requirements, response_format, prompt_length, prompts_per_file, filename=None, metadata_context=None):
     """Create a prompt for AI to analyze an image and generate image generation prompts"""
     batch_token = generate_token(16)
     batch_timestamp = generate_timestamp()
-    prompt = f"""Analyze this image and generate {prompts_per_file} creative and diverse prompts for AI image generation based on what you see.
-
-INSTRUCTIONS:
-{instructions}
-
-REQUIREMENTS:
-- Each prompt should be approximately {prompt_length} characters long
-- Prompts should be unique and detailed, based on the visual content of this image
-- Specify subject, setting, mood, style, and relevant details you observe
-- Ensure wide range of variations inspired by the image content
-- Avoid repetition between prompts
-- Focus on creating prompts that would generate similar or related images
-
-BATCH INFO:
-- batch_token: {batch_token}
-- batch_timestamp: {batch_timestamp}
-"""
     
+    # Build main instruction
+    prompt = f"{instructions}\n\n"
+    
+    # Add requirements section
+    if requirements:
+        prompt += "REQUIREMENTS:\n"
+        for req in requirements:
+            formatted_req = req.format(prompt_length=prompt_length, prompts_per_file=prompts_per_file)
+            prompt += f"- {formatted_req}\n"
+        prompt += "\n"
+    
+    # Add batch info
+    prompt += f"BATCH INFO:\n- batch_token: {batch_token}\n- batch_timestamp: {batch_timestamp}\n\n"
+    
+    # Add context if provided
     if filename:
         prompt += f"CONTEXT: Image filename: {filename}\n"
     
     if metadata_context:
         prompt += f"EXISTING METADATA CONTEXT:\n{metadata_context}\n"
-        prompt += "Use this metadata as additional context but focus primarily on what you see in the image.\n"
+        prompt += "Use this metadata as additional context but focus primarily on what you see in the image.\n\n"
     
-        prompt += f"""
-RESPONSE FORMAT (Strict JSON):
-Return ONLY valid JSON object, with NO explanation, NO markdown, NO comments, NO extra text. Output must be:
-{{
-    "prompts": [
-        "prompt 1 text here...",
-        "prompt 2 text here...",
-        "prompt 3 text here...",
-        "prompt 4 text here...",
-        "prompt 5 text here..."
-    ]
-}}
-
-VALIDATION RULES:
-1. Return exactly {prompts_per_file} prompts in the array
-2. Each prompt should be around {prompt_length} characters
-3. Use double quotes for all strings
-4. Response must be valid JSON
-5. DO NOT include any explanation, markdown, or extra text
-6. Base all prompts on the visual content of this image
-7. Consider the metadata context if provided, but prioritize visual analysis
-"""
+    # Add response format
+    if response_format:
+        structure = response_format.get('structure', {})
+        validation_rules = response_format.get('validation_rules', [])
+        
+        prompt += "RESPONSE FORMAT (Strict JSON):\n"
+        prompt += "Return ONLY valid JSON object, with NO explanation, NO markdown, NO comments, NO extra text. Output must be:\n"
+        prompt += "{\n"
+        prompt += f'    "prompts": [\n'
+        for i in range(prompts_per_file):
+            prompt += f'        "prompt {i+1} text here..."'
+            if i < prompts_per_file - 1:
+                prompt += ","
+            prompt += "\n"
+        prompt += "    ]\n}\n\n"
+        
+        if validation_rules:
+            prompt += "VALIDATION RULES:\n"
+            for i, rule in enumerate(validation_rules, 1):
+                formatted_rule = rule.format(prompt_length=prompt_length, prompts_per_file=prompts_per_file)
+                prompt += f"{i}. {formatted_rule}\n"
     
     return prompt
 
-def generate_prompts_for_file(api_key, service, model, file_info, instructions, prompt_length, prompts_per_file, stop_flag=None):
+def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag=None):
     """Generate prompts for a single file using AI service by analyzing the actual image"""
     if stop_flag and stop_flag.get('stop'):
         return []
@@ -119,7 +118,7 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     
     # Create the prompt generation request
     prompt = create_prompt_generation_request(
-        instructions, prompt_length, prompts_per_file, 
+        instructions, requirements, response_format, prompt_length, prompts_per_file, 
         filename or original_filename, metadata_context
     )
     
@@ -179,7 +178,7 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, stop_flag=N
                 contents=contents,
                 config=types.GenerateContentConfig(
                     temperature=0.8,
-                    max_output_tokens=2000,
+                    max_output_tokens=5000,
                 )
             )
             
@@ -335,7 +334,7 @@ def parse_ai_prompt_response(text):
         print(f"Raw response: {text}")
         return []
 
-def generate_prompts_for_all_files(db, api_key, service, model, instructions, prompt_length, prompts_per_file, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
+def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
     """Generate prompts for all files in the database"""
     if stop_flag and stop_flag.get('stop'):
         return 0
@@ -369,7 +368,7 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, pr
             # Generate prompts for this file
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info, 
-                instructions, prompt_length, prompts_per_file, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag
             )
             
             # Save prompts to database with token statistics
@@ -419,13 +418,13 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
         return 0
     
     # Load configuration
-    instructions, prompt_length, prompts_per_file = load_prompt_generator_config()
+    instructions, requirements, response_format, prompt_length, prompts_per_file = load_prompt_generator_config()
     
     if file_ids is None:
         # Generate for all files
         return generate_prompts_for_all_files(
             db, api_key, service, model, 
-            instructions, prompt_length, prompts_per_file, 
+            instructions, requirements, response_format, prompt_length, prompts_per_file, 
             stop_flag, progress_callback, prompt_saved_callback, file_callback
         )
     else:
@@ -449,7 +448,7 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
             
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info,
-                instructions, prompt_length, prompts_per_file, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, stop_flag
             )
             
             for prompt_data in prompts_data:

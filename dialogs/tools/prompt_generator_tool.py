@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import (
 	QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
 	QPushButton, QHBoxLayout, QLabel, QSpinBox, QSpacerItem, QSizePolicy, QFrame, QApplication, QProgressBar,
-	QComboBox, QMessageBox, QFileDialog, QWidget
+	QComboBox, QMessageBox, QFileDialog, QWidget, QMenu, QToolTip
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence
 import os
 import json
 import csv
@@ -223,7 +224,14 @@ class PromptGeneratorDialog(QDialog):
 		# Allow text wrapping in prompts column
 		self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 		self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+		# Make table keyboard-friendly for shortcuts
+		self.table.setSelectionBehavior(QTableWidget.SelectRows)
+		self.table.setSelectionMode(QTableWidget.SingleSelection)
+		self.table.setFocusPolicy(Qt.StrongFocus)
 		self.table.doubleClicked.connect(self.on_prompt_double_click)
+		# Enable custom context menu for copying full prompts
+		self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+		self.table.customContextMenuRequested.connect(self.on_table_context_menu)
 		main_layout.addWidget(self.table)
 
 		# Actions section below the table: stats on the left, progress in middle, buttons on the right
@@ -377,14 +385,13 @@ class PromptGeneratorDialog(QDialog):
 				char_count = len(prompt_text)
 				
 				# Set table items (3 columns now)
-				self.table.setItem(r, 0, QTableWidgetItem(display_prompt))
+				item_prompt = QTableWidgetItem(display_prompt)
+				item_prompt.setData(Qt.UserRole, prompt_text)  # Store full prompt text for copy
+				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])  # Store prompt ID for editing
+				
+				self.table.setItem(r, 0, item_prompt)
 				self.table.setItem(r, 1, QTableWidgetItem(str(char_count)))
 				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))  # Truncate datetime
-				
-				# Store full prompt ID in first column for editing
-				item = self.table.item(r, 0)
-				if item:
-					item.setData(Qt.UserRole, prompt_row[0])  # Store prompt ID
 		
 		# enable/disable buttons
 		self.prev_btn.setEnabled(self.current_page > 1)
@@ -672,7 +679,7 @@ class PromptGeneratorDialog(QDialog):
 		if not item:
 			return
 			
-		prompt_id = item.data(Qt.UserRole)
+		prompt_id = item.data(Qt.UserRole + 1)  # Get prompt ID
 		if not prompt_id:
 			return
 			
@@ -689,6 +696,135 @@ class PromptGeneratorDialog(QDialog):
 			# Refresh table data
 			self.load_prompts_from_db()
 			self.update_pagination()
+
+	def on_table_context_menu(self, pos):
+		"""Show context menu to copy full prompt text from selected row."""
+		if not hasattr(self, 'table'):
+			return
+		item = self.table.itemAt(pos)
+		if not item:
+			return
+		row = item.row()
+		first_item = self.table.item(row, 0)
+		if not first_item:
+			return
+		
+		# Get full prompt text directly from table item
+		full_prompt = first_item.data(Qt.UserRole)
+		if not full_prompt:
+			return
+		
+		# Build context menu
+		menu = QMenu(self)
+		# Try to get copy icon
+		try:
+			copy_icon = qta.icon('fa6s.copy')
+		except Exception:
+			copy_icon = None
+		copy_action = QAction(copy_icon, "Copy Prompt" if copy_icon else "Copy Prompt", self)
+		copy_action.triggered.connect(lambda: self.copy_prompt_text(full_prompt))
+		menu.addAction(copy_action)
+		# Show menu at global position
+		menu.exec(self.table.viewport().mapToGlobal(pos))
+
+	def copy_prompt_text(self, prompt_text):
+		"""Copy the given prompt text to clipboard."""
+		try:
+			if not prompt_text or not prompt_text.strip():
+				print("No prompt text to copy")
+				return
+				
+			# Copy to clipboard
+			clipboard = QGuiApplication.clipboard()
+			clipboard.setText(prompt_text)
+			preview = (prompt_text[:80] + '...') if len(prompt_text) > 80 else prompt_text
+			QToolTip.showText(QCursor.pos(), f"Copied: {preview}", self)
+			print(f"Prompt copied to clipboard: {preview}")
+			
+		except Exception as e:
+			print(f"Failed to copy prompt: {e}")
+
+	def copy_selected_prompt(self, prompt_id=None):
+		"""Copy the currently selected prompt (or given prompt_id) to clipboard."""
+		try:
+			if prompt_id is None:
+				# Get currently selected row
+				row = self.table.currentRow()
+				print(f"Current table row: {row}")
+				print(f"Total table rows: {self.table.rowCount()}")
+				
+				if row < 0 or row >= self.table.rowCount():
+					print("No prompt selected for copying")
+					return
+				
+				# Try multiple ways to get the item
+				item = self.table.item(row, 0)
+				print(f"Table item at row {row}, col 0: {item}")
+				
+				if not item:
+					print("No valid item selected")
+					return
+				
+				# Get and validate the prompt ID
+				prompt_id = item.data(Qt.UserRole)
+				print(f"Retrieved prompt_id from table item: {prompt_id} (type: {type(prompt_id)})")
+				
+				# Additional check - try to get from current selection
+				selected_items = self.table.selectedItems()
+				print(f"Selected items count: {len(selected_items)}")
+				if selected_items:
+					for i, sel_item in enumerate(selected_items):
+						sel_data = sel_item.data(Qt.UserRole)
+						print(f"Selected item {i}: data = {sel_data} (type: {type(sel_data)})")
+				
+				# Check if we have valid prompt_id
+				if prompt_id is None or prompt_id is False:
+					print("No prompt ID found for selected item")
+					# Try alternative approach - get from prompt_data directly
+					if 0 <= row < len(self.prompt_data):
+						prompt_row_data = self.prompt_data[row]
+						if len(prompt_row_data) > 0:
+							prompt_id = prompt_row_data[0]  # First element should be ID
+							print(f"Fallback: retrieved prompt_id from prompt_data: {prompt_id}")
+					if not prompt_id:
+						return
+			
+			# Fetch full prompt from DB
+			if not self.db:
+				print("Database not available for copying")
+				return
+			
+			# Debug: print the prompt_id being used
+			print(f"Attempting to copy prompt with ID: {prompt_id}")
+			
+			prompt_row = self.db.get_generated_prompt_by_id(prompt_id)
+			print(f"Database returned prompt_row: {prompt_row}")
+			if not prompt_row:
+				print(f"No prompt found in database for ID: {prompt_id}")
+				return
+				
+			if len(prompt_row) < 3:
+				print(f"Invalid prompt row structure: {prompt_row}")
+				return
+				
+			full_prompt = prompt_row[2]
+			print(f"Extracted prompt text (first 50 chars): {full_prompt[:50] if full_prompt else 'None'}")
+			
+			if not full_prompt or not full_prompt.strip():
+				print("Prompt text is empty")
+				return
+				
+			# Copy to clipboard
+			clipboard = QGuiApplication.clipboard()
+			clipboard.setText(full_prompt)
+			preview = (full_prompt[:80] + '...') if len(full_prompt) > 80 else full_prompt
+			QToolTip.showText(QCursor.pos(), f"Copied: {preview}", self)
+			print(f"Prompt copied to clipboard: {preview}")
+			
+		except Exception as e:
+			print(f"Failed to copy prompt: {e}")
+			import traceback
+			traceback.print_exc()
 	
 	def clear_all_prompts(self):
 		"""Clear all generated prompts after confirmation"""
