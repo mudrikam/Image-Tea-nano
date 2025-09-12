@@ -125,7 +125,7 @@
     },
     "settings": {
       "prompt_length": 200,
-      "prompts_per_file": 1,
+      "prompts_per_file": 3,
       "prompt_type": "image_generation",
       "aspect_ratio": "4:3",
       "variation_level": 5

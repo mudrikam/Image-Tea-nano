@@ -158,9 +158,9 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     
     try:
         if service.lower() == 'gemini':
-            prompts, token_input, token_output, token_total = generate_prompts_with_gemini(api_key, model, compressed_path, prompt, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_gemini(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         elif service.lower() == 'openai':
-            prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         else:
             print(f"Unsupported service: {service}")
             return []
@@ -182,7 +182,7 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
         print(f"Error generating prompts for file {filename}: {e}")
         return []
 
-def generate_prompts_with_gemini(api_key, model, image_path, prompt, stop_flag=None):
+def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
     """Generate prompts using Gemini API with actual image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
@@ -237,7 +237,7 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, stop_flag=N
             else:
                 text = str(response)
             
-            prompts = parse_ai_prompt_response(text)
+            prompts = parse_ai_prompt_response(text, aspect_ratio)
             return prompts, token_input, token_output, token_total
         except Exception as e:
             error_msg = str(e)
@@ -263,7 +263,7 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, stop_flag=N
             if attempt == max_retries - 1:
                 return [], 0, 0, 0
 
-def generate_prompts_with_openai(api_key, model, image_path, prompt, stop_flag=None):
+def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
     """Generate prompts using OpenAI API with actual image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
@@ -312,15 +312,15 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, stop_flag=N
         
         text = response.choices[0].message.content if response.choices else ""
         
-        prompts = parse_ai_prompt_response(text)
+        prompts = parse_ai_prompt_response(text, aspect_ratio)
         return prompts, token_input, token_output, token_total
         
     except Exception as e:
         print(f"OpenAI prompt generation error: {e}")
         return [], 0, 0, 0
 
-def parse_ai_prompt_response(text):
-    """Parse AI response to extract prompts array"""
+def parse_ai_prompt_response(text, aspect_ratio=None):
+    """Parse AI response to extract prompts array and optionally add aspect ratio"""
     import re
     import json
     text = str(text).strip()
@@ -361,6 +361,15 @@ def parse_ai_prompt_response(text):
         for prompt in prompts:
             if isinstance(prompt, str) and prompt.strip():
                 sanitized = re.sub(r'[\x00-\x1F\x7F]+', '', prompt.strip())
+                
+                # Add aspect ratio to the end of each prompt if specified
+                if aspect_ratio and aspect_ratio.strip():
+                    # Check if aspect ratio is already in the prompt
+                    aspect_pattern = r'\(\s*\d+:\d+\s*aspect\s+ratio\s*\)'
+                    if not re.search(aspect_pattern, sanitized, re.IGNORECASE):
+                        # Add aspect ratio at the end
+                        sanitized = f"{sanitized} ({aspect_ratio} aspect ratio)"
+                
                 cleaned_prompts.append(sanitized)
         return cleaned_prompts
     except Exception as e:
