@@ -62,6 +62,24 @@ class ImageTeaDB:
                 FOREIGN KEY(file_id) REFERENCES files(id),
                 FOREIGN KEY(platform_id) REFERENCES platform_list(id)
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS generated_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id INTEGER,
+                prompt TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(file_id) REFERENCES files(id)
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS imagen_generation_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt_id INTEGER,
+                status TEXT DEFAULT 'pending',
+                images_generated INTEGER DEFAULT 0,
+                images_requested INTEGER DEFAULT 4,
+                error_message TEXT,
+                generated_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(prompt_id) REFERENCES generated_prompts(id)
+            )''')
             conn.commit()
 
     def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None):
@@ -419,4 +437,168 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('DELETE FROM files_type_assign')
+            conn.commit()
+
+    # --- Generated prompts helpers ---
+    def add_generated_prompt(self, file_id, prompt):
+        """Insert a generated prompt for a file."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO generated_prompts (file_id, prompt) VALUES (?, ?)''', (file_id, prompt))
+            conn.commit()
+
+    def get_generated_prompts_for_file(self, file_id):
+        """Return all generated prompts for a given file_id ordered by created_at desc."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts WHERE file_id=? ORDER BY created_at DESC', (file_id,))
+            return c.fetchall()
+
+    def get_all_generated_prompts(self):
+        """Return all generated prompts (id, file_id, prompt, created_at)."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts ORDER BY id DESC')
+            return c.fetchall()
+
+    def delete_generated_prompts_for_file(self, file_id):
+        """Delete all generated prompts for a given file_id."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompts WHERE file_id=?', (file_id,))
+            conn.commit()
+    
+    def clear_all_generated_prompts(self):
+        """Delete all generated prompts."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompts')
+            conn.commit()
+    
+    def get_generated_prompts_paginated(self, page=1, page_size=20):
+        """Get generated prompts with pagination support"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            offset = (page - 1) * page_size
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
+                       FROM generated_prompts gp 
+                       ORDER BY gp.id DESC 
+                       LIMIT ? OFFSET ?''', (page_size, offset))
+            return c.fetchall()
+    
+    def get_generated_prompts_count(self):
+        """Get total count of generated prompts"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM generated_prompts')
+            row = c.fetchone()
+            return row[0] if row else 0
+    
+    def update_generated_prompt(self, prompt_id, new_prompt_text):
+        """Update a generated prompt text"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE generated_prompts SET prompt=? WHERE id=?', (new_prompt_text, prompt_id))
+            conn.commit()
+    
+    def get_generated_prompt_by_id(self, prompt_id):
+        """Get a single generated prompt by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
+                       FROM generated_prompts gp 
+                       WHERE gp.id = ?''', (prompt_id,))
+            return c.fetchone()
+
+    # --- Imagen generation status methods ---
+    def add_imagen_generation_status(self, prompt_id, images_requested=4):
+        """Add imagen generation status for a prompt"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO imagen_generation_status 
+                       (prompt_id, images_requested, status) 
+                       VALUES (?, ?, 'pending')''', (prompt_id, images_requested))
+            conn.commit()
+            return c.lastrowid
+
+    def update_imagen_generation_status(self, prompt_id, status, images_generated=None, error_message=None):
+        """Update imagen generation status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if images_generated is not None:
+                if error_message:
+                    c.execute('''UPDATE imagen_generation_status 
+                               SET status=?, images_generated=?, error_message=?, generated_at=CURRENT_TIMESTAMP 
+                               WHERE prompt_id=?''', (status, images_generated, error_message, prompt_id))
+                else:
+                    c.execute('''UPDATE imagen_generation_status 
+                               SET status=?, images_generated=?, generated_at=CURRENT_TIMESTAMP 
+                               WHERE prompt_id=?''', (status, images_generated, prompt_id))
+            else:
+                if error_message:
+                    c.execute('''UPDATE imagen_generation_status 
+                               SET status=?, error_message=? 
+                               WHERE prompt_id=?''', (status, error_message, prompt_id))
+                else:
+                    c.execute('''UPDATE imagen_generation_status 
+                               SET status=? 
+                               WHERE prompt_id=?''', (status, prompt_id))
+            conn.commit()
+
+    def get_imagen_generation_status(self, prompt_id):
+        """Get imagen generation status for a prompt"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT id, prompt_id, status, images_generated, images_requested, 
+                       error_message, generated_at, created_at 
+                       FROM imagen_generation_status 
+                       WHERE prompt_id=?''', (prompt_id,))
+            return c.fetchone()
+
+    def get_pending_imagen_prompts(self):
+        """Get all prompts that are pending image generation"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT gp.id, gp.prompt, igs.status, igs.images_generated, igs.images_requested
+                       FROM generated_prompts gp
+                       LEFT JOIN imagen_generation_status igs ON gp.id = igs.prompt_id
+                       WHERE igs.status IS NULL OR igs.status IN ('pending', 'stopped', 'failed')
+                       ORDER BY gp.created_at DESC''')
+            return c.fetchall()
+
+    def get_imagen_generation_stats(self):
+        """Get overall imagen generation statistics"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            
+            # Total prompts
+            c.execute('SELECT COUNT(*) FROM generated_prompts')
+            total_prompts = c.fetchone()[0]
+            
+            # Prompts with status
+            c.execute('''SELECT 
+                       COUNT(CASE WHEN igs.status = 'generated' THEN 1 END) as completed,
+                       COUNT(CASE WHEN igs.status = 'pending' THEN 1 END) as pending,
+                       COUNT(CASE WHEN igs.status = 'stopped' THEN 1 END) as stopped,
+                       COUNT(CASE WHEN igs.status = 'failed' THEN 1 END) as failed,
+                       SUM(CASE WHEN igs.status = 'generated' THEN igs.images_generated ELSE 0 END) as total_images
+                       FROM generated_prompts gp
+                       LEFT JOIN imagen_generation_status igs ON gp.id = igs.prompt_id''')
+            stats = c.fetchone()
+            
+            return {
+                'total_prompts': total_prompts,
+                'completed': stats[0] if stats[0] else 0,
+                'pending': stats[1] if stats[1] else 0,
+                'stopped': stats[2] if stats[2] else 0,
+                'failed': stats[3] if stats[3] else 0,
+                'total_images': stats[4] if stats[4] else 0,
+                'no_status': total_prompts - (stats[0] or 0) - (stats[1] or 0) - (stats[2] or 0) - (stats[3] or 0)
+            }
+
+    def clear_all_imagen_generation_status(self):
+        """Clear all imagen generation status records"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM imagen_generation_status')
             conn.commit()

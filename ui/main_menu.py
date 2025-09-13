@@ -18,6 +18,8 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 from dialogs.about_dialog import AboutDialog
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from config import BASE_PATH
+from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
+from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
 
 def get_app_links():
     import json
@@ -206,11 +208,28 @@ def setup_main_menu(window):
     documentation_action.triggered.connect(open_documentation)
     help_menu.addAction(documentation_action)
 
+    # Tools menu
+    tools_menu = QMenu("Tools", menubar)
+    prompt_generator_action = QAction(qta.icon('fa6s.wand-magic-sparkles'), "Prompt Generator", window)
+    def open_prompt_generator():
+        dlg = PromptGeneratorDialog(window)
+        dlg.exec()
+    prompt_generator_action.triggered.connect(open_prompt_generator)
+    tools_menu.addAction(prompt_generator_action)
+
+    imagen_generator_action = QAction(qta.icon('fa6s.image'), "Imagen Generator", window)
+    def open_imagen_generator():
+        dlg = ImagenGeneratorDialog(window)
+        dlg.exec()
+    imagen_generator_action.triggered.connect(open_imagen_generator)
+    tools_menu.addAction(imagen_generator_action)
+
+    
     menubar.addMenu(file_menu)
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)
     menubar.addMenu(prompt_menu)
     menubar.addMenu(api_menu)
+    menubar.addMenu(tools_menu)
     menubar.addMenu(help_menu)
-    window.setMenuBar(menubar)
     window.setMenuBar(menubar)
