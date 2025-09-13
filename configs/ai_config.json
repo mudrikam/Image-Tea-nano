@@ -74,7 +74,7 @@
         "Include aspect ratio specification: {aspect_ratio}",
         "Ensure wide range of variations inspired by image content",
         "Variation level: {variation_level}/10 - {variation_description}",
-        "Apply variation level to style, mood, composition, and creative interpretation",
+        "Apply variation level to angle, lighting, background, atmosphere, and visual composition—not artistic style",
         "Avoid repetition between prompts - each must be distinctly different",
         "Focus on creating prompts for similar or related images"
       ],
@@ -85,7 +85,7 @@
         "Specify aspect ratio for video: {aspect_ratio}",
         "Describe how the scene evolves over time (3-10 seconds)",
         "Variation level: {variation_level}/10 - {variation_description}",
-        "Apply variation to cinematography, pacing, and visual storytelling",
+        "Apply variation to camera angle, atmosphere, lighting, background, and scene composition—not artistic style",
         "Include atmospheric changes, lighting transitions, or character actions",
         "Focus on creating engaging video sequences based on the image content"
       ]
@@ -125,22 +125,22 @@
     },
     "settings": {
       "prompt_length": 200,
-      "prompts_per_file": 3,
+      "prompts_per_file": 5,
       "prompt_type": "image_generation",
       "aspect_ratio": "4:3",
       "variation_level": 5
     },
     "variation_levels": {
-      "1": "Very Similar - Minor variations",
-      "2": "Similar - Small variations",
-      "3": "Somewhat Similar - Moderate variations",
-      "4": "Moderately Different - Balanced variations",
-      "5": "Noticeably Different - Noticeable variations",
-      "6": "Different - Clear variations",
-      "7": "Very Different - Major variations",
-      "8": "Dramatically Different - Strong variations",
-      "9": "Completely Different Style - Extreme variations",
-      "10": "Totally Different - Maximum variations"
+      "1": "Identical context, only minor changes (e.g. slightly different camera angle)",
+      "2": "Very similar, only small changes in angle or lighting",
+      "3": "Similar, angle or atmosphere changes are slightly more noticeable",
+      "4": "Same context, but angle/atmosphere/background start to differ",
+      "5": "Noticeably different, angle, lighting, or background clearly changed but main object remains",
+      "6": "Different, may include changes in viewpoint, atmosphere, or object position in the scene",
+      "7": "Very different, angle, atmosphere, and composition changed but main object is still the same",
+      "8": "Dramatically different, extreme angle, background/atmosphere changed a lot, but context is consistent",
+      "9": "Extremely different, could be top/bottom view, night/day atmosphere, main object remains",
+      "10": "Maximum variation, all aspects—angle, atmosphere, background, and composition—are changed, but main object and context are still the same"
     }
   },
   "adobe_stock_category_map": {
@@ -173,5 +173,44 @@
   "file_types": [
     "Photo",
     "Illustration"
-  ]
+  ],
+  "imagen_generator": {
+    "models": [
+      "imagen-4.0-generate-001",
+      "imagen-4.0-ultra-generate-001",
+      "imagen-4.0-fast-generate-001",
+      "imagen-3.0-generate-002"
+    ],
+    "settings": {
+      "model": "imagen-4.0-ultra-generate-001",
+      "number_of_images": 4,
+      "sample_image_size": "2K",
+      "aspect_ratio": "4:3",
+      "person_generation": "dont_allow",
+      "output_folder": "",
+      "generation_mode": "Generate All",
+      "image_size": "2K",
+      "output_mime_type": "image/png"
+    },
+    "aspect_ratios": {
+      "1:1": "Square (1:1)",
+      "3:4": "Portrait (3:4)",
+      "4:3": "Landscape (4:3)",
+      "9:16": "Vertical (9:16)",
+      "16:9": "Horizontal (16:9)"
+    },
+    "person_generation_options": {
+      "dont_allow": "Block generation of people",
+      "allow_adult": "Generate adults only (default)",
+      "allow_all": "Generate adults and children"
+    },
+    "sample_image_sizes": {
+      "1K": "1024x1024",
+      "2K": "2048x2048"
+    },
+    "generation_modes": {
+      "Generate All": "Generate images for all prompts",
+      "Continue from Stopped": "Continue from previously stopped generation"
+    }
+  }
 }
