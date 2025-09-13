@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QComboBox, QMessageBox, QFileDialog, QWidget, QMenu, QToolTip, QLineEdit
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence
+from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColor, QBrush
 import qtawesome as qta
 import json
 import os
@@ -25,6 +25,7 @@ class ImagenGeneratorWorker(QThread):
     error_occurred = Signal(str)
     image_generated = Signal()  # Signal when a new image is generated
     prompt_processing = Signal(str)  # Signal when starting to process a prompt
+    status_updated = Signal(int, str, int, str)  # Signal for real-time status updates (prompt_id, status, images_generated, error_msg)
     
     def __init__(self, db, api_key, service, model, config):
         super().__init__()
@@ -81,6 +82,10 @@ class ImagenGeneratorWorker(QThread):
                 if status is None:
                     print(f"Debug: Adding status record for prompt {prompt_id}")
                     self.db.add_imagen_generation_status(prompt_id, self.config['number_of_images'])
+                    
+                # Update status to processing
+                self.db.update_imagen_generation_status(prompt_id, 'processing')
+                self.status_updated.emit(prompt_id, 'processing', 0, "")
                 
                 # Generate images for this prompt
                 try:
@@ -106,12 +111,14 @@ class ImagenGeneratorWorker(QThread):
                             images_count = result.get('images_generated', self.config['number_of_images'])
                             print(f"Debug: Success! Generated {images_count} images")
                             self.db.update_imagen_generation_status(prompt_id, 'generated', images_count)
+                            self.status_updated.emit(prompt_id, 'generated', images_count, "")
                             total_generated += images_count
                             self.image_generated.emit()
                         else:
                             error_msg = result.get('error', 'Unknown error')
                             print(f"Debug: Generation failed: {error_msg}")
                             self.db.update_imagen_generation_status(prompt_id, 'failed', 0, error_msg)
+                            self.status_updated.emit(prompt_id, 'failed', 0, error_msg)
                             if 'quota' in error_msg.lower() or 'limit' in error_msg.lower():
                                 # API quota exceeded, stop generation
                                 self.error_occurred.emit(f"API quota exceeded: {error_msg}")
@@ -123,11 +130,13 @@ class ImagenGeneratorWorker(QThread):
                     else:
                         print(f"Debug: No results returned")
                         self.db.update_imagen_generation_status(prompt_id, 'failed', 0, 'No results returned')
+                        self.status_updated.emit(prompt_id, 'failed', 0, 'No results returned')
                         
                 except Exception as e:
                     error_msg = str(e)
                     print(f"Debug: Exception during generation: {error_msg}")
                     self.db.update_imagen_generation_status(prompt_id, 'failed', 0, error_msg)
+                    self.status_updated.emit(prompt_id, 'failed', 0, error_msg)
                     if 'quota' in error_msg.lower() or 'limit' in error_msg.lower():
                         self.error_occurred.emit(f"API error: {error_msg}")
                         # Mark remaining prompts as stopped
@@ -638,11 +647,16 @@ class ImagenGeneratorDialog(QDialog):
         self.worker.error_occurred.connect(self.on_generation_error)
         self.worker.image_generated.connect(self.on_image_generated)
         self.worker.prompt_processing.connect(self.on_prompt_processing)
+        self.worker.status_updated.connect(self.update_table_row_status)
         
         self.is_running = True
         self.update_run_button()
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        
+        # Refresh table to show initial state before starting
+        self.load_prompts_from_db()
+        self.refresh_table()
         
         self.worker.start()
 
@@ -652,6 +666,10 @@ class ImagenGeneratorDialog(QDialog):
             self.worker.stop()
             self.current_generation_label.setText("Stopping generation...")
             self.current_generation_label.setStyleSheet("color: #ffc107; font-weight: bold;")
+            
+            # Refresh table to show stopped status
+            self.load_prompts_from_db()
+            self.refresh_table()
 
     def on_progress_updated(self, message):
         """Handle progress message updates"""
@@ -667,7 +685,7 @@ class ImagenGeneratorDialog(QDialog):
         self.current_generation_label.setStyleSheet("color: #007bff; font-weight: bold;")
 
     def on_image_generated(self):
-        """Handle when a new image is generated"""
+        """Handle when a new image is generated - just refresh stats, table is updated real-time via status_updated"""
         self.refresh_stats_if_needed()
 
     def on_generation_finished(self, total_generated):
@@ -678,6 +696,9 @@ class ImagenGeneratorDialog(QDialog):
         self.current_generation_label.setText(f"Generation completed. {total_generated} images generated.")
         self.current_generation_label.setStyleSheet("color: #28a745; font-weight: bold;")
         self.refresh_stats_if_needed()
+        
+        # Refresh table to show final status
+        self.load_prompts_from_db()
         self.refresh_table()
         
         if total_generated > 0:
@@ -692,6 +713,9 @@ class ImagenGeneratorDialog(QDialog):
         self.current_generation_label.setText(f"Generation stopped: {error_message}")
         self.current_generation_label.setStyleSheet("color: #dc3545; font-weight: bold;")
         self.refresh_stats_if_needed()
+        
+        # Refresh table to show error status
+        self.load_prompts_from_db()
         self.refresh_table()
         
         QMessageBox.warning(self, "Generation Error", error_message)
@@ -772,6 +796,10 @@ class ImagenGeneratorDialog(QDialog):
 
     def refresh_table(self):
         """Refresh the table with current data including generation status"""
+        # Temporarily disable sorting to prevent color issues
+        was_sorting_enabled = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        
         self.table.setRowCount(len(self.prompt_data))
         
         for row, prompt_data in enumerate(self.prompt_data):
@@ -791,7 +819,7 @@ class ImagenGeneratorDialog(QDialog):
             
             # Generation status
             status = prompt_data.get('status', 'pending')
-            status_item = QTableWidgetItem(status.title())
+            status_item = QTableWidgetItem(status.title() if status else 'Pending')
             status_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 2, status_item)
             
@@ -810,6 +838,23 @@ class ImagenGeneratorDialog(QDialog):
             created_item = QTableWidgetItem(formatted_date)
             created_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 3, created_item)
+            
+            # Apply status color to this specific row
+            status_color = self._status_color(status)
+            
+            # Try both methods to ensure color is applied
+            for col in range(self.table.columnCount()):
+                cell_item = self.table.item(row, col)
+                if cell_item:
+                    # Method 1: Using QBrush
+                    cell_item.setBackground(QBrush(status_color))
+                    # Method 2: Using data for later reference
+                    cell_item.setData(Qt.UserRole + 1, status)
+        
+        # Re-enable sorting and apply it
+        self.table.setSortingEnabled(was_sorting_enabled)
+        if was_sorting_enabled:
+            self.table.sortByColumn(3, Qt.DescendingOrder)  # Sort by Created date descending
         
         # Update stats
         self.update_stats_display()
@@ -1021,6 +1066,48 @@ class ImagenGeneratorDialog(QDialog):
         menu.addAction(details_action)
         
         menu.exec(self.table.mapToGlobal(pos))
+
+    def _status_color(self, status):
+        """Get status color consistent with main_table.py"""
+        if status == "processing":
+            return QColor(243, 200, 24, int(0.3 * 255))
+        elif status == "generated" or status == "success":
+            return QColor(113, 204, 0, int(0.3 * 255))
+        elif status == "failed":
+            return QColor(255, 0, 0, int(0.15 * 255))
+        elif status == "stopping":
+            return QColor(255, 140, 0, int(0.18 * 255))
+        elif status == "stopped":
+            return QColor(200, 40, 40, int(0.18 * 255))
+        elif status == "pending" or status is None:
+            return QColor(120, 120, 120, int(0.18 * 255))
+        return QColor(0, 0, 0, int(0.1 * 255))
+
+    def update_table_row_status(self, prompt_id, status, images_generated=0, error_msg=""):
+        """Update table row status with color and real-time data"""
+        # Find the row for this prompt_id
+        for row, data in enumerate(self.prompt_data):
+            if data.get('id') == prompt_id:  # Changed from 'prompt_id' to 'id'
+                # Update the data
+                self.prompt_data[row]['status'] = status
+                self.prompt_data[row]['images_generated'] = images_generated
+                if error_msg:
+                    self.prompt_data[row]['error_message'] = error_msg
+                
+                # Update table display
+                status_item = self.table.item(row, 2)  # Status column (changed from 1 to 2)
+                
+                if status_item:
+                    status_item.setText(status.title() if status else 'Pending')
+                    
+                # Apply status color to the entire row based on current status
+                status_color = self._status_color(status)
+                for col in range(self.table.columnCount()):
+                    cell_item = self.table.item(row, col)
+                    if cell_item:
+                        cell_item.setBackground(QBrush(status_color))
+                        cell_item.setData(Qt.UserRole + 1, status)
+                break
 
     def closeEvent(self, event):
         """Handle dialog close event"""

@@ -458,7 +458,7 @@ class ImageTeaDB:
         """Return all generated prompts (id, file_id, prompt, created_at)."""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts ORDER BY created_at DESC')
+            c.execute('SELECT id, file_id, prompt, created_at FROM generated_prompts ORDER BY id DESC')
             return c.fetchall()
 
     def delete_generated_prompts_for_file(self, file_id):
@@ -482,7 +482,7 @@ class ImageTeaDB:
             offset = (page - 1) * page_size
             c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
                        FROM generated_prompts gp 
-                       ORDER BY gp.created_at DESC 
+                       ORDER BY gp.id DESC 
                        LIMIT ? OFFSET ?''', (page_size, offset))
             return c.fetchall()
     
@@ -563,7 +563,7 @@ class ImageTeaDB:
                        FROM generated_prompts gp
                        LEFT JOIN imagen_generation_status igs ON gp.id = igs.prompt_id
                        WHERE igs.status IS NULL OR igs.status IN ('pending', 'stopped', 'failed')
-                       ORDER BY gp.created_at ASC''')
+                       ORDER BY gp.created_at DESC''')
             return c.fetchall()
 
     def get_imagen_generation_stats(self):

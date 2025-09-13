@@ -64,6 +64,10 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
     print(f"Debug: Starting image generation with service={service}, model={model}")
     print(f"Debug: Number of prompts to process: {len(prompts)}")
     
+    # Get callback functions for real-time status updates
+    status_callback = kwargs.get('status_callback', None)
+    progress_callback = kwargs.get('progress_callback', None)
+    
     if service.lower() != 'google' and service.lower() != 'gemini':
         error_msg = f'Only Google/Gemini service is supported for image generation. Got: {service}'
         print(f"Debug: Service error: {error_msg}")
@@ -82,6 +86,14 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
         
         for idx, prompt in enumerate(prompts, 1):
             print(f"Debug: Processing prompt {idx}/{len(prompts)}: {prompt[:100]}...")
+            
+            # Get prompt info for status callback
+            prompt_info = prompt if isinstance(prompt, dict) else {'prompt': prompt}
+            
+            # Update status to processing
+            if status_callback:
+                status_callback(prompt_info, 'processing')
+            
             try:
                 # Prepare generation config using proper parameter names
                 config_params = {
@@ -106,7 +118,7 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                 # Generate images using the working method from imagen.py
                 response = client.models.generate_images(
                     model=model,
-                    prompt=prompt,
+                    prompt=prompt_info.get('prompt', prompt),
                     config=config_params
                 )
                 
@@ -131,7 +143,7 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                 for i, generated_image in enumerate(response.generated_images, 1):
                     try:
                         # Create filename based on prompt and index
-                        safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                        safe_prompt = "".join(c for c in prompt_info.get('prompt', prompt) if c.isalnum() or c in (' ', '-', '_')).rstrip()
                         safe_prompt = safe_prompt[:50]  # Limit length
                         filename = f"{safe_prompt}_{i:03d}{file_extension}"
                         filepath = os.path.join(output_folder, filename)
@@ -149,8 +161,13 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                 
                 print(f"Debug: Successfully generated {images_generated} images for this prompt")
                 
+                # Update status to success
+                if status_callback:
+                    status_callback(prompt_info, 'success', images_generated)
+                
                 results.append({
-                    'prompt': prompt,
+                    'prompt': prompt_info.get('prompt', prompt),
+                    'prompt_info': prompt_info,
                     'status': 'success',
                     'images_generated': images_generated,
                     'saved_images': saved_images,
@@ -160,8 +177,14 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
             except Exception as e:
                 error_msg = str(e)
                 print(f"Debug: Error generating images for prompt {idx}: {error_msg}")
+                
+                # Update status to failed
+                if status_callback:
+                    status_callback(prompt_info, 'failed', 0, error_msg)
+                
                 results.append({
-                    'prompt': prompt,
+                    'prompt': prompt_info.get('prompt', prompt),
+                    'prompt_info': prompt_info,
                     'status': 'error',
                     'images_generated': 0,
                     'saved_images': [],
