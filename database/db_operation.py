@@ -446,6 +446,14 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('''INSERT INTO generated_prompts (file_id, prompt) VALUES (?, ?)''', (file_id, prompt))
             conn.commit()
+    
+    def add_external_prompt(self, prompt):
+        """Insert a generated prompt without file association (for external imports)."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO generated_prompts (file_id, prompt) VALUES (NULL, ?)''', (prompt,))
+            conn.commit()
+            return c.lastrowid
 
     def get_generated_prompts_for_file(self, file_id):
         """Return all generated prompts for a given file_id ordered by created_at desc."""

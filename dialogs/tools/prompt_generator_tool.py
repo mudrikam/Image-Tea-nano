@@ -70,6 +70,124 @@ class PromptGeneratorWorker(QThread):
 			self.error_occurred.emit(str(e))
 
 
+class CSVImportWorker(QThread):
+	"""Worker thread for CSV import to prevent UI freezing"""
+	progress_updated = Signal(str)
+	progress_value_changed = Signal(int)
+	finished = Signal(int)  # total_imported
+	error_occurred = Signal(str)
+	
+	def __init__(self, db, filename):
+		super().__init__()
+		self.db = db
+		self.filename = filename
+	
+	def run(self):
+		try:
+			self.progress_updated.emit("Reading CSV file...")
+			self.progress_value_changed.emit(10)
+			
+			# Read and parse CSV file
+			imported_prompts = []
+			with open(self.filename, 'r', encoding='utf-8') as csvfile:
+				# Get total lines for progress calculation
+				total_lines = sum(1 for _ in csvfile)
+				csvfile.seek(0)
+				
+				self.progress_updated.emit(f"Processing {total_lines} rows...")
+				self.progress_value_changed.emit(20)
+				
+				reader = csv.reader(csvfile)
+				
+				for row_num, row in enumerate(reader, 1):
+					# Update progress
+					progress = 20 + int((row_num / total_lines) * 60)  # 20-80%
+					self.progress_value_changed.emit(progress)
+					self.progress_updated.emit(f"Processing row {row_num}/{total_lines}...")
+					
+					if row and len(row) > 0:
+						prompt_text = row[0].strip()
+						
+						if not prompt_text:
+							continue
+							
+						# Remove surrounding quotes if present
+						if prompt_text.startswith('"') and prompt_text.endswith('"'):
+							prompt_text = prompt_text[1:-1]
+						elif prompt_text.startswith("'") and prompt_text.endswith("'"):
+							prompt_text = prompt_text[1:-1]
+						
+						# Validate prompt length (minimum 10 characters)
+						if len(prompt_text) >= 10:
+							imported_prompts.append(prompt_text)
+			
+			if not imported_prompts:
+				self.error_occurred.emit("No valid prompts found in the CSV file.")
+				return
+			
+			self.progress_updated.emit(f"Saving {len(imported_prompts)} prompts to database...")
+			self.progress_value_changed.emit(85)
+			
+			# Save prompts to database
+			imported_count = 0
+			for i, prompt_text in enumerate(imported_prompts):
+				try:
+					self.db.add_external_prompt(prompt_text)
+					imported_count += 1
+					
+					# Update progress for database saves
+					progress = 85 + int((i / len(imported_prompts)) * 10)  # 85-95%
+					self.progress_value_changed.emit(progress)
+					
+				except Exception as e:
+					print(f"Failed to import prompt: {prompt_text[:50]}... - {e}")
+			
+			self.progress_updated.emit("Import completed!")
+			self.progress_value_changed.emit(100)
+			self.finished.emit(imported_count)
+			
+		except Exception as e:
+			self.error_occurred.emit(str(e))
+
+
+class CSVImportProgressDialog(QDialog):
+	"""Progress dialog for CSV import"""
+	def __init__(self, parent=None):
+		super().__init__(parent)
+		self.setWindowTitle("Importing CSV")
+		self.setFixedSize(400, 150)
+		self.setModal(True)
+		
+		layout = QVBoxLayout(self)
+		
+		# Status label
+		self.status_label = QLabel("Preparing import...")
+		layout.addWidget(self.status_label)
+		
+		# Progress bar
+		self.progress_bar = QProgressBar()
+		self.progress_bar.setRange(0, 100)
+		self.progress_bar.setValue(0)
+		layout.addWidget(self.progress_bar)
+		
+		# Cancel button
+		self.cancel_btn = QPushButton("Cancel")
+		self.cancel_btn.clicked.connect(self.reject)
+		layout.addWidget(self.cancel_btn)
+		
+		self.worker = None
+	
+	def update_progress(self, message):
+		self.status_label.setText(message)
+	
+	def update_progress_value(self, value):
+		self.progress_bar.setValue(value)
+	
+	def import_finished(self, imported_count):
+		self.status_label.setText(f"Successfully imported {imported_count} prompts!")
+		self.cancel_btn.setText("Close")
+		QTimer.singleShot(2000, self.accept)  # Auto-close after 2 seconds
+
 
 class PromptGeneratorDialog(QDialog):
 	"""Empty placeholder dialog for the Prompt Generator tool."""
@@ -349,7 +467,7 @@ class PromptGeneratorDialog(QDialog):
 		
 		# Export CSV button
 		try:
-			export_icon = qta.icon('fa6s.download')
+			export_icon = qta.icon('fa6s.upload')
 		except Exception:
 			export_icon = None
 		if export_icon:
@@ -359,6 +477,19 @@ class PromptGeneratorDialog(QDialog):
 		self.export_btn.setToolTip("Export prompts to CSV file")
 		self.export_btn.clicked.connect(self.export_to_csv)
 		actions_layout.addWidget(self.export_btn)
+		
+		# Import CSV button
+		try:
+			import_icon = qta.icon('fa6s.download')
+		except Exception:
+			import_icon = None
+		if import_icon:
+			self.import_btn = QPushButton(import_icon, "Import CSV")
+		else:
+			self.import_btn = QPushButton("Import CSV")
+		self.import_btn.setToolTip("Import prompts from CSV file")
+		self.import_btn.clicked.connect(self.import_from_csv)
+		actions_layout.addWidget(self.import_btn)
 		
 		# Generate button (right) - larger and with conditional styling
 		try:
@@ -964,6 +1095,64 @@ class PromptGeneratorDialog(QDialog):
 		except Exception as e:
 			print(f"Failed to export prompts: {e}")
 			QMessageBox.critical(self, "Export Error", "Failed to export prompts - check console for details")
+
+	def import_from_csv(self):
+		"""Import prompts from CSV file using threaded progress dialog"""
+		try:
+			filename, _ = QFileDialog.getOpenFileName(
+				self, 
+				"Import Prompts from CSV", 
+				os.path.expanduser("~"), 
+				"CSV files (*.csv);;All files (*.*)"
+			)
+			
+			if not filename:
+				return
+			
+			if not self.db:
+				QMessageBox.critical(self, "Import Error", "Database connection not available.")
+				return
+			
+			# Create and show progress dialog
+			progress_dialog = CSVImportProgressDialog(self)
+			
+			# Create and configure worker thread
+			worker = CSVImportWorker(self.db, filename)
+			progress_dialog.worker = worker
+			
+			# Connect worker signals to progress dialog
+			worker.progress_updated.connect(progress_dialog.update_progress)
+			worker.progress_value_changed.connect(progress_dialog.update_progress_value)
+			worker.finished.connect(progress_dialog.import_finished)
+			worker.finished.connect(self.on_import_finished)
+			worker.error_occurred.connect(self.on_import_error)
+			
+			# Start worker and show progress dialog
+			worker.start()
+			result = progress_dialog.exec()
+			
+			# Cleanup
+			if worker.isRunning():
+				worker.terminate()
+				worker.wait()
+			
+		except Exception as e:
+			print(f"Failed to import prompts: {e}")
+			QMessageBox.critical(self, "Import Error", f"Failed to import prompts:\n{str(e)}")
+	
+	def on_import_finished(self, imported_count):
+		"""Handle when CSV import is finished"""
+		try:
+			# Refresh the table to show imported prompts
+			self.load_prompts_from_db()
+			self.update_pagination()
+			print(f"Successfully imported {imported_count} prompts from CSV")
+		except Exception as e:
+			print(f"Error refreshing table after import: {e}")
+	
+	def on_import_error(self, error_message):
+		"""Handle CSV import errors"""
+		QMessageBox.critical(self, "Import Error", f"Import failed:\n{error_message}")
 
 	def on_new_prompt_added(self):
 		"""Handle when a new prompt is added during generation - instant table refresh"""
