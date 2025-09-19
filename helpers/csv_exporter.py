@@ -85,7 +85,7 @@ def _vecteezy_format(file):
     title = file[3] if file[3] is not None else ""
     description = file[4] if file[4] is not None else ""
     keywords = file[5] if file[5] is not None else ""
-    license_type = "pro"
+    license_type = "Pro"
     return f'{filename},"{title}","{description}","{keywords}",{license_type}'
 
 def _istock_format(file):
