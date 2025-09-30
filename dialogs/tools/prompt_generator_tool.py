@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 	QComboBox, QMessageBox, QFileDialog, QWidget, QMenu, QToolTip
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence
+from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColor
 import os
 import json
 import csv
@@ -400,14 +400,15 @@ class PromptGeneratorDialog(QDialog):
 
 		main_layout.addLayout(paging_layout)
 
-		# Table with columns: Prompts, Characters, Created
+		# Table with columns: Prompts, Characters, Created, Copy
 		self.table = QTableWidget()
-		self.table.setColumnCount(3)
-		self.table.setHorizontalHeaderLabels(["Prompts", "Chars", "Created"])
+		self.table.setColumnCount(4)
+		self.table.setHorizontalHeaderLabels(["Prompts", "Chars", "Created", "Copy"])
 		# Set column widths
-		self.table.setColumnWidth(0, 500)  # Prompts - widest
+		self.table.setColumnWidth(0, 450)  # Prompts - slightly narrower for copy column
 		self.table.setColumnWidth(1, 60)   # Chars - narrow
 		self.table.setColumnWidth(2, 150)  # Created - medium
+		self.table.setColumnWidth(3, 60)   # Copy - narrow for button
 		# Allow text wrapping in prompts column
 		self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 		self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -415,10 +416,15 @@ class PromptGeneratorDialog(QDialog):
 		self.table.setSelectionBehavior(QTableWidget.SelectRows)
 		self.table.setSelectionMode(QTableWidget.SingleSelection)
 		self.table.setFocusPolicy(Qt.StrongFocus)
+		self.table.setToolTip("Double-click to edit • Middle-click to copy • Ctrl+C to copy selected prompt • Right-click for menu")
 		self.table.doubleClicked.connect(self.on_prompt_double_click)
 		# Enable custom context menu for copying full prompts
 		self.table.setContextMenuPolicy(Qt.CustomContextMenu)
 		self.table.customContextMenuRequested.connect(self.on_table_context_menu)
+		# Enable middle click detection
+		self.table.mousePressEvent = self.table_mouse_press_event
+		# Enable keyboard shortcuts
+		self.table.keyPressEvent = self.table_key_press_event
 		main_layout.addWidget(self.table)
 
 		# Actions section below the table: stats on the left, progress in middle, buttons on the right
@@ -575,16 +581,17 @@ class PromptGeneratorDialog(QDialog):
 		# Update table with current page data
 		self.table.setRowCount(len(self.prompt_data))
 		for r, prompt_row in enumerate(self.prompt_data):
-			# prompt_row structure: (id, file_id, prompt, created_at, filename)
+			# prompt_row structure: (id, file_id, prompt, created_at, status) if with status
 			if len(prompt_row) >= 4:
 				prompt_text = prompt_row[2] or ""
 				created_at = prompt_row[3] or ""
+				status = prompt_row[4] if len(prompt_row) > 4 else 'pending'
 				
 				# Truncate prompt for display
 				display_prompt = prompt_text[:100] + "..." if len(prompt_text) > 100 else prompt_text
 				char_count = len(prompt_text)
 				
-				# Set table items (3 columns now)
+				# Set table items (4 columns now)
 				item_prompt = QTableWidgetItem(display_prompt)
 				item_prompt.setData(Qt.UserRole, prompt_text)  # Store full prompt text for copy
 				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])  # Store prompt ID for editing
@@ -592,6 +599,48 @@ class PromptGeneratorDialog(QDialog):
 				self.table.setItem(r, 0, item_prompt)
 				self.table.setItem(r, 1, QTableWidgetItem(str(char_count)))
 				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))  # Truncate datetime
+				
+				# Create copy button for column 3
+				copy_btn = QPushButton()
+				try:
+					copy_icon = qta.icon('fa6s.copy')
+					copy_btn.setIcon(copy_icon)
+				except Exception:
+					copy_btn.setText("Copy")
+				copy_btn.setFixedSize(40, 25)
+				copy_btn.setToolTip("Copy prompt to clipboard")
+				copy_btn.clicked.connect(lambda checked, text=prompt_text, pid=prompt_row[0]: self.copy_prompt_and_update_status(text, pid))
+				self.table.setCellWidget(r, 3, copy_btn)
+				
+				# Set row color based on status
+				copied_color = QColor(243, 200, 24, int(0.3 * 255))  # Gold with 30% opacity
+				if status == 'copied':
+					# Set background for all items in the row
+					for col in range(4):
+						item = self.table.item(r, col)
+						if item:
+							item.setBackground(copied_color)
+						else:
+							# Create empty item for columns that don't have items yet
+							empty_item = QTableWidgetItem("")
+							empty_item.setBackground(copied_color)
+							self.table.setItem(r, col, empty_item)
+					
+					# Style the button widget with matching color
+					copy_btn.setStyleSheet("""
+						QPushButton {
+							background-color: rgba(243, 200, 24, 77);
+							border: 1px solid #ccc;
+							border-radius: 3px;
+						}
+						QPushButton:hover {
+							background-color: rgba(243, 200, 24, 100);
+						}
+					""")
+				else:
+					# Reset button style for non-copied rows
+					copy_btn.setStyleSheet("")
+		
 		
 		# enable/disable buttons
 		self.prev_btn.setEnabled(self.current_page > 1)
@@ -857,8 +906,10 @@ class PromptGeneratorDialog(QDialog):
 			else:
 				self.total_prompts = 0
 			
-			# Get paginated data
-			if hasattr(self.db, 'get_generated_prompts_paginated'):
+			# Get paginated data with status
+			if hasattr(self.db, 'get_prompts_with_status_paginated'):
+				self.prompt_data = self.db.get_prompts_with_status_paginated(self.current_page, self.page_size)
+			elif hasattr(self.db, 'get_generated_prompts_paginated'):
 				self.prompt_data = self.db.get_generated_prompts_paginated(self.current_page, self.page_size)
 			else:
 				self.prompt_data = []
@@ -914,6 +965,7 @@ class PromptGeneratorDialog(QDialog):
 		
 		# Get full prompt text directly from table item
 		full_prompt = first_item.data(Qt.UserRole)
+		prompt_id = first_item.data(Qt.UserRole + 1)
 		if not full_prompt:
 			return
 		
@@ -924,8 +976,9 @@ class PromptGeneratorDialog(QDialog):
 			copy_icon = qta.icon('fa6s.copy')
 		except Exception:
 			copy_icon = None
-		copy_action = QAction(copy_icon, "Copy Prompt" if copy_icon else "Copy Prompt", self)
-		copy_action.triggered.connect(lambda: self.copy_prompt_text(full_prompt))
+		copy_action = QAction(copy_icon, "Copy Prompt (Ctrl+C)" if copy_icon else "Copy Prompt (Ctrl+C)", self)
+		copy_action.triggered.connect(lambda: self.copy_prompt_and_update_status(full_prompt, prompt_id))
+		copy_action.setShortcut(QKeySequence("Ctrl+C"))
 		menu.addAction(copy_action)
 		# Show menu at global position
 		menu.exec(self.table.viewport().mapToGlobal(pos))
@@ -946,6 +999,92 @@ class PromptGeneratorDialog(QDialog):
 			
 		except Exception as e:
 			print(f"Failed to copy prompt: {e}")
+
+	def copy_prompt_and_update_status(self, prompt_text, prompt_id):
+		"""Copy prompt to clipboard and update status to 'copied'"""
+		try:
+			# Copy to clipboard
+			clipboard = QGuiApplication.clipboard()
+			if clipboard:
+				clipboard.setText(prompt_text)
+				print(f"Prompt copied to clipboard: {prompt_text[:50]}...")
+				
+				# Update status in database
+				if self.db and hasattr(self.db, 'add_prompt_status'):
+					self.db.add_prompt_status(prompt_id, 'copied')
+					
+				# Force immediate UI update
+				self.refresh_table_immediately()
+				
+				# Show tooltip feedback with prompt preview
+				preview = (prompt_text[:80] + '...') if len(prompt_text) > 80 else prompt_text
+				tooltip_text = f"Copied: {preview}"
+				QToolTip.showText(QCursor.pos(), tooltip_text, self, msecShowTime=3000)
+			else:
+				print("Failed to access clipboard")
+				
+		except Exception as e:
+			print(f"Error copying prompt and updating status: {e}")
+
+	def refresh_table_immediately(self):
+		"""Force immediate table refresh for status updates"""
+		try:
+			# Save current page position
+			current_page = self.current_page
+			
+			# Reload data from database
+			self.load_prompts_from_db()
+			
+			# Ensure we stay on the same page
+			self.current_page = current_page
+			self.update_pagination()
+			
+			# Force widget repaint
+			self.table.repaint()
+			
+		except Exception as e:
+			print(f"Error refreshing table: {e}")
+
+	def table_key_press_event(self, event):
+		"""Handle keyboard shortcuts on table"""
+		# Call original key press event first
+		QTableWidget.keyPressEvent(self.table, event)
+		
+		# Handle Ctrl+C shortcut
+		if event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
+			# Get currently selected row
+			current_row = self.table.currentRow()
+			if current_row >= 0:
+				first_item = self.table.item(current_row, 0)
+				if first_item:
+					# Get prompt text and ID
+					prompt_text = first_item.data(Qt.UserRole)
+					prompt_id = first_item.data(Qt.UserRole + 1)
+					if prompt_text and prompt_id:
+						self.copy_prompt_and_update_status(prompt_text, prompt_id)
+						event.accept()
+						return
+		
+		# Handle other shortcuts if needed in the future
+		event.ignore()
+
+	def table_mouse_press_event(self, event):
+		"""Handle mouse press events on table including middle click"""
+		# Call original mouse press event first
+		QTableWidget.mousePressEvent(self.table, event)
+		
+		# Handle middle click
+		if event.button() == Qt.MiddleButton:
+			item = self.table.itemAt(event.pos())
+			if item:
+				row = item.row()
+				first_item = self.table.item(row, 0)
+				if first_item:
+					# Get prompt text and ID
+					prompt_text = first_item.data(Qt.UserRole)
+					prompt_id = first_item.data(Qt.UserRole + 1)
+					if prompt_text and prompt_id:
+						self.copy_prompt_and_update_status(prompt_text, prompt_id)
 
 	def copy_selected_prompt(self, prompt_id=None):
 		"""Copy the currently selected prompt (or given prompt_id) to clipboard."""

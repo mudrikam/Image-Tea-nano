@@ -80,6 +80,14 @@ class ImageTeaDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(prompt_id) REFERENCES generated_prompts(id)
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS generated_prompt_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt_id INTEGER,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(prompt_id) REFERENCES generated_prompts(id)
+            )''')
             conn.commit()
 
     def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None):
@@ -480,16 +488,20 @@ class ImageTeaDB:
         """Delete all generated prompts."""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
+            # Clear related status first to avoid orphans
+            c.execute('DELETE FROM generated_prompt_status')
             c.execute('DELETE FROM generated_prompts')
             conn.commit()
     
     def get_generated_prompts_paginated(self, page=1, page_size=20):
-        """Get generated prompts with pagination support"""
+        """Get generated prompts with pagination support including status"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             offset = (page - 1) * page_size
-            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at 
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at, 
+                       COALESCE(gps.status, 'pending') as status
                        FROM generated_prompts gp 
+                       LEFT JOIN generated_prompt_status gps ON gp.id = gps.prompt_id
                        ORDER BY gp.id DESC 
                        LIMIT ? OFFSET ?''', (page_size, offset))
             return c.fetchall()
@@ -609,4 +621,53 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('DELETE FROM imagen_generation_status')
+            conn.commit()
+
+    # --- Generated prompt status methods ---
+    def add_prompt_status(self, prompt_id, status='pending'):
+        """Add or update prompt status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            # Check if status already exists
+            c.execute('SELECT id FROM generated_prompt_status WHERE prompt_id=?', (prompt_id,))
+            row = c.fetchone()
+            if row:
+                # Update existing status
+                c.execute('''UPDATE generated_prompt_status 
+                           SET status=?, updated_at=CURRENT_TIMESTAMP 
+                           WHERE prompt_id=?''', (status, prompt_id))
+            else:
+                # Insert new status
+                c.execute('''INSERT INTO generated_prompt_status 
+                           (prompt_id, status) VALUES (?, ?)''', (prompt_id, status))
+            conn.commit()
+
+    def get_prompt_status(self, prompt_id):
+        """Get prompt status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT status, created_at, updated_at 
+                       FROM generated_prompt_status 
+                       WHERE prompt_id=?''', (prompt_id,))
+            row = c.fetchone()
+            return row[0] if row else 'pending'
+
+    def get_prompts_with_status_paginated(self, page=1, page_size=20):
+        """Get generated prompts with status using pagination"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            offset = (page - 1) * page_size
+            c.execute('''SELECT gp.id, gp.file_id, gp.prompt, gp.created_at,
+                       COALESCE(gps.status, 'pending') as status
+                       FROM generated_prompts gp 
+                       LEFT JOIN generated_prompt_status gps ON gp.id = gps.prompt_id
+                       ORDER BY gp.id DESC 
+                       LIMIT ? OFFSET ?''', (page_size, offset))
+            return c.fetchall()
+
+    def clear_all_prompt_status(self):
+        """Clear all prompt status records"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompt_status')
             conn.commit()
