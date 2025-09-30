@@ -976,7 +976,7 @@ class PromptGeneratorDialog(QDialog):
 			copy_icon = qta.icon('fa6s.copy')
 		except Exception:
 			copy_icon = None
-		copy_action = QAction(copy_icon, "Copy Prompt (Ctrl+C)" if copy_icon else "Copy Prompt (Ctrl+C)", self)
+		copy_action = QAction(copy_icon, "Copy Prompt" if copy_icon else "Copy Prompt", self)
 		copy_action.triggered.connect(lambda: self.copy_prompt_and_update_status(full_prompt, prompt_id))
 		copy_action.setShortcut(QKeySequence("Ctrl+C"))
 		menu.addAction(copy_action)
