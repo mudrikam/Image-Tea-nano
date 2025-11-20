@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout
-from PySide6.QtCore import Qt, QRect, QPoint, QSize
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal
+from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor
+from PySide6.QtCore import QUrl
 import os
 
 try:
@@ -216,6 +217,147 @@ class TagsPillWidget(QWidget):
         self.tags = []
         self.similar_indices = set()
 
+
+
+class ImagePreviewWidget(QGraphicsView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(160)
+        self.setMaximumHeight(220)
+        self.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setDragMode(QGraphicsView.NoDrag)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self._scene = QGraphicsScene(self)
+        self.setScene(self._scene)
+        self._pixmap_item = None
+        self._current_pixmap = None
+        self._filepath = None
+        self._zoom = 1.0
+        self._panning = False
+        self._pan_start = QPoint()
+        self._fit_done = False
+        self.setCursor(Qt.ArrowCursor)
+        self._no_preview_text = self._scene.addText("")
+        self._no_preview_text.setVisible(False)
+
+    def set_pixmap(self, pixmap, filepath=None):
+        self._scene.clear()
+        self._pixmap_item = None
+        self._current_pixmap = pixmap
+        self._filepath = filepath
+        self._zoom = 1.0
+        self._fit_done = False
+        if pixmap:
+            self._pixmap_item = self._scene.addPixmap(pixmap)
+            self._scene.setSceneRect(self._pixmap_item.boundingRect())
+            self.resetTransform()
+            self._fit_to_view()
+            self._no_preview_text = self._scene.addText("")
+            self._no_preview_text.setVisible(False)
+        else:
+            self._scene.setSceneRect(0, 0, self.width(), self.height())
+            self.resetTransform()
+            self._no_preview_text = self._scene.addText("No Preview")
+            self._no_preview_text.setDefaultTextColor(Qt.gray)
+            self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
+            self._no_preview_text.setVisible(True)
+
+    def clear(self):
+        self._scene.clear()
+        self._pixmap_item = None
+        self._current_pixmap = None
+        self._filepath = None
+        self._zoom = 1.0
+        self._fit_done = False
+        self.resetTransform()
+        self._no_preview_text = self._scene.addText("No Preview")
+        self._no_preview_text.setDefaultTextColor(Qt.gray)
+        self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
+        self._no_preview_text.setVisible(True)
+
+    def _fit_to_view(self):
+        if self._pixmap_item and not self._fit_done:
+            pix_rect = self._pixmap_item.boundingRect()
+            view_width = self.viewport().width()
+            if pix_rect.width() > 0 and view_width > 0:
+                scale_factor = view_width / pix_rect.width()
+                self.resetTransform()
+                self.scale(scale_factor, scale_factor)
+            else:
+                self.resetTransform()
+            try:
+                self.centerOn(self._pixmap_item)
+                h = self.horizontalScrollBar()
+                v = self.verticalScrollBar()
+                h.setValue((h.minimum() + h.maximum()) // 2)
+                v.setValue((v.minimum() + v.maximum()) // 2)
+            except Exception:
+                pass
+
+            self._fit_done = True
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_to_view()
+        if self._no_preview_text:
+            self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
+
+    def wheelEvent(self, event: QWheelEvent):
+        if self._pixmap_item is None:
+            return
+        angle = event.angleDelta().y()
+        factor = 1.25 if angle > 0 else 0.8
+        self._zoom *= factor
+        if self._zoom < 0.1:
+            self._zoom = 0.1
+            return
+        elif self._zoom > 10.0:
+            self._zoom = 10.0
+            return
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.scale(factor, factor)
+        self._fit_done = True
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self._pixmap_item is not None:
+            self._panning = True
+            self._pan_start = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
+        elif event.button() == Qt.RightButton:
+            self.reset_zoom()
+        super().mousePressEvent(event)
+
+    def reset_zoom(self):
+        self.resetTransform()
+        self._zoom = 1.0
+        self._fit_done = False
+        self._fit_to_view()
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._panning and self._pixmap_item is not None:
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton and self._panning:
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if self._filepath and os.path.exists(self._filepath):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._filepath))
+        super().mouseDoubleClickEvent(event)
+
+
 class PropertiesWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -240,13 +382,8 @@ class PropertiesWidget(QWidget):
         self.title_label = QLabel("<b>Properties</b>")
         self.content_layout.addWidget(self.title_label)
 
-        self.preview_label = QLabel()
-        self.preview_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.preview_label.setMinimumHeight(160)
-        self.preview_label.setMaximumHeight(220)
-        self.preview_label.setWordWrap(True)
-        self.content_layout.addWidget(self.preview_label)
+        self.preview_widget = ImagePreviewWidget()
+        self.content_layout.addWidget(self.preview_widget)
 
         self.fields = []
         self.labels = []
@@ -306,7 +443,7 @@ class PropertiesWidget(QWidget):
 
     def set_properties(self, row_data):
         if not row_data:
-            self.preview_label.clear()
+            self.preview_widget.clear()
             for i, field in enumerate(self.fields):
                 if isinstance(field, TagsPillWidget):
                     field.clear_tags()
@@ -378,7 +515,6 @@ class PropertiesWidget(QWidget):
                         break
                 if adobe_cat_id:
                     adobe_cat_text = adobe_map.get(str(adobe_cat_id), str(adobe_cat_id))
-                
                 # Get file type
                 file_types = db.get_file_types(file_id)
                 if file_types:
@@ -411,14 +547,10 @@ class PropertiesWidget(QWidget):
         filepath = values[0]
         if filepath == self._last_preview_filepath and filepath in self._preview_cache:
             pixmap = self._preview_cache[filepath]
-            self.preview_label.clear()
-            if pixmap:
-                self.preview_label.setPixmap(pixmap)
-            else:
-                self.preview_label.setText("Cannot preview image")
+            self.preview_widget.set_pixmap(pixmap, filepath)
             return
 
-        self.preview_label.clear()
+        self.preview_widget.clear()
         self._last_preview_filepath = filepath
 
         if filepath and os.path.exists(filepath):
@@ -436,17 +568,15 @@ class PropertiesWidget(QWidget):
                         bytes_per_line = ch * w
                         qimg = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
                         pixmap = QPixmap.fromImage(qimg)
-                        preview_width = self.preview_label.width() if self.preview_label.width() > 0 else 220
-                        pixmap = pixmap.scaled(preview_width, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         self._preview_cache[filepath] = pixmap
-                        self.preview_label.setPixmap(pixmap)
+                        self.preview_widget.set_pixmap(pixmap, filepath)
                     else:
                         self._preview_cache[filepath] = None
-                        self.preview_label.setText("Cannot preview video")
+                        self.preview_widget.clear()
                 except Exception as e:
                     print(f"Video preview error: {e}")
                     self._preview_cache[filepath] = None
-                    self.preview_label.setText("Cannot preview video")
+                    self.preview_widget.clear()
             elif ext in {'.svg', '.eps', '.pdf'}:
                 try:
                     temp_jpg = None
@@ -465,27 +595,23 @@ class PropertiesWidget(QWidget):
                     if temp_jpg and os.path.exists(temp_jpg):
                         pixmap = QPixmap(temp_jpg)
                         if not pixmap.isNull():
-                            preview_width = self.preview_label.width() if self.preview_label.width() > 0 else 220
-                            pixmap = pixmap.scaled(preview_width, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             self._preview_cache[filepath] = pixmap
-                            self.preview_label.setPixmap(pixmap)
+                            self.preview_widget.set_pixmap(pixmap, filepath)
                         else:
                             self._preview_cache[filepath] = None
-                            self.preview_label.setText("Cannot preview image")
+                            self.preview_widget.clear()
                     else:
                         self._preview_cache[filepath] = None
-                        self.preview_label.setText("Cannot preview image")
+                        self.preview_widget.clear()
                 except Exception as e:
                     print(f"Vector preview error: {e}")
                     self._preview_cache[filepath] = None
-                    self.preview_label.setText("Cannot preview image")
+                    self.preview_widget.clear()
             elif ext in PILLOW_FORMATS:
                 pixmap = QPixmap(filepath)
                 if not pixmap.isNull():
-                    preview_width = self.preview_label.width() if self.preview_label.width() > 0 else 220
-                    pixmap = pixmap.scaled(preview_width, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self._preview_cache[filepath] = pixmap
-                    self.preview_label.setPixmap(pixmap)
+                    self.preview_widget.set_pixmap(pixmap, filepath)
                 else:
                     try:
                         with Image.open(filepath) as img:
@@ -493,17 +619,15 @@ class PropertiesWidget(QWidget):
                             data = img.tobytes("raw", "RGBA")
                             qimg = QImage(data, img.width, img.height, QImage.Format_RGBA8888)
                             pixmap = QPixmap.fromImage(qimg)
-                            preview_width = self.preview_label.width() if self.preview_label.width() > 0 else 220
-                            pixmap = pixmap.scaled(preview_width, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             self._preview_cache[filepath] = pixmap
-                            self.preview_label.setPixmap(pixmap)
+                            self.preview_widget.set_pixmap(pixmap, filepath)
                     except Exception as e:
                         print(f"Pillow preview error: {e}")
                         self._preview_cache[filepath] = None
-                        self.preview_label.setText("Cannot preview image")
+                        self.preview_widget.clear()
             else:
                 self._preview_cache[filepath] = None
-                self.preview_label.setText("Cannot preview image")
+                self.preview_widget.clear()
         else:
             self._preview_cache[filepath] = None
-            self.preview_label.setText("No preview")
+            self.preview_widget.clear()

@@ -200,7 +200,9 @@ class FileMetadataDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         save_btn = QPushButton("Save")
+        save_btn.setIcon(qta.icon("fa6s.floppy-disk"))
         close_btn = QPushButton("Close")
+        close_btn.setIcon(qta.icon("fa6s.xmark"))
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)

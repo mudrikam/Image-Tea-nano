@@ -7,6 +7,8 @@ from google.genai import types
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from helpers.image_compression_helper import compress_and_save_image
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
 
 _generation_times_gemini = []
 
@@ -201,7 +203,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             waited = 0
             while waited < max_wait_seconds:
                 if stop_flag and stop_flag.get('stop'):
-                    return '', '', '', '', 0, 0, 0
+                    return '', '', '', '', '', 0, 0, 0
                 fileinfo = client.files.get(name=file_id)
                 status = getattr(fileinfo, 'state', None) or getattr(fileinfo, 'status', None)
                 if status == 'ACTIVE':
@@ -290,8 +292,41 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             description = sanitize_text(description)
         return title, description, tags, category, filetype, error_message, token_input, token_output, token_total
     except Exception as e:
-        print(f"[Gemini ERROR] {e}")
-        return '', '', '', {}, '', f"[Gemini ERROR] {e}", 0, 0, 0
+        err_str = str(e)
+        print(f"[Gemini ERROR] {err_str}")
+        code = None
+        status = None
+        try:
+            if hasattr(e, 'code'):
+                code = getattr(e, 'code')
+            elif hasattr(e, 'status_code'):
+                code = getattr(e, 'status_code')
+            else:
+                m = re.search(r"(\b\d{3}\b)", err_str)
+                if m:
+                    code = m.group(1)
+                elif 'rate limit' in err_str.lower() or 'quota' in err_str.lower():
+                    code = '429'
+            m = re.search(r"['\"]status['\"]\s*[:=]\s*['\"]([^'\"]+)['\"]", err_str)
+            if m:
+                status = m.group(1)
+        except Exception:
+            pass
+        try:
+            if code or ('quota' in err_str.lower()) or ('rate limit' in err_str.lower()):
+                signature = str(code) if not status else f"{code}|{status}"
+                try:
+                    from dialogs.ai_helper_error_code_dialog import invoker
+                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path))
+                    # Kirim error code ke buffer untuk file ini
+                    if signature in invoker._buffer:
+                        error_code_map = invoker._buffer[signature].setdefault('error_code_map', {})
+                        error_code_map[os.path.basename(image_path)] = code
+                except Exception:
+                    print("[Dialog Error] Failed to show error dialog")
+        except Exception:
+            pass
+        return '', '', '', {}, '', f"[Gemini ERROR] {err_str}", 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_gemini_generation_time(duration_ms)

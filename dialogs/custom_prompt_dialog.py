@@ -1,6 +1,8 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout
 import os
 import json
+import qtawesome as qta
+from PySide6.QtGui import QIcon
 from config import BASE_PATH
 
 class CustomPromptDialog(QDialog):
@@ -14,10 +16,17 @@ class CustomPromptDialog(QDialog):
         layout.addWidget(self.text_edit)
 
         btn_layout = QHBoxLayout()
-        self.apply_btn = QPushButton("Apply", self)
-        self.apply_btn.clicked.connect(self.save_and_close)
+        self.cancel_btn = QPushButton("Cancel", self)
+        self.cancel_btn.setIcon(qta.icon("fa6s.xmark"))
+        self.cancel_btn.clicked.connect(self.reject)
+
+        self.save_btn = QPushButton("Save", self)
+        self.save_btn.setIcon(qta.icon("fa6s.floppy-disk"))
+        self.save_btn.clicked.connect(self.save_and_close)
+
         btn_layout.addStretch()
-        btn_layout.addWidget(self.apply_btn)
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
 
         self.config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
