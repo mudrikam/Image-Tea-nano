@@ -555,7 +555,15 @@ class _DialogInvoker(QObject):
             file_map = entry.get('file_map', {})
             error_code_map = entry.get('error_code_map', {})
             dlg = AIHelperErrorCodeDialog(code, aggregated, parent, status=status, filenames=filenames, file_map=file_map, error_code_map=error_code_map)
-            dlg.exec_()
+            try:
+                dlg.show()
+                try:
+                    dlg.raise_()
+                    dlg.activateWindow()
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[Dialog Show Error] {e}")
         except Exception as e:
             print(f"[Dialog Invoker Flush Error] {e}")
 
