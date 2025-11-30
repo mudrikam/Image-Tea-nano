@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QSpacerItem, QSizePolicy, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent
-from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage
+from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage, QFont
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from ui.file_dnd_widget import DragDropWidget
@@ -23,17 +23,14 @@ class NoDataWidget(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(10)
         
-        # Icon
         self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
         self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
         
-        # Text
         self.text_label = QLabel("No files to load")
         self.text_label.setAlignment(Qt.AlignCenter)
         self.text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
         
-        # Sub text
         self.sub_text = QLabel("Import files or drag and drop files here")
         self.sub_text.setAlignment(Qt.AlignCenter)
         self.sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
@@ -44,7 +41,6 @@ class NoDataWidget(QWidget):
         layout.addWidget(self.sub_text)
         layout.addStretch(1)
         
-        # Initialize drag and drop functionality
         video_exts = {
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
@@ -96,7 +92,6 @@ class FlowLayout(QLayout):
     def addItem(self, item):
         self._itemList.append(item)
         self.updateGeometry()
-        # Force immediate layout update to prevent stacking
         self.invalidate()
 
     def count(self):
@@ -124,7 +119,6 @@ class FlowLayout(QLayout):
     def setGeometry(self, rect):
         super().setGeometry(rect)
         self.doLayout(rect, False)
-        # Force immediate update of all items
         self.update()
 
     def sizeHint(self):
@@ -145,7 +139,6 @@ class FlowLayout(QLayout):
         right = rect.x() + rect.width()
         margin = self.contentsMargins()
         
-        # Ensure we have a valid width
         if right <= x:
             return 0
         
@@ -159,10 +152,9 @@ class FlowLayout(QLayout):
             itemSize = item.sizeHint()
             nextX = x + itemSize.width() + spaceX
             
-            # Check if we need to wrap to next line
             if nextX - spaceX > right and x > rect.x():
-                x = rect.x()  # Reset to left margin
-                y = y + lineHeight + spaceY  # Move to next line
+                x = rect.x()
+                y = y + lineHeight + spaceY
                 nextX = x + itemSize.width() + spaceX
                 lineHeight = 0
                 
@@ -189,13 +181,14 @@ class FlowLayout(QLayout):
         parent = self.parentWidget()
         if parent is not None:
             parent.updateGeometry()
-            # Ensure proper layout refresh
             self.update()
 
 class GridManager:
     def __init__(self):
         self.image_items = []
         self.image_size = 150
+        # pixmap cache target size (store higher-res cache to avoid blur when scaling up)
+        self._pixmap_cache_size = max(300, self.image_size * 2)
         self.grid_spacing = 10
         self.active_image = None
         self._widget_cache = {}
@@ -206,6 +199,94 @@ class GridManager:
 
     def set_status_color_func(self, func):
         self._status_color_func = func
+
+    def set_image_size(self, new_size):
+        """Update image_size and resize widgets.
+
+        If regenerate_cache is False, only resize widgets and reuse existing cached pixmaps (fast).
+        If regenerate_cache is True, clear and rebuild high-res cache then update widgets (slower).
+        """
+        def _clamp_size(s):
+            try:
+                s = int(s)
+            except Exception:
+                return None
+            return max(48, min(600, s))
+
+        size = _clamp_size(new_size)
+        if size is None:
+            return
+        if size == self.image_size:
+            return
+
+        regenerate_cache = True
+        self.image_size = size
+
+        self._pixmap_cache_size = max(300, min(1200, int(self.image_size * 2)))
+
+        for filepath, widget in list(self._widget_cache.items()):
+            try:
+                image_label = None
+                text_label = None
+                lbls = [c for c in widget.findChildren(QLabel)]
+                if lbls:
+                    image_label = lbls[0]
+                    if len(lbls) > 1:
+                        text_label = lbls[1]
+
+                if image_label:
+                    image_label.setFixedSize(self.image_size, self.image_size)
+                    try:
+                        if filepath in self._pixmap_cache and self._pixmap_cache[filepath] is not None:
+                            cache_pix = self._pixmap_cache[filepath]
+                            pix = cache_pix.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            image_label.setPixmap(pix)
+                        else:
+                            # fallback: set scaled QPixmap directly (may be slower)
+                            pm = QPixmap(filepath)
+                            if not pm.isNull():
+                                pm = pm.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                                image_label.setPixmap(pm)
+                    except Exception:
+                        pass
+                if text_label:
+                    text_label.setFixedWidth(self.image_size)
+                widget.setFixedWidth(self.image_size + 10)
+            except Exception as e:
+                print(f"Error resizing widget for {filepath}: {e}")
+
+    def regenerate_pixmap_cache(self):
+        """Regenerate high-resolution pixmap cache for all known filepaths.
+
+        This is somewhat expensive and intended to be called after user stops resizing (debounced).
+        """
+        try:
+            self._pixmap_cache_size = max(300, min(1200, int(self.image_size * 2)))
+        except Exception:
+            self._pixmap_cache_size = max(300, self.image_size * 2)
+
+        self._pixmap_cache.clear()
+
+        for filepath in list(self._widget_cache.keys()):
+            try:
+                orig = QPixmap(filepath)
+                if orig and not orig.isNull():
+                    cached = orig.scaled(self._pixmap_cache_size, self._pixmap_cache_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self._pixmap_cache[filepath] = cached
+            except Exception as e:
+                print(f"Error generating cache for {filepath}: {e}")
+
+        for filepath, widget in list(self._widget_cache.items()):
+            try:
+                lbls = [c for c in widget.findChildren(QLabel)]
+                if not lbls:
+                    continue
+                image_label = lbls[0]
+                if filepath in self._pixmap_cache and self._pixmap_cache[filepath] is not None:
+                    pix = self._pixmap_cache[filepath].scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    image_label.setPixmap(pix)
+            except Exception:
+                pass
 
     def set_checked_filepaths(self, checked_filepaths):
         self._checked_filepaths = set(checked_filepaths)
@@ -255,7 +336,6 @@ class GridManager:
 
         if cache_key in self._widget_cache:
             widget = self._widget_cache[cache_key]
-            # Update border color if status changed
             self._set_image(widget.findChild(QLabel), filepath, status)
             widget.setProperty("file_info", file_info)
             return widget
@@ -306,15 +386,37 @@ class GridManager:
             parent_widget = parent_widget.parent()
         pixmap = None
         if preview_func:
-            pixmap = preview_func(image_path, self.image_size)
+            try:
+                cache_target = getattr(self, '_pixmap_cache_size', max(self.image_size * 2, 300))
+                preview_pm = preview_func(image_path, cache_target)
+            except Exception:
+                preview_pm = preview_func(image_path, self.image_size)
+
+            if preview_pm and not preview_pm.isNull():
+                try:
+                    if image_path not in self._pixmap_cache:
+                        cached = preview_pm.scaled(self._pixmap_cache_size, self._pixmap_cache_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        self._pixmap_cache[image_path] = cached
+                except Exception:
+                    pass
+                cache_pix = self._pixmap_cache.get(image_path, preview_pm)
+                if cache_pix and not cache_pix.isNull():
+                    pixmap = cache_pix.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         else:
+            cache_pix = None
             if image_path in self._pixmap_cache:
-                pixmap = self._pixmap_cache[image_path]
+                cache_pix = self._pixmap_cache[image_path]
             else:
-                pixmap = QPixmap(image_path)
-                if not pixmap.isNull():
-                    pixmap = pixmap.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self._pixmap_cache[image_path] = pixmap
+                orig = QPixmap(image_path)
+                if not orig.isNull():
+                    try:
+                        cache_pix = orig.scaled(self._pixmap_cache_size, self._pixmap_cache_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    except Exception:
+                        cache_pix = orig.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self._pixmap_cache[image_path] = cache_pix
+            if cache_pix and not cache_pix.isNull():
+                pixmap = cache_pix.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
         if pixmap and not pixmap.isNull():
             label.setPixmap(pixmap)
         else:
@@ -439,45 +541,66 @@ class GridManager:
             file_info = widget.property("file_info")
             if not file_info:
                 return
+
             backend_row = None
-            # Look for row in current page first, then search in database if not found
-            for row in self._current_rows:
-                if row[1] == file_info['filepath']:
-                    backend_row = row
-                    break
-            
-            # If not found in current page, search in database
-            if backend_row is None:
-                all_files = self.db.get_all_files()
+
+            current_rows = getattr(self, '_current_rows', None)
+            db = getattr(self, 'db', None)
+            parent = widget.parent()
+            while parent is not None and (current_rows is None or db is None):
+                if current_rows is None and hasattr(parent, '_current_rows'):
+                    current_rows = getattr(parent, '_current_rows')
+                if db is None and hasattr(parent, 'db'):
+                    db = getattr(parent, 'db')
+                parent = parent.parent()
+
+            if current_rows:
+                for row in current_rows:
+                    try:
+                        if row[1] == file_info['filepath']:
+                            backend_row = row
+                            break
+                    except Exception:
+                        continue
+
+            if backend_row is None and db is not None:
+                all_files = db.get_all_files()
                 for row in all_files:
                     if row[1] == file_info['filepath']:
                         backend_row = row
                         break
-            
+
             if backend_row is None:
                 print(f"Error: backend_row not found for filepath {file_info['filepath']}")
                 return
+
             menu = QMenu(widget)
             edit_icon = qta.icon("fa6s.pen-to-square")
             edit_action = QAction(edit_icon, "Edit metadata", widget)
             edit_action.triggered.connect(lambda: self._open_metadata_dialog_from_grid(widget))
             menu.addAction(edit_action)
+
             filename = backend_row[2]
             title = backend_row[3]
             description = backend_row[4]
             tags = backend_row[5]
+
             copy_filename_action = QAction(qta.icon("fa6s.copy"), "Copy Filename", widget)
             copy_filename_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(filename, "Filename", event))
             menu.addAction(copy_filename_action)
+
             copy_title_action = QAction(qta.icon("fa6s.copy"), "Copy Title", widget)
             copy_title_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(title, "Title", event))
             menu.addAction(copy_title_action)
+
             copy_desc_action = QAction(qta.icon("fa6s.copy"), "Copy Description", widget)
             copy_desc_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(description, "Description", event))
             menu.addAction(copy_desc_action)
+
             copy_tags_action = QAction(qta.icon("fa6s.copy"), "Copy Keyword", widget)
             copy_tags_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(tags, "Keyword", event))
             menu.addAction(copy_tags_action)
+
             menu.exec(event.globalPos() if hasattr(event, "globalPos") else widget.mapToGlobal(event.pos()))
         except Exception as e:
             print(f"Error showing context menu in grid: {e}")
@@ -522,7 +645,6 @@ class DragDropScrollArea(QScrollArea):
         super().__init__(parent)
         self.setAcceptDrops(True)
         
-        # Initialize drag and drop functionality
         video_exts = {
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
@@ -558,7 +680,6 @@ class DragDropThumbnailTab(QWidget):
         self.setAcceptDrops(True)
         self._parent_table = parent
         
-        # Initialize drag and drop functionality
         video_exts = {
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
@@ -594,7 +715,6 @@ class DragDropTableTab(QWidget):
         self.setAcceptDrops(True)
         self._parent_table = parent
         
-        # Initialize drag and drop functionality
         video_exts = {
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
@@ -633,15 +753,14 @@ class ImageTableWidget(QWidget):
         self._properties_widget = getattr(parent, "properties_widget", None)
         self._main_window = parent
         
-        # Pagination state
         self.current_page = 1
         self.page_size = 20
         self.total_count = 0
         self.search_text = ""
-        self._page_cache = {}  # Cache data per page
-        self._current_rows = []  # Current page rows
-        self._refreshing_details = False  # Flag to prevent multiple refresh calls
-        self._refreshing_thumbnails = False  # Flag to prevent multiple thumbnail refresh calls
+        self._page_cache = {}
+        self._current_rows = []
+        self._refreshing_details = False
+        self._refreshing_thumbnails = False
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -650,12 +769,10 @@ class ImageTableWidget(QWidget):
         self.search_edit.setPlaceholderText("Search...")
         self.search_edit.setClearButtonEnabled(False)
         
-        # Setup search timer for delayed search (wait for user to finish typing)
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
         self.search_timer.timeout.connect(self._perform_search)
         
-        # Connect to text changed with delay
         self.search_edit.textChanged.connect(self._on_search_text_changed_delayed)
         search_icon_btn = QPushButton(self)
         search_icon_btn.setIcon(qta.icon("fa6s.magnifying-glass"))
@@ -685,7 +802,6 @@ class ImageTableWidget(QWidget):
         reload_btn.setToolTip("Reload/refresh data from database")
         reload_btn.clicked.connect(self._on_reload_clicked)
         
-        # Pagination controls
         self.prev_btn = QPushButton(self)
         self.prev_btn.setIcon(qta.icon("fa6s.chevron-left"))
         self.prev_btn.setFlat(True)
@@ -736,12 +852,10 @@ class ImageTableWidget(QWidget):
         self.tab_widget = QTabWidget(self)
         self.layout.addWidget(self.tab_widget)
         
-        # Table tab
         self.table_tab = DragDropTableTab(self)
         self.table_tab_layout = QVBoxLayout(self.table_tab)
         self.table_tab_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Drop Files tab
         self.add_files_tab = QWidget()
         self.add_files_tab_layout = QVBoxLayout(self.add_files_tab)
         self.add_files_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -749,7 +863,6 @@ class ImageTableWidget(QWidget):
         self.dnd_widget = DragDropWidget(self.add_files_tab)
         self.add_files_tab_layout.addWidget(self.dnd_widget)
         
-        # Table container with overlay support
         table_container = QWidget()
         table_container_layout = QVBoxLayout(table_container)
         table_container_layout.setContentsMargins(0, 0, 0, 0)
@@ -765,7 +878,6 @@ class ImageTableWidget(QWidget):
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         table_container_layout.addWidget(self.table)
         
-        # No data overlay for table (initially hidden)
         self.table_no_data_overlay = NoDataWidget()
         self.table_no_data_overlay.setVisible(False)
         table_container_layout.addWidget(self.table_no_data_overlay)
@@ -788,7 +900,6 @@ class ImageTableWidget(QWidget):
         self.thumbnail_flow = FlowLayout(margin=10, spacing=10)
         self.thumbnail_content.setLayout(self.thumbnail_flow)
         
-        # No data overlay for thumbnails (initially hidden)
         self.thumbnail_no_data_overlay = NoDataWidget()
         self.thumbnail_no_data_overlay.setVisible(False)
         self.thumbnail_tab_layout.addWidget(self.thumbnail_no_data_overlay)
@@ -800,21 +911,22 @@ class ImageTableWidget(QWidget):
         self.details_scroll = QScrollArea(self.details_tab)
         self.details_scroll.setWidgetResizable(True)
         self.details_scroll.setFrameShape(QFrame.NoFrame)
+        self.details_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.details_tab_layout.addWidget(self.details_scroll)
         self.details_content = QWidget()
+        self.details_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.details_scroll.setWidget(self.details_content)
         self.details_vbox = QVBoxLayout(self.details_content)
         self.details_vbox.setContentsMargins(10, 10, 10, 10)
         self.details_vbox.setSpacing(10)
+        self.details_vbox.setAlignment(Qt.AlignTop)
         
-        # No data overlay for details (initially hidden)
         self.details_no_data_overlay = NoDataWidget()
         self.details_no_data_overlay.setVisible(False)
         self.details_tab_layout.addWidget(self.details_no_data_overlay)
         
         self.tab_widget.addTab(self.details_tab, "Details")
         
-        # Add all tabs in proper order (ensuring Drop Files tab is properly positioned)
         self.tab_widget.clear()
         self.tab_widget.addTab(self.table_tab, "Table")
         self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail") 
@@ -844,7 +956,7 @@ class ImageTableWidget(QWidget):
         
         self.layout.addLayout(progress_layout)
         
-        self.details_card_cache = {}  # cache for details cards
+        self.details_card_cache = {}
         self._donation_dialog_shown = False
         self.table.selectionModel().selectionChanged.connect(self._emit_stats)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -852,24 +964,67 @@ class ImageTableWidget(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-        self._current_rows = []  # Current page data
+        self._current_rows = []
         self.grid_manager = GridManager()
         self.grid_manager.set_status_color_func(self._status_color)
         self.grid_manager.setup_grid_click_handler(self.thumbnail_content, self._on_thumbnail_clicked)
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         self._inject_open_metadata_dialog_for_grid()
-        
-        # Install event filter for resize events
         self.thumbnail_scroll.installEventFilter(self)
+        # Also install on viewport to capture wheel events reliably
+        try:
+            self.thumbnail_scroll.viewport().installEventFilter(self)
+        except Exception:
+            pass
+
+        # Debounce timer for regenerating high-res thumbnail cache after user stops Ctrl+scroll
+        self._pending_thumb_size = None
+        self._thumb_resize_timer = QTimer(self)
+        self._thumb_resize_timer.setSingleShot(True)
+        self._thumb_resize_timer.setInterval(300)
+        self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
         
         self.refresh_table()
 
     def eventFilter(self, obj, event):
         """Handle resize events to force thumbnail layout refresh"""
+        # Resize -> refresh layout
         if obj == self.thumbnail_scroll and event.type() == QEvent.Resize:
-            # Only refresh if we're on thumbnail tab
             if self.tab_widget.currentIndex() == 1:
                 QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
+                return True
+
+        # Wheel with Ctrl -> resize thumbnails
+        if event.type() == QEvent.Wheel and self.tab_widget.currentIndex() == 1:
+            # wheel events may come from scroll area or its viewport
+            if obj in (self.thumbnail_scroll, self.thumbnail_scroll.viewport(), self.thumbnail_content):
+                from PySide6.QtWidgets import QApplication
+                mods = QApplication.keyboardModifiers()
+                if mods & Qt.ControlModifier:
+                    # angleDelta is a QPoint; vertical delta in .y()
+                    delta = 0
+                    try:
+                        delta = event.angleDelta().y()
+                    except Exception:
+                        pass
+                    if delta == 0:
+                        return True
+                    steps = delta / 120.0
+                    step_size = 12
+                    new_size = int(self.grid_manager.image_size + steps * step_size)
+                    # clamp
+                    new_size = max(48, min(600, new_size))
+
+                    # Immediate fast resize (reuse existing cache) so UI feels responsive
+                    self.grid_manager.set_image_size(new_size)
+                    # schedule debounced regeneration of high-res cache
+                    self._pending_thumb_size = new_size
+                    self._thumb_resize_timer.start()
+
+                    # quick layout refresh so thumbnails immediately rearrange
+                    QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
+                    return True
+
         return super().eventFilter(obj, event)
 
     def _inject_open_metadata_dialog_for_grid(self):
@@ -884,10 +1039,10 @@ class ImageTableWidget(QWidget):
         self._open_metadata_dialog_by_filepath = _open_metadata_dialog_by_filepath
 
     def _on_reload_clicked(self):
-        self._page_cache.clear()  # Clear pagination cache
+        self._page_cache.clear()
         self.refresh_table()
         # Force thumbnail layout refresh if we're on thumbnail tab
-        if self.tab_widget.currentIndex() == 1:  # Thumbnail tab
+        if self.tab_widget.currentIndex() == 1:
             QTimer.singleShot(100, self._force_thumbnail_layout_refresh)
 
     def _on_prev_page(self):
@@ -915,23 +1070,20 @@ class ImageTableWidget(QWidget):
         new_size = int(size_text)
         if new_size != self.page_size:
             self.page_size = new_size
-            self.current_page = 1  # Reset to first page
+            self.current_page = 1
             self.page_spinner.setValue(1)
-            self._page_cache.clear()  # Clear cache
+            self._page_cache.clear()
             self._load_page_data()
             self._update_pagination_ui()
 
     def _update_pagination_ui(self):
         total_pages = max(1, (self.total_count + self.page_size - 1) // self.page_size)
         
-        # Update spinner
         self.page_spinner.setMaximum(total_pages)
         self.page_spinner.setValue(self.current_page)
         
-        # Update total pages label
         self.total_pages_label.setText(f"/{total_pages}")
         
-        # Update button states
         self.prev_btn.setEnabled(self.current_page > 1)
         self.next_btn.setEnabled(self.current_page < total_pages)
 
@@ -952,7 +1104,6 @@ class ImageTableWidget(QWidget):
         self._populate_table_with_rows(self._current_rows)
         self._emit_stats()
         
-        # Update tabs if they are active
         if self.tab_widget.currentIndex() == 1:
             self.refresh_thumbnail_grid()
             # Force layout refresh after a short delay
@@ -965,12 +1116,10 @@ class ImageTableWidget(QWidget):
         self.table.setRowCount(0)
         
         if not rows:
-            # Hide table, show no data overlay
             self.table.setVisible(False)
             self.table_no_data_overlay.setVisible(True)
             return
         else:
-            # Show table, hide no data overlay
             self.table.setVisible(True)
             self.table_no_data_overlay.setVisible(False)
         
@@ -1021,6 +1170,19 @@ class ImageTableWidget(QWidget):
             self._sync_thumbnail_selection_with_table()
         elif self.tab_widget.tabText(idx) == "Details":
             self._refresh_details_cards()
+
+    def _apply_debounced_thumbnail_resize(self):
+        """Apply the debounced high-res cache regeneration after user stops resizing thumbnails."""
+        try:
+            if getattr(self, '_pending_thumb_size', None) is None:
+                return
+            target = int(self._pending_thumb_size)
+            self.grid_manager.image_size = target
+            self.grid_manager.regenerate_pixmap_cache()
+            # force layout refresh
+            QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
+        finally:
+            self._pending_thumb_size = None
 
     def _force_thumbnail_layout_refresh(self):
         """Force thumbnail layout to refresh properly"""
@@ -1085,8 +1247,8 @@ class ImageTableWidget(QWidget):
         
         # Perform the search
         self.search_text = text
-        self.current_page = 1  # Reset to first page on search
-        self._page_cache.clear()  # Clear cache
+        self.current_page = 1
+        self._page_cache.clear()
         self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
         self._load_page_data()
         self._update_pagination_ui()
@@ -1635,6 +1797,7 @@ class ImageTableWidget(QWidget):
         card_hbox = QHBoxLayout(frame)
         card_hbox.setContentsMargins(8, 8, 8, 8)
         card_hbox.setSpacing(12)
+
         thumb = QLabel()
         thumb.setFixedSize(150, 150)
         thumb.setAlignment(Qt.AlignCenter)
@@ -1645,13 +1808,16 @@ class ImageTableWidget(QWidget):
         else:
             thumb.setText("Cannot preview image")
         card_hbox.addWidget(thumb)
+
         vbox = QVBoxLayout()
-        vbox.setSpacing(2)
+        vbox.setSpacing(8)
+
         filename = row[2]
         title = row[3] if len(row) > 3 and row[3] is not None else ""
         desc = row[4] if len(row) > 4 and row[4] is not None else ""
         tags = row[5] if len(row) > 5 and row[5] is not None else ""
         status = row[6] if len(row) > 6 and row[6] is not None else ""
+
         db = self.db
         shutterstock_map = {}
         adobe_map = {}
@@ -1672,43 +1838,77 @@ class ImageTableWidget(QWidget):
                             secondary_val = shutterstock_map.get(str(m["category_id"]), "-")
                     elif m["platform"] == "adobe_stock":
                         adobe_val = adobe_map.get(str(m["category_id"]), "-")
-        label_filename = QLabel(f"Filename: {filename}")
-        label_filename.setWordWrap(True)
-        label_title = QLabel(f"Title: {title}")
-        label_title.setWordWrap(True)
-        label_desc = QLabel(f"Description: {desc}")
-        label_desc.setWordWrap(True)
-        label_tags = QLabel(f"Tags: {tags}")
-        label_tags.setWordWrap(True)
-        label_status = QLabel(f"Status: {status}")
-        label_status.setWordWrap(True)
-        # Set status color
+
+        # Helper to create a single row with icon, label name and value
+        def make_row(icon_name, label_text, value_text):
+            row_widget = QWidget()
+            row_h = QHBoxLayout(row_widget)
+            row_h.setContentsMargins(0, 0, 0, 0)
+            row_h.setSpacing(8)
+
+            icon_lbl = QLabel()
+            icon_pix = qta.icon(icon_name).pixmap(16, 16)
+            icon_lbl.setPixmap(icon_pix)
+            icon_lbl.setFixedWidth(20)
+
+            name_lbl = QLabel(f"{label_text}:")
+            f = QFont()
+            f.setBold(True)
+            name_lbl.setFont(f)
+            name_lbl.setFixedWidth(120)
+
+            value_lbl = QLabel(value_text)
+            value_lbl.setWordWrap(True)
+
+            row_h.addWidget(icon_lbl)
+            row_h.addWidget(name_lbl)
+            row_h.addWidget(value_lbl, 1)
+
+            return row_widget, value_lbl
+
+        # Create rows
+        r1, val_filename = make_row("fa6s.file", "Filename", filename)
+        r2, val_title = make_row("fa6s.heading", "Title", title)
+        r3, val_desc = make_row("fa6s.align-left", "Description", desc)
+        r4, val_tags = make_row("fa6s.tags", "Tags", tags)
+        r5, val_status = make_row("fa6s.circle-info", "Status", status)
+
+        # Set status color on value label
         color = self._status_color(status)
-        label_status.setStyleSheet(f"color: rgb({color.red()}, {color.green()}, {color.blue()});")
-        label_cat_primary = QLabel(f"Shutterstock Primary: {primary_val}")
-        label_cat_primary.setWordWrap(True)
-        label_cat_secondary = QLabel(f"Shutterstock Secondary: {secondary_val}")
-        label_cat_secondary.setWordWrap(True)
-        label_cat_adobe = QLabel(f"Adobe Stock Category: {adobe_val}")
-        label_cat_adobe.setWordWrap(True)
-        vbox.addWidget(label_filename)
-        vbox.addWidget(label_title)
-        vbox.addWidget(label_desc)
-        vbox.addWidget(label_tags)
-        vbox.addWidget(label_status)
-        vbox.addWidget(label_cat_primary)
-        vbox.addWidget(label_cat_secondary)
-        vbox.addWidget(label_cat_adobe)
+        val_status.setStyleSheet(f"color: rgb({color.red()}, {color.green()}, {color.blue()});")
+
+        vbox.addWidget(r1)
+        vbox.addWidget(r2)
+        vbox.addWidget(r3)
+        vbox.addWidget(r4)
+        vbox.addWidget(r5)
+
+        # Add horizontal separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        vbox.addWidget(sep)
+
+        # Categories
+        r6, val_cat_primary = make_row("fa6s.shapes", "Shutterstock Primary", primary_val)
+        r7, val_cat_secondary = make_row("fa6s.layer-group", "Shutterstock Secondary", secondary_val)
+        r8, val_cat_adobe = make_row("fa6s.briefcase", "Adobe Stock Category", adobe_val)
+        vbox.addWidget(r6)
+        vbox.addWidget(r7)
+        vbox.addWidget(r8)
+
         card_hbox.addLayout(vbox)
+
+        # store references for updates (value labels only)
         frame._details_thumb = thumb
-        frame._details_label_filename = label_filename
-        frame._details_label_title = label_title
-        frame._details_label_desc = label_desc
-        frame._details_label_tags = label_tags
-        frame._details_label_status = label_status
-        frame._details_label_cat_primary = label_cat_primary
-        frame._details_label_cat_secondary = label_cat_secondary
-        frame._details_label_cat_adobe = label_cat_adobe
+        frame._details_label_filename = val_filename
+        frame._details_label_title = val_title
+        frame._details_label_desc = val_desc
+        frame._details_label_tags = val_tags
+        frame._details_label_status = val_status
+        frame._details_label_cat_primary = val_cat_primary
+        frame._details_label_cat_secondary = val_cat_secondary
+        frame._details_label_cat_adobe = val_cat_adobe
         frame._details_filepath = filepath
         return frame
 
@@ -1746,25 +1946,18 @@ class ImageTableWidget(QWidget):
                             secondary_val = shutterstock_map.get(str(m["category_id"]), "-")
                     elif m["platform"] == "adobe_stock":
                         adobe_val = adobe_map.get(str(m["category_id"]), "-")
-        card._details_label_filename.setText(f"Filename: {filename}")
-        card._details_label_filename.setWordWrap(True)
-        card._details_label_title.setText(f"Title: {title}")
-        card._details_label_title.setWordWrap(True)
-        card._details_label_desc.setText(f"Description: {desc}")
-        card._details_label_desc.setWordWrap(True)
-        card._details_label_tags.setText(f"Tags: {tags}")
-        card._details_label_tags.setWordWrap(True)
-        card._details_label_status.setText(f"Status: {status}")
-        card._details_label_status.setWordWrap(True)
+        # Update only the value parts (name labels are static)
+        card._details_label_filename.setText(filename)
+        card._details_label_title.setText(title)
+        card._details_label_desc.setText(desc)
+        card._details_label_tags.setText(tags)
+        card._details_label_status.setText(status)
         # Set status color
         color = self._status_color(status)
         card._details_label_status.setStyleSheet(f"color: rgb({color.red()}, {color.green()}, {color.blue()});")
-        card._details_label_cat_primary.setText(f"Shutterstock Primary: {primary_val}")
-        card._details_label_cat_primary.setWordWrap(True)
-        card._details_label_cat_secondary.setText(f"Shutterstock Secondary: {secondary_val}")
-        card._details_label_cat_secondary.setWordWrap(True)
-        card._details_label_cat_adobe.setText(f"Adobe Stock Category: {adobe_val}")
-        card._details_label_cat_adobe.setWordWrap(True)
+        card._details_label_cat_primary.setText(primary_val)
+        card._details_label_cat_secondary.setText(secondary_val)
+        card._details_label_cat_adobe.setText(adobe_val)
 
     def _get_preview_pixmap(self, filepath, target_size):
         if not filepath or not os.path.exists(filepath):
