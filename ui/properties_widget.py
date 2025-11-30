@@ -166,8 +166,8 @@ class TagsPillWidget(QWidget):
                 }}
             """
         elif index < 5:
-            bg_color = "rgba(255, 235, 59, 0.2)"
-            border_color = "rgba(255, 193, 7, 0.5)"
+            bg_color = "rgba(113, 204, 0, 0.3)"
+            border_color = "rgba(113, 204, 0, 0.5)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
@@ -179,8 +179,8 @@ class TagsPillWidget(QWidget):
                 }}
             """
         elif index < 15:
-            bg_color = "rgba(113, 204, 0, 0.3)"
-            border_color = "rgba(113, 204, 0, 0.5)"
+            bg_color = "rgba(255, 235, 59, 0.2)"
+            border_color = "rgba(255, 193, 7, 0.5)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
