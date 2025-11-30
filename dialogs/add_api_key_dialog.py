@@ -1,5 +1,5 @@
 from PySide6.QtCore import QThread, Signal, Qt, QPoint, QTimer
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog
 from PySide6.QtGui import QColor, QBrush, QAction
 from database.db_operation import ImageTeaDB
 import datetime
@@ -53,6 +53,178 @@ class ApiKeyTestThread(QThread):
                 return
         self.result.emit('fail', None, None)
 
+
+class ModelManagerDialog(QDialog):
+    def __init__(self, model_list: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Model Manager")
+        self.setFixedWidth(520)
+        self.model_list = {k: list(v) for k, v in (model_list or {}).items()}
+        layout = QVBoxLayout()
+        top_layout = QHBoxLayout()
+        self.service_list = QListWidget()
+        self.service_list.setFixedWidth(140)
+        # ensure services exist
+        services = sorted(self.model_list.keys()) if isinstance(self.model_list, dict) else []
+        if not services:
+            services = ['gemini', 'openai']
+            for s in services:
+                self.model_list.setdefault(s, [])
+        self.service_list.addItems([s.capitalize() for s in services])
+        self.service_list.currentItemChanged.connect(self._on_service_selected)
+        top_layout.addWidget(self.service_list)
+
+        right_layout = QVBoxLayout()
+        self.models_list = QListWidget()
+        right_layout.addWidget(self.models_list)
+
+        btns_layout = QHBoxLayout()
+        self.add_btn = QPushButton()
+        self.add_btn.setIcon(qta.icon('fa6s.plus'))
+        self.add_btn.setToolTip('Add model')
+        self.add_btn.clicked.connect(self._add_model)
+        self.edit_btn = QPushButton()
+        self.edit_btn.setIcon(qta.icon('fa6s.pen'))
+        self.edit_btn.setToolTip('Edit selected model')
+        self.edit_btn.clicked.connect(self._edit_model)
+        self.delete_btn = QPushButton()
+        self.delete_btn.setIcon(qta.icon('fa6s.trash'))
+        self.delete_btn.setToolTip('Delete selected model')
+        self.delete_btn.clicked.connect(self._delete_model)
+        self.up_btn = QPushButton()
+        self.up_btn.setIcon(qta.icon('fa6s.arrow-up'))
+        self.up_btn.setToolTip('Move up')
+        self.up_btn.clicked.connect(self._move_up)
+        self.down_btn = QPushButton()
+        self.down_btn.setIcon(qta.icon('fa6s.arrow-down'))
+        self.down_btn.setToolTip('Move down')
+        self.down_btn.clicked.connect(self._move_down)
+        btns_layout.addWidget(self.add_btn)
+        btns_layout.addWidget(self.edit_btn)
+        btns_layout.addWidget(self.delete_btn)
+        btns_layout.addWidget(self.up_btn)
+        btns_layout.addWidget(self.down_btn)
+        right_layout.addLayout(btns_layout)
+
+        top_layout.addLayout(right_layout)
+        layout.addLayout(top_layout)
+
+        bottom_layout = QHBoxLayout()
+        self.save_btn = QPushButton('Save')
+        self.save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
+        self.save_btn.clicked.connect(self._save_and_close)
+        self.close_btn = QPushButton('Close')
+        self.close_btn.setIcon(qta.icon('fa6s.xmark'))
+        self.close_btn.clicked.connect(self.reject)
+        bottom_layout.addStretch()
+        bottom_layout.addWidget(self.save_btn)
+        bottom_layout.addWidget(self.close_btn)
+        layout.addLayout(bottom_layout)
+
+        self.setLayout(layout)
+        # select first service
+        if self.service_list.count() > 0:
+            self.service_list.setCurrentRow(0)
+
+    def _on_service_selected(self, current, previous):
+        if not current:
+            return
+        service = current.text().lower()
+        self._load_models_for(service)
+
+    def _load_models_for(self, service):
+        self.models_list.clear()
+        models = self.model_list.get(service, [])
+        for m in models:
+            self.models_list.addItem(QListWidgetItem(m))
+
+    def _add_model(self):
+        service_item = self.service_list.currentItem()
+        if not service_item:
+            return
+        service = service_item.text().lower()
+        name, ok = QInputDialog.getText(self, 'Add Model', 'Model name:')
+        if ok and name:
+            name = name.strip()
+            self.model_list.setdefault(service, [])
+            if name in self.model_list[service]:
+                QMessageBox.warning(self, 'Add Model', 'Model already exists for this service.')
+                return
+            self.model_list[service].append(name)
+            self.models_list.addItem(QListWidgetItem(name))
+
+    def _edit_model(self):
+        service_item = self.service_list.currentItem()
+        sel = self.models_list.currentItem()
+        if not service_item or not sel:
+            return
+        service = service_item.text().lower()
+        old = sel.text()
+        name, ok = QInputDialog.getText(self, 'Edit Model', 'Model name:', text=old)
+        if ok and name:
+            name = name.strip()
+            idx = self.models_list.row(sel)
+            self.model_list[service][idx] = name
+            sel.setText(name)
+
+    def _delete_model(self):
+        service_item = self.service_list.currentItem()
+        sel = self.models_list.currentItem()
+        if not service_item or not sel:
+            return
+        service = service_item.text().lower()
+        confirm = QMessageBox.question(self, 'Delete Model', f"Delete model '{sel.text()}' for '{service}'?", QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            idx = self.models_list.row(sel)
+            self.models_list.takeItem(idx)
+            try:
+                self.model_list[service].pop(idx)
+            except Exception:
+                pass
+
+    def _move_up(self):
+        sel = self.models_list.currentItem()
+        service_item = self.service_list.currentItem()
+        if not sel or not service_item:
+            return
+        service = service_item.text().lower()
+        idx = self.models_list.row(sel)
+        if idx <= 0:
+            return
+        self.model_list[service][idx-1], self.model_list[service][idx] = self.model_list[service][idx], self.model_list[service][idx-1]
+        self._load_models_for(service)
+        self.models_list.setCurrentRow(idx-1)
+
+    def _move_down(self):
+        sel = self.models_list.currentItem()
+        service_item = self.service_list.currentItem()
+        if not sel or not service_item:
+            return
+        service = service_item.text().lower()
+        idx = self.models_list.row(sel)
+        if idx < 0 or idx >= len(self.model_list.get(service, [])) - 1:
+            return
+        self.model_list[service][idx+1], self.model_list[service][idx] = self.model_list[service][idx], self.model_list[service][idx+1]
+        self._load_models_for(service)
+        self.models_list.setCurrentRow(idx+1)
+
+    def _save_and_close(self):
+        # write back to configs/ai_config.json preserving other keys
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+        try:
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        cfg['model_list'] = self.model_list
+        try:
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, 'Save Models', f'Failed to save model list: {e}')
+            return
+        self.accept()
+
 class AddApiKeyDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,8 +261,15 @@ class AddApiKeyDialog(QDialog):
         self.model_combo = QComboBox()
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.setToolTip("Select the model for this API key")
+        self.model_manager_btn = QPushButton()
+        self.model_manager_btn.setIcon(qta.icon('fa6s.gears'))
+        self.model_manager_btn.setFixedWidth(32)
+        self.model_manager_btn.setToolTip('Manage models')
+        self.model_manager_btn.setFocusPolicy(Qt.NoFocus)
+        self.model_manager_btn.clicked.connect(self._open_model_manager)
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(self.model_manager_btn)
         layout.addLayout(model_layout)
         self._refresh_model_combo()
         key_layout = QHBoxLayout()
@@ -425,6 +604,20 @@ class AddApiKeyDialog(QDialog):
 
     def _on_model_combo_changed(self, idx):
         pass
+
+    def _open_model_manager(self):
+        dlg = ModelManagerDialog(self.model_list, self)
+        if dlg.exec():
+            # reload model list from file (dialog saved)
+            ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+            try:
+                with open(ai_prompt_path, "r", encoding="utf-8") as f:
+                    ai_prompt = json.load(f)
+                    self.model_list = ai_prompt.get("model_list", {})
+            except Exception as e:
+                QMessageBox.critical(self, 'Model Manager', f'Failed to reload model list: {e}')
+                return
+            self._refresh_model_combo()
 
     def _start_test_thread(self, api_key, service):
         if self._testing:
