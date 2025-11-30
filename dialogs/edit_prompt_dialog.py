@@ -17,14 +17,12 @@ class EditPromptDialog(QDialog):
         main_layout = QVBoxLayout(self)
         self.tab_widget = QTabWidget(self)
 
-        # Use category-appropriate qtawesome icons for tabs (RGBA alpha ~0.5)
         def _fa_icon(name, rgb_tuple, alpha_f=1.0):
             r, g, b = rgb_tuple
             color = QColor(r, g, b)
             color.setAlphaF(alpha_f)
             return qta.icon(name, color=color)
 
-        # Title tab
         title_tab = QWidget()
         title_layout = QVBoxLayout(title_tab)
         self.title_req_label = QLabel("Title Requirements:")
@@ -34,10 +32,8 @@ class EditPromptDialog(QDialog):
         self.title_req_edit.setAcceptRichText(False)
         title_layout.addWidget(self.title_req_label)
         title_layout.addWidget(self.title_req_edit)
-        # vivid red pen icon for Title
         self.tab_widget.addTab(title_tab, _fa_icon("fa6s.pen", (230, 35, 55), alpha_f=1.0), "Title")
 
-        # Description tab
         desc_tab = QWidget()
         desc_layout = QVBoxLayout(desc_tab)
         self.desc_req_label = QLabel("Description Requirements:")
@@ -47,10 +43,8 @@ class EditPromptDialog(QDialog):
         self.desc_req_edit.setAcceptRichText(False)
         desc_layout.addWidget(self.desc_req_label)
         desc_layout.addWidget(self.desc_req_edit)
-        # vivid purple file icon for Description
         self.tab_widget.addTab(desc_tab, _fa_icon("fa6s.file-lines", (155, 89, 182), alpha_f=1.0), "Description")
 
-        # Keywords tab
         keywords_tab = QWidget()
         keywords_layout = QVBoxLayout(keywords_tab)
         self.keywords_req_label = QLabel("Keywords Requirements:")
@@ -60,10 +54,8 @@ class EditPromptDialog(QDialog):
         self.keywords_req_edit.setAcceptRichText(False)
         keywords_layout.addWidget(self.keywords_req_label)
         keywords_layout.addWidget(self.keywords_req_edit)
-        # vivid green tags icon for Keywords
         self.tab_widget.addTab(keywords_tab, _fa_icon("fa6s.tags", (46, 204, 113), alpha_f=1.0), "Keywords")
 
-        # General guides tab
         guides_tab = QWidget()
         guides_layout = QVBoxLayout(guides_tab)
         self.general_guides_label = QLabel("General Guides:")
@@ -73,10 +65,8 @@ class EditPromptDialog(QDialog):
         self.general_guides_edit.setAcceptRichText(False)
         guides_layout.addWidget(self.general_guides_label)
         guides_layout.addWidget(self.general_guides_edit)
-        # vivid blue book icon for General Guides
         self.tab_widget.addTab(guides_tab, _fa_icon("fa6s.book-open", (52, 152, 219), alpha_f=1.0), "General Guides")
 
-        # Strict don'ts tab
         donts_tab = QWidget()
         donts_layout = QVBoxLayout(donts_tab)
         self.strict_donts_label = QLabel("Strict Don'ts:")
@@ -86,10 +76,8 @@ class EditPromptDialog(QDialog):
         self.strict_donts_edit.setAcceptRichText(False)
         donts_layout.addWidget(self.strict_donts_label)
         donts_layout.addWidget(self.strict_donts_edit)
-        # vivid orange ban icon for Strict Don'ts
         self.tab_widget.addTab(donts_tab, _fa_icon("fa6s.ban", (243, 156, 18), alpha_f=1.0), "Strict Don'ts")
 
-        # Negative prompt tab
         negative_tab = QWidget()
         negative_layout = QVBoxLayout(negative_tab)
         self.negative_prompt_label = QLabel("Negative Prompt:")
@@ -99,7 +87,6 @@ class EditPromptDialog(QDialog):
         self.negative_prompt_edit.setAcceptRichText(False)
         negative_layout.addWidget(self.negative_prompt_label)
         negative_layout.addWidget(self.negative_prompt_edit)
-        # vivid magenta xmark icon for Negative Prompt
         self.tab_widget.addTab(negative_tab, _fa_icon("fa6s.xmark", (142, 68, 173), alpha_f=1.0), "Negative Prompt")
 
         main_layout.addWidget(self.tab_widget)

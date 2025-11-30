@@ -9,7 +9,7 @@ import os
 import csv
 
 class ApiKeyTestThread(QThread):
-    result = Signal(str, str, object)  # (status, service, text/error)
+    result = Signal(str, str, object)
     def __init__(self, api_key, service=None, model=None):
         super().__init__()
         self.api_key = api_key
@@ -123,7 +123,6 @@ class AddApiKeyDialog(QDialog):
         note_layout.addWidget(self.note_edit)
         layout.addLayout(note_layout)
 
-        # Tombol Export/Import CSV di atas tabel
         csv_btn_layout = QHBoxLayout()
         self.test_all_btn = QPushButton()
         self.test_all_btn.setText("Test All")
@@ -630,7 +629,6 @@ class AddApiKeyDialog(QDialog):
                     model = row.get("Model")
                     if not service or not api:
                         continue
-                    # Cek apakah sudah ada di DB
                     exists = False
                     try:
                         db_rows = self.db.get_all_api_keys()
@@ -648,7 +646,6 @@ class AddApiKeyDialog(QDialog):
                     if exists:
                         skipped += 1
                         continue
-                    # Simpan ke DB
                     try:
                         self.db.set_api_key(service, api, note, last_tested, status, model)
                         imported += 1
@@ -723,7 +720,6 @@ class AddApiKeyDialog(QDialog):
 
     def _test_all_blink_stop_and_next(self):
         self._stop_blinking()
-        # Set warna baris sesuai hasil tes terakhir
         if self._test_all_index < len(self._test_all_results):
             status = self._test_all_results[self._test_all_index][1]
             self._set_row_status_color(self._test_all_index, status)

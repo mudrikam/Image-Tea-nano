@@ -1,17 +1,43 @@
 from database.db_operation import ImageTeaDB
 import os
 import datetime
+import re
 
-def generate_export_filename(platform, output_path):
-    today = datetime.datetime.now()
-    base_name = f"{platform}_Image_Tea_Metadata_{today.year}_{today.strftime('%B')}_{today.day:02d}_"
-    idx = 1
-    while True:
-        filename = f"{base_name}{idx:03d}.csv"
-        full_path = os.path.join(output_path, filename)
-        if not os.path.exists(full_path):
-            return filename
-        idx += 1
+def get_next_index(base_name, output_path):
+    if not os.path.isdir(output_path):
+        raise FileNotFoundError(f"Output path does not exist: {output_path}")
+    base = base_name
+    try:
+        if base.lower().endswith('.csv'):
+            base = base[:-4]
+        if not base.endswith('_'):
+            base = base + '_'
+        idx = 1
+        while True:
+            name_lower = f"{base}{idx:03d}.csv"
+            path_lower = os.path.join(output_path, name_lower)
+            name_upper = f"{base}{idx:03d}.CSV"
+            path_upper = os.path.join(output_path, name_upper)
+            if not (os.path.exists(path_lower) or os.path.exists(path_upper)):
+                return idx
+            idx += 1
+    except Exception as e:
+        print(f"[csv_exporter] get_next_index error: {e}")
+        raise
+
+
+def generate_export_filename(base_name, output_path):
+    try:
+        idx = get_next_index(base_name, output_path)
+        base = base_name
+        if base.lower().endswith('.csv'):
+            base = base[:-4]
+        if not base.endswith('_'):
+            base = base + '_'
+        return f"{base}{idx:03d}.csv"
+    except Exception as e:
+        print(f"[csv_exporter] generate_export_filename error: {e}")
+        raise
 
 def _freepik_format(file):
     filename = file[2]
@@ -55,12 +81,11 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
     elif secondary:
         categories = shutterstock_map.get(str(secondary), '')
     
-    # Get file type from database
-    illustration = "yes"  # default
+    illustration = "yes"
     try:
         file_types = db.get_file_types(file_id)
         if file_types:
-            file_type = file_types[0][1]  # Get the first file type
+            file_type = file_types[0][1]
             if file_type.lower() == "photo":
                 illustration = "no"
             elif file_type.lower() == "illustration":
@@ -124,9 +149,15 @@ def _depositphotos_format(file):
     editorial = "no"
     return f'"{filename}","{description}","{keywords}","{nudity}","{editorial}"'
 
-def export_csv_for_platforms(platforms, output_path=None, progress_callback=None):
+def export_csv_for_platforms(platforms, output_path=None, progress_callback=None, name_map=None):
     print(f"[csv_exporter] Exporting CSV for platforms: {platforms}")
     print(f"[csv_exporter] Output path: {output_path}")
+    if output_path is None or not os.path.isdir(output_path):
+        print(f"[csv_exporter] Invalid output path: {output_path}")
+        return
+    if name_map is None:
+        print("[csv_exporter] name_map is required (platform -> base_name)")
+        return
     db = ImageTeaDB()
     files = db.get_all_files()
     shutterstock_map, adobe_map = db.get_category_maps()
@@ -139,16 +170,19 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Freepik", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Freepik CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Freepik CSV: {e}")
+            if "Freepik" not in name_map:
+                print("[csv_exporter] Missing base name for Freepik in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map["Freepik"], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Freepik CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Freepik CSV: {e}")
     if "Adobe Stock" in platforms and output_path:
         rows = []
         header = "Filename,Title,Keywords,Category,Releases"
@@ -157,16 +191,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Adobe_Stock", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Adobe Stock CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Adobe Stock CSV: {e}")
+            key = "Adobe Stock"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Adobe Stock CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Adobe Stock CSV: {e}")
     if "Shutterstock" in platforms and output_path:
         rows = []
         header = "Filename,Description,Keywords,Categories,Editorial,Mature content,illustration"
@@ -175,16 +213,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Shutterstock", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Shutterstock CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Shutterstock CSV: {e}")
+            key = "Shutterstock"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Shutterstock CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Shutterstock CSV: {e}")
     if "123RF" in platforms and output_path:
         rows = []
         header = '"oldfilename","123rf_filename","description","keywords","country"'
@@ -193,16 +235,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("123rf", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] 123rf CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting 123rf CSV: {e}")
+            key = "123RF"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] 123rf CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting 123rf CSV: {e}")
     if "Vecteezy" in platforms and output_path:
         rows = []
         header = "Filename,Title,Description,Keywords,License"
@@ -211,16 +257,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Vecteezy", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Vecteezy CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Vecteezy CSV: {e}")
+            key = "Vecteezy"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Vecteezy CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Vecteezy CSV: {e}")
     if "iStock" in platforms and output_path:
         rows = []
         header = "file name,created date,description,country,brief code,title,keywords"
@@ -229,16 +279,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("iStock", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] iStock CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting iStock CSV: {e}")
+            key = "iStock"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] iStock CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting iStock CSV: {e}")
     if "Pond5" in platforms and output_path:
         rows = []
         header = '"OriginalFilename","Title","Description","Keywords","City","Region","Country","Specifysource","Modelreleased","Propertyreleased","Release","Copyright","Price","Editorial"'
@@ -247,16 +301,20 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Pond5", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Pond5 CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Pond5 CSV: {e}")
+            key = "Pond5"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Pond5 CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Pond5 CSV: {e}")
     if "Depositphotos" in platforms and output_path:
         rows = []
         header = '"Filename","description","Keywords","Nudity","Editorial"'
@@ -265,13 +323,17 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
             if progress_callback:
                 progress_callback()
         if rows:
-            csv_filename = generate_export_filename("Depositphotos", output_path)
-            csv_path = os.path.join(output_path, csv_filename)
-            try:
-                with open(csv_path, "w", encoding="utf-8") as f:
-                    f.write(header + "\n")
-                    for row in rows:
-                        f.write(row + "\n")
-                print(f"[csv_exporter] Depositphotos CSV exported to: {csv_path}")
-            except Exception as e:
-                print(f"[csv_exporter] Error exporting Depositphotos CSV: {e}")
+            key = "Depositphotos"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Depositphotos CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Depositphotos CSV: {e}")

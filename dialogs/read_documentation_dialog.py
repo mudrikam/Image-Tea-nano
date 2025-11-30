@@ -109,7 +109,6 @@ class ReadDocumentationDialog(QDialog):
         return "Bahasa Indonesia"
 
     def natural_sort_key(self, s):
-        # Split string into list of int and str for natural sorting
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
     def populate_tree(self):
@@ -146,7 +145,6 @@ class ReadDocumentationDialog(QDialog):
                 dirs.append((entry, full_path))
             elif entry.lower().endswith(".md"):
                 files.append((entry, full_path))
-        # Sort files and dirs using natural sort
         files.sort(key=lambda x: self.natural_sort_key(x[0]))
         dirs.sort(key=lambda x: self.natural_sort_key(x[0]))
         for entry, full_path in files:
@@ -227,7 +225,6 @@ class ReadDocumentationDialog(QDialog):
                     matches.append((display_name, file_path, content))
             except Exception as e:
                 print(f"Error reading {file_path}: {e}")
-        # Sort matches using natural sort
         matches.sort(key=lambda x: self.natural_sort_key(os.path.basename(x[1])))
         self.tree.clear()
         search_root = QTreeWidgetItem([f"Search Results for '{keyword}'"])

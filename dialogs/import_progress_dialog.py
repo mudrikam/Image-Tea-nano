@@ -8,7 +8,6 @@ import os
 class ImportWorkerThread(QThread):
     """Thread untuk melakukan import file dengan progress reporting"""
     
-    # Signals untuk komunikasi dengan UI
     file_started = Signal(str, int, int)  # filename, current_index, total_files
     file_completed = Signal(bool)  # success
     import_finished = Signal(int)  # total_imported
@@ -47,7 +46,6 @@ class ImportWorkerThread(QThread):
                 fname = os.path.basename(path)
                 ext = os.path.splitext(path)[1].lower()
                 
-                # Signal that we're starting this file
                 self.file_started.emit(fname, idx + 1, len(self.file_paths))
                 
                 try:
@@ -56,7 +54,6 @@ class ImportWorkerThread(QThread):
                     elif ext in PILLOW_FORMATS or ext in extra_exts:
                         t, d, tg = read_metadata_pyexiv2(path)
                     else:
-                        # Skip unsupported files
                         self.error_occurred.emit(fname, f"Unsupported file extension {ext}")
                         self.file_completed.emit(False)
                         continue
@@ -107,7 +104,6 @@ class ImportProgressDialog(QDialog):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(25, 25, 25, 25)
         
-        # Title
         title_label = QLabel("Importing Files to Database")
         title_font = QFont()
         title_font.setPointSize(14)
@@ -116,7 +112,6 @@ class ImportProgressDialog(QDialog):
         title_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(title_label)
         
-        # Current file section
         current_file_title = QLabel("Current File:")
         current_file_title_font = QFont()
         current_file_title_font.setBold(True)
@@ -128,14 +123,12 @@ class ImportProgressDialog(QDialog):
         self.current_file_label.setMargin(5)
         main_layout.addWidget(self.current_file_label)
         
-        # Progress section
         progress_title = QLabel("Progress:")
         progress_title_font = QFont()
         progress_title_font.setBold(True)
         progress_title.setFont(progress_title_font)
         main_layout.addWidget(progress_title)
         
-        # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(self.total_files)
@@ -144,7 +137,6 @@ class ImportProgressDialog(QDialog):
         self.progress_bar.setMinimumHeight(25)
         main_layout.addWidget(self.progress_bar)
         
-        # Statistics section
         stats_title = QLabel("Statistics:")
         stats_title_font = QFont()
         stats_title_font.setBold(True)
@@ -155,7 +147,6 @@ class ImportProgressDialog(QDialog):
         stats_layout.setHorizontalSpacing(20)
         stats_layout.setVerticalSpacing(8)
         
-        # Row 1: File counts
         stats_layout.addWidget(QLabel("Total Files:"), 0, 0)
         self.total_files_label = QLabel(str(self.total_files))
         self.total_files_label.setAlignment(Qt.AlignRight)
@@ -166,7 +157,6 @@ class ImportProgressDialog(QDialog):
         self.processed_files_label.setAlignment(Qt.AlignRight)
         stats_layout.addWidget(self.processed_files_label, 0, 3)
         
-        # Row 2: Success/Failure counts
         stats_layout.addWidget(QLabel("Imported:"), 1, 0)
         self.imported_files_label = QLabel("0")
         self.imported_files_label.setAlignment(Qt.AlignRight)
@@ -177,7 +167,6 @@ class ImportProgressDialog(QDialog):
         self.failed_files_label.setAlignment(Qt.AlignRight)
         stats_layout.addWidget(self.failed_files_label, 1, 3)
         
-        # Row 3: Timing
         stats_layout.addWidget(QLabel("Elapsed Time:"), 2, 0)
         self.elapsed_time_label = QLabel("00:00")
         self.elapsed_time_label.setAlignment(Qt.AlignRight)
@@ -188,7 +177,6 @@ class ImportProgressDialog(QDialog):
         self.estimated_time_label.setAlignment(Qt.AlignRight)
         stats_layout.addWidget(self.estimated_time_label, 2, 3)
         
-        # Row 4: Speed and Status
         stats_layout.addWidget(QLabel("Files per Second:"), 3, 0)
         self.speed_label = QLabel("--")
         self.speed_label.setAlignment(Qt.AlignRight)
@@ -201,10 +189,8 @@ class ImportProgressDialog(QDialog):
         
         main_layout.addLayout(stats_layout)
         
-        # Spacer
         main_layout.addStretch()
         
-        # Button section
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
@@ -225,7 +211,6 @@ class ImportProgressDialog(QDialog):
         """Mulai proses import"""
         self.start_time = time.time()
         
-        # Create and start worker thread
         self.worker_thread = ImportWorkerThread(self.file_paths, self.db, self)
         self.worker_thread.file_started.connect(self.on_file_started)
         self.worker_thread.file_completed.connect(self.on_file_completed)
@@ -248,34 +233,28 @@ class ImportProgressDialog(QDialog):
         else:
             self.failed_files += 1
             
-        # Update progress bar
         self.progress_bar.setValue(self.processed_files)
         
-        # Update all counters
         self.processed_files_label.setText(str(self.processed_files))
         self.imported_files_label.setText(str(self.imported_files))
         self.failed_files_label.setText(str(self.failed_files))
         
-        # Update timing calculations
         self.update_time_calculations()
         
     def on_import_finished(self, total_imported):
         """Handler ketika import selesai"""
         self.timer.stop()
         
-        # Update final status
         self.current_file_label.setText(f"Import completed successfully!")
         self.progress_bar.setValue(self.total_files)
         self.status_label.setText("Completed")
         
-        # Final summary in current file label
         summary = f"Import completed! {total_imported} files imported successfully"
         if self.failed_files > 0:
             summary += f", {self.failed_files} files failed"
         summary += "."
         self.current_file_label.setText(summary)
         
-        # Auto-close after 2 seconds
         QTimer.singleShot(2000, self.accept)
         
     def on_error_occurred(self, filename, error_message):
@@ -289,7 +268,6 @@ class ImportProgressDialog(QDialog):
             elapsed_str = self.format_time(elapsed)
             self.elapsed_time_label.setText(elapsed_str)
             
-            # Update speed calculation
             if elapsed > 0 and self.processed_files > 0:
                 speed = self.processed_files / elapsed
                 self.speed_label.setText(f"{speed:.1f}")
@@ -301,7 +279,6 @@ class ImportProgressDialog(QDialog):
         if self.start_time and self.processed_files > 0:
             elapsed = time.time() - self.start_time
             
-            # Calculate average time per file
             avg_time_per_file = elapsed / self.processed_files
             remaining_files = self.total_files - self.processed_files
             
@@ -312,7 +289,6 @@ class ImportProgressDialog(QDialog):
             else:
                 self.estimated_time_label.setText("00:00")
                 
-            # Update speed
             if elapsed > 0:
                 speed = self.processed_files / elapsed
                 self.speed_label.setText(f"{speed:.1f}")
@@ -330,7 +306,6 @@ class ImportProgressDialog(QDialog):
         
     def cancel_import(self):
         """Cancel import atau close dialog"""
-        # Konfirmasi cancel jika sedang berjalan
         if self.worker_thread and self.worker_thread.isRunning():
             from PySide6.QtWidgets import QMessageBox
             reply = QMessageBox.question(

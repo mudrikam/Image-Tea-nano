@@ -118,7 +118,6 @@ class FileMetadataDialog(QDialog):
         filename_row.addWidget(copy_filename_btn)
         form.addRow("Filename:", filename_row)
 
-        # --- CATEGORY COMBOS ---
         self.shutterstock_primary_combo = QComboBox()
         self.shutterstock_secondary_combo = QComboBox()
         self.adobe_combo = QComboBox()
@@ -174,14 +173,12 @@ class FileMetadataDialog(QDialog):
         form.addRow("Shutterstock Secondary:", self.shutterstock_secondary_combo)
         form.addRow("Adobe Stock Category:", self.adobe_combo)
 
-        # --- FILE TYPE COMBO ---
         self.filetype_combo = QComboBox()
         self.filetype_combo.setEditable(False)
         self.filetype_combo.addItem("-", "")
         self.filetype_combo.addItem("Photo", "Photo")
         self.filetype_combo.addItem("Illustration", "Illustration")
         
-        # Get current file type
         current_filetype = ""
         if self.db and file_data[0] is not None:
             file_types = self.db.get_file_types(file_data[0])
@@ -262,15 +259,11 @@ class FileMetadataDialog(QDialog):
             if cat_dict:
                 self.db.save_category_mapping(file_id, cat_dict)
             
-            # Save file type
             filetype_val = self.filetype_combo.currentData()
             if filetype_val:
-                # Clear existing file types first
                 self.db.delete_file_types_for_file(file_id)
-                # Add new file type
                 self.db.add_file_type(file_id, filetype_val)
             else:
-                # If no file type selected, clear existing ones
                 self.db.delete_file_types_for_file(file_id)
         if self._properties_widget is None and self.parent() is not None:
             self._properties_widget = getattr(self.parent(), "properties_widget", None)
@@ -284,7 +277,6 @@ class FileMetadataDialog(QDialog):
                     row_data = [row[0]] + list(row[1:7]) + [row[7] if len(row) > 7 else ""] + [str(title_length), str(tag_count)]
                     self._properties_widget.set_properties(row_data)
                     break
-        # Refresh table and thumbnails after saving metadata
         parent = self.parent()
         if parent is not None:
             if hasattr(parent, "refresh_table"):

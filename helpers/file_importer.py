@@ -30,10 +30,8 @@ def import_files(parent, db, file_paths=None):
     if not files:
         return False
         
-    # Tampilkan progress dialog dan jalankan import
     progress_dialog = ImportProgressDialog(files, db, parent)
     progress_dialog.start_import()
     result = progress_dialog.exec()
     
-    # Return True jika import berhasil (dialog accepted atau ada file yang berhasil diimport)
     return result == ImportProgressDialog.Accepted or progress_dialog.imported_files > 0

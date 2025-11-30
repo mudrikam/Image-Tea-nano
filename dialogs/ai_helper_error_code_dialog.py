@@ -86,10 +86,8 @@ OPENAI_ERRORS = {
     }
 PREDEFINED_ERRORS = {}
 for k, v in GEMINI_ERRORS.items():
-    # GEMINI_ERRORS entries are single dict objects now
     PREDEFINED_ERRORS[k] = v
 for k, v in OPENAI_ERRORS.items():
-    # If Gemini already defines this code prefer Gemini; otherwise use OpenAI mapping
     if k not in PREDEFINED_ERRORS:
         PREDEFINED_ERRORS[k] = v
 
@@ -240,11 +238,9 @@ class AIHelperErrorCodeDialog(QDialog):
                         try:
                             i_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(14, 14))
                         except Exception:
-                            # fallback to triangle icon if specific icon missing
                             i_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color=icon_color).pixmap(14, 14))
                         txt_lbl = QLabel(text)
                         txt_lbl.setWordWrap(True)
-                        # apply the requested semi-transparent color per label (non-white)
                         try:
                             txt_lbl.setStyleSheet(f'background-color: {bg}; padding:6px; border-radius:4px;')
                         except Exception:
@@ -255,17 +251,14 @@ class AIHelperErrorCodeDialog(QDialog):
                         row_layout.addWidget(txt_lbl)
                         a_right.addWidget(row_widget)
                     except Exception as _e:
-                        # on error fallback to plain label
                         l = QLabel(text)
                         l.setWordWrap(True)
                         a_right.addWidget(l)
 
-                # make the alert frame expand to the available horizontal space
                 self.alert_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
                 self.alert_layout.addLayout(a_right)
                 layout.addWidget(self.alert_frame)
 
-                # prepare copyable raw parts
                 raw_parts.append(f"Error: {code_key}")
                 raw_parts.append(f"Status: {entry.get('status','')}")
                 raw_parts.append(f"Description: {entry.get('description','')}")
@@ -375,14 +368,11 @@ class AIHelperErrorCodeDialog(QDialog):
             sample = msgs[0] if msgs else ''
             self._copy_text = sample
             
-            # Simpan posisi scroll dan selected row sebelum update
             current_row = row
             
-            # Update detail error sesuai error code file yang diklik
             file_error_code = self._error_code_map.get(fn)
             if file_error_code and self.alert_frame:
                 self._update_error_details(str(file_error_code))
-                # Pertahankan selection dan scroll position
                 self.table.selectRow(current_row)
                 self.table.scrollToItem(self.table.item(current_row, 0))
         except Exception as e:
@@ -393,10 +383,8 @@ class AIHelperErrorCodeDialog(QDialog):
             if not self.alert_layout:
                 return
             
-            # Simpan scroll position tabel sebelum clear layout
             vscroll = self.table.verticalScrollBar().value() if hasattr(self, 'table') else 0
             
-            # Clear existing layout
             while self.alert_layout.count():
                 item = self.alert_layout.takeAt(0)
                 if item.widget():
@@ -404,12 +392,10 @@ class AIHelperErrorCodeDialog(QDialog):
                 elif item.layout():
                     self._clear_layout(item.layout())
             
-            # Get error details
             entry = PREDEFINED_ERRORS.get(str(error_code))
             if not entry:
                 return
             
-            # Rebuild detail layout
             a_right = QVBoxLayout()
             rows = [
                 ("Error : {}".format(error_code), 'fa6s.xmark', 'rgba(255,100,100,0.12)', '#ff6464'),
@@ -448,11 +434,9 @@ class AIHelperErrorCodeDialog(QDialog):
             
             self.alert_layout.addLayout(a_right)
             
-            # Restore scroll position tabel setelah update
             if hasattr(self, 'table'):
                 self.table.verticalScrollBar().setValue(vscroll)
             
-            # Update copy text
             raw_parts = [
                 f"Error: {error_code}",
                 f"Status: {entry.get('status','')}",
