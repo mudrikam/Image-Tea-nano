@@ -267,7 +267,7 @@ class AddApiKeyDialog(QDialog):
         service_layout.addWidget(service_label)
         service_layout.addWidget(self.service_combo)
         layout.addLayout(service_layout)
-        self.service_hint_label = QLabel("If you're using OpenRouter, please select 'OpenAI'.")
+        self.service_hint_label = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
         self.service_hint_label.setWordWrap(True)
         self.service_hint_label.setStyleSheet("font-size:10px; color: #696969;")
         hint_layout = QHBoxLayout()
