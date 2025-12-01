@@ -1,5 +1,5 @@
 from PySide6.QtCore import QThread, Signal, Qt, QPoint, QTimer
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog, QPlainTextEdit
 from PySide6.QtGui import QColor, QBrush, QAction
 from database.db_operation import ImageTeaDB
 import datetime
@@ -7,6 +7,8 @@ import qtawesome as qta
 import json
 import os
 import csv
+import re
+import webbrowser
 
 class ApiKeyTestThread(QThread):
     result = Signal(str, str, object)
@@ -32,12 +34,19 @@ class ApiKeyTestThread(QThread):
             except Exception as e:
                 print(f"Gemini API Key test error: {e}")
                 if self.service == 'gemini':
-                    self.result.emit('fail', 'gemini', None)
+                    try:
+                        err_text = str(e)
+                    except Exception:
+                        err_text = "<failed to stringify error>"
+                    self.result.emit('fail', 'gemini', err_text)
                     return
         if self.service == 'openai' or self.service is None:
             try:
                 from openai import OpenAI
-                client = OpenAI(api_key=self.api_key)
+                if re.match(r"^sk-?or-", self.api_key, re.IGNORECASE):
+                    client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1")
+                else:
+                    client = OpenAI(api_key=self.api_key)
                 if not self.model:
                     raise RuntimeError("No model selected for OpenAI API key test.")
                 response = client.responses.create(
@@ -49,7 +58,11 @@ class ApiKeyTestThread(QThread):
                     return
             except Exception as e:
                 print(f"OpenAI API Key test error: {e}")
-                self.result.emit('fail', 'openai', None)
+                try:
+                    err_text = str(e)
+                except Exception:
+                    err_text = "<failed to stringify error>"
+                self.result.emit('fail', 'openai', err_text)
                 return
         self.result.emit('fail', None, None)
 
@@ -254,6 +267,15 @@ class AddApiKeyDialog(QDialog):
         service_layout.addWidget(service_label)
         service_layout.addWidget(self.service_combo)
         layout.addLayout(service_layout)
+        self.service_hint_label = QLabel("If you're using OpenRouter, please select 'OpenAI'.")
+        self.service_hint_label.setWordWrap(True)
+        self.service_hint_label.setStyleSheet("font-size:10px; color: #696969;")
+        hint_layout = QHBoxLayout()
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(label_width)
+        hint_layout.addWidget(left_spacer)
+        hint_layout.addWidget(self.service_hint_label)
+        layout.addLayout(hint_layout)
         model_layout = QHBoxLayout()
         model_label = QLabel("Model:")
         model_label.setFixedWidth(label_width)
@@ -346,6 +368,27 @@ class AddApiKeyDialog(QDialog):
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.progress_bar.setToolTip("Shows progress when testing API key")
         layout.addWidget(self.progress_bar)
+        self.error_text = QPlainTextEdit()
+        self.error_text.setReadOnly(True)
+        self.error_text.setPlaceholderText("Raw error / response will appear here when a test fails.")
+        self.error_text.setVisible(False)
+        self.error_text.setFixedHeight(140)
+        layout.addWidget(self.error_text)
+        report_layout = QHBoxLayout()
+        self.copy_error_btn = QPushButton()
+        self.copy_error_btn.setText("Copy Error")
+        self.copy_error_btn.setIcon(qta.icon('fa6s.copy'))
+        self.copy_error_btn.setVisible(False)
+        self.copy_error_btn.clicked.connect(self._copy_error_to_clipboard)
+        self.report_error_btn = QPushButton()
+        self.report_error_btn.setText("Report Error")
+        self.report_error_btn.setIcon(qta.icon('fa6s.bug'))
+        self.report_error_btn.setVisible(False)
+        self.report_error_btn.clicked.connect(self._report_error_via_whatsapp)
+        report_layout.addStretch()
+        report_layout.addWidget(self.copy_error_btn)
+        report_layout.addWidget(self.report_error_btn)
+        layout.addLayout(report_layout)
         btn_layout = QHBoxLayout()
         self.test_and_save_btn = QPushButton()
         self.test_and_save_btn.setText("Test and Save")
@@ -378,6 +421,14 @@ class AddApiKeyDialog(QDialog):
         self._test_all_running = False
         self._test_all_results = []
         self._test_all_row_blinking = False
+        self._whatsapp_link = None
+        try:
+            app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
+            with open(app_cfg_path, 'r', encoding='utf-8') as f:
+                app_cfg = json.load(f)
+                self._whatsapp_link = app_cfg.get('links', {}).get('whatsapp')
+        except Exception:
+            self._whatsapp_link = None
 
     def _on_paste_clicked(self):
         clipboard = QApplication.clipboard()
@@ -495,8 +546,28 @@ class AddApiKeyDialog(QDialog):
         self._refresh_api_table()
         if status == 'success':
             QMessageBox.information(self, "API Key Test", "API Key is valid and active.")
+            try:
+                self.error_text.setVisible(False)
+            except Exception:
+                pass
+            try:
+                self.copy_error_btn.setVisible(False)
+            except Exception:
+                pass
+            try:
+                self.report_error_btn.setVisible(False)
+            except Exception:
+                pass
         else:
-            QMessageBox.critical(self, "API Key Test", "API Key invalid or not supported.")
+            QMessageBox.warning(self, "API Key Test", "API Key invalid or not supported.")
+            err = text or "<no raw error available>"
+            try:
+                self.error_text.setPlainText(err)
+                self.error_text.setVisible(True)
+                self.copy_error_btn.setVisible(True)
+                self.report_error_btn.setVisible(bool(self._whatsapp_link))
+            except Exception:
+                pass
 
     def _get_action_btn(self, row, btn_idx):
         widget = self.api_table.cellWidget(row, 4)
@@ -578,7 +649,7 @@ class AddApiKeyDialog(QDialog):
     def _on_key_edit_changed(self, text):
         api_key = text.strip()
         service = None
-        if api_key.startswith('sk-') and len(api_key) > 40:
+        if re.match(r"^sk-?or-", api_key, re.IGNORECASE) or (api_key.startswith('sk-') and len(api_key) > 40):
             service = 'openai'
         elif len(api_key) > 30 and 'AIza' in api_key:
             service = 'gemini'
@@ -702,7 +773,15 @@ class AddApiKeyDialog(QDialog):
             last_tested = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.db.set_api_key(service, self.key_edit.text().strip(), note, last_tested, status="invalid", model=model)
             self._refresh_api_table()
-            QMessageBox.critical(self, "Test API Key", "API Key invalid or not supported.")
+            QMessageBox.warning(self, "Test API Key", "API Key invalid or not supported.")
+            err = text or "<no raw error available>"
+            try:
+                self.error_text.setPlainText(err)
+                self.error_text.setVisible(True)
+                self.copy_error_btn.setVisible(True)
+                self.report_error_btn.setVisible(bool(self._whatsapp_link))
+            except Exception:
+                pass
 
     def delete_api_key(self):
         service = self.service_combo.currentText().lower()
@@ -748,6 +827,35 @@ class AddApiKeyDialog(QDialog):
         action_test.triggered.connect(self.test_and_save_api_key)
         menu.addAction(action_test)
         menu.exec(self.api_table.viewport().mapToGlobal(pos))
+
+    def _copy_error_to_clipboard(self):
+        try:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.error_text.toPlainText())
+            try:
+                self.error_text.setVisible(False)
+            except Exception:
+                pass
+            try:
+                self.copy_error_btn.setVisible(False)
+            except Exception:
+                pass
+            try:
+                self.report_error_btn.setVisible(False)
+            except Exception:
+                pass
+            QMessageBox.information(self, "Copy Error", "Error copied to clipboard.")
+        except Exception as e:
+            QMessageBox.critical(self, "Copy Error", f"Failed to copy error: {e}")
+
+    def _report_error_via_whatsapp(self):
+        if not self._whatsapp_link:
+            QMessageBox.warning(self, "Report Error", "No reporting link configured.")
+            return
+        try:
+            webbrowser.open(self._whatsapp_link)
+        except Exception as e:
+            QMessageBox.critical(self, "Report Error", f"Failed to open report link: {e}")
 
     def export_api_keys_csv(self):
         try:

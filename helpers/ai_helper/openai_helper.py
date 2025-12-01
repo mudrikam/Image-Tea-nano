@@ -22,6 +22,29 @@ def track_openai_generation_time(duration_ms):
     last_time = _generation_times_openai[-1] if _generation_times_openai else 0
     return gen_time, avg_time, longest_time, last_time
 
+
+def _is_openrouter_key(api_key: str) -> bool:
+    """Return True when the provided API key looks like an OpenRouter key.
+
+    OpenRouter keys typically start with the prefix shown in the user's example:
+    `sk-or-...`.
+    """
+    if not api_key or not isinstance(api_key, str):
+        return False
+    return bool(re.match(r"^sk-?or-", api_key))
+
+
+def create_openai_client(api_key: str):
+    """Create and return an OpenAI client, routing to OpenRouter when needed.
+
+    If the api_key looks like an OpenRouter key, configure the official
+    `openai.OpenAI` client with the OpenRouter `base_url` so calls are
+    transparently sent to `openrouter.ai`.
+    """
+    if _is_openrouter_key(api_key):
+        return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    return OpenAI(api_key=api_key)
+
 def load_openai_prompt_vars():
     prompt_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(prompt_path, "r", encoding="utf-8") as f:
@@ -164,7 +187,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 "Jika di masa depan OpenAI sudah mendukung video, fitur ini akan segera ditambahkan."
             )
             return '', '', '', {}, '', error_message, 0, 0, 0
-        client = OpenAI(api_key=api_key)
+        client = create_openai_client(api_key)
         if not prompt:
             (
                 title_requirements,
