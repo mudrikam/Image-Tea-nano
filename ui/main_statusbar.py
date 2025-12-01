@@ -61,13 +61,42 @@ class MainStatusBar(QStatusBar):
                 commit_hash = ""
                 commit_data = data.get("commit_hash", {})
                 if isinstance(commit_data, dict):
-                    commit_hash = commit_data.get("local", "")
+                    # Prefer local commit hash; if missing, fall back to remote
+                    commit_hash = commit_data.get("local") or commit_data.get("remote") or ""
+                # Try to read repository URL from app config so we can link commit
+                repo_url = ""
+                try:
+                    app_cfg_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+                    if os.path.exists(app_cfg_path):
+                        with open(app_cfg_path, "r", encoding="utf-8") as af:
+                            app_cfg = json.load(af)
+                            repo_url = app_cfg.get("links", {}).get("repo", "")
+                except Exception:
+                    repo_url = ""
                 tag_icon = qta.icon("fa6s.tag")
                 commit_icon = qta.icon("fa6s.code-commit")
                 self.version_icon_label.setPixmap(tag_icon.pixmap(16, 16))
                 self.version_text_label.setText(f"Version: {tag_local}" if tag_local else "")
                 self.commit_icon_label.setPixmap(commit_icon.pixmap(16, 16))
-                self.commit_text_label.setText(f"Commit: {commit_hash}" if commit_hash else "")
+                # If we have a commit hash, present short hash (clickable if repo URL available)
+                if commit_hash:
+                    short_hash = commit_hash[:7]
+                    # tooltip shows the full hash
+                    self.commit_text_label.setToolTip(commit_hash)
+                    if repo_url:
+                        # build commit url (handle trailing slash)
+                        commit_url = f"{repo_url.rstrip('/')}/commit/{commit_hash}"
+                        # show clickable HTML link (only the short hash, no 'Commit:' prefix)
+                        self.commit_text_label.setTextFormat(Qt.RichText)
+                        self.commit_text_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                        self.commit_text_label.setOpenExternalLinks(True)
+                        self.commit_text_label.setCursor(Qt.PointingHandCursor)
+                        self.commit_text_label.setText(f"<a href=\"{commit_url}\">{short_hash}</a>")
+                    else:
+                        # No repo URL available; just show the short hash text
+                        self.commit_text_label.setText(short_hash)
+                else:
+                    self.commit_text_label.setText("")
                 if tag_remote and tag_local and tag_remote != tag_local:
                     self.update_btn.setText(f"Update to {tag_remote} Now")
                     self.update_btn.setEnabled(True)

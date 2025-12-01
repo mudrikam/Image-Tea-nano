@@ -31,9 +31,7 @@
       "gpt-5",
       "gpt-5-mini",
       "gpt-5-nano",
-      "openai/gpt-4o",
-      "openrouter/bert-nebulon-alpha",
-      "google/gemini-2.0-flash-exp:free"
+      "openai/gpt-4.1-nano"
     ]
   },
   "shutterstock_category_map": {
