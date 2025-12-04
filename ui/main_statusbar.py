@@ -36,7 +36,29 @@ class MainStatusBar(QStatusBar):
         self.version_commit_widget.setLayout(layout)
         self.addWidget(self.status_label)
         self.addPermanentWidget(self.version_commit_widget)
+
+        # Check for .env DEVELOPMENT=true
+        self._check_env_and_set_style()
         self.update_version_and_commit()
+
+    def _check_env_and_set_style(self):
+        env_path = os.path.join(BASE_PATH, ".env")
+        is_development = False
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip().upper() == "DEVELOPMENT=TRUE":
+                            is_development = True
+                            break
+            except Exception:
+                pass
+        if is_development:
+            self.setStyleSheet("QStatusBar { background-color: #FF0000; }")
+            self.status_label.setText('<span style="color:white;font-weight:bold;">Development!</span>')
+        else:
+            self.setStyleSheet("")
+            self.status_label.setText("")
 
     def set_status(self, text):
         self.status_label.setText(text)
