@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QDialog, QSpacerItem, QSizePolicy
 import datetime
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from helpers.check_for_update_helper import show_update_dialog_if_available
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
 from ui.main_table import ImageTableWidget
@@ -137,5 +138,9 @@ def setup_ui(self):
 
     self.statusbar = MainStatusBar(self)
     self.setStatusBar(self.statusbar)
+    try:
+        QTimer.singleShot(500, lambda: show_update_dialog_if_available(parent=self))
+    except Exception:
+        pass
 
     on_table_selection_changed()
