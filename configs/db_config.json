@@ -1,0 +1,7 @@
+{
+    "db_path": "database/database.db",
+    "migrations_folder": "database/migrations",
+    "backups_folder": "database/db_backups",
+    "backup_retention_days": 30,
+    "auto_backup_on_migration": true
+}

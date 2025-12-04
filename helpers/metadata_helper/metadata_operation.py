@@ -82,18 +82,17 @@ class ImageTeaGeneratorThread(QThread):
 	finished = Signal(list)
 	row_status = Signal(int, str)
 
-	def __init__(self, api_key, model, rows, db_path, row_map=None, generate_metadata_func=None):
+	def __init__(self, api_key, model, rows, row_map=None, generate_metadata_func=None):
 		super().__init__()
 		self.api_key = api_key
 		self.model = model
 		self.rows = rows
-		self.db_path = db_path
 		self.errors = []
 		self.row_map = row_map or {}
 		self.generate_metadata_func = generate_metadata_func
 
 	def run(self):
-		db = ImageTeaDB(self.db_path)
+		db = ImageTeaDB()
 		total = len(self.rows)
 		for idx, row in enumerate(self.rows):
 			if self.isInterruptionRequested():
