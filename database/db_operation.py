@@ -2,93 +2,31 @@ import sqlite3
 import json
 from config import BASE_PATH
 import os
+from database.db_migration_manager import DBMigrationManager
 
-DB_PATH = os.path.join(BASE_PATH, 'database', 'database.db')
+def get_db_path():
+    config_path = os.path.join(BASE_PATH, 'configs', 'db_config.json')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    return os.path.join(BASE_PATH, config['db_path'])
+
+DB_PATH = get_db_path()
 
 class ImageTeaDB:
-    def __init__(self, db_path=DB_PATH):
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                service TEXT,
-                api_key TEXT,
-                note TEXT,
-                last_tested TEXT,
-                status TEXT,
-                model TEXT
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filepath TEXT UNIQUE,
-                filename TEXT,
-                title TEXT,
-                description TEXT,
-                tags TEXT,
-                status TEXT,
-                original_filename TEXT
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS api_tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filepath TEXT,
-                service TEXT,
-                model TEXT,
-                token_input INTEGER,
-                token_output INTEGER,
-                token_total INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS platform_list (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS files_type_assign (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id INTEGER,
-                file_type TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(file_id) REFERENCES files(id)
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS category_mapping (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id INTEGER,
-                platform_id INTEGER,
-                category_id INTEGER,
-                category_name TEXT,
-                FOREIGN KEY(file_id) REFERENCES files(id),
-                FOREIGN KEY(platform_id) REFERENCES platform_list(id)
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS generated_prompts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id INTEGER,
-                prompt TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(file_id) REFERENCES files(id)
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS imagen_generation_status (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt_id INTEGER,
-                status TEXT DEFAULT 'pending',
-                images_generated INTEGER DEFAULT 0,
-                images_requested INTEGER DEFAULT 4,
-                error_message TEXT,
-                generated_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(prompt_id) REFERENCES generated_prompts(id)
-            )''')
-            c.execute('''CREATE TABLE IF NOT EXISTS generated_prompt_status (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt_id INTEGER,
-                status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(prompt_id) REFERENCES generated_prompts(id)
-            )''')
-            conn.commit()
+    def __init__(self):
+        self.config_path = os.path.join(BASE_PATH, 'configs', 'db_config.json')
+        self._load_config()
+        self._ensure_database()
+    
+    def _load_config(self):
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        self.db_path = os.path.join(BASE_PATH, config['db_path'])
+    
+    def _ensure_database(self):
+        migration_manager = DBMigrationManager()
+        migration_manager.initialize_database()
 
     def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None):
         with sqlite3.connect(self.db_path) as conn:

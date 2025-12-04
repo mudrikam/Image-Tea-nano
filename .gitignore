@@ -214,6 +214,7 @@ temp/
 tools/exiftool/
 tools/ghostscript/
 tools/cairo
+database/db_backups
 
 Sign-Image-Tea.bat
 Image Tea.bat
