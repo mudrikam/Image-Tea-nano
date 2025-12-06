@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QDialogButtonBox
 )
 from PySide6.QtCore import Qt
+import qtawesome as qta
 
 
 class PromptEditDialog(QDialog):
@@ -35,6 +36,15 @@ class PromptEditDialog(QDialog):
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_and_close)
         button_box.rejected.connect(self.reject)
+        
+        # Add icons to buttons
+        save_button = button_box.button(QDialogButtonBox.Save)
+        cancel_button = button_box.button(QDialogButtonBox.Cancel)
+        if save_button:
+            save_button.setIcon(qta.icon('fa6s.floppy-disk'))
+        if cancel_button:
+            cancel_button.setIcon(qta.icon('fa6s.xmark'))
+        
         layout.addWidget(button_box)
         
         # Initial character count

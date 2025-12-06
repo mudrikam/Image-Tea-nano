@@ -18,11 +18,11 @@ from dialogs.tools.prompt_edit_dialog import PromptEditDialog
 class PromptGeneratorWorker(QThread):
 	"""Worker thread for prompt generation to prevent UI freezing"""
 	progress_updated = Signal(str)
-	progress_value_changed = Signal(int)  # Progress percentage (0-100)
-	finished = Signal(int)  # total_generated
+	progress_value_changed = Signal(int)
+	finished = Signal(int)
 	error_occurred = Signal(str)
-	prompt_added = Signal()  # Signal when a new prompt is saved
-	file_processing = Signal(str)  # Signal when starting to process a file
+	prompt_added = Signal()
+	file_processing = Signal(str)
 	
 	def __init__(self, db, api_key, service, model):
 		super().__init__()
@@ -57,7 +57,7 @@ class PromptGeneratorWorker(QThread):
 				api_key=self.api_key,
 				service=self.service,
 				model=self.model,
-				file_ids=None,  # Generate for all files
+				file_ids=None,
 				stop_flag=self.stop_flag,
 				progress_callback=progress_callback,
 				prompt_saved_callback=prompt_saved_callback,
@@ -74,7 +74,7 @@ class CSVImportWorker(QThread):
 	"""Worker thread for CSV import to prevent UI freezing"""
 	progress_updated = Signal(str)
 	progress_value_changed = Signal(int)
-	finished = Signal(int)  # total_imported
+	finished = Signal(int)
 	error_occurred = Signal(str)
 	
 	def __init__(self, db, filename):
@@ -87,10 +87,10 @@ class CSVImportWorker(QThread):
 			self.progress_updated.emit("Reading CSV file...")
 			self.progress_value_changed.emit(10)
 			
-			# Read and parse CSV file
+            
 			imported_prompts = []
 			with open(self.filename, 'r', encoding='utf-8') as csvfile:
-				# Get total lines for progress calculation
+                
 				total_lines = sum(1 for _ in csvfile)
 				csvfile.seek(0)
 				
@@ -100,8 +100,8 @@ class CSVImportWorker(QThread):
 				reader = csv.reader(csvfile)
 				
 				for row_num, row in enumerate(reader, 1):
-					# Update progress
-					progress = 20 + int((row_num / total_lines) * 60)  # 20-80%
+                    
+					progress = 20 + int((row_num / total_lines) * 60)
 					self.progress_value_changed.emit(progress)
 					self.progress_updated.emit(f"Processing row {row_num}/{total_lines}...")
 					
@@ -111,13 +111,13 @@ class CSVImportWorker(QThread):
 						if not prompt_text:
 							continue
 							
-						# Remove surrounding quotes if present
+                        
 						if prompt_text.startswith('"') and prompt_text.endswith('"'):
 							prompt_text = prompt_text[1:-1]
 						elif prompt_text.startswith("'") and prompt_text.endswith("'"):
 							prompt_text = prompt_text[1:-1]
 						
-						# Validate prompt length (minimum 10 characters)
+                        
 						if len(prompt_text) >= 10:
 							imported_prompts.append(prompt_text)
 			
@@ -128,15 +128,15 @@ class CSVImportWorker(QThread):
 			self.progress_updated.emit(f"Saving {len(imported_prompts)} prompts to database...")
 			self.progress_value_changed.emit(85)
 			
-			# Save prompts to database
+            
 			imported_count = 0
 			for i, prompt_text in enumerate(imported_prompts):
 				try:
 					self.db.add_external_prompt(prompt_text)
 					imported_count += 1
 					
-					# Update progress for database saves
-					progress = 85 + int((i / len(imported_prompts)) * 10)  # 85-95%
+                    
+					progress = 85 + int((i / len(imported_prompts)) * 10)
 					self.progress_value_changed.emit(progress)
 					
 				except Exception as e:
@@ -160,17 +160,17 @@ class CSVImportProgressDialog(QDialog):
 		
 		layout = QVBoxLayout(self)
 		
-		# Status label
+        
 		self.status_label = QLabel("Preparing import...")
 		layout.addWidget(self.status_label)
 		
-		# Progress bar
+        
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setRange(0, 100)
 		self.progress_bar.setValue(0)
 		layout.addWidget(self.progress_bar)
 		
-		# Cancel button
+        
 		self.cancel_btn = QPushButton("Cancel")
 		self.cancel_btn.clicked.connect(self.reject)
 		layout.addWidget(self.cancel_btn)
@@ -186,7 +186,7 @@ class CSVImportProgressDialog(QDialog):
 	def import_finished(self, imported_count):
 		self.status_label.setText(f"Successfully imported {imported_count} prompts!")
 		self.cancel_btn.setText("Close")
-		QTimer.singleShot(2000, self.accept)  # Auto-close after 2 seconds
+		QTimer.singleShot(2000, self.accept)
 
 
 class PromptGeneratorDialog(QDialog):
@@ -197,60 +197,60 @@ class PromptGeneratorDialog(QDialog):
 		self.setFixedSize(900, 750)
 		self.page_size = 20
 		
-		# Database connection
+        
 		from database import db_operation
 		self.db = db_operation.ImageTeaDB()
 		
-		# Realtime refresh timer
+        
 		self.refresh_timer = QTimer()
 		self.refresh_timer.timeout.connect(self.refresh_table_if_needed)
 		self.is_generating = False
 		self.last_prompt_count = 0
-		self.current_generating_file = None  # Track current file being processed
-		# Ensure icon attributes exist before any UI update calls
+		self.current_generating_file = None
+        
 		self.gen_icon = None
 		self.stop_icon = None
-		# Initialize pagination and prompt storage before loading
+        
 		self.current_page = 1
-		# prompt items loaded from database
+        
 		self.prompt_data = []
 		self.total_prompts = 0
-		# Worker thread for generation (may be created later)
+        
 		self.worker = None
 		
-		# Load initial data
+        
 		self.load_prompts_from_db()
 		
-		# Start realtime refresh
+        
 		self.start_realtime_refresh()
 		self.current_page = 1
-		# prompt items loaded from database
+        
 		self.prompt_data = []
 		self.total_prompts = 0
 		
-		# Worker thread for generation
+        
 		self.worker = None
 
 		main_layout = QVBoxLayout(self)
 
-		# API Key Section at the very top
+        
 		if self.db:
 			self.api_key_section = ApiKeySectionWidget(self.db, self)
 			main_layout.addWidget(self.api_key_section)
 			
-			# Connect to API key changes
+            
 			self.api_key_section.api_key_changed.connect(self.on_api_key_changed)
 			
-			# Set initial values
+            
 			self.api_key = self.api_key_section.get_current_api_key()
 			self.selected_service = self.api_key_section.get_current_service()
 			self.selected_model_name = self.api_key_section.get_current_model()
 
-		# Top options HBox (no frame, keep layout compact)
-		# Options layout: Prompt Type, Aspect Ratio, Prompt Length, Prompts Per File
+        
+        
 		options_layout = QHBoxLayout()
 		
-		# Prompt Type combo
+        
 		type_label = QLabel("Type")
 		self.prompt_type_combo = QComboBox()
 		self.prompt_type_combo.setMinimumWidth(120)
@@ -258,7 +258,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(type_label)
 		options_layout.addWidget(self.prompt_type_combo)
 		
-		# Aspect Ratio combo  
+        
 		ratio_label = QLabel("Aspect Ratio")
 		self.aspect_ratio_combo = QComboBox()
 		self.aspect_ratio_combo.setMinimumWidth(120)
@@ -266,7 +266,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(ratio_label)
 		options_layout.addWidget(self.aspect_ratio_combo)
 		
-		# Prompt length
+        
 		length_label = QLabel("Prompt Length")
 		self.prompt_length_spin = QSpinBox()
 		self.prompt_length_spin.setMinimum(1)
@@ -276,7 +276,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(length_label)
 		options_layout.addWidget(self.prompt_length_spin)
 		
-		# Prompts per file
+        
 		perfile_label = QLabel("Prompts per File")
 		self.prompts_per_file_spin = QSpinBox()
 		self.prompts_per_file_spin.setMinimum(1)
@@ -286,7 +286,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(perfile_label)
 		options_layout.addWidget(self.prompts_per_file_spin)
 		
-		# Variation Level
+        
 		variation_label = QLabel("Variation")
 		self.variation_level_spin = QSpinBox()
 		self.variation_level_spin.setMinimum(1)
@@ -296,37 +296,37 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(variation_label)
 		options_layout.addWidget(self.variation_level_spin)
 		
-		# push remaining space to the right
+        
 		options_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		main_layout.addLayout(options_layout)
 
-		# Load saved options from ai_config.json (if present)
+        
 		cfg = self.load_ai_config()
 		pg_section = cfg.get('prompt_generator', {}) if isinstance(cfg, dict) else {}
 		settings = pg_section.get('settings', {}) if isinstance(pg_section, dict) else {}
 		prompt_types = pg_section.get('prompt_types', {}) if isinstance(pg_section, dict) else {}
 		aspect_ratios = pg_section.get('aspect_ratios', {}) if isinstance(pg_section, dict) else {}
 		
-		# Populate prompt type combo
+        
 		if prompt_types:
 			for key, display_name in prompt_types.items():
 				self.prompt_type_combo.addItem(display_name, key)
 		else:
-			# Default options if config not available
+            
 			self.prompt_type_combo.addItem("Image Generation", "image_generation")
 			self.prompt_type_combo.addItem("Video Generation", "video_generation")
 		
-		# Populate aspect ratio combo
+        
 		if aspect_ratios:
 			for key, display_name in aspect_ratios.items():
 				self.aspect_ratio_combo.addItem(display_name, key)
 		else:
-			# Default options if config not available
+            
 			self.aspect_ratio_combo.addItem("Widescreen (16:9)", "16:9")
 			self.aspect_ratio_combo.addItem("Square (1:1)", "1:1")
 			self.aspect_ratio_combo.addItem("Portrait (9:16)", "9:16")
 		
-		# Load saved values
+        
 		if isinstance(settings.get('prompt_length'), int):
 			self.prompt_length_spin.setValue(settings.get('prompt_length'))
 		if isinstance(settings.get('prompts_per_file'), int):
@@ -334,35 +334,35 @@ class PromptGeneratorDialog(QDialog):
 		if isinstance(settings.get('variation_level'), int):
 			self.variation_level_spin.setValue(settings.get('variation_level'))
 		
-		# Set saved prompt type
+        
 		saved_prompt_type = settings.get('prompt_type', 'image_generation')
 		for i in range(self.prompt_type_combo.count()):
 			if self.prompt_type_combo.itemData(i) == saved_prompt_type:
 				self.prompt_type_combo.setCurrentIndex(i)
 				break
 		
-		# Set saved aspect ratio
+        
 		saved_aspect_ratio = settings.get('aspect_ratio', '16:9')
 		for i in range(self.aspect_ratio_combo.count()):
 			if self.aspect_ratio_combo.itemData(i) == saved_aspect_ratio:
 				self.aspect_ratio_combo.setCurrentIndex(i)
 				break
 
-		# Save options when changed
+        
 		self.prompt_length_spin.valueChanged.connect(self.save_options_to_config)
 		self.prompts_per_file_spin.valueChanged.connect(self.save_options_to_config)
 		self.variation_level_spin.valueChanged.connect(self.save_options_to_config)
 		self.prompt_type_combo.currentIndexChanged.connect(self.save_options_to_config)
 		self.aspect_ratio_combo.currentIndexChanged.connect(self.save_options_to_config)
 
-		# Load prompts from DB if available
+        
 		if self.db:
 			self.load_prompts_from_db()
 		
-		# Pagination controls (right aligned with page size)
+        
 		paging_layout = QHBoxLayout()
 		
-		# Page size selector (left side)
+        
 		pagesize_label = QLabel("Per Page")
 		self.page_size_combo = QComboBox()
 		self.page_size_combo.addItems(["10", "20", "30", "50", "80", "100", "200"])
@@ -371,10 +371,10 @@ class PromptGeneratorDialog(QDialog):
 		paging_layout.addWidget(pagesize_label)
 		paging_layout.addWidget(self.page_size_combo)
 		
-		# Spacer to push pagination controls to the right
+        
 		paging_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		
-		# Use qtawesome icons for buttons
+        
 		prev_icon = qta.icon('fa6s.chevron-left')
 		next_icon = qta.icon('fa6s.chevron-right')
 		self.prev_btn = QPushButton(prev_icon, "")
@@ -398,76 +398,48 @@ class PromptGeneratorDialog(QDialog):
 		self.next_btn.clicked.connect(self.go_next)
 		paging_layout.addWidget(self.next_btn)
 
-		main_layout.addLayout(paging_layout)
+        
 
-		# Table with columns: Prompts, Characters, Created, Copy
+        
 		self.table = QTableWidget()
 		self.table.setColumnCount(4)
 		self.table.setHorizontalHeaderLabels(["Prompts", "Chars", "Created", "Copy"])
-		# Set column widths
-		self.table.setColumnWidth(0, 450)  # Prompts - slightly narrower for copy column
-		self.table.setColumnWidth(1, 60)   # Chars - narrow
-		self.table.setColumnWidth(2, 150)  # Created - medium
-		self.table.setColumnWidth(3, 60)   # Copy - narrow for button
-		# Allow text wrapping in prompts column
+        
+		self.table.setColumnWidth(0, 450)
+		self.table.setColumnWidth(1, 60)
+		self.table.setColumnWidth(2, 150)
+		self.table.setColumnWidth(3, 60)
+        
 		self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
 		self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-		# Make table keyboard-friendly for shortcuts
+        
 		self.table.setSelectionBehavior(QTableWidget.SelectRows)
 		self.table.setSelectionMode(QTableWidget.SingleSelection)
 		self.table.setFocusPolicy(Qt.StrongFocus)
 		self.table.setToolTip("Double-click to edit • Middle-click to copy • Ctrl+C to copy selected prompt • Right-click for menu")
 		self.table.doubleClicked.connect(self.on_prompt_double_click)
-		# Enable custom context menu for copying full prompts
+        
 		self.table.setContextMenuPolicy(Qt.CustomContextMenu)
 		self.table.customContextMenuRequested.connect(self.on_table_context_menu)
-		# Enable middle click detection
+        
 		self.table.mousePressEvent = self.table_mouse_press_event
-		# Enable keyboard shortcuts
+        
 		self.table.keyPressEvent = self.table_key_press_event
-		main_layout.addWidget(self.table)
 
-		# Actions section below the table: stats on the left, progress in middle, buttons on the right
-		actions_layout = QHBoxLayout()
-		
-		# Stats section with vertical layout (left side)
-		stats_widget = QWidget()
-		stats_layout = QVBoxLayout(stats_widget)
-		stats_layout.setContentsMargins(0, 0, 0, 0)
-		stats_layout.setSpacing(2)
-		
-		# Stats label 1 - Prompts count
-		self.prompts_stats_label = QLabel("Prompts: 0/0")
-		stats_layout.addWidget(self.prompts_stats_label)
-		
-		# Stats label 2 - Total files
-		self.files_stats_label = QLabel("Total files: 0")
-		stats_layout.addWidget(self.files_stats_label)
-		
-		# Stats label 3 - Progress counter
-		self.progress_counter_label = QLabel("Progress: (0/0)")
-		stats_layout.addWidget(self.progress_counter_label)
-		
-		# Stats label 4 - Currently generating
-		self.generating_label = QLabel("Ready to generate")
-		self.generating_label.setStyleSheet("color: #0066cc; font-weight: bold; font-style: normal;")
-		stats_layout.addWidget(self.generating_label)
-		
-		actions_layout.addWidget(stats_widget)
-		
-		# spacer in middle
-		actions_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
-		
-		# Edit Prompt Config button
+        
+		top_buttons_layout = QHBoxLayout()
+        
+		top_buttons_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        
 		try:
 			self.edit_config_btn = QPushButton(qta.icon('fa6s.gear'), "Edit Prompt")
 		except Exception:
 			self.edit_config_btn = QPushButton("Edit Prompt")
 		self.edit_config_btn.setToolTip("Edit prompt generator configuration")
 		self.edit_config_btn.clicked.connect(self.open_prompt_config_editor)
-		actions_layout.addWidget(self.edit_config_btn)
+		top_buttons_layout.addWidget(self.edit_config_btn)
 		
-		# Clear prompts button
+        
 		try:
 			clear_icon = qta.icon('fa6s.trash')
 		except Exception:
@@ -478,9 +450,9 @@ class PromptGeneratorDialog(QDialog):
 			self.clear_btn = QPushButton("Clear All")
 		self.clear_btn.setToolTip("Delete all generated prompts")
 		self.clear_btn.clicked.connect(self.clear_all_prompts)
-		actions_layout.addWidget(self.clear_btn)
+		top_buttons_layout.addWidget(self.clear_btn)
 		
-		# Export CSV button
+        
 		try:
 			export_icon = qta.icon('fa6s.upload')
 		except Exception:
@@ -491,9 +463,9 @@ class PromptGeneratorDialog(QDialog):
 			self.export_btn = QPushButton("Export CSV")
 		self.export_btn.setToolTip("Export prompts to CSV file")
 		self.export_btn.clicked.connect(self.export_to_csv)
-		actions_layout.addWidget(self.export_btn)
+		top_buttons_layout.addWidget(self.export_btn)
 		
-		# Import CSV button
+        
 		try:
 			import_icon = qta.icon('fa6s.download')
 		except Exception:
@@ -504,9 +476,48 @@ class PromptGeneratorDialog(QDialog):
 			self.import_btn = QPushButton("Import CSV")
 		self.import_btn.setToolTip("Import prompts from CSV file")
 		self.import_btn.clicked.connect(self.import_from_csv)
-		actions_layout.addWidget(self.import_btn)
+		top_buttons_layout.addWidget(self.import_btn)
 		
-		# Generate button (right) - larger and with conditional styling
+		main_layout.addLayout(top_buttons_layout)
+        
+		main_layout.addLayout(paging_layout)
+        
+		main_layout.addWidget(self.table)
+
+        
+		actions_layout = QHBoxLayout()
+		
+        
+		stats_widget = QWidget()
+		stats_layout = QVBoxLayout(stats_widget)
+		stats_layout.setContentsMargins(0, 0, 0, 0)
+		stats_layout.setSpacing(2)
+		
+        
+		self.prompts_stats_label = QLabel("Prompts: 0/0")
+		stats_layout.addWidget(self.prompts_stats_label)
+		
+        
+		self.files_stats_label = QLabel("Total files: 0")
+		stats_layout.addWidget(self.files_stats_label)
+		
+        
+		self.progress_counter_label = QLabel("Progress: (0/0)")
+		stats_layout.addWidget(self.progress_counter_label)
+		
+        
+		self.generating_label = QLabel("Ready to generate")
+		self.generating_label.setStyleSheet("color: #0066cc; font-weight: bold; font-style: normal;")
+		stats_layout.addWidget(self.generating_label)
+		
+		actions_layout.addWidget(stats_widget)
+		
+        
+		actions_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+		
+
+		
+        
 		try:
 			gen_icon = qta.icon('fa6s.wand-magic-sparkles')
 			stop_icon = qta.icon('fa6s.stop')
@@ -519,12 +530,12 @@ class PromptGeneratorDialog(QDialog):
 		else:
 			self.generate_btn = QPushButton("Generate Prompts")
 			
-		self.generate_btn.setMinimumHeight(40)  # Make button larger
+		self.generate_btn.setMinimumHeight(40)
 		self.generate_btn.setMinimumWidth(150)
 		self.generate_btn.setToolTip("Generate prompts based on current options")
 		self.generate_btn.clicked.connect(self.toggle_generation)
 		
-		# Set initial styling consistent with batch processing helper
+        
 		self.generate_btn.setStyleSheet("""
 			QPushButton {
 				background-color: #4e9e20;
@@ -542,7 +553,7 @@ class PromptGeneratorDialog(QDialog):
 			}
 		""")
 		
-		# Store icons for later use
+        
 		self.gen_icon = gen_icon
 		self.stop_icon = stop_icon
 		self.is_generating = False
@@ -550,7 +561,7 @@ class PromptGeneratorDialog(QDialog):
 		actions_layout.addWidget(self.generate_btn)
 		main_layout.addLayout(actions_layout)
 		
-		# Progress bar (initially hidden)
+        
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setVisible(False)
 		self.progress_bar.setMinimum(0)
@@ -570,7 +581,7 @@ class PromptGeneratorDialog(QDialog):
 		try:
 			new_page_size = int(text)
 			self.page_size = new_page_size
-			self.current_page = 1  # Reset to first page
+			self.current_page = 1
 			self.load_prompts_from_db()
 			self.update_pagination()
 		except ValueError:
@@ -578,7 +589,7 @@ class PromptGeneratorDialog(QDialog):
 
 	def update_pagination(self):
 		total = self.total_pages()
-		# clamp current page
+        
 		if self.current_page < 1:
 			self.current_page = 1
 		if self.current_page > total:
@@ -587,29 +598,29 @@ class PromptGeneratorDialog(QDialog):
 		self.page_spinner.setMaximum(total)
 		self.page_spinner.setValue(self.current_page)
 		
-		# Update table with current page data
+        
 		self.table.setRowCount(len(self.prompt_data))
 		for r, prompt_row in enumerate(self.prompt_data):
-			# prompt_row structure: (id, file_id, prompt, created_at, status) if with status
+                
 			if len(prompt_row) >= 4:
 				prompt_text = prompt_row[2] or ""
 				created_at = prompt_row[3] or ""
 				status = prompt_row[4] if len(prompt_row) > 4 else 'pending'
 				
-				# Truncate prompt for display
+                
 				display_prompt = prompt_text[:100] + "..." if len(prompt_text) > 100 else prompt_text
 				char_count = len(prompt_text)
 				
-				# Set table items (4 columns now)
+                
 				item_prompt = QTableWidgetItem(display_prompt)
-				item_prompt.setData(Qt.UserRole, prompt_text)  # Store full prompt text for copy
-				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])  # Store prompt ID for editing
+				item_prompt.setData(Qt.UserRole, prompt_text)
+				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])
 				
 				self.table.setItem(r, 0, item_prompt)
 				self.table.setItem(r, 1, QTableWidgetItem(str(char_count)))
-				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))  # Truncate datetime
+				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))
 				
-				# Create copy button for column 3
+                
 				copy_btn = QPushButton()
 				try:
 					copy_icon = qta.icon('fa6s.copy')
@@ -621,21 +632,21 @@ class PromptGeneratorDialog(QDialog):
 				copy_btn.clicked.connect(lambda checked, text=prompt_text, pid=prompt_row[0]: self.copy_prompt_and_update_status(text, pid))
 				self.table.setCellWidget(r, 3, copy_btn)
 				
-				# Set row color based on status
-				copied_color = QColor(243, 200, 24, int(0.3 * 255))  # Gold with 30% opacity
+                
+				copied_color = QColor(243, 200, 24, int(0.3 * 255))
 				if status == 'copied':
-					# Set background for all items in the row
+                    
 					for col in range(4):
 						item = self.table.item(r, col)
 						if item:
 							item.setBackground(copied_color)
 						else:
-							# Create empty item for columns that don't have items yet
+                            
 							empty_item = QTableWidgetItem("")
 							empty_item.setBackground(copied_color)
 							self.table.setItem(r, col, empty_item)
 					
-					# Style the button widget with matching color
+                    
 					copy_btn.setStyleSheet("""
 						QPushButton {
 							background-color: rgba(243, 200, 24, 77);
@@ -647,15 +658,15 @@ class PromptGeneratorDialog(QDialog):
 						}
 					""")
 				else:
-					# Reset button style for non-copied rows
+                    
 					copy_btn.setStyleSheet("")
 		
 		
-		# enable/disable buttons
+        
 		self.prev_btn.setEnabled(self.current_page > 1)
 		self.next_btn.setEnabled(self.current_page < total)
 		
-		# Update stats - show total prompts and remaining to generate
+        
 		self.update_stats_display()
 
 	def update_stats_display(self):
@@ -665,11 +676,11 @@ class PromptGeneratorDialog(QDialog):
 		target_total = total_files * prompts_per_file
 		current_prompts = self.total_prompts
 		
-		# Update separate labels
+        
 		self.prompts_stats_label.setText(f"Prompts: {current_prompts}/{target_total}")
 		self.files_stats_label.setText(f"Total files: {total_files}")
 		
-		# Update generating status - always show, either current file or idle state
+        
 		if hasattr(self, 'current_generating_file') and self.current_generating_file:
 			self.generating_label.setText(f"Generating prompt for {self.current_generating_file}")
 		else:
@@ -711,25 +722,25 @@ class PromptGeneratorDialog(QDialog):
 		"""Stop the current generation process"""
 		if self.worker and self.worker.isRunning():
 			self.worker.stop()
-			self.worker.wait(3000)  # Wait up to 3 seconds
+			self.worker.wait(3000)
 		
 		self.is_generating = False
 		self.update_generate_button()
 		self.progress_bar.setVisible(False)
-		self.progress_counter_label.setText("")  # Clear progress counter
+		self.progress_counter_label.setText("")
 		print("Generation stopped")
 		
-		# Set moderate refresh when idle
+        
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.start(5000)
 
 	def update_generate_button(self):
 		"""Update generate button appearance based on state"""
-		# If UI hasn't created the generate button yet, skip safely
+        
 		if not hasattr(self, 'generate_btn'):
 			return
 		if self.is_generating:
-			# Red stop button - consistent with batch processing helper
+            
 			if self.stop_icon:
 				self.generate_btn.setIcon(self.stop_icon)
 			self.generate_btn.setText("Stop Generation")
@@ -750,7 +761,7 @@ class PromptGeneratorDialog(QDialog):
 				}
 			""")
 		else:
-			# Green generate button - consistent with batch processing helper
+            
 			if self.gen_icon:
 				self.generate_btn.setIcon(self.gen_icon)
 			self.generate_btn.setText("Generate Prompts")
@@ -781,27 +792,27 @@ class PromptGeneratorDialog(QDialog):
 			print("Error: API key and model must be selected for prompt generation")
 			return
 		
-		# Check if worker is already running
+        
 		if self.worker and self.worker.isRunning():
 			return
 		
-		# Set generating state and update UI
+        
 		self.is_generating = True
 		self.update_generate_button()
 		self.progress_bar.setVisible(True)
 		self.progress_bar.setValue(0)
 		
-		# Set very fast refresh during generation
+        
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.start(1000)
 		print("Starting prompt generation...")
 		
-		# Create and start worker thread
+        
 		self.worker = PromptGeneratorWorker(
 			self.db, self.api_key, self.selected_service, self.selected_model_name
 		)
 		
-		# Connect signals
+        
 		self.worker.progress_updated.connect(self.on_generation_progress)
 		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
 		self.worker.finished.connect(self.on_generation_finished)
@@ -809,20 +820,20 @@ class PromptGeneratorDialog(QDialog):
 		self.worker.prompt_added.connect(self.on_new_prompt_added)
 		self.worker.file_processing.connect(self.on_file_processing)
 		
-		# Start the worker
+        
 		self.worker.start()
 	
 	def on_generation_progress(self, message):
 		"""Handle progress updates from worker thread"""
-		# Log to console
+        
 		print(f"Progress: {message}")
 		
-		# Extract progress counter if available (x/y) format
+        
 		if "(" in message and "/" in message and ")" in message:
 			start = message.rfind("(")
 			end = message.rfind(")")
 			if start < end:
-				progress_text = message[start+1:end]  # Extract "3/9"
+				progress_text = message[start+1:end]
 				self.progress_counter_label.setText(f"Progress: ({progress_text})")
 		else:
 			self.progress_counter_label.setText("")
@@ -838,32 +849,32 @@ class PromptGeneratorDialog(QDialog):
 	
 	def on_generation_finished(self, total_generated):
 		"""Handle completion of prompt generation"""
-		# Reset generating state
+        
 		self.is_generating = False
-		self.current_generating_file = None  # Clear current file
-		self.progress_counter_label.setText("Progress: (0/0)")  # Reset progress counter
+		self.current_generating_file = None
+		self.progress_counter_label.setText("Progress: (0/0)")
 		self.update_generate_button()
 		self.progress_bar.setVisible(False)
 		
 		if total_generated > 0:
-			# Final reload to ensure all data is current
+            
 			self.load_prompts_from_db()
 			self.update_pagination()
 			print(f"Successfully generated {total_generated} prompts")
 		else:
 			print("No prompts were generated")
 		
-		# Update stats after clearing generating status
+        
 		self.update_stats_display()
 		
-		# Set moderate refresh when idle
+        
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.start(5000)
 	
 	def on_generation_error(self, error_message):
 		"""Handle errors from worker thread"""
 		print(f"Prompt generation error: {error_message}")
-		# Reset generating state
+        
 		self.is_generating = False
 		self.update_generate_button()
 		self.progress_bar.setVisible(False)
@@ -884,7 +895,7 @@ class PromptGeneratorDialog(QDialog):
 	def save_options_to_config(self):
 		"""Persist current prompt options into ai_config.json under prompt_generator.settings keys."""
 		cfg = self.load_ai_config() or {}
-		# Ensure prompt_generator.settings exists
+        
 		if 'prompt_generator' not in cfg or not isinstance(cfg['prompt_generator'], dict):
 			cfg['prompt_generator'] = {}
 		if 'settings' not in cfg['prompt_generator'] or not isinstance(cfg['prompt_generator']['settings'], dict):
@@ -918,13 +929,13 @@ class PromptGeneratorDialog(QDialog):
 				self.total_prompts = 0
 				return
 				
-			# Get total count
+            
 			if hasattr(self.db, 'get_generated_prompts_count'):
 				self.total_prompts = self.db.get_generated_prompts_count()
 			else:
 				self.total_prompts = 0
 			
-			# Get paginated data with status
+            
 			if hasattr(self.db, 'get_prompts_with_status_paginated'):
 				self.prompt_data = self.db.get_prompts_with_status_paginated(self.current_page, self.page_size)
 			elif hasattr(self.db, 'get_generated_prompts_paginated'):
@@ -946,26 +957,26 @@ class PromptGeneratorDialog(QDialog):
 		if row >= len(self.prompt_data):
 			return
 			
-		# Get prompt ID from the first column data
+        
 		item = self.table.item(row, 0)
 		if not item:
 			return
 			
-		prompt_id = item.data(Qt.UserRole + 1)  # Get prompt ID
+		prompt_id = item.data(Qt.UserRole + 1)
 		if not prompt_id:
 			return
 			
-		# Get full prompt data
+        
 		prompt_row = self.db.get_generated_prompt_by_id(prompt_id)
 		if not prompt_row:
 			return
 			
-		prompt_text = prompt_row[2]  # prompt text
+		prompt_text = prompt_row[2]
 		
-		# Open edit dialog
+        
 		dialog = PromptEditDialog(prompt_id, prompt_text, self)
 		if dialog.exec() == QDialog.Accepted:
-			# Refresh table data
+            
 			self.load_prompts_from_db()
 			self.update_pagination()
 
@@ -981,15 +992,15 @@ class PromptGeneratorDialog(QDialog):
 		if not first_item:
 			return
 		
-		# Get full prompt text directly from table item
+        
 		full_prompt = first_item.data(Qt.UserRole)
 		prompt_id = first_item.data(Qt.UserRole + 1)
 		if not full_prompt:
 			return
 		
-		# Build context menu
+        
 		menu = QMenu(self)
-		# Try to get copy icon
+        
 		try:
 			copy_icon = qta.icon('fa6s.copy')
 		except Exception:
@@ -998,7 +1009,7 @@ class PromptGeneratorDialog(QDialog):
 		copy_action.triggered.connect(lambda: self.copy_prompt_and_update_status(full_prompt, prompt_id))
 		copy_action.setShortcut(QKeySequence("Ctrl+C"))
 		menu.addAction(copy_action)
-		# Show menu at global position
+        
 		menu.exec(self.table.viewport().mapToGlobal(pos))
 
 	def copy_prompt_text(self, prompt_text):
@@ -1008,7 +1019,7 @@ class PromptGeneratorDialog(QDialog):
 				print("No prompt text to copy")
 				return
 				
-			# Copy to clipboard
+            
 			clipboard = QGuiApplication.clipboard()
 			clipboard.setText(prompt_text)
 			preview = (prompt_text[:80] + '...') if len(prompt_text) > 80 else prompt_text
@@ -1021,20 +1032,20 @@ class PromptGeneratorDialog(QDialog):
 	def copy_prompt_and_update_status(self, prompt_text, prompt_id):
 		"""Copy prompt to clipboard and update status to 'copied'"""
 		try:
-			# Copy to clipboard
+            
 			clipboard = QGuiApplication.clipboard()
 			if clipboard:
 				clipboard.setText(prompt_text)
 				print(f"Prompt copied to clipboard: {prompt_text[:50]}...")
 				
-				# Update status in database
+                
 				if self.db and hasattr(self.db, 'add_prompt_status'):
 					self.db.add_prompt_status(prompt_id, 'copied')
 					
-				# Force immediate UI update
+                
 				self.refresh_table_immediately()
 				
-				# Show tooltip feedback with prompt preview
+                
 				preview = (prompt_text[:80] + '...') if len(prompt_text) > 80 else prompt_text
 				tooltip_text = f"Copied: {preview}"
 				QToolTip.showText(QCursor.pos(), tooltip_text, self, msecShowTime=3000)
@@ -1047,17 +1058,17 @@ class PromptGeneratorDialog(QDialog):
 	def refresh_table_immediately(self):
 		"""Force immediate table refresh for status updates"""
 		try:
-			# Save current page position
+            
 			current_page = self.current_page
 			
-			# Reload data from database
+            
 			self.load_prompts_from_db()
 			
-			# Ensure we stay on the same page
+            
 			self.current_page = current_page
 			self.update_pagination()
 			
-			# Force widget repaint
+            
 			self.table.repaint()
 			
 		except Exception as e:
@@ -1065,17 +1076,17 @@ class PromptGeneratorDialog(QDialog):
 
 	def table_key_press_event(self, event):
 		"""Handle keyboard shortcuts on table"""
-		# Call original key press event first
+        
 		QTableWidget.keyPressEvent(self.table, event)
 		
-		# Handle Ctrl+C shortcut
+        
 		if event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
-			# Get currently selected row
+            
 			current_row = self.table.currentRow()
 			if current_row >= 0:
 				first_item = self.table.item(current_row, 0)
 				if first_item:
-					# Get prompt text and ID
+                    
 					prompt_text = first_item.data(Qt.UserRole)
 					prompt_id = first_item.data(Qt.UserRole + 1)
 					if prompt_text and prompt_id:
@@ -1083,22 +1094,22 @@ class PromptGeneratorDialog(QDialog):
 						event.accept()
 						return
 		
-		# Handle other shortcuts if needed in the future
+        
 		event.ignore()
 
 	def table_mouse_press_event(self, event):
 		"""Handle mouse press events on table including middle click"""
-		# Call original mouse press event first
+        
 		QTableWidget.mousePressEvent(self.table, event)
 		
-		# Handle middle click
+        
 		if event.button() == Qt.MiddleButton:
 			item = self.table.itemAt(event.pos())
 			if item:
 				row = item.row()
 				first_item = self.table.item(row, 0)
 				if first_item:
-					# Get prompt text and ID
+                    
 					prompt_text = first_item.data(Qt.UserRole)
 					prompt_id = first_item.data(Qt.UserRole + 1)
 					if prompt_text and prompt_id:
@@ -1108,7 +1119,7 @@ class PromptGeneratorDialog(QDialog):
 		"""Copy the currently selected prompt (or given prompt_id) to clipboard."""
 		try:
 			if prompt_id is None:
-				# Get currently selected row
+                
 				row = self.table.currentRow()
 				print(f"Current table row: {row}")
 				print(f"Total table rows: {self.table.rowCount()}")
@@ -1117,7 +1128,7 @@ class PromptGeneratorDialog(QDialog):
 					print("No prompt selected for copying")
 					return
 				
-				# Try multiple ways to get the item
+                
 				item = self.table.item(row, 0)
 				print(f"Table item at row {row}, col 0: {item}")
 				
@@ -1125,11 +1136,11 @@ class PromptGeneratorDialog(QDialog):
 					print("No valid item selected")
 					return
 				
-				# Get and validate the prompt ID
+                
 				prompt_id = item.data(Qt.UserRole)
 				print(f"Retrieved prompt_id from table item: {prompt_id} (type: {type(prompt_id)})")
 				
-				# Additional check - try to get from current selection
+                
 				selected_items = self.table.selectedItems()
 				print(f"Selected items count: {len(selected_items)}")
 				if selected_items:
@@ -1137,24 +1148,24 @@ class PromptGeneratorDialog(QDialog):
 						sel_data = sel_item.data(Qt.UserRole)
 						print(f"Selected item {i}: data = {sel_data} (type: {type(sel_data)})")
 				
-				# Check if we have valid prompt_id
+                
 				if prompt_id is None or prompt_id is False:
 					print("No prompt ID found for selected item")
-					# Try alternative approach - get from prompt_data directly
+                    
 					if 0 <= row < len(self.prompt_data):
 						prompt_row_data = self.prompt_data[row]
 						if len(prompt_row_data) > 0:
-							prompt_id = prompt_row_data[0]  # First element should be ID
+							prompt_id = prompt_row_data[0]
 							print(f"Fallback: retrieved prompt_id from prompt_data: {prompt_id}")
 					if not prompt_id:
 						return
 			
-			# Fetch full prompt from DB
+            
 			if not self.db:
 				print("Database not available for copying")
 				return
 			
-			# Debug: print the prompt_id being used
+            
 			print(f"Attempting to copy prompt with ID: {prompt_id}")
 			
 			prompt_row = self.db.get_generated_prompt_by_id(prompt_id)
@@ -1174,7 +1185,7 @@ class PromptGeneratorDialog(QDialog):
 				print("Prompt text is empty")
 				return
 				
-			# Copy to clipboard
+            
 			clipboard = QGuiApplication.clipboard()
 			clipboard.setText(full_prompt)
 			preview = (full_prompt[:80] + '...') if len(full_prompt) > 80 else full_prompt
@@ -1214,21 +1225,21 @@ class PromptGeneratorDialog(QDialog):
 			return
 			
 		try:
-			# Get all prompts (not paginated)
+            
 			all_prompts = self.db.get_all_generated_prompts()
 			if not all_prompts:
 				QMessageBox.information(self, "Export", "No prompts to export")
 				return
 			
-			# Generate default filename with timestamp
+            
 			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 			default_filename = f"Image_Tea_Generated_Prompts_{timestamp}.csv"
 			
-			# Get home directory
+            
 			home_dir = os.path.expanduser("~")
 			default_path = os.path.join(home_dir, default_filename)
 			
-			# Show save file dialog
+            
 			filename, _ = QFileDialog.getSaveFileName(
 				self, "Export Prompts to CSV", default_path,
 				"CSV Files (*.csv);;All Files (*)"
@@ -1237,14 +1248,14 @@ class PromptGeneratorDialog(QDialog):
 			if not filename:
 				return
 				
-			# Write CSV file with prompts only
+            
 			with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
 				writer = csv.writer(csvfile)
 				
-				# Write data - only prompt text (no headers)
+                
 				for row in all_prompts:
-					# row format: (id, file_id, prompt, created_at)
-					# Export only the prompt text (index 2)
+                    
+                    
 					writer.writerow([row[2]])
 			
 			QMessageBox.information(self, "Export Complete", f"Exported {len(all_prompts)} prompts to:\n{filename}")
@@ -1270,25 +1281,25 @@ class PromptGeneratorDialog(QDialog):
 				QMessageBox.critical(self, "Import Error", "Database connection not available.")
 				return
 			
-			# Create and show progress dialog
+            
 			progress_dialog = CSVImportProgressDialog(self)
 			
-			# Create and configure worker thread
+            
 			worker = CSVImportWorker(self.db, filename)
 			progress_dialog.worker = worker
 			
-			# Connect worker signals to progress dialog
+            
 			worker.progress_updated.connect(progress_dialog.update_progress)
 			worker.progress_value_changed.connect(progress_dialog.update_progress_value)
 			worker.finished.connect(progress_dialog.import_finished)
 			worker.finished.connect(self.on_import_finished)
 			worker.error_occurred.connect(self.on_import_error)
 			
-			# Start worker and show progress dialog
+            
 			worker.start()
 			result = progress_dialog.exec()
 			
-			# Cleanup
+            
 			if worker.isRunning():
 				worker.terminate()
 				worker.wait()
@@ -1300,7 +1311,7 @@ class PromptGeneratorDialog(QDialog):
 	def on_import_finished(self, imported_count):
 		"""Handle when CSV import is finished"""
 		try:
-			# Refresh the table to show imported prompts
+            
 			self.load_prompts_from_db()
 			self.update_pagination()
 			print(f"Successfully imported {imported_count} prompts from CSV")
@@ -1314,12 +1325,12 @@ class PromptGeneratorDialog(QDialog):
 	def on_new_prompt_added(self):
 		"""Handle when a new prompt is added during generation - instant table refresh"""
 		if hasattr(self, 'table'):
-			# Save current selection
+            
 			current_row = self.table.currentRow()
-			# Reload data and update UI immediately
+            
 			self.load_prompts_from_db()
 			self.update_pagination()
-			# Restore selection if possible
+            
 			if current_row >= 0 and current_row < self.table.rowCount():
 				item = self.table.item(current_row, 0)
 				if item:
@@ -1327,11 +1338,11 @@ class PromptGeneratorDialog(QDialog):
 
 	def start_realtime_refresh(self):
 		"""Start the realtime refresh timer"""
-		# Get current prompt count for comparison
+        
 		if self.db:
 			self.last_prompt_count = self.db.get_generated_prompts_count()
 		
-		# Start with fast refresh (1 second for very responsive UI)
+        
 		self.refresh_timer.start(1000)
 
 	def refresh_table_if_needed(self):
@@ -1339,36 +1350,36 @@ class PromptGeneratorDialog(QDialog):
 		if not self.db or not hasattr(self, 'table'):
 			return
 		
-		# Get current prompt count
+        
 		current_count = self.db.get_generated_prompts_count()
 		
-		# If count changed, refresh the table
+        
 		if current_count != self.last_prompt_count:
 			self.last_prompt_count = current_count
 			
-			# Refresh table for any changes
+            
 			current_row = self.table.currentRow()
 			self.load_prompts_from_db()
 			self.update_pagination()
-			# Restore selection if possible
+            
 			if current_row >= 0 and current_row < self.table.rowCount():
 				item = self.table.item(current_row, 0)
 				if item:
 					self.table.setCurrentItem(item)
 		
-		# Adjust timer interval based on generation state
+        
 		if self.is_generating and self.refresh_timer.interval() != 1000:
-			self.refresh_timer.start(1000)  # Very fast refresh during generation
+			self.refresh_timer.start(1000)
 		elif not self.is_generating and self.refresh_timer.interval() != 5000:
-			self.refresh_timer.start(5000)  # Moderate refresh when idle
+			self.refresh_timer.start(5000)
 
 	def closeEvent(self, event):
 		"""Handle dialog close event"""
-		# Stop the refresh timer
+        
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.stop()
 		
-		# Stop generation if running
+        
 		if self.worker and self.worker.isRunning():
 			self.worker.stop()
 			self.worker.wait()

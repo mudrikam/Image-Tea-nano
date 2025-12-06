@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QHBoxLayout, QPushButton, QCheckBox, QWidget, QSizePolicy
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap, QImageReader
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QPixmap, QImageReader, QDesktopServices
 import qtawesome as qta
 import json
 import os
@@ -12,24 +12,20 @@ def format_human_readable_date(iso_date_str):
     """Convert ISO date string to human-readable format in UTC and WIB"""
     if not iso_date_str:
         return ""
-    
     try:
         if iso_date_str.endswith('Z'):
             iso_date_str = iso_date_str[:-1] + '+00:00'
-        
         dt = datetime.fromisoformat(iso_date_str.replace('Z', '+00:00'))
-        
         if dt.tzinfo is not None:
             dt = dt.astimezone(timezone.utc)
         else:
             dt = dt.replace(tzinfo=timezone.utc)
-        
         utc_time = dt.strftime("%B %d, %Y at %I:%M %p UTC")
         wib_dt = dt.astimezone(timezone(timedelta(hours=7)))
         wib_time = wib_dt.strftime("%B %d, %Y at %I:%M %p WIB")
-        
         return f"{utc_time} or {wib_time}"
-    except (ValueError, AttributeError):
+    except Exception:
+        print(f"format_human_readable_date error: {iso_date_str}")
         return iso_date_str
 
 
@@ -37,7 +33,7 @@ class UpdateNoticeDialog(QDialog):
     def __init__(self, parent=None, local_tag=None, remote_tag=None, remote_hash=None, release_notes=None, checked_time=None):
         super().__init__(parent)
         self.setWindowTitle("Update Available")
-        self.setMinimumSize(240, 320)
+        self.setMinimumSize(400, 350)
 
         main_layout = QVBoxLayout()
 
@@ -80,37 +76,59 @@ class UpdateNoticeDialog(QDialog):
         info_layout = QVBoxLayout()
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(6)
-
-        repo_url = ""
-        try:
-            app_config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
-            if os.path.exists(app_config_path):
-                with open(app_config_path, "r", encoding="utf-8") as f:
-                    app_cfg = json.load(f)
-                    repo_url = app_cfg.get("links", {}).get("repo", "")
-        except Exception:
-            repo_url = ""
+        app_config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+        with open(app_config_path, "r", encoding="utf-8") as f:
+            app_cfg = json.load(f)
+            repo_url = app_cfg["links"]["repo"]
 
         current_label = QLabel(f"<b>Current version:</b> {local_tag or 'unknown'}")
-        new_label = QLabel(f"<b>New version:</b> {remote_tag or 'unknown'}")
-        new_label.setStyleSheet("QLabel { background-color: #4e9e20; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px; }")
+        new_label = QLabel(f"<b>Latest:</b> {remote_tag or 'unknown'}")
+        new_label.setStyleSheet("QLabel { background-color: #4e9e20; color: white; font-size: 14pt; font-weight: bold; padding: 4px 8px; border-radius: 4px; }")
         checked_label = QLabel(f"<b>Checked at:</b> {format_human_readable_date(checked_time) or ''}")
         checked_label.setWordWrap(True)
 
         commit_text = remote_hash or ""
-        if repo_url and remote_hash:
-            commit_url = f"{repo_url.rstrip('/')}/commit/{remote_hash}"
-            commit_label = QLabel(f"<b>Commit:</b> <a href=\"{commit_url}\">{commit_text}</a>")
-            commit_label.setTextFormat(Qt.RichText)
-            commit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-            commit_label.setOpenExternalLinks(True)
-        else:
-            commit_label = QLabel(f"<b>Commit:</b> {commit_text}")
-
         for lbl in (new_label, current_label, checked_label):
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             info_layout.addWidget(lbl)
-        info_layout.addWidget(commit_label)
+
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(6)
+
+        commit_icon = qta.icon('fa6s.code-commit')
+        short_hash = (commit_text or "")[:7]
+        commit_btn = QPushButton(commit_icon, f" {short_hash}")
+        commit_btn.setToolTip(commit_text or "No commit available")
+        commit_btn.setFlat(True)
+        commit_btn.setCursor(Qt.PointingHandCursor)
+
+        commit_url = ""
+        if repo_url and remote_hash:
+            commit_url = f"{repo_url.rstrip('/')}/commit/{remote_hash}"
+            commit_btn.clicked.connect(lambda _, u=commit_url: QDesktopServices.openUrl(QUrl(u)))
+            commit_btn.setEnabled(bool(short_hash))
+        else:
+            commit_btn.setEnabled(False)
+
+        app_config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+        with open(app_config_path, "r", encoding="utf-8") as f:
+            app_cfg = json.load(f)
+            wa_link = app_cfg["links"]["whatsapp"]
+
+        bug_icon = qta.icon('fa6s.bug')
+        report_btn = QPushButton(bug_icon, " Found a Bug")
+        report_btn.setCursor(Qt.PointingHandCursor)
+        if wa_link:
+            report_btn.clicked.connect(lambda _, u=wa_link: QDesktopServices.openUrl(QUrl(u)))
+        else:
+            report_btn.setEnabled(False)
+
+        buttons_layout.addWidget(commit_btn)
+        buttons_layout.addWidget(report_btn)
+        buttons_widget.setLayout(buttons_layout)
+        info_layout.addWidget(buttons_widget)
 
         info_widget.setLayout(info_layout)
         top_layout.addWidget(info_widget, stretch=1)
@@ -126,11 +144,21 @@ class UpdateNoticeDialog(QDialog):
         notes.setPlainText(release_notes or "No release notes available.")
         main_layout.addWidget(notes)
 
-        self.skip_checkbox = QCheckBox("Skip this version (don't show again until next release)")
+        self.skip_checkbox = QCheckBox("Skip this version until next release")
         self.skip_checkbox.setEnabled(False)
         self._skip_remaining = 30
         self.skip_checkbox.setToolTip(f"This option will be enabled after {self._skip_remaining} seconds")
-        main_layout.addWidget(self.skip_checkbox)
+
+        skip_container = QWidget()
+        skip_layout = QHBoxLayout()
+        skip_layout.setContentsMargins(0, 0, 0, 0)
+        skip_layout.setSpacing(6)
+        self._skip_countdown_label = QLabel(f"({self._skip_remaining}s)")
+        self._skip_countdown_label.setStyleSheet("QLabel { color: #666666; }")
+        skip_layout.addWidget(self.skip_checkbox)
+        skip_layout.addWidget(self._skip_countdown_label, alignment=Qt.AlignLeft)
+        skip_container.setLayout(skip_layout)
+        main_layout.addWidget(skip_container)
 
         self._skip_timer = QTimer(self)
         self._skip_timer.setInterval(1000)
@@ -139,9 +167,11 @@ class UpdateNoticeDialog(QDialog):
             self._skip_remaining -= 1
             if self._skip_remaining > 0:
                 self.skip_checkbox.setToolTip(f"This option will be enabled after {self._skip_remaining} seconds")
+                self._skip_countdown_label.setText(f"({self._skip_remaining}s)")
             else:
                 self.skip_checkbox.setEnabled(True)
                 self.skip_checkbox.setToolTip("")
+                self._skip_countdown_label.setText("")
                 self._skip_timer.stop()
 
         self._skip_timer.timeout.connect(_tick)
@@ -154,6 +184,43 @@ class UpdateNoticeDialog(QDialog):
         later_icon = qta.icon('fa6s.clock-rotate-left')
         self.update_btn = QPushButton(update_icon, " Update Now")
         self.later_btn = QPushButton(later_icon, " Remind Me Later")
+        self._update_remaining = 60
+        self.update_btn.setText(f" Update Now ({self._update_remaining}s)")
+        self._update_countdown_timer = QTimer(self)
+        self._update_countdown_timer.setInterval(1000)
+
+        def _update_tick():
+            self._update_remaining -= 1
+            if self._update_remaining > 0:
+                self.update_btn.setText(f" Update Now ({self._update_remaining}s)")
+            else:
+                self._update_countdown_timer.stop()
+                self._on_auto_close()
+
+        self._update_countdown_timer.timeout.connect(_update_tick)
+        self._update_countdown_timer.start()
+
+        self._auto_close_timer = QTimer(self)
+        self._auto_close_timer.setSingleShot(True)
+        self._auto_close_timer.timeout.connect(self._on_auto_close)
+        self._auto_close_timer.start(self._update_remaining * 1000)
+        self.later_btn.setEnabled(False)
+        self._later_remaining = 5
+        self.later_btn.setText(f" Remind Me Later ({self._later_remaining})")
+        self._later_timer = QTimer(self)
+        self._later_timer.setInterval(1000)
+
+        def _later_tick():
+            self._later_remaining -= 1
+            if self._later_remaining > 0:
+                self.later_btn.setText(f" Remind Me Later ({self._later_remaining})")
+            else:
+                self.later_btn.setEnabled(True)
+                self.later_btn.setText(" Remind Me Later")
+                self._later_timer.stop()
+
+        self._later_timer.timeout.connect(_later_tick)
+        self._later_timer.start()
         self.update_btn.setStyleSheet("QPushButton { background-color: #4e9e20; color: white; font-weight: bold; padding: 8px 14px; border-radius: 6px; } QPushButton:hover { background-color: #3d7307; }")
         self.later_btn.setStyleSheet("QPushButton { padding: 8px 12px; border-radius: 6px; } QPushButton:hover { border: 1px solid #999; }")
         self.update_btn.setMinimumHeight(40)
@@ -167,13 +234,42 @@ class UpdateNoticeDialog(QDialog):
         self.setLayout(main_layout)
         self.result_action = None
 
+        self._close_allowed = False
+        self._close_timer = QTimer(self)
+        self._close_timer.setSingleShot(True)
+        self._close_timer.timeout.connect(self._enable_close)
+        self._close_timer.start(5000)
+
         self.update_btn.clicked.connect(self._on_update)
         self.later_btn.clicked.connect(self._on_later)
 
     def _on_update(self):
+        self._update_countdown_timer.stop()
+        self._auto_close_timer.stop()
         self.result_action = "update"
         self.accept()
 
     def _on_later(self):
+        self._update_countdown_timer.stop()
+        self._auto_close_timer.stop()
         self.result_action = "skip" if self.skip_checkbox.isChecked() else "later"
         self.accept()
+
+    def _on_auto_close(self):
+        self._update_countdown_timer.stop()
+        self._auto_close_timer.stop()
+        self.result_action = "timeout"
+        self.accept()
+
+    def _enable_close(self):
+        self._close_allowed = True
+
+    def closeEvent(self, event):
+        self._update_countdown_timer.stop()
+        self._auto_close_timer.stop()
+        self._later_timer.stop()
+        self._skip_timer.stop()
+        if getattr(self, "_close_allowed", True):
+            super().closeEvent(event)
+        else:
+            event.ignore()

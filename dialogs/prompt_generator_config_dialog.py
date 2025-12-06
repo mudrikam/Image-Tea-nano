@@ -78,23 +78,24 @@ class PromptGeneratorConfigDialog(QDialog):
         info_label = QLabel("Edit instructions for each prompt generation type:")
         layout.addWidget(info_label)
         
-        image_gen_group = QGroupBox("Image Generation Instruction")
-        image_gen_layout = QVBoxLayout(image_gen_group)
+        sub_tab_widget = QTabWidget()
         
+        image_tab = QWidget()
+        image_layout = QVBoxLayout(image_tab)
         self.image_instruction_edit = QTextEdit()
-        self.image_instruction_edit.setMinimumHeight(150)
-        image_gen_layout.addWidget(self.image_instruction_edit)
+        self.image_instruction_edit.setMinimumHeight(400)
+        image_layout.addWidget(self.image_instruction_edit)
         
-        layout.addWidget(image_gen_group)
-        
-        video_gen_group = QGroupBox("Video Generation Instruction")
-        video_gen_layout = QVBoxLayout(video_gen_group)
-        
+        video_tab = QWidget()
+        video_layout = QVBoxLayout(video_tab)
         self.video_instruction_edit = QTextEdit()
-        self.video_instruction_edit.setMinimumHeight(150)
-        video_gen_layout.addWidget(self.video_instruction_edit)
+        self.video_instruction_edit.setMinimumHeight(400)
+        video_layout.addWidget(self.video_instruction_edit)
         
-        layout.addWidget(video_gen_group)
+        sub_tab_widget.addTab(image_tab, qta.icon('fa6s.image'), "Image Generation")
+        sub_tab_widget.addTab(video_tab, qta.icon('fa6s.video'), "Video Generation")
+        
+        layout.addWidget(sub_tab_widget)
         
         return tab
     
@@ -105,12 +106,14 @@ class PromptGeneratorConfigDialog(QDialog):
         info_label = QLabel("Edit requirements for each prompt generation type:")
         layout.addWidget(info_label)
         
-        image_req_group = QGroupBox("Image Generation Requirements")
-        image_req_layout = QVBoxLayout(image_req_group)
+        sub_tab_widget = QTabWidget()
+        
+        image_tab = QWidget()
+        image_layout = QVBoxLayout(image_tab)
         
         self.image_req_list = QListWidget()
-        self.image_req_list.setMinimumHeight(150)
-        image_req_layout.addWidget(self.image_req_list)
+        self.image_req_list.setMinimumHeight(300)
+        image_layout.addWidget(self.image_req_list)
         
         image_btn_layout = QHBoxLayout()
         
@@ -128,15 +131,14 @@ class PromptGeneratorConfigDialog(QDialog):
         image_btn_layout.addWidget(remove_image_req_btn)
         image_btn_layout.addStretch()
         
-        image_req_layout.addLayout(image_btn_layout)
-        layout.addWidget(image_req_group)
+        image_layout.addLayout(image_btn_layout)
         
-        video_req_group = QGroupBox("Video Generation Requirements")
-        video_req_layout = QVBoxLayout(video_req_group)
+        video_tab = QWidget()
+        video_layout = QVBoxLayout(video_tab)
         
         self.video_req_list = QListWidget()
-        self.video_req_list.setMinimumHeight(150)
-        video_req_layout.addWidget(self.video_req_list)
+        self.video_req_list.setMinimumHeight(300)
+        video_layout.addWidget(self.video_req_list)
         
         video_btn_layout = QHBoxLayout()
         
@@ -154,8 +156,12 @@ class PromptGeneratorConfigDialog(QDialog):
         video_btn_layout.addWidget(remove_video_req_btn)
         video_btn_layout.addStretch()
         
-        video_req_layout.addLayout(video_btn_layout)
-        layout.addWidget(video_req_group)
+        video_layout.addLayout(video_btn_layout)
+        
+        sub_tab_widget.addTab(image_tab, qta.icon('fa6s.image'), "Image Generation")
+        sub_tab_widget.addTab(video_tab, qta.icon('fa6s.video'), "Video Generation")
+        
+        layout.addWidget(sub_tab_widget)
         
         return tab
     

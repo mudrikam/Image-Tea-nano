@@ -20,12 +20,12 @@ from helpers.tools.imagen_generator_helper import (
 class ImagenGeneratorWorker(QThread):
     """Worker thread for image generation to prevent UI freezing"""
     progress_updated = Signal(str)
-    progress_value_changed = Signal(int)  # Progress percentage (0-100)
-    finished = Signal(int)  # total_generated
+    progress_value_changed = Signal(int)
+    finished = Signal(int)
     error_occurred = Signal(str)
-    image_generated = Signal()  # Signal when a new image is generated
-    prompt_processing = Signal(str)  # Signal when starting to process a prompt
-    status_updated = Signal(int, str, int, str)  # Signal for real-time status updates (prompt_id, status, images_generated, error_msg)
+    image_generated = Signal()
+    prompt_processing = Signal(str)
+    status_updated = Signal(int, str, int, str)
     
     def __init__(self, db, api_key, service, model, config):
         super().__init__()
@@ -42,13 +42,10 @@ class ImagenGeneratorWorker(QThread):
     def run(self):
         try:
             print("Debug: Worker thread starting...")
-            # Get prompts to process based on mode
             if self.config['generation_mode'] == 'Generate All':
-                # Get all prompts that don't have generation status yet
                 prompts = self.db.get_pending_imagen_prompts()
                 print(f"Debug: Generate All mode - found {len(prompts)} pending prompts")
-            else:  # Continue from Stopped
-                # Get prompts with 'stopped' status
+            else:
                 prompts = [(p[0], p[1], p[2], p[3], p[4]) for p in self.db.get_pending_imagen_prompts() 
                           if p[2] == 'stopped' or p[2] is None]
                 print(f"Debug: Continue from Stopped mode - found {len(prompts)} stopped/null prompts")
@@ -65,7 +62,6 @@ class ImagenGeneratorWorker(QThread):
             
             for idx, (prompt_id, prompt_text, status, images_generated, images_requested) in enumerate(prompts):
                 if self.stop_flag['stop']:
-                    # Update remaining prompts to 'stopped' status
                     for remaining_idx in range(idx, len(prompts)):
                         remaining_prompt_id = prompts[remaining_idx][0]
                         self.db.update_imagen_generation_status(remaining_prompt_id, 'stopped')
@@ -78,12 +74,10 @@ class ImagenGeneratorWorker(QThread):
                 progress = int((idx / total_prompts) * 100)
                 self.progress_value_changed.emit(progress)
                 
-                # Add status record if it doesn't exist
                 if status is None:
                     print(f"Debug: Adding status record for prompt {prompt_id}")
                     self.db.add_imagen_generation_status(prompt_id, self.config['number_of_images'])
                     
-                # Update status to processing
                 self.db.update_imagen_generation_status(prompt_id, 'processing')
                 self.status_updated.emit(prompt_id, 'processing', 0, "")
                 
@@ -91,7 +85,6 @@ class ImagenGeneratorWorker(QThread):
                 try:
                     print(f"Debug: Calling generate_images_from_prompts with model={self.model}")
                     
-                    # Create config dict with proper parameter names
                     valid_params = ['number_of_images', 'image_size', 'aspect_ratio', 'output_mime_type', 'output_folder', 'generation_mode']
                     config_for_generation = {k: v for k, v in self.config.items() if k in valid_params}
                     
@@ -120,9 +113,7 @@ class ImagenGeneratorWorker(QThread):
                             self.db.update_imagen_generation_status(prompt_id, 'failed', 0, error_msg)
                             self.status_updated.emit(prompt_id, 'failed', 0, error_msg)
                             if 'quota' in error_msg.lower() or 'limit' in error_msg.lower():
-                                # API quota exceeded, stop generation
                                 self.error_occurred.emit(f"API quota exceeded: {error_msg}")
-                                # Mark remaining prompts as stopped
                                 for remaining_idx in range(idx + 1, len(prompts)):
                                     remaining_prompt_id = prompts[remaining_idx][0]
                                     self.db.update_imagen_generation_status(remaining_prompt_id, 'stopped')
@@ -139,7 +130,6 @@ class ImagenGeneratorWorker(QThread):
                     self.status_updated.emit(prompt_id, 'failed', 0, error_msg)
                     if 'quota' in error_msg.lower() or 'limit' in error_msg.lower():
                         self.error_occurred.emit(f"API error: {error_msg}")
-                        # Mark remaining prompts as stopped
                         for remaining_idx in range(idx + 1, len(prompts)):
                             remaining_prompt_id = prompts[remaining_idx][0]
                             self.db.update_imagen_generation_status(remaining_prompt_id, 'stopped')
@@ -163,18 +153,15 @@ class ImagenGeneratorDialog(QDialog):
         self.setFixedSize(900, 750)
         self.page_size = 20
         
-        # Database connection
         from database import db_operation
         self.db = db_operation.ImageTeaDB()
         
-        # Initialize pagination and data storage
         self.current_page = 1
         self.prompt_data = []
         self.total_prompts = 0
         self.is_running = False
         self.worker = None
         
-        # Load configuration with fallbacks
         try:
             self.config = load_imagen_config()
             if not self.config:
@@ -183,17 +170,15 @@ class ImagenGeneratorDialog(QDialog):
             print(f"Error loading config: {e}")
             self.config = self._get_default_config()
         
-        # Load initial data BEFORE setup_ui
         self.load_prompts_from_db()
         
         self.setup_ui()
         self.update_pagination()
         self.update_stats_display()
         
-        # Start realtime refresh timer only after everything is set up
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_stats_if_needed)
-        self.refresh_timer.start(2000)  # Refresh every 2 seconds
+        self.refresh_timer.start(2000)
 
     def _get_default_config(self):
         """Get default configuration if loading fails"""
@@ -220,25 +205,20 @@ class ImagenGeneratorDialog(QDialog):
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
 
-        # API Key Section at the very top
         if self.db:
             self.api_key_widget = ApiKeySectionWidget(
                 db=self.db, 
                 parent=self
             )
-            # Connect to the signal for API key changes
             self.api_key_widget.api_key_changed.connect(self.on_api_key_changed)
             main_layout.addWidget(self.api_key_widget)
 
-        # Settings section
         settings_frame = QFrame()
         settings_frame.setFrameStyle(QFrame.StyledPanel)
         settings_layout = QVBoxLayout(settings_frame)
         
-        # First row: Model, Number of Images, Generation Mode
         row1_layout = QHBoxLayout()
         
-        # Model selector
         model_label = QLabel("Model")
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(200)
@@ -247,7 +227,6 @@ class ImagenGeneratorDialog(QDialog):
         for model in models:
             self.model_combo.addItem(model)
         
-        # Set saved model
         saved_model = self.config.get('settings', {}).get('model', 'imagen-4.0-generate-001')
         if saved_model in models:
             self.model_combo.setCurrentText(saved_model)
@@ -255,7 +234,6 @@ class ImagenGeneratorDialog(QDialog):
         row1_layout.addWidget(model_label)
         row1_layout.addWidget(self.model_combo)
         
-        # Number of images spinner
         images_label = QLabel("Number of Images")
         self.num_images_spin = QSpinBox()
         self.num_images_spin.setMinimum(1)
@@ -265,7 +243,6 @@ class ImagenGeneratorDialog(QDialog):
         row1_layout.addWidget(images_label)
         row1_layout.addWidget(self.num_images_spin)
         
-        # Generation mode
         mode_label = QLabel("Mode")
         self.generation_mode_combo = QComboBox()
         self.generation_mode_combo.setMinimumWidth(180)
@@ -278,10 +255,8 @@ class ImagenGeneratorDialog(QDialog):
         row1_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         settings_layout.addLayout(row1_layout)
         
-        # Second row: Aspect Ratio, Image Size, Output Format
         row2_layout = QHBoxLayout()
         
-        # Aspect ratio
         ratio_label = QLabel("Aspect Ratio")
         self.aspect_ratio_combo = QComboBox()
         aspect_ratios = self.config.get('aspect_ratios', {})
@@ -297,7 +272,6 @@ class ImagenGeneratorDialog(QDialog):
         row2_layout.addWidget(ratio_label)
         row2_layout.addWidget(self.aspect_ratio_combo)
         
-        # Image size (only for Standard and Ultra models)
         size_label = QLabel("Image Size")
         self.image_size_combo = QComboBox()
         self.image_size_combo.addItems(["1K", "2K"])
@@ -305,15 +279,12 @@ class ImagenGeneratorDialog(QDialog):
         row2_layout.addWidget(size_label)
         row2_layout.addWidget(self.image_size_combo)
         
-        # Output format
         format_label = QLabel("Output Format")
         self.output_format_combo = QComboBox()
         
-        # Always add the format options directly to ensure they're available
         self.output_format_combo.addItem("PNG", "image/png")
         self.output_format_combo.addItem("JPG", "image/jpeg")
         
-        # Set saved format or default to PNG
         saved_format = self.config.get('settings', {}).get('output_mime_type', 'image/png')
         for i in range(self.output_format_combo.count()):
             if self.output_format_combo.itemData(i) == saved_format:
@@ -326,7 +297,6 @@ class ImagenGeneratorDialog(QDialog):
         row2_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         settings_layout.addLayout(row2_layout)
         
-        # Third row: Output folder selection
         row3_layout = QHBoxLayout()
         
         folder_label = QLabel("Output Folder")
@@ -338,14 +308,12 @@ class ImagenGeneratorDialog(QDialog):
         row3_layout.addWidget(folder_label)
         row3_layout.addWidget(self.output_folder_line)
         
-        # Browse button
         self.browse_btn = QPushButton(qta.icon('fa6s.folder-open'), "")
         self.browse_btn.setToolTip("Browse for output folder")
         self.browse_btn.setFixedSize(30, 25)
         self.browse_btn.clicked.connect(self.browse_output_folder)
         row3_layout.addWidget(self.browse_btn)
         
-        # Paste button
         self.paste_btn = QPushButton(qta.icon('fa6s.paste'), "")
         self.paste_btn.setToolTip("Paste output folder path from clipboard")
         self.paste_btn.setFixedSize(30, 25)
@@ -355,7 +323,6 @@ class ImagenGeneratorDialog(QDialog):
         settings_layout.addLayout(row3_layout)
         main_layout.addWidget(settings_frame)
         
-        # Connect settings change events
         self.model_combo.currentTextChanged.connect(self.save_settings)
         self.num_images_spin.valueChanged.connect(self.save_settings)
         self.generation_mode_combo.currentTextChanged.connect(self.save_settings)
@@ -364,10 +331,8 @@ class ImagenGeneratorDialog(QDialog):
         self.output_format_combo.currentTextChanged.connect(self.save_settings)
         self.output_folder_line.textChanged.connect(self.save_settings)
 
-        # Pagination controls (right aligned with page size)
         paging_layout = QHBoxLayout()
         
-        # Page size selector (left side)
         pagesize_label = QLabel("Per Page")
         self.page_size_combo = QComboBox()
         self.page_size_combo.addItems(["10", "20", "30", "50", "80", "100", "200"])
@@ -376,10 +341,8 @@ class ImagenGeneratorDialog(QDialog):
         paging_layout.addWidget(pagesize_label)
         paging_layout.addWidget(self.page_size_combo)
         
-        # Spacer to push pagination controls to the right
         paging_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-        # Use qtawesome icons for buttons
         prev_icon = qta.icon('fa6s.chevron-left')
         next_icon = qta.icon('fa6s.chevron-right')
         self.prev_btn = QPushButton(prev_icon, "")
@@ -405,37 +368,30 @@ class ImagenGeneratorDialog(QDialog):
 
         main_layout.addLayout(paging_layout)
 
-        # Table with columns: Prompts, Characters, Status, Created
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Prompts", "Chars", "Status", "Created"])
-        # Set column widths
-        self.table.setColumnWidth(0, 400)  # Prompts - widest
-        self.table.setColumnWidth(1, 60)   # Chars - narrow
-        self.table.setColumnWidth(2, 100)  # Status - medium
-        self.table.setColumnWidth(3, 150)  # Created - medium
+        self.table.setColumnWidth(0, 400)
+        self.table.setColumnWidth(1, 60)
+        self.table.setColumnWidth(2, 100)
+        self.table.setColumnWidth(3, 150)
         
-        # Make table headers bold
         header = self.table.horizontalHeader()
         header.setDefaultSectionSize(100)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Prompts column stretches
-        header.setSectionResizeMode(1, QHeaderView.Fixed)    # Chars column fixed width
-        header.setSectionResizeMode(2, QHeaderView.Fixed)    # Status column fixed width
-        header.setSectionResizeMode(3, QHeaderView.Fixed)    # Created column fixed width
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
         
-        # Enable sorting
         self.table.setSortingEnabled(True)
-        self.table.sortByColumn(3, Qt.DescendingOrder)  # Sort by Created date descending
+        self.table.sortByColumn(3, Qt.DescendingOrder)
         
-        # Set selection behavior
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         
-        # Add context menu
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.on_table_context_menu)
         
-        # Double-click to edit (placeholder for future functionality)
         self.table.doubleClicked.connect(self.on_prompt_double_click)
         
         main_layout.addWidget(self.table)
@@ -555,7 +511,6 @@ class ImagenGeneratorDialog(QDialog):
     def update_run_button(self):
         """Update run button appearance based on current state"""
         if self.is_running:
-            # Red stop button
             self.run_btn.setIcon(qta.icon('fa6s.stop'))
             self.run_btn.setText("Stop Generation")
             self.run_btn.setStyleSheet("""
@@ -575,7 +530,6 @@ class ImagenGeneratorDialog(QDialog):
                 }
             """)
         else:
-            # Green run button
             self.run_btn.setIcon(qta.icon('fa6s.play'))
             self.run_btn.setText("Run Prompt")
             self.run_btn.setStyleSheet("""
@@ -604,7 +558,6 @@ class ImagenGeneratorDialog(QDialog):
 
     def start_generation(self):
         """Start image generation process"""
-        # Validate settings
         if not self.output_folder_line.text().strip():
             QMessageBox.warning(self, "Output Folder Required", 
                               "Please select an output folder for generated images.")
@@ -615,7 +568,6 @@ class ImagenGeneratorDialog(QDialog):
                               "The selected output folder does not exist.")
             return
         
-        # Get API key
         api_key = self.api_key_widget.get_current_api_key()
         service = self.api_key_widget.get_current_service()
         model_name = self.api_key_widget.get_current_model()
@@ -625,7 +577,6 @@ class ImagenGeneratorDialog(QDialog):
                               "Please select an API key before starting generation.")
             return
         
-        # Prepare generation config
         generation_config = {
             'model': self.model_combo.currentText(),
             'number_of_images': self.num_images_spin.value(),
@@ -636,10 +587,7 @@ class ImagenGeneratorDialog(QDialog):
             'output_folder': self.output_folder_line.text()
         }
         
-        # Use Imagen model from combo box, not from API key section
         imagen_model = self.model_combo.currentText()
-        
-        # Start worker thread
         self.worker = ImagenGeneratorWorker(self.db, api_key, service, imagen_model, generation_config)
         self.worker.progress_updated.connect(self.on_progress_updated)
         self.worker.progress_value_changed.connect(self.on_progress_value_changed)
@@ -654,7 +602,6 @@ class ImagenGeneratorDialog(QDialog):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         
-        # Refresh table to show initial state before starting
         self.load_prompts_from_db()
         self.refresh_table()
         
@@ -667,7 +614,6 @@ class ImagenGeneratorDialog(QDialog):
             self.current_generation_label.setText("Stopping generation...")
             self.current_generation_label.setStyleSheet("color: #ffc107; font-weight: bold;")
             
-            # Refresh table to show stopped status
             self.load_prompts_from_db()
             self.refresh_table()
 
@@ -697,7 +643,6 @@ class ImagenGeneratorDialog(QDialog):
         self.current_generation_label.setStyleSheet("color: #28a745; font-weight: bold;")
         self.refresh_stats_if_needed()
         
-        # Refresh table to show final status
         self.load_prompts_from_db()
         self.refresh_table()
         
@@ -714,7 +659,6 @@ class ImagenGeneratorDialog(QDialog):
         self.current_generation_label.setStyleSheet("color: #dc3545; font-weight: bold;")
         self.refresh_stats_if_needed()
         
-        # Refresh table to show error status
         self.load_prompts_from_db()
         self.refresh_table()
         
@@ -735,21 +679,17 @@ class ImagenGeneratorDialog(QDialog):
             return
             
         try:
-            # Get total count
             self.total_prompts = self.db.get_generated_prompts_count()
             
-            # Get paginated data with status
             self.prompt_data = []
             prompts = self.db.get_generated_prompts_paginated(self.current_page, self.page_size)
             
             for prompt_record in prompts:
-                # prompt_record format: (id, file_id, prompt, created_at)
                 prompt_id = prompt_record[0]
                 
-                # Get generation status
                 try:
                     status_record = self.db.get_imagen_generation_status(prompt_id)
-                    status = status_record[2] if status_record else None  # status field
+                    status = status_record[2] if status_record else None
                 except:
                     status = None
                 
@@ -766,7 +706,6 @@ class ImagenGeneratorDialog(QDialog):
             self.prompt_data = []
             self.total_prompts = 0
             
-        # Ensure all prompt_data entries have status field
         for prompt_item in self.prompt_data:
             if 'status' not in prompt_item:
                 prompt_item['status'] = 'pending'
@@ -787,7 +726,6 @@ class ImagenGeneratorDialog(QDialog):
             
         except Exception as e:
             print(f"Error updating stats: {e}")
-            # Set default values if there's an error
             self.total_prompts_label.setText("Total Prompts: 0")
             self.completed_prompts_label.setText("Completed: 0") 
             self.pending_prompts_label.setText("Pending: 0")
@@ -796,38 +734,32 @@ class ImagenGeneratorDialog(QDialog):
 
     def refresh_table(self):
         """Refresh the table with current data including generation status"""
-        # Temporarily disable sorting to prevent color issues
         was_sorting_enabled = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
         
         self.table.setRowCount(len(self.prompt_data))
         
         for row, prompt_data in enumerate(self.prompt_data):
-            # Prompt text (truncated for display)
             prompt_text = prompt_data['prompt']
             truncated_prompt = prompt_text if len(prompt_text) <= 100 else prompt_text[:97] + "..."
             prompt_item = QTableWidgetItem(truncated_prompt)
-            prompt_item.setData(Qt.UserRole, prompt_data['id'])  # Store prompt ID
-            prompt_item.setToolTip(prompt_text)  # Full text in tooltip
+            prompt_item.setData(Qt.UserRole, prompt_data['id'])
+            prompt_item.setToolTip(prompt_text)
             self.table.setItem(row, 0, prompt_item)
             
-            # Character count
             char_count = len(prompt_text)
             char_item = QTableWidgetItem(str(char_count))
             char_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 1, char_item)
             
-            # Generation status
             status = prompt_data.get('status', 'pending')
             status_item = QTableWidgetItem(status.title() if status else 'Pending')
             status_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 2, status_item)
             
-            # Created date
             created_str = prompt_data['created_at']
             if created_str:
                 try:
-                    # Parse and format the datetime
                     created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
                     formatted_date = created_dt.strftime('%Y-%m-%d %H:%M')
                 except:
@@ -839,24 +771,18 @@ class ImagenGeneratorDialog(QDialog):
             created_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 3, created_item)
             
-            # Apply status color to this specific row
             status_color = self._status_color(status)
             
-            # Try both methods to ensure color is applied
             for col in range(self.table.columnCount()):
                 cell_item = self.table.item(row, col)
                 if cell_item:
-                    # Method 1: Using QBrush
                     cell_item.setBackground(QBrush(status_color))
-                    # Method 2: Using data for later reference
                     cell_item.setData(Qt.UserRole + 1, status)
         
-        # Re-enable sorting and apply it
         self.table.setSortingEnabled(was_sorting_enabled)
         if was_sorting_enabled:
-            self.table.sortByColumn(3, Qt.DescendingOrder)  # Sort by Created date descending
+            self.table.sortByColumn(3, Qt.DescendingOrder)
         
-        # Update stats
         self.update_stats_display()
 
     def total_pages(self):
@@ -879,11 +805,9 @@ class ImagenGeneratorDialog(QDialog):
     def update_pagination(self):
         total_pages = self.total_pages()
         
-        # Update page spinner
         self.page_spinner.setMaximum(total_pages)
         self.page_spinner.setValue(self.current_page)
         
-        # Update page label
         start_idx = (self.current_page - 1) * self.page_size + 1
         end_idx = min(self.current_page * self.page_size, self.total_prompts)
         
@@ -892,7 +816,6 @@ class ImagenGeneratorDialog(QDialog):
         else:
             self.page_label.setText(f"{start_idx}-{end_idx} of {self.total_prompts}")
         
-        # Enable/disable navigation buttons
         self.prev_btn.setEnabled(self.current_page > 1)
         self.next_btn.setEnabled(self.current_page < total_pages)
 
@@ -919,7 +842,6 @@ class ImagenGeneratorDialog(QDialog):
 
     def on_api_key_changed(self, api_key, service, model):
         """Called when API key selection changes"""
-        # Enable/disable Run Prompt button based on API key availability
         has_api_key = bool(api_key and api_key.strip())
         has_output_folder = bool(self.output_folder_line.text().strip()) if hasattr(self, 'output_folder_line') else False
         if hasattr(self, 'run_btn'):
@@ -977,22 +899,22 @@ class ImagenGeneratorDialog(QDialog):
                         status_record = self.db.get_imagen_generation_status(prompt_id)
                         
                         if status_record:
-                            status = status_record[2]  # status field
-                            images_generated = status_record[3]  # images_generated field
-                            generated_at = status_record[5]  # generated_at field
+                            status = status_record[2]
+                            images_generated = status_record[3]
+                            generated_at = status_record[5]
                         else:
                             status = 'pending'
                             images_generated = 0
                             generated_at = ''
                         
                         writer.writerow([
-                            prompt[0],  # id
-                            prompt[1],  # file_id
-                            prompt[2],  # prompt
-                            len(prompt[2]),  # character count
+                            prompt[0],
+                            prompt[1],
+                            prompt[2],
+                            len(prompt[2]),
                             status,
                             images_generated,
-                            prompt[3],   # created_at
+                            prompt[3],
                             generated_at
                         ])
                 
@@ -1007,7 +929,6 @@ class ImagenGeneratorDialog(QDialog):
         if 0 <= row < len(self.prompt_data):
             prompt_data = self.prompt_data[row]
             
-            # Get detailed status information
             status_record = self.db.get_imagen_generation_status(prompt_data['id'])
             
             details = f"Prompt ID: {prompt_data['id']}\n"
@@ -1016,9 +937,9 @@ class ImagenGeneratorDialog(QDialog):
             
             if status_record:
                 details += f"Images Generated: {status_record[3]}/{status_record[4]}\n"
-                if status_record[5]:  # generated_at
+                if status_record[5]:
                     details += f"Generated At: {status_record[5]}\n"
-                if status_record[6]:  # error_message
+                if status_record[6]:
                     details += f"Error: {status_record[6]}\n"
             
             details += f"\nPrompt Text:\n{prompt_data['prompt']}"
@@ -1031,7 +952,6 @@ class ImagenGeneratorDialog(QDialog):
             clipboard = QGuiApplication.clipboard()
             clipboard.setText(prompt_text)
             
-            # Show tooltip notification
             QToolTip.showText(
                 QCursor.pos(),
                 f"Copied to clipboard: {prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}",
@@ -1060,7 +980,6 @@ class ImagenGeneratorDialog(QDialog):
         copy_action.triggered.connect(lambda: self.copy_prompt_text(prompt_data['prompt']))
         menu.addAction(copy_action)
         
-        # Add status details action
         details_action = QAction(qta.icon('fa6s.info'), "View Details", self)
         details_action.triggered.connect(lambda: self.on_prompt_double_click(self.table.indexFromItem(item)))
         menu.addAction(details_action)
@@ -1085,22 +1004,18 @@ class ImagenGeneratorDialog(QDialog):
 
     def update_table_row_status(self, prompt_id, status, images_generated=0, error_msg=""):
         """Update table row status with color and real-time data"""
-        # Find the row for this prompt_id
         for row, data in enumerate(self.prompt_data):
-            if data.get('id') == prompt_id:  # Changed from 'prompt_id' to 'id'
-                # Update the data
+            if data.get('id') == prompt_id:
                 self.prompt_data[row]['status'] = status
                 self.prompt_data[row]['images_generated'] = images_generated
                 if error_msg:
                     self.prompt_data[row]['error_message'] = error_msg
                 
-                # Update table display
-                status_item = self.table.item(row, 2)  # Status column (changed from 1 to 2)
+                status_item = self.table.item(row, 2)
                 
                 if status_item:
                     status_item.setText(status.title() if status else 'Pending')
                     
-                # Apply status color to the entire row based on current status
                 status_color = self._status_color(status)
                 for col in range(self.table.columnCount()):
                     cell_item = self.table.item(row, col)
@@ -1117,7 +1032,7 @@ class ImagenGeneratorDialog(QDialog):
                                        QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.worker.stop()
-                self.worker.wait(3000)  # Wait up to 3 seconds for thread to finish
+                self.worker.wait(3000)
                 event.accept()
             else:
                 event.ignore()
