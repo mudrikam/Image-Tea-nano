@@ -1,7 +1,8 @@
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from helpers.file_importer import import_files
+import qtawesome as qta
 import os
 
 try:
@@ -12,42 +13,71 @@ try:
 except ImportError:
     PILLOW_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp', '.eps', '.svg', '.pdf'}
 
-class DragDropWidget(QLabel):
+class DragDropWidget(QWidget):
 	"""
 	Widget drag & drop yang dapat menerima file.
 	Agar dapat digunakan, set 'on_files_dropped' ke fungsi callback yang menerima list path.
 	"""
 	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setText("Drag and drop images or videos here")
-		self.setAlignment(Qt.AlignCenter)
 		self.setAcceptDrops(True)
-		self.setStyleSheet("border: 2px dashed #aaa; padding: 20px; font-size: 16px;")
-		self.on_files_dropped = None  # callback, diisi oleh parent jika ingin handle drop
-		self._default_style = "border: 2px dashed #aaa; padding: 20px; font-size: 16px;"
-		self._accept_style = "border: 2px dashed rgba(121, 202, 12, 0.3); padding: 20px; font-size: 16px; background-color: rgba(121, 202, 12, 0.3);"
-		self._reject_style = "border: 2px dashed rgba(224, 23, 23, 0.3); padding: 20px; font-size: 16px; background-color: rgba(224, 23, 23, 0.3);"
+		self.on_files_dropped = None
+		
+		outer_layout = QVBoxLayout(self)
+		outer_layout.setContentsMargins(0, 0, 0, 0)
+		outer_layout.setSpacing(0)
+		
+		self.inner_widget = QWidget()
+		self.inner_widget.setObjectName("innerWidget")
+		self.inner_widget.setStyleSheet("QWidget#innerWidget { border: 2px dashed #aaa; border-radius: 12px; }")
+		
+		layout = QVBoxLayout(self.inner_widget)
+		layout.setContentsMargins(20, 20, 20, 20)
+		layout.setSpacing(10)
+		
+		self.icon_label = QLabel()
+		self.icon_label.setAlignment(Qt.AlignCenter)
+		self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
+		
+		self.text_label = QLabel("Add Files by Drag & Drop")
+		self.text_label.setAlignment(Qt.AlignCenter)
+		self.text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
+		
+		self.sub_text = QLabel("Drag and drop images or videos here")
+		self.sub_text.setAlignment(Qt.AlignCenter)
+		self.sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
+		self.sub_text.setWordWrap(True)
+		
+		layout.addStretch(1)
+		layout.addWidget(self.icon_label)
+		layout.addWidget(self.text_label)
+		layout.addWidget(self.sub_text)
+		layout.addStretch(1)
+		
+		outer_layout.addWidget(self.inner_widget)
+		
+		self._default_style = "QWidget#innerWidget { border: 2px dashed #aaa; border-radius: 12px; }"
+		self._accept_style = "QWidget#innerWidget { border: 2px dashed rgba(121, 202, 12, 0.8); background-color: rgba(121, 202, 12, 0.1); border-radius: 12px; }"
+		self._reject_style = "QWidget#innerWidget { border: 2px dashed rgba(224, 23, 23, 0.8); background-color: rgba(224, 23, 23, 0.1); border-radius: 12px; }"
+		
 		video_exts = {
 			".mp4", ".mpeg", ".mov", ".avi", ".flv",
 			".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
 		}
-		# Tambahkan .svg, .eps, .pdf ke PILLOW_FORMATS jika belum ada
 		extra_exts = {'.svg', '.eps', '.pdf'}
 		self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
-		self._default_text = "Drag and drop images or videos here"
-		# Daftar ekstensi umum
+		self._default_sub_text = "Drag and drop images or videos here"
+		
 		common_exts = [
 			"jpg", "jpeg", "png", "eps", "svg", "pdf", "tiff", "webp",
 			"mp4", "mpeg", "mov", "avi", "flv", "mpg", "webm", "wmv", "3gp", "3gpp"
 		]
-		# Ekstensi yang benar-benar didukung
 		supported_common = [ext for ext in common_exts if f".{ext}" in self._supported_exts]
-		# Jika ada ekstensi lain yang didukung, tambahkan "..."
 		has_other = len(self._supported_exts - set(f".{ext}" for ext in supported_common)) > 0
 		supported_text = ", ".join(supported_common)
 		if has_other:
 			supported_text += ", ..."
-		self._supported_text = "<span style='font-size:10px;color:#888;'>Supported: " + supported_text + "</span>"
+		self._supported_text = supported_text
 
 	def dragEnterEvent(self, event: QDragEnterEvent):
 		if event.mimeData().hasUrls():
@@ -58,31 +88,25 @@ class DragDropWidget(QLabel):
 					unsupported_ext = p.lower().rsplit('.', 1)[-1] if '.' in p else ''
 					break
 			if unsupported_ext is None:
-				self.setStyleSheet(self._accept_style)
-				self.setText(self._default_text)
+				self.inner_widget.setStyleSheet(self._accept_style)
+				self.sub_text.setText(self._default_sub_text)
 				event.acceptProposedAction()
 			else:
-				self.setStyleSheet(self._reject_style)
-				self.setText(
-					f".{unsupported_ext} is not supported<br>"
-					f"{self._supported_text}"
-				)
+				self.inner_widget.setStyleSheet(self._reject_style)
+				self.sub_text.setText(f".{unsupported_ext} is not supported. Supported: {self._supported_text}")
 				event.ignore()
 		else:
-			self.setStyleSheet(self._reject_style)
-			self.setText(
-				"File type not supported<br>"
-				f"{self._supported_text}"
-			)
+			self.inner_widget.setStyleSheet(self._reject_style)
+			self.sub_text.setText(f"File type not supported. Supported: {self._supported_text}")
 			event.ignore()
 
 	def dragLeaveEvent(self, event):
-		self.setStyleSheet(self._default_style)
-		self.setText(self._default_text)
+		self.inner_widget.setStyleSheet(self._default_style)
+		self.sub_text.setText(self._default_sub_text)
 
 	def dropEvent(self, event: QDropEvent):
-		self.setStyleSheet(self._default_style)
-		self.setText(self._default_text)
+		self.inner_widget.setStyleSheet(self._default_style)
+		self.sub_text.setText(self._default_sub_text)
 		if event.mimeData().hasUrls():
 			paths = [url.toLocalFile() for url in event.mimeData().urls()]
 			if self.on_files_dropped:

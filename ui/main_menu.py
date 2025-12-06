@@ -21,6 +21,47 @@ from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
 
+# Menu tooltips dictionary
+MENU_TOOLTIPS = {
+    # File menu
+    "import_files": "Import image and video files into the database for metadata processing",
+    "relaunch": "Restart the application with current settings",
+    "exit": "Close the application",
+    
+    # Edit menu
+    "delete_selected": "Remove selected files from the database",
+    "clear_all": "Remove all files from the database",
+    "clear_metadata": "Remove all metadata from database (not from files)",
+    "batch_rename": "Rename multiple files with custom patterns",
+    "edit_metadata": "Edit metadata for selected file",
+    
+    # Metadata menu
+    "write_images": "Embed metadata into image files",
+    "write_videos": "Embed metadata into video files", 
+    "export_csv": "Export metadata to CSV file for external use",
+    
+    # Prompt menu
+    "edit_prompt": "Configure AI prompt templates and settings",
+    "custom_prompt": "Generate custom prompts using AI",
+    
+    # API menu
+    "add_api_key": "Add or manage API keys for AI services",
+    
+    # Tools menu
+    "prompt_generator": "Generate AI prompts for image/video creation",
+    "imagen_generator": "Generate images using Google's Imagen AI",
+    
+    # Help menu
+    "about": "View application information and credits",
+    "update_now": "Check for and install application updates",
+    "donate": "Support development with a donation",
+    "whatsapp": "Join our WhatsApp community group",
+    "repository": "View source code on GitHub",
+    "website": "Visit our official website",
+    "readme": "Read detailed documentation on GitHub",
+    "documentation": "View built-in help and documentation"
+}
+
 def get_app_links():
     import json
     import os
@@ -56,8 +97,11 @@ def setup_main_menu(window):
     links = get_app_links()
     menubar = QMenuBar(window)
     file_menu = QMenu("File", menubar)
+    file_menu.setToolTipsVisible(True)
 
     import_action = QAction(qta.icon('fa6s.folder-open'), "Import Files", window)
+    import_action.setToolTip(MENU_TOOLTIPS["import_files"])
+    import_action.setStatusTip(MENU_TOOLTIPS["import_files"])
     def do_import():
         if import_files(window, window.db):
             window.table.refresh_table()
@@ -65,6 +109,8 @@ def setup_main_menu(window):
     file_menu.addAction(import_action)
 
     relaunch_action = QAction(qta.icon('fa6s.rotate-right'), "Relaunch", window)
+    relaunch_action.setToolTip(MENU_TOOLTIPS["relaunch"])
+    relaunch_action.setStatusTip(MENU_TOOLTIPS["relaunch"])
     def relaunch_app():
         python_exe = sys.executable
         args = [python_exe] + sys.argv
@@ -77,23 +123,34 @@ def setup_main_menu(window):
     file_menu.addAction(relaunch_action)
 
     exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
+    exit_action.setToolTip(MENU_TOOLTIPS["exit"])
+    exit_action.setStatusTip(MENU_TOOLTIPS["exit"])
     exit_action.triggered.connect(window.close)
     file_menu.addAction(exit_action)
 
     edit_menu = QMenu("Edit", menubar)
+    edit_menu.setToolTipsVisible(True)
     delete_action = QAction(qta.icon('fa6s.trash'), "Delete Selected", window)
+    delete_action.setToolTip(MENU_TOOLTIPS["delete_selected"])
+    delete_action.setStatusTip(MENU_TOOLTIPS["delete_selected"])
     delete_action.triggered.connect(lambda: window.table.delete_selected())
     edit_menu.addAction(delete_action)
 
     clear_action = QAction(qta.icon('fa6s.broom'), "Clear All", window)
+    clear_action.setToolTip(MENU_TOOLTIPS["clear_all"])
+    clear_action.setStatusTip(MENU_TOOLTIPS["clear_all"])
     clear_action.triggered.connect(lambda: window.table.clear_all())
     edit_menu.addAction(clear_action)
 
     clear_metadata_action = QAction(qta.icon('fa6s.eraser'), "Clear Existing Metadata", window)
+    clear_metadata_action.setToolTip(MENU_TOOLTIPS["clear_metadata"])
+    clear_metadata_action.setStatusTip(MENU_TOOLTIPS["clear_metadata"])
     clear_metadata_action.triggered.connect(lambda: clear_existing_metadata(window))
     edit_menu.addAction(clear_metadata_action)
 
     batch_rename_action = QAction(qta.icon('fa6s.i-cursor'), "Batch Rename", window)
+    batch_rename_action.setToolTip(MENU_TOOLTIPS["batch_rename"])
+    batch_rename_action.setStatusTip(MENU_TOOLTIPS["batch_rename"])
     def open_batch_rename():
         dialog = BatchRenameDialog(window, table_widget=window.table, db=window.db)
         dialog.exec()
@@ -101,6 +158,8 @@ def setup_main_menu(window):
     edit_menu.addAction(batch_rename_action)
 
     edit_metadata_action = QAction(qta.icon('fa6s.pen-to-square'), "Edit Metadata", window)
+    edit_metadata_action.setToolTip(MENU_TOOLTIPS["edit_metadata"])
+    edit_metadata_action.setStatusTip(MENU_TOOLTIPS["edit_metadata"])
     def open_edit_metadata():
         selected = window.table.table.selectionModel().selectedRows()
         if selected:
@@ -116,19 +175,26 @@ def setup_main_menu(window):
     edit_menu.addAction(edit_metadata_action)
 
     metadata_menu = QMenu("Metadata", menubar)
+    metadata_menu.setToolTipsVisible(True)
     write_metadata_images_action = QAction(qta.icon('fa6s.floppy-disk'), "Write Metadata to Images", window)
+    write_metadata_images_action.setToolTip(MENU_TOOLTIPS["write_images"])
+    write_metadata_images_action.setStatusTip(MENU_TOOLTIPS["write_images"])
     def do_write_metadata_images():
         write_metadata_to_images(window.db, window)
     write_metadata_images_action.triggered.connect(do_write_metadata_images)
     metadata_menu.addAction(write_metadata_images_action)
 
     write_metadata_videos_action = QAction(qta.icon('fa6s.floppy-disk'), "Write Metadata to Videos", window)
+    write_metadata_videos_action.setToolTip(MENU_TOOLTIPS["write_videos"])
+    write_metadata_videos_action.setStatusTip(MENU_TOOLTIPS["write_videos"])
     def do_write_metadata_videos():
         write_metadata_to_videos(window.db, window)
     write_metadata_videos_action.triggered.connect(do_write_metadata_videos)
     metadata_menu.addAction(write_metadata_videos_action)
 
     export_metadata_action = QAction(qta.icon('fa6s.file-csv'), "Export Metadata to CSV", window)
+    export_metadata_action.setToolTip(MENU_TOOLTIPS["export_csv"])
+    export_metadata_action.setStatusTip(MENU_TOOLTIPS["export_csv"])
     def show_export_dialog():
         dialog = CSVExporterDialog(window)
         dialog.exec()
@@ -136,7 +202,10 @@ def setup_main_menu(window):
     metadata_menu.addAction(export_metadata_action)
 
     prompt_menu = QMenu("Prompt", menubar)
+    prompt_menu.setToolTipsVisible(True)
     edit_prompt_action = QAction(qta.icon('fa6s.pen-to-square'), "Edit Prompt", window)
+    edit_prompt_action.setToolTip(MENU_TOOLTIPS["edit_prompt"])
+    edit_prompt_action.setStatusTip(MENU_TOOLTIPS["edit_prompt"])
     def open_edit_prompt():
         dialog = EditPromptDialog(window)
         dialog.exec()
@@ -144,6 +213,8 @@ def setup_main_menu(window):
     prompt_menu.addAction(edit_prompt_action)
 
     custom_prompt_action = QAction(qta.icon('fa6s.comment'), "Custom Prompt", window)
+    custom_prompt_action.setToolTip(MENU_TOOLTIPS["custom_prompt"])
+    custom_prompt_action.setStatusTip(MENU_TOOLTIPS["custom_prompt"])
     def open_custom_prompt():
         dialog = CustomPromptDialog(window)
         dialog.exec()
@@ -151,7 +222,10 @@ def setup_main_menu(window):
     prompt_menu.addAction(custom_prompt_action)
 
     api_menu = QMenu("API", menubar)
+    api_menu.setToolTipsVisible(True)
     add_api_action = QAction(qta.icon('fa6s.key'), "Add API Key", window)
+    add_api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])
+    add_api_action.setStatusTip(MENU_TOOLTIPS["add_api_key"])
     def show_api_dialog():
         dlg = AddApiKeyDialog(window)
         dlg.exec()
@@ -159,7 +233,10 @@ def setup_main_menu(window):
     api_menu.addAction(add_api_action)
 
     help_menu = QMenu("Help", menubar)
+    help_menu.setToolTipsVisible(True)
     about_action = QAction(qta.icon('fa6s.circle-info'), "About", window)
+    about_action.setToolTip(MENU_TOOLTIPS["about"])
+    about_action.setStatusTip(MENU_TOOLTIPS["about"])
     def show_about():
         dialog = AboutDialog(window)
         dialog.exec()
@@ -167,10 +244,14 @@ def setup_main_menu(window):
     help_menu.addAction(about_action)
 
     update_now_action = QAction(qta.icon('fa6s.download'), "Update Now", window)
+    update_now_action.setToolTip(MENU_TOOLTIPS["update_now"])
+    update_now_action.setStatusTip(MENU_TOOLTIPS["update_now"])
     update_now_action.triggered.connect(lambda: run_updater(window))
     help_menu.addAction(update_now_action)
 
     donate_action = QAction(qta.icon('fa6s.circle-dollar-to-slot'), "Donate", window)
+    donate_action.setToolTip(MENU_TOOLTIPS["donate"])
+    donate_action.setStatusTip(MENU_TOOLTIPS["donate"])
     def show_donate():
         dialog = DonateDialog(window)
         dialog.exec()
@@ -178,30 +259,40 @@ def setup_main_menu(window):
     help_menu.addAction(donate_action)
 
     wa_action = QAction(qta.icon('fa5b.whatsapp'), "WhatsApp Group", window)
+    wa_action.setToolTip(MENU_TOOLTIPS["whatsapp"])
+    wa_action.setStatusTip(MENU_TOOLTIPS["whatsapp"])
     def open_wa():
         webbrowser.open(links["whatsapp"])
     wa_action.triggered.connect(open_wa)
     help_menu.addAction(wa_action)
 
     repo_action = QAction(qta.icon('fa5b.github'), "Repository", window)
+    repo_action.setToolTip(MENU_TOOLTIPS["repository"])
+    repo_action.setStatusTip(MENU_TOOLTIPS["repository"])
     def open_repo():
         webbrowser.open(links["repo"])
     repo_action.triggered.connect(open_repo)
     help_menu.addAction(repo_action)
 
     website_action = QAction(qta.icon('fa6s.globe'), "Website", window)
+    website_action.setToolTip(MENU_TOOLTIPS["website"])
+    website_action.setStatusTip(MENU_TOOLTIPS["website"])
     def open_website():
         webbrowser.open(links["website"])
     website_action.triggered.connect(open_website)
     help_menu.addAction(website_action)
 
     readme_action = QAction(qta.icon('fa6s.book'), "Open README.md (GitHub)", window)
+    readme_action.setToolTip(MENU_TOOLTIPS["readme"])
+    readme_action.setStatusTip(MENU_TOOLTIPS["readme"])
     def open_readme():
         webbrowser.open(links["readme"])
     readme_action.triggered.connect(open_readme)
     help_menu.addAction(readme_action)
 
     documentation_action = QAction(qta.icon('fa6s.book-open'), "Help", window)
+    documentation_action.setToolTip(MENU_TOOLTIPS["documentation"])
+    documentation_action.setStatusTip(MENU_TOOLTIPS["documentation"])
     def open_documentation():
         dialog = ReadDocumentationDialog(window)
         dialog.exec()
@@ -210,7 +301,10 @@ def setup_main_menu(window):
 
     # Tools menu
     tools_menu = QMenu("Tools", menubar)
+    tools_menu.setToolTipsVisible(True)
     prompt_generator_action = QAction(qta.icon('fa6s.wand-magic-sparkles'), "Prompt Generator", window)
+    prompt_generator_action.setToolTip(MENU_TOOLTIPS["prompt_generator"])
+    prompt_generator_action.setStatusTip(MENU_TOOLTIPS["prompt_generator"])
     def open_prompt_generator():
         dlg = PromptGeneratorDialog(window)
         dlg.exec()
@@ -218,13 +312,53 @@ def setup_main_menu(window):
     tools_menu.addAction(prompt_generator_action)
 
     imagen_generator_action = QAction(qta.icon('fa6s.image'), "Imagen Generator", window)
+    imagen_generator_action.setToolTip(MENU_TOOLTIPS["imagen_generator"])
+    imagen_generator_action.setStatusTip(MENU_TOOLTIPS["imagen_generator"])
     def open_imagen_generator():
         dlg = ImagenGeneratorDialog(window)
         dlg.exec()
     imagen_generator_action.triggered.connect(open_imagen_generator)
     tools_menu.addAction(imagen_generator_action)
 
-    
+    # Add separator
+    tools_menu.addSeparator()
+
+    # Add additional tools from config
+    def get_additional_tools():
+        import json
+        import os
+        config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config.get("additional_tools", {})
+
+    additional_tools = get_additional_tools()
+    for tool_key, tool_config in additional_tools.items():
+        tool_name = tool_config.get("tool_name", tool_key)
+        description = tool_config.get("description", "")
+        tool_url = tool_config.get("tool_url", "")
+        fa_icon_name = tool_config.get("fa_icon_name", "external-link")
+        
+        # Try fa6s first, fallback to fa5b
+        try:
+            icon = qta.icon(f'fa6s.{fa_icon_name}')
+        except:
+            try:
+                icon = qta.icon(f'fa5b.{fa_icon_name}')
+            except:
+                icon = qta.icon('fa6s.link')
+        
+        action = QAction(icon, tool_name, window)
+        action.setToolTip(description)
+        action.setStatusTip(description)
+        # Use closure to capture the URL properly
+        def create_open_url_handler(url):
+            def open_url():
+                if url and isinstance(url, str):
+                    webbrowser.open(url)
+            return open_url
+        action.triggered.connect(create_open_url_handler(tool_url))
+        tools_menu.addAction(action)
     menubar.addMenu(file_menu)
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)

@@ -761,6 +761,8 @@ class ImageTableWidget(QWidget):
         self._current_rows = []
         self._refreshing_details = False
         self._refreshing_thumbnails = False
+        self._checkbox_dragging = False
+        self._drag_check_state = None
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -964,6 +966,8 @@ class ImageTableWidget(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        self.table.viewport().installEventFilter(self)
+        self.table.setMouseTracking(True)
         self._current_rows = []
         self.grid_manager = GridManager()
         self.grid_manager.set_status_color_func(self._status_color)
@@ -987,7 +991,38 @@ class ImageTableWidget(QWidget):
         self.refresh_table()
 
     def eventFilter(self, obj, event):
-        """Handle resize events to force thumbnail layout refresh"""
+        """Handle resize events to force thumbnail layout refresh and checkbox drag selection"""
+        # Handle checkbox drag selection in table
+        if obj == self.table.viewport():
+            if event.type() == QEvent.MouseButtonPress:
+                pos = event.pos()
+                index = self.table.indexAt(pos)
+                if index.isValid() and index.column() == 0:
+                    item = self.table.item(index.row(), 0)
+                    if item:
+                        self._checkbox_dragging = True
+                        self._drag_check_state = item.checkState() == Qt.Unchecked
+                        new_state = Qt.Checked if self._drag_check_state else Qt.Unchecked
+                        item.setCheckState(new_state)
+                        self._update_thumbnail_checklist_style()
+                        return True
+            elif event.type() == QEvent.MouseMove and self._checkbox_dragging:
+                pos = event.pos()
+                index = self.table.indexAt(pos)
+                if index.isValid() and index.column() == 0:
+                    item = self.table.item(index.row(), 0)
+                    if item:
+                        new_state = Qt.Checked if self._drag_check_state else Qt.Unchecked
+                        if item.checkState() != new_state:
+                            item.setCheckState(new_state)
+                            self._update_thumbnail_checklist_style()
+                return True
+            elif event.type() == QEvent.MouseButtonRelease:
+                if self._checkbox_dragging:
+                    self._checkbox_dragging = False
+                    self._drag_check_state = None
+                    return True
+        
         # Resize -> refresh layout
         if obj == self.thumbnail_scroll and event.type() == QEvent.Resize:
             if self.tab_widget.currentIndex() == 1:

@@ -242,8 +242,7 @@ class ImagePreviewWidget(QGraphicsView):
         self._pan_start = QPoint()
         self._fit_done = False
         self.setCursor(Qt.ArrowCursor)
-        self._no_preview_text = self._scene.addText("")
-        self._no_preview_text.setVisible(False)
+        self._no_preview_text = None
 
     def set_pixmap(self, pixmap, filepath=None):
         self._scene.clear()
@@ -257,15 +256,10 @@ class ImagePreviewWidget(QGraphicsView):
             self._scene.setSceneRect(self._pixmap_item.boundingRect())
             self.resetTransform()
             self._fit_to_view()
-            self._no_preview_text = self._scene.addText("")
-            self._no_preview_text.setVisible(False)
         else:
             self._scene.setSceneRect(0, 0, self.width(), self.height())
             self.resetTransform()
-            self._no_preview_text = self._scene.addText("No Preview")
-            self._no_preview_text.setDefaultTextColor(Qt.gray)
-            self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
-            self._no_preview_text.setVisible(True)
+            self._show_no_preview_message("No Preview")
 
     def clear(self):
         self._scene.clear()
@@ -275,10 +269,8 @@ class ImagePreviewWidget(QGraphicsView):
         self._zoom = 1.0
         self._fit_done = False
         self.resetTransform()
-        self._no_preview_text = self._scene.addText("No Preview")
-        self._no_preview_text.setDefaultTextColor(Qt.gray)
-        self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
-        self._no_preview_text.setVisible(True)
+        self._scene.setSceneRect(0, 0, self.width(), self.height())
+        self._show_no_preview_message("No Preview")
 
     def _fit_to_view(self):
         if self._pixmap_item and not self._fit_done:
@@ -304,8 +296,7 @@ class ImagePreviewWidget(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._fit_to_view()
-        if self._no_preview_text:
-            self._no_preview_text.setPos(self.width() / 2 - 40, self.height() / 2 - 10)
+        self._position_no_preview_text()
 
     def wheelEvent(self, event: QWheelEvent):
         if self._pixmap_item is None:
@@ -356,6 +347,31 @@ class ImagePreviewWidget(QGraphicsView):
         if self._filepath and os.path.exists(self._filepath):
             QDesktopServices.openUrl(QUrl.fromLocalFile(self._filepath))
         super().mouseDoubleClickEvent(event)
+
+    def _show_no_preview_message(self, message: str):
+        if self._no_preview_text:
+            try:
+                self._scene.removeItem(self._no_preview_text)
+            except Exception:
+                pass
+        self._no_preview_text = self._scene.addText(message)
+        self._no_preview_text.setDefaultTextColor(Qt.gray)
+        self._no_preview_text.setVisible(True)
+        self._position_no_preview_text()
+
+    def _position_no_preview_text(self):
+        if not self._no_preview_text:
+            return
+        try:
+            scene_rect = self._scene.sceneRect()
+            text_rect = self._no_preview_text.boundingRect()
+            if scene_rect.width() <= 0 or scene_rect.height() <= 0:
+                return
+            x = scene_rect.x() + max((scene_rect.width() - text_rect.width()) / 2, 0)
+            y = scene_rect.y() + max((scene_rect.height() - text_rect.height()) / 2, 0)
+            self._no_preview_text.setPos(x, y)
+        except RuntimeError:
+            self._no_preview_text = None
 
 
 class PropertiesWidget(QWidget):

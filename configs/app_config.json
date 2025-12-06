@@ -13,5 +13,49 @@
         "website": "https://www.image-tea.cloud/",
         "readme": "https://github.com/mudrikam/Image-Tea-nano/blob/main/README.md",
         "repo": "https://github.com/mudrikam/Image-Tea-nano"
+    },
+    "additional_tools": {
+        "image_compressor": {
+            "tool_name": "Image Upscaler",
+            "description": "Enhance and upscale images using AI technology.",
+            "tool_url": "https://github.com/mudrikam/SotongHD",
+            "fa_icon_name": "expand"
+        },
+        "video_compressor": {
+            "tool_name": "Background Remover",
+            "description": "Remove backgrounds from images easily.",
+            "tool_url": "https://github.com/mudrikam/Keong-MAS",
+            "fa_icon_name": "eraser"
+        },
+        "archieve_manager": {
+            "tool_name": "Rak Arsip 3",
+            "description": "Manage projects and documents efficiently.",
+            "tool_url": "https://github.com/mudrikam/Rak-Arsip-3",
+            "fa_icon_name": "box-archive"
+        },
+        "mockup_renderer": {
+            "tool_name": "Mockup Renderer",
+            "description": "Render mockups in batch with ease.",
+            "tool_url": "https://github.com/mudrikam/Mockup-Renderer",
+            "fa_icon_name": "file-export"
+        },
+        "link_opener": {
+            "tool_name": "Link Opener",
+            "description": "Extract and open multiple links quickly.",
+            "tool_url": "https://github.com/mudrikam/link-opener",
+            "fa_icon_name": "link"
+        },
+        "image_converter": {
+            "tool_name": "Image Converter",
+            "description": "Convert images between different formats easily.",
+            "tool_url": "https://github.com/mudrikam/SHL-IMG-Convert",
+            "fa_icon_name": "rotate"
+        },
+        "psd_to_jpg": {
+            "tool_name": "PSD to JPG Converter",
+            "description": "Render PSD files to JPG format quickly.",
+            "tool_url": "https://github.com/mudrikam/PSD-to-JPG",
+            "fa_icon_name": "rotate"
+        }
     }
 }

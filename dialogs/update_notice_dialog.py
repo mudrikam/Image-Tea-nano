@@ -4,7 +4,33 @@ from PySide6.QtGui import QPixmap, QImageReader
 import qtawesome as qta
 import json
 import os
+from datetime import datetime, timezone, timedelta
 from config import BASE_PATH
+
+
+def format_human_readable_date(iso_date_str):
+    """Convert ISO date string to human-readable format in UTC and WIB"""
+    if not iso_date_str:
+        return ""
+    
+    try:
+        if iso_date_str.endswith('Z'):
+            iso_date_str = iso_date_str[:-1] + '+00:00'
+        
+        dt = datetime.fromisoformat(iso_date_str.replace('Z', '+00:00'))
+        
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        else:
+            dt = dt.replace(tzinfo=timezone.utc)
+        
+        utc_time = dt.strftime("%B %d, %Y at %I:%M %p UTC")
+        wib_dt = dt.astimezone(timezone(timedelta(hours=7)))
+        wib_time = wib_dt.strftime("%B %d, %Y at %I:%M %p WIB")
+        
+        return f"{utc_time} or {wib_time}"
+    except (ValueError, AttributeError):
+        return iso_date_str
 
 
 class UpdateNoticeDialog(QDialog):
@@ -67,7 +93,9 @@ class UpdateNoticeDialog(QDialog):
 
         current_label = QLabel(f"<b>Current version:</b> {local_tag or 'unknown'}")
         new_label = QLabel(f"<b>New version:</b> {remote_tag or 'unknown'}")
-        checked_label = QLabel(f"<b>Checked at:</b> {checked_time or ''}")
+        new_label.setStyleSheet("QLabel { background-color: #4e9e20; color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px; }")
+        checked_label = QLabel(f"<b>Checked at:</b> {format_human_readable_date(checked_time) or ''}")
+        checked_label.setWordWrap(True)
 
         commit_text = remote_hash or ""
         if repo_url and remote_hash:
@@ -79,7 +107,7 @@ class UpdateNoticeDialog(QDialog):
         else:
             commit_label = QLabel(f"<b>Commit:</b> {commit_text}")
 
-        for lbl in (current_label, new_label, checked_label):
+        for lbl in (new_label, current_label, checked_label):
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             info_layout.addWidget(lbl)
         info_layout.addWidget(commit_label)
@@ -122,12 +150,12 @@ class UpdateNoticeDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(12)
-        update_icon = qta.icon('fa6s.download', color="#ffffff")
-        later_icon = qta.icon('fa6s.clock-rotate-left', color="#666666")
+        update_icon = qta.icon('fa6s.download', color="#FFFFFF")
+        later_icon = qta.icon('fa6s.clock-rotate-left')
         self.update_btn = QPushButton(update_icon, " Update Now")
         self.later_btn = QPushButton(later_icon, " Remind Me Later")
         self.update_btn.setStyleSheet("QPushButton { background-color: #4e9e20; color: white; font-weight: bold; padding: 8px 14px; border-radius: 6px; } QPushButton:hover { background-color: #3d7307; }")
-        self.later_btn.setStyleSheet("QPushButton { background-color: #333; color: white; padding: 8px 12px; border-radius: 6px; } QPushButton:hover { background-color: #444; }")
+        self.later_btn.setStyleSheet("QPushButton { padding: 8px 12px; border-radius: 6px; } QPushButton:hover { border: 1px solid #999; }")
         self.update_btn.setMinimumHeight(40)
         self.later_btn.setMinimumHeight(40)
         self.update_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
