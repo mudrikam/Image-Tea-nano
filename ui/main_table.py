@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QPushButton, QToolTip, QTabWidget, QScrollArea, QFrame, QLayout, QComboBox,
     QSpacerItem, QSizePolicy, QSpinBox
 )
-from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent, QItemSelectionModel
 from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage, QFont
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
@@ -1329,6 +1329,66 @@ class ImageTableWidget(QWidget):
         edit_action = QAction(edit_icon, "Edit metadata", self)
         edit_action.triggered.connect(lambda: self._open_metadata_dialog(index.row()))
         menu.addAction(edit_action)
+        
+        menu.addSeparator()
+        
+        select_menu = menu.addMenu(qta.icon("fa6s.list-check"), "Selection")
+        select_all_action = QAction(qta.icon("fa6s.square-check"), "Select All", self)
+        select_all_action.triggered.connect(self._select_all_rows)
+        select_menu.addAction(select_all_action)
+        
+        deselect_all_action = QAction(qta.icon("fa6s.square"), "Deselect All", self)
+        deselect_all_action.triggered.connect(self._deselect_all_rows)
+        select_menu.addAction(deselect_all_action)
+        
+        select_invert_action = QAction(qta.icon("fa6s.arrows-rotate"), "Invert Selection", self)
+        select_invert_action.triggered.connect(self._invert_selection)
+        select_menu.addAction(select_invert_action)
+        
+        select_menu.addSeparator()
+        
+        select_failed_action = QAction(qta.icon("fa6s.square-check"), "Select Failed Only", self)
+        select_failed_action.triggered.connect(self._select_failed_only)
+        select_menu.addAction(select_failed_action)
+        
+        select_draft_action = QAction(qta.icon("fa6s.square-check"), "Select Draft Only", self)
+        select_draft_action.triggered.connect(self._select_draft_only)
+        select_menu.addAction(select_draft_action)
+        
+        check_menu = menu.addMenu(qta.icon("fa6s.square-check"), "Checkboxes")
+        check_all_action = QAction(qta.icon("fa6s.square-check"), "Check All", self)
+        check_all_action.triggered.connect(self._check_all)
+        check_menu.addAction(check_all_action)
+        
+        uncheck_all_action = QAction(qta.icon("fa6s.square"), "Uncheck All", self)
+        uncheck_all_action.triggered.connect(self._uncheck_all)
+        check_menu.addAction(uncheck_all_action)
+        
+        check_invert_action = QAction(qta.icon("fa6s.arrows-rotate"), "Invert Checks", self)
+        check_invert_action.triggered.connect(self._check_invert)
+        check_menu.addAction(check_invert_action)
+        
+        check_menu.addSeparator()
+        
+        check_failed_action = QAction(qta.icon("fa6s.square-check"), "Check Failed Only", self)
+        check_failed_action.triggered.connect(self._check_failed_only)
+        check_menu.addAction(check_failed_action)
+        
+        check_draft_action = QAction(qta.icon("fa6s.square-check"), "Check Draft Only", self)
+        check_draft_action.triggered.connect(self._check_draft_only)
+        check_menu.addAction(check_draft_action)
+        
+        check_menu.addSeparator()
+        
+        uncheck_failed_action = QAction(qta.icon("fa6s.square"), "Uncheck Failed", self)
+        uncheck_failed_action.triggered.connect(self._uncheck_failed)
+        check_menu.addAction(uncheck_failed_action)
+        
+        uncheck_draft_action = QAction(qta.icon("fa6s.square"), "Uncheck Draft", self)
+        uncheck_draft_action.triggered.connect(self._uncheck_draft)
+        check_menu.addAction(uncheck_draft_action)
+        
+        menu.addSeparator()
 
         row_idx = index.row()
         filename_item = self.table.item(row_idx, 2)
@@ -1680,6 +1740,105 @@ class ImageTableWidget(QWidget):
             self._sync_thumbnail_selection_with_table()
         # Details cards don't need refresh on selection change
         self._highlight_selected_row()
+    
+    def _select_all_rows(self):
+        self.table.selectAll()
+    
+    def _deselect_all_rows(self):
+        self.table.clearSelection()
+    
+    def _invert_selection(self):
+        selected_rows = set(index.row() for index in self.table.selectionModel().selectedRows())
+        selection_model = self.table.selectionModel()
+        selection_model.clear()
+        for row in range(self.table.rowCount()):
+            if row not in selected_rows:
+                index = self.table.model().index(row, 0)
+                selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    
+    def _select_failed_only(self):
+        selection_model = self.table.selectionModel()
+        selection_model.clear()
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            status_item = self.table.item(row, status_col)
+            if status_item and status_item.text().strip().lower() == "failed":
+                index = self.table.model().index(row, 0)
+                selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    
+    def _select_draft_only(self):
+        selection_model = self.table.selectionModel()
+        selection_model.clear()
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            status_item = self.table.item(row, status_col)
+            if status_item and status_item.text().strip().lower() == "draft":
+                index = self.table.model().index(row, 0)
+                selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    
+    def _check_all(self):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.Checked)
+        self._update_thumbnail_checklist_style()
+    
+    def _uncheck_all(self):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.Unchecked)
+        self._update_thumbnail_checklist_style()
+    
+    def _check_invert(self):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item:
+                new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                item.setCheckState(new_state)
+        self._update_thumbnail_checklist_style()
+    
+    def _check_failed_only(self):
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            status_item = self.table.item(row, status_col)
+            if item:
+                if status_item and status_item.text().strip().lower() == "failed":
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+        self._update_thumbnail_checklist_style()
+    
+    def _check_draft_only(self):
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            status_item = self.table.item(row, status_col)
+            if item:
+                if status_item and status_item.text().strip().lower() == "draft":
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+        self._update_thumbnail_checklist_style()
+    
+    def _uncheck_failed(self):
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            status_item = self.table.item(row, status_col)
+            if item and status_item and status_item.text().strip().lower() == "failed":
+                item.setCheckState(Qt.Unchecked)
+        self._update_thumbnail_checklist_style()
+    
+    def _uncheck_draft(self):
+        status_col = 8
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            status_item = self.table.item(row, status_col)
+            if item and status_item and status_item.text().strip().lower() == "draft":
+                item.setCheckState(Qt.Unchecked)
+        self._update_thumbnail_checklist_style()
 
     def _highlight_selected_row(self):
         selected_rows = self.table.selectionModel().selectedRows()
