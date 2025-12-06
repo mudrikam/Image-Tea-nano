@@ -73,7 +73,14 @@ def setup_ui(self):
 
     gen_group_layout = QVBoxLayout()
     self.gen_mode_combo = QComboBox()
-    self.gen_mode_combo.addItems(["Generate All", "Selected Only", "Failed Only", "Draft Only", "Resume Stopped", "Rolling APIs"])
+    self.gen_mode_combo.addItems([
+        "Generate All Files",
+        "Generate Selected Only",
+        "Generate Failed Only",
+        "Generate Drafts Only",
+        "Resume Generation From Stopped",
+        "Generate With Rolling API Keys"
+    ])
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
 
@@ -91,17 +98,17 @@ def setup_ui(self):
 
     def update_gen_btn_tooltip(idx):
         mode = self.gen_mode_combo.currentText()
-        if mode == "Generate All":
+        if mode == "Generate All Files":
             self.gen_btn.setToolTip("Generate metadata for all files in the table")
-        elif mode == "Selected Only":
+        elif mode == "Generate Selected Only":
             self.gen_btn.setToolTip("Generate metadata only for selected files")
-        elif mode == "Failed Only":
+        elif mode == "Generate Failed Only":
             self.gen_btn.setToolTip("Generate metadata only for files that previously failed")
-        elif mode == "Draft Only":
+        elif mode == "Generate Drafts Only":
             self.gen_btn.setToolTip("Generate metadata starting from the first draft file onwards")
-        elif mode == "Resume Stopped":
+        elif mode == "Resume Generation From Stopped":
             self.gen_btn.setToolTip("Resume generation starting from the first stopped file onwards")
-        elif mode == "Rolling APIs":
+        elif mode == "Generate With Rolling API Keys":
             self.gen_btn.setToolTip("Generate metadata using all available API keys automatically when one fails")
         else:
             self.gen_btn.setToolTip("Generate metadata")
@@ -119,7 +126,7 @@ def setup_ui(self):
     def on_generate_clicked():
         mode = self.gen_mode_combo.currentText()
         total_files = self.table.table.rowCount()
-        if mode == "Generate All" and total_files >= 1000:
+        if mode == "Generate All Files" and total_files >= 1000:
             dialog = ApiCallWarningDialog(self)
             result = dialog.exec()
             if result != QDialog.Accepted:
