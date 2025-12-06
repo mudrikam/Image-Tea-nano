@@ -47,10 +47,8 @@ def create_prompt_generation_request(instructions, requirements, response_format
     # Get variation description
     variation_description = variation_levels.get(str(variation_level), f"Level {variation_level} variation")
     
-    # Build main instruction
-    prompt = f"{instruction_text}\n\n"
-    
-    # Add requirements section based on prompt type
+    # Build requirements list
+    req_list_formatted = []
     if requirements:
         if isinstance(requirements, dict):
             req_list = requirements.get(prompt_type, requirements.get('image_generation', []))
@@ -58,7 +56,6 @@ def create_prompt_generation_request(instructions, requirements, response_format
             req_list = requirements
             
         if req_list:
-            prompt += "REQUIREMENTS:\n"
             for req in req_list:
                 formatted_req = req.format(
                     prompt_length=prompt_length, 
@@ -67,48 +64,55 @@ def create_prompt_generation_request(instructions, requirements, response_format
                     variation_level=variation_level,
                     variation_description=variation_description
                 )
-                prompt += f"- {formatted_req}\n"
-            prompt += "\n"
+                req_list_formatted.append(formatted_req)
     
-    # Add batch info
-    prompt += f"BATCH INFO:\n- batch_token: {batch_token}\n- batch_timestamp: {batch_timestamp}\n"
-    prompt += f"- prompt_type: {prompt_type}\n- aspect_ratio: {aspect_ratio}\n- variation_level: {variation_level}/10\n\n"
-    
-    # Add context if provided
-    if filename:
-        prompt += f"CONTEXT: Image filename: {filename}\n"
-    
-    if metadata_context:
-        prompt += f"EXISTING METADATA CONTEXT:\n{metadata_context}\n"
-        prompt += "Use this metadata as additional context but focus primarily on what you see in the image.\n\n"
-    
-    # Add response format
+    # Build validation rules
+    validation_list_formatted = []
     if response_format:
-        structure = response_format.get('structure', {})
         validation_rules = response_format.get('validation_rules', [])
-        
-        prompt += "RESPONSE FORMAT (Strict JSON):\n"
-        prompt += "Return ONLY valid JSON object, with NO explanation, NO markdown, NO comments, NO extra text. Output must be:\n"
-        prompt += "{\n"
-        prompt += f'    "prompts": [\n'
-        for i in range(prompts_per_file):
-            prompt += f'        "prompt {i+1} text here..."'
-            if i < prompts_per_file - 1:
-                prompt += ","
-            prompt += "\n"
-        prompt += "    ]\n}\n\n"
-        
         if validation_rules:
-            prompt += "VALIDATION RULES:\n"
-            for i, rule in enumerate(validation_rules, 1):
+            for rule in validation_rules:
                 formatted_rule = rule.format(
                     prompt_length=prompt_length, 
                     prompts_per_file=prompts_per_file,
                     aspect_ratio=aspect_ratio
                 )
-                prompt += f"{i}. {formatted_rule}\n"
+                validation_list_formatted.append(formatted_rule)
     
-    return prompt
+    # Create JSON structure
+    prompt_json = {
+        "instruction": instruction_text,
+        "batch_info": {
+            "batch_token": batch_token,
+            "batch_timestamp": batch_timestamp,
+            "prompt_type": prompt_type,
+            "aspect_ratio": aspect_ratio,
+            "variation_level": f"{variation_level}/10",
+            "variation_description": variation_description
+        },
+        "requirements": req_list_formatted,
+        "response_format": {
+            "type": "JSON",
+            "structure": {
+                "prompts": [f"prompt {i+1} text here..." for i in range(prompts_per_file)]
+            },
+            "validation_rules": validation_list_formatted,
+            "note": "Return ONLY valid JSON object, with NO explanation, NO markdown, NO comments, NO extra text"
+        }
+    }
+    
+    if filename:
+        prompt_json["context"] = {"filename": filename}
+    
+    if metadata_context:
+        if "context" not in prompt_json:
+            prompt_json["context"] = {}
+        prompt_json["context"]["existing_metadata"] = metadata_context
+        prompt_json["context"]["note"] = "Use this metadata as additional context but focus primarily on what you see in the image"
+    
+    full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
+    
+    return full_prompt
 
 def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None):
     """Generate prompts for a single file using AI service by analyzing the actual image"""

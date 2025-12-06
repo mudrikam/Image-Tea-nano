@@ -458,6 +458,15 @@ class PromptGeneratorDialog(QDialog):
 		# spacer in middle
 		actions_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		
+		# Edit Prompt Config button
+		try:
+			self.edit_config_btn = QPushButton(qta.icon('fa6s.gear'), "Edit Prompt")
+		except Exception:
+			self.edit_config_btn = QPushButton("Edit Prompt")
+		self.edit_config_btn.setToolTip("Edit prompt generator configuration")
+		self.edit_config_btn.clicked.connect(self.open_prompt_config_editor)
+		actions_layout.addWidget(self.edit_config_btn)
+		
 		# Clear prompts button
 		try:
 			clear_icon = qta.icon('fa6s.trash')
@@ -891,6 +900,15 @@ class PromptGeneratorDialog(QDialog):
 				json.dump(cfg, f, indent=2, ensure_ascii=False)
 		except Exception as e:
 			print(f"Failed to save ai_config.json: {e}")
+	
+	def open_prompt_config_editor(self):
+		from dialogs.prompt_generator_config_dialog import PromptGeneratorConfigDialog
+		
+		dialog = PromptGeneratorConfigDialog(self)
+		result = dialog.exec()
+		
+		if result == QDialog.Accepted:
+			QMessageBox.information(self, "Success", "Konfigurasi prompt berhasil diupdate!")
 
 	def load_prompts_from_db(self):
 		"""Load prompts from the database with pagination support."""

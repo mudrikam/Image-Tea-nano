@@ -129,7 +129,7 @@
       "prompts_per_file": 5,
       "prompt_type": "image_generation",
       "aspect_ratio": "4:3",
-      "variation_level": 5
+      "variation_level": 9
     },
     "variation_levels": {
       "1": "Identical context, only minor changes (e.g. slightly different camera angle)",

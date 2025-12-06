@@ -93,54 +93,53 @@ def format_openai_prompt(
     keywords_reqs = keywords_requirements.replace("_TAGS_COUNT_", str(required_tag_count))
     uniqueness = unique_token.replace("_TIMESTAMP_", generate_timestamp()).replace("_TOKEN_", generate_token())
     
-    shutterstock_yaml = "\n".join([f"  {num}: {name}" for num, name in shutterstock_map.items()])
-    adobe_yaml = "\n".join([f"  {num}: {name}" for num, name in adobe_map.items()])
+    shutterstock_categories = {num: name for num, name in shutterstock_map.items()}
+    adobe_categories = {num: name for num, name in adobe_map.items()}
     
-    prompt = f"""task: Create high-quality image or video digital assets metadata
-output_format: JSON with keys - title, description, tags (array), category (object with shutterstock_primary, shutterstock_secondary, adobe_stock), filetype
-
-requirements:
-  title:
-{chr(10).join(['    ' + line for line in title_reqs.split(chr(10))])}
-  
-  description:
-{chr(10).join(['    ' + line for line in desc_reqs.split(chr(10))])}
-  
-  keywords:
-{chr(10).join(['    ' + line for line in keywords_reqs.split(chr(10))])}
-
-guidelines:
-  general:
-{chr(10).join(['    ' + line for line in general_guides.split(chr(10))])}
-  
-  strict_donts:
-{chr(10).join(['    ' + line for line in strict_donts.split(chr(10))])}
-  
-  uniqueness:
-{chr(10).join(['    ' + line for line in uniqueness.split(chr(10))])}
-
-categories:
-  shutterstock:
-    instruction: Select TWO relevant categories - one PRIMARY (most relevant) and one SECONDARY (next most relevant)
-    available_categories:
-{shutterstock_yaml}
-  
-  adobe_stock:
-    available_categories:
-{adobe_yaml}"""
-
+    prompt_json = {
+        "task": "Create high-quality image or video digital assets metadata",
+        "output_format": {
+            "type": "JSON",
+            "keys": ["title", "description", "tags", "category", "filetype"],
+            "category_structure": {
+                "shutterstock": {"primary": "number", "secondary": "number"},
+                "adobe_stock": "number"
+            }
+        },
+        "requirements": {
+            "title": [line for line in title_reqs.split('\n') if line.strip()],
+            "description": [line for line in desc_reqs.split('\n') if line.strip()],
+            "keywords": [line for line in keywords_reqs.split('\n') if line.strip()]
+        },
+        "guidelines": {
+            "general": [line for line in general_guides.split('\n') if line.strip()],
+            "strict_donts": [line for line in strict_donts.split('\n') if line.strip()],
+            "uniqueness": [line for line in uniqueness.split('\n') if line.strip()]
+        },
+        "categories": {
+            "shutterstock": {
+                "instruction": "Select TWO relevant categories - one PRIMARY (most relevant) and one SECONDARY (next most relevant)",
+                "available_categories": shutterstock_categories
+            },
+            "adobe_stock": {
+                "available_categories": adobe_categories
+            }
+        }
+    }
+    
     if filename:
-        prompt = f"input_filename: {filename}\n\n{prompt}"
+        prompt_json["input_filename"] = filename
     
     if custom_prompt and custom_prompt.strip():
-        prompt = f"{prompt}\n\nmandatory_instruction:\n  {custom_prompt.strip()}"
+        prompt_json["mandatory_instruction"] = custom_prompt.strip()
     
-    prompt = f"{prompt}\n\nnegative_prompt:\n{chr(10).join(['  ' + line for line in negative_prompt.split(chr(10))])}"
+    prompt_json["negative_prompt"] = [line for line in negative_prompt.split('\n') if line.strip()]
+    prompt_json["system_instruction"] = [line for line in system_prompt.split('\n') if line.strip()]
     
-    full_prompt = f"{prompt}\n\nsystem_instruction:\n{chr(10).join(['  ' + line for line in system_prompt.split(chr(10))])}"
+    full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
     
     print("="*80)
-    print("OPENAI FULL PROMPT (YAML FORMAT):")
+    print("OPENAI FULL PROMPT (JSON FORMAT):")
     print("="*80)
     print(full_prompt)
     print("="*80)
