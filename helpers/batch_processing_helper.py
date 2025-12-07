@@ -641,6 +641,13 @@ def batch_generate_metadata(window):
             print(f"[DEBUG] Failed to show ApiCallWarningDialog: {e}")
     # --- END WARNING DIALOG ---
 
+    # Enable error dialog buffering
+    try:
+        from dialogs.ai_helper_error_code_dialog import invoker
+        invoker.enable_buffering()
+    except Exception as e:
+        print(f"[Batch] Failed to enable error buffering: {e}")
+
     window.table.progress_bar.setVisible(True)
     window.table.progress_bar.setMinimum(0)
     window.table.progress_bar.setMaximum(len(rows))
@@ -1128,6 +1135,15 @@ def stop_generate_metadata(window):
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             worker.stop()
+    
+    # Clear error buffer saat stop
+    try:
+        from dialogs.ai_helper_error_code_dialog import invoker
+        invoker.clear_buffer()
+        invoker.disable_buffering()
+    except Exception as e:
+        print(f"[STOP] Failed to clear error buffer: {e}")
+    
     window.is_generating = False
     
     # Stop the estimation timer but keep the stats visible
@@ -1139,6 +1155,14 @@ def stop_generate_metadata(window):
 
 def _on_generation_finished(window, errors, stopped=False):
     window.is_generating = False
+    
+    # Disable buffering dan flush semua error yang terkumpul
+    try:
+        from dialogs.ai_helper_error_code_dialog import invoker
+        invoker.disable_buffering()
+        invoker.flush_all()
+    except Exception as e:
+        print(f"[Batch] Failed to flush error dialogs: {e}")
     
     # Stop the estimation timer but keep the final stats visible
     if hasattr(window, "stats_section"):

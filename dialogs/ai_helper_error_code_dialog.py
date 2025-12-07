@@ -123,6 +123,8 @@ class AIHelperErrorCodeDialog(QDialog):
         self.setMinimumWidth(560)
         
         self._error_code_map = error_code_map or {}
+        self._filenames = filenames or []
+        self._should_auto_select = False
 
         layout = QVBoxLayout(self)
 
@@ -175,7 +177,18 @@ class AIHelperErrorCodeDialog(QDialog):
         code_key = str(error_code) if error_code is not None else ''
         provided_status = status
         entries = []
-        if code_key and code_key in PREDEFINED_ERRORS:
+        
+        # Jika ada error_code_map dan filenames, gunakan error code dari file pertama
+        if self._error_code_map and filenames:
+            first_file = filenames[0]
+            first_error_code = self._error_code_map.get(first_file)
+            if first_error_code and first_error_code in PREDEFINED_ERRORS:
+                code_key = str(first_error_code)
+                ent = PREDEFINED_ERRORS.get(code_key)
+                if ent:
+                    entries = [ent]
+                    print(f"[Dialog] Auto-loading initial details from first file: {first_file} (error {first_error_code})")
+        elif code_key and code_key in PREDEFINED_ERRORS:
             ent = PREDEFINED_ERRORS.get(code_key)
             if ent:
                 entries = [ent]
@@ -206,69 +219,128 @@ class AIHelperErrorCodeDialog(QDialog):
             except Exception as e:
                 print(f"[Dialog Table Error] {e}")
 
-        self.detail_widget = None
-        self.alert_frame = None
-        self.alert_layout = None
+        # ALWAYS create error detail section jika ada error_code_map atau entries
+        # Widget dibuat sejak awal, hanya konten yang di-update
+        self.error_label = None
+        self.status_label = None
+        self.description_label = None
+        self.example_label = None
+        self.solution_label = None
+        
+        if self._error_code_map or entries:
+            # Buat frame untuk detail error (ALWAYS created, not conditional)
+            detail_frame = QFrame()
+            detail_frame.setFrameShape(QFrame.StyledPanel)
+            detail_layout = QVBoxLayout(detail_frame)
+            detail_layout.setContentsMargins(8, 8, 8, 8)
+            
+            # Error row
+            error_row = QFrame()
+            error_layout = QHBoxLayout(error_row)
+            error_layout.setContentsMargins(4, 2, 4, 2)
+            error_layout.setAlignment(Qt.AlignLeft)
+            error_icon = QLabel()
+            try:
+                error_icon.setPixmap(qta.icon('fa6s.xmark', color='#ff6464').pixmap(14, 14))
+            except Exception as e:
+                print(f"[Dialog Icon Error] {e}")
+            self.error_label = QLabel("Error : Loading...")
+            self.error_label.setWordWrap(True)
+            self.error_label.setStyleSheet('background-color: rgba(255,100,100,0.12); padding:6px; border-radius:4px;')
+            self.error_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            error_layout.addWidget(error_icon)
+            error_layout.addWidget(self.error_label)
+            detail_layout.addWidget(error_row)
+            
+            # Status row
+            status_row = QFrame()
+            status_layout = QHBoxLayout(status_row)
+            status_layout.setContentsMargins(4, 2, 4, 2)
+            status_layout.setAlignment(Qt.AlignLeft)
+            status_icon = QLabel()
+            try:
+                status_icon.setPixmap(qta.icon('fa6s.circle-info', color='#ffa500').pixmap(14, 14))
+            except Exception as e:
+                print(f"[Dialog Icon Error] {e}")
+            self.status_label = QLabel("Status : Loading...")
+            self.status_label.setWordWrap(True)
+            self.status_label.setStyleSheet('background-color: rgba(255,165,0,0.12); padding:6px; border-radius:4px;')
+            self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            status_layout.addWidget(status_icon)
+            status_layout.addWidget(self.status_label)
+            detail_layout.addWidget(status_row)
+            
+            # Description row
+            desc_row = QFrame()
+            desc_layout = QHBoxLayout(desc_row)
+            desc_layout.setContentsMargins(4, 2, 4, 2)
+            desc_layout.setAlignment(Qt.AlignLeft)
+            desc_icon = QLabel()
+            try:
+                desc_icon.setPixmap(qta.icon('fa6s.book', color='#f0f0f0').pixmap(14, 14))
+            except Exception as e:
+                print(f"[Dialog Icon Error] {e}")
+            self.description_label = QLabel("Description : Loading...")
+            self.description_label.setWordWrap(True)
+            self.description_label.setStyleSheet('background-color: rgba(240,240,240,0.12); padding:6px; border-radius:4px;')
+            self.description_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            desc_layout.addWidget(desc_icon)
+            desc_layout.addWidget(self.description_label)
+            detail_layout.addWidget(desc_row)
+            
+            # Example row
+            example_row = QFrame()
+            example_layout = QHBoxLayout(example_row)
+            example_layout.setContentsMargins(4, 2, 4, 2)
+            example_layout.setAlignment(Qt.AlignLeft)
+            example_icon = QLabel()
+            try:
+                example_icon.setPixmap(qta.icon('fa6s.clipboard', color='#dcdcdc').pixmap(14, 14))
+            except Exception as e:
+                print(f"[Dialog Icon Error] {e}")
+            self.example_label = QLabel("Example : Loading...")
+            self.example_label.setWordWrap(True)
+            self.example_label.setStyleSheet('background-color: rgba(220,220,220,0.12); padding:6px; border-radius:4px;')
+            self.example_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            example_layout.addWidget(example_icon)
+            example_layout.addWidget(self.example_label)
+            detail_layout.addWidget(example_row)
+            
+            # Solution row
+            solution_row = QFrame()
+            solution_layout = QHBoxLayout(solution_row)
+            solution_layout.setContentsMargins(4, 2, 4, 2)
+            solution_layout.setAlignment(Qt.AlignLeft)
+            solution_icon = QLabel()
+            try:
+                solution_icon.setPixmap(qta.icon('fa6s.circle-check', color='#4bb64b').pixmap(14, 14))
+            except Exception as e:
+                print(f"[Dialog Icon Error] {e}")
+            self.solution_label = QLabel("Solution : Loading...")
+            self.solution_label.setWordWrap(True)
+            self.solution_label.setStyleSheet('background-color: rgba(200,255,200,0.12); padding:6px; border-radius:4px;')
+            self.solution_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            solution_layout.addWidget(solution_icon)
+            solution_layout.addWidget(self.solution_label)
+            detail_layout.addWidget(solution_row)
+            
+            layout.addWidget(detail_frame)
+            
+            # Jangan load di init, biarkan showEvent yang handle untuk consistency
+
+        # Set flag untuk auto-select di showEvent (setelah dialog benar-benar ditampilkan)
+        if hasattr(self, 'table') and self._error_code_map and self.table.rowCount() > 0:
+            self._should_auto_select = True
+            print("[Dialog] Will auto-select first row after dialog is shown")
+        elif entries and len(entries) > 0:
+            # Jika tidak ada tabel tapi ada entries, load langsung
+            entry = entries[0]
+            print(f"[Dialog Init] Loading initial entry for error {code_key} (no table)")
+            if self.error_label:
+                self._update_error_labels(code_key, entry)
 
         raw_parts = []
-        if entries:
-            entry = entries[0]
-            try:
-                self.alert_frame = QFrame()
-                self.alert_frame.setFrameShape(QFrame.StyledPanel)
-                self.alert_layout = QHBoxLayout(self.alert_frame)
-                self.alert_layout.setContentsMargins(8, 8, 8, 8)
-
-                a_right = QVBoxLayout()
-                rows = [
-                    ("Error : {}".format(code_key), 'fa6s.xmark', 'rgba(255,100,100,0.12)', '#ff6464'),
-                    ("Status : {}".format(entry.get('status','')), 'fa6s.info-circle', 'rgba(255,165,0,0.12)', '#ffa500'),
-                    ("Description : {}".format(entry.get('description','')), 'fa6s.book', 'rgba(240,240,240,0.12)', '#f0f0f0'),
-                    ("Example : {}".format(entry.get('example','')), 'fa6s.clipboard', 'rgba(220,220,220,0.12)', '#dcdcdc'),
-                    ("Solution : {}".format(entry.get('solution','')), 'fa6s.circle-check', 'rgba(200,255,200,0.12)', "#4bb64b")
-                ]
-                for text, icon_name, bg, icon_color in rows:
-                    try:
-                        row_widget = QFrame()
-                        row_layout = QHBoxLayout(row_widget)
-                        row_layout.setContentsMargins(4, 2, 4, 2)
-                        row_layout.setAlignment(Qt.AlignLeft)
-                        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                        i_lbl = QLabel()
-                        try:
-                            i_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(14, 14))
-                        except Exception:
-                            i_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color=icon_color).pixmap(14, 14))
-                        txt_lbl = QLabel(text)
-                        txt_lbl.setWordWrap(True)
-                        try:
-                            txt_lbl.setStyleSheet(f'background-color: {bg}; padding:6px; border-radius:4px;')
-                        except Exception:
-                            pass
-                        txt_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                        txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                        row_layout.addWidget(i_lbl)
-                        row_layout.addWidget(txt_lbl)
-                        a_right.addWidget(row_widget)
-                    except Exception as _e:
-                        l = QLabel(text)
-                        l.setWordWrap(True)
-                        a_right.addWidget(l)
-
-                self.alert_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                self.alert_layout.addLayout(a_right)
-                layout.addWidget(self.alert_frame)
-
-                raw_parts.append(f"Error: {code_key}")
-                raw_parts.append(f"Status: {entry.get('status','')}")
-                raw_parts.append(f"Description: {entry.get('description','')}")
-                raw_parts.append(f"Example: {entry.get('example','')}")
-                raw_parts.append(f"Solution: {entry.get('solution','')}")
-            except Exception as e:
-                print(f"[Alert Render Error] {e}")
-
-        raw_content = "\n".join(raw_parts)
-        self._copy_text = raw_content
+        self._copy_text = ""
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -284,6 +356,59 @@ class AIHelperErrorCodeDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def showEvent(self, event):
+        """Override showEvent untuk auto-select row pertama dan center dialog"""
+        super().showEvent(event)
+        
+        # Center dialog di layar
+        try:
+            if self.parent():
+                parent_geo = self.parent().geometry()
+                self.move(
+                    parent_geo.x() + (parent_geo.width() - self.width()) // 2,
+                    parent_geo.y() + (parent_geo.height() - self.height()) // 2
+                )
+            else:
+                from PySide6.QtWidgets import QApplication
+                screen = QApplication.primaryScreen().geometry()
+                self.move(
+                    (screen.width() - self.width()) // 2,
+                    (screen.height() - self.height()) // 2
+                )
+        except Exception as e:
+            print(f"[Dialog Center Error] {e}")
+        
+        # Auto-select row pertama setelah dialog ditampilkan
+        if self._should_auto_select and hasattr(self, 'table'):
+            try:
+                from PySide6.QtCore import QTimer
+                # Delay sedikit untuk memastikan UI sudah ter-render penuh
+                QTimer.singleShot(50, self._do_auto_select)
+            except Exception as e:
+                print(f"[Dialog Auto-select Timer Error] {e}")
+    
+    def _do_auto_select(self):
+        """Melakukan auto-select dan load detail dari row pertama"""
+        try:
+            if hasattr(self, 'table') and self.table.rowCount() > 0:
+                self.table.selectRow(0)
+                # Trigger click event untuk load detail
+                first_file = self._filenames[0] if self._filenames else None
+                if first_file:
+                    first_error_code = self._error_code_map.get(first_file)
+                    if first_error_code:
+                        self._on_table_click(0, 0)
+                        print(f"[Dialog] Auto-selected and loaded details: {first_file} (error {first_error_code})")
+                    else:
+                        self._on_table_click(0, 0)
+                        print(f"[Dialog] Auto-selected first row")
+                else:
+                    self._on_table_click(0, 0)
+                    print(f"[Dialog] Auto-selected first row")
+                self._should_auto_select = False
+        except Exception as e:
+            print(f"[Dialog Auto-select Execution Error] {e}")
+
     def _clear_layout(self, layout):
         try:
             while layout.count():
@@ -293,6 +418,35 @@ class AIHelperErrorCodeDialog(QDialog):
                     widget.setParent(None)
         except Exception as e:
             print(f"[Dialog Layout Clear Error] {e}")
+    
+    def _update_error_labels(self, error_code, entry):
+        """Update label text only, tidak rebuild widget"""
+        try:
+            print(f"[Dialog Update Labels] Updating for error {error_code}")
+            
+            if self.error_label:
+                self.error_label.setText(f"Error : {error_code}")
+            if self.status_label:
+                self.status_label.setText(f"Status : {entry.get('status', 'N/A')}")
+            if self.description_label:
+                self.description_label.setText(f"Description : {entry.get('description', 'N/A')}")
+            if self.example_label:
+                self.example_label.setText(f"Example : {entry.get('example', 'N/A')}")
+            if self.solution_label:
+                self.solution_label.setText(f"Solution : {entry.get('solution', 'N/A')}")
+            
+            # Update copy text
+            self._copy_text = f"""Error: {error_code}
+Status: {entry.get('status', '')}
+Description: {entry.get('description', '')}
+Example: {entry.get('example', '')}
+Solution: {entry.get('solution', '')}"""
+            
+            print(f"[Dialog Update Labels] Labels updated successfully")
+        except Exception as e:
+            print(f"[Dialog Update Labels Error] {e}")
+            import traceback
+            traceback.print_exc()
 
     def _render_parsed_message(self, message, target_layout):
         try:
@@ -362,91 +516,33 @@ class AIHelperErrorCodeDialog(QDialog):
         try:
             item = self.table.item(row, 0)
             if not item:
+                print(f"[Dialog Click] No item at row {row}")
                 return
+            
             fn = item.text()
-            msgs = self._file_map.get(fn, [])
-            sample = msgs[0] if msgs else ''
-            self._copy_text = sample
-            
-            current_row = row
-            
             file_error_code = self._error_code_map.get(fn)
-            if file_error_code and self.alert_frame:
-                self._update_error_details(str(file_error_code))
-                self.table.selectRow(current_row)
-                self.table.scrollToItem(self.table.item(current_row, 0))
+            
+            print(f"[Dialog Click] File: {fn}, Error Code: {file_error_code}")
+            
+            if file_error_code:
+                entry = PREDEFINED_ERRORS.get(str(file_error_code))
+                if entry:
+                    # Hanya update label text, tidak rebuild widget
+                    self._update_error_labels(str(file_error_code), entry)
+                    print(f"[Dialog Click] Updated labels for error {file_error_code}")
+                else:
+                    print(f"[Dialog Click] No predefined error for code {file_error_code}")
+            else:
+                print(f"[Dialog Click] No error code found for {fn}")
+                
+            # Select row
+            self.table.selectRow(row)
+            self.table.scrollToItem(self.table.item(row, 0))
+            
         except Exception as e:
             print(f"[Dialog Table Click Error] {e}")
-
-    def _update_error_details(self, error_code):
-        try:
-            if not self.alert_layout:
-                return
-            
-            vscroll = self.table.verticalScrollBar().value() if hasattr(self, 'table') else 0
-            
-            while self.alert_layout.count():
-                item = self.alert_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-                elif item.layout():
-                    self._clear_layout(item.layout())
-            
-            entry = PREDEFINED_ERRORS.get(str(error_code))
-            if not entry:
-                return
-            
-            a_right = QVBoxLayout()
-            rows = [
-                ("Error : {}".format(error_code), 'fa6s.xmark', 'rgba(255,100,100,0.12)', '#ff6464'),
-                ("Status : {}".format(entry.get('status','')), 'fa6s.info-circle', 'rgba(255,165,0,0.12)', '#ffa500'),
-                ("Description : {}".format(entry.get('description','')), 'fa6s.book', 'rgba(240,240,240,0.12)', '#f0f0f0'),
-                ("Example : {}".format(entry.get('example','')), 'fa6s.clipboard', 'rgba(220,220,220,0.12)', '#dcdcdc'),
-                ("Solution : {}".format(entry.get('solution','')), 'fa6s.circle-check', 'rgba(200,255,200,0.12)', "#4bb64b")
-            ]
-            for text, icon_name, bg, icon_color in rows:
-                try:
-                    row_widget = QFrame()
-                    row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(4, 2, 4, 2)
-                    row_layout.setAlignment(Qt.AlignLeft)
-                    row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                    i_lbl = QLabel()
-                    try:
-                        i_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(14, 14))
-                    except Exception:
-                        i_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color=icon_color).pixmap(14, 14))
-                    txt_lbl = QLabel(text)
-                    txt_lbl.setWordWrap(True)
-                    try:
-                        txt_lbl.setStyleSheet(f'background-color: {bg}; padding:6px; border-radius:4px;')
-                    except Exception:
-                        pass
-                    txt_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                    txt_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                    row_layout.addWidget(i_lbl)
-                    row_layout.addWidget(txt_lbl)
-                    a_right.addWidget(row_widget)
-                except Exception:
-                    l = QLabel(text)
-                    l.setWordWrap(True)
-                    a_right.addWidget(l)
-            
-            self.alert_layout.addLayout(a_right)
-            
-            if hasattr(self, 'table'):
-                self.table.verticalScrollBar().setValue(vscroll)
-            
-            raw_parts = [
-                f"Error: {error_code}",
-                f"Status: {entry.get('status','')}",
-                f"Description: {entry.get('description','')}",
-                f"Example: {entry.get('example','')}",
-                f"Solution: {entry.get('solution','')}"
-            ]
-            self._copy_text = "\n".join(raw_parts)
-        except Exception as e:
-            print(f"[Dialog Update Details Error] {e}")
+            import traceback
+            traceback.print_exc()
     
     def _copy(self):
         try:
@@ -463,6 +559,7 @@ class _DialogInvoker(QObject):
         self._buffer = {}
         self._timers = {}
         self._last_shown = {}
+        self.buffering_enabled = False
 
     @Slot(str, str, str)
     def _on_show(self, signature, message, filename):
@@ -491,7 +588,7 @@ class _DialogInvoker(QObject):
                 except Exception as e:
                     print(f"[Dialog Invoker Filemap Error] {e}")
 
-            if signature not in self._timers:
+            if signature not in self._timers and not self.buffering_enabled:
                 def _flush(sig=signature):
                     try:
                         self._flush_signature(sig)
@@ -506,6 +603,40 @@ class _DialogInvoker(QObject):
                 timer.start(1500)
         except Exception as e:
             print(f"[Dialog Invoker Show Error] {e}")
+
+    def enable_buffering(self):
+        self.buffering_enabled = True
+        print("[Dialog Invoker] Buffering enabled - errors will be collected")
+
+    def disable_buffering(self):
+        self.buffering_enabled = False
+        print("[Dialog Invoker] Buffering disabled")
+
+    def flush_all(self):
+        print(f"[Dialog Invoker] Flushing all buffered errors ({len(self._buffer)} signatures)")
+        for timer in list(self._timers.values()):
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        self._timers.clear()
+        
+        signatures = list(self._buffer.keys())
+        for sig in signatures:
+            try:
+                self._flush_signature(sig)
+            except Exception as e:
+                print(f"[Dialog Invoker] Error flushing signature {sig}: {e}")
+
+    def clear_buffer(self):
+        print("[Dialog Invoker] Clearing buffer")
+        for timer in list(self._timers.values()):
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        self._timers.clear()
+        self._buffer.clear()
 
     def _flush_signature(self, signature):
         try:
