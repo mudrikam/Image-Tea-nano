@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QLabel, QSpacerItem, QSizePolicy, QPushButton
 from PySide6.QtCore import Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
+from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
 
 class ApiKeySectionWidget(QWidget):
@@ -62,6 +63,30 @@ class ApiKeySectionWidget(QWidget):
         )
         layout.addWidget(self.tested_label)
         layout.addWidget(self.get_api_btn)
+
+        self.add_api_btn = QPushButton("Add API Key")
+        try:
+            self.add_api_btn.setIcon(qta.icon('fa6s.plus'))
+        except Exception:
+            pass
+        self.add_api_btn.setMinimumWidth(110)
+        try:
+            self.add_api_btn.setStyleSheet("")
+            self.add_api_btn.setFlat(False)
+        except Exception:
+            pass
+        self.add_api_btn.setToolTip("Add a new API Key")
+        self.add_api_btn.setVisible(False)
+        self.add_api_btn.clicked.connect(lambda: self._open_add_api_dialog())
+        try:
+            height = self.get_api_btn.sizeHint().height()
+            if not height or height < 1:
+                height = self.get_api_btn.height()
+            self.add_api_btn.setFixedHeight(height + 4)
+            self.add_api_btn.setMinimumHeight(height + 4)
+        except Exception:
+            pass
+        layout.addWidget(self.add_api_btn)
         layout.addItem(QSpacerItem(24, 1, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         self.model_combo.installEventFilter(self)
@@ -128,6 +153,10 @@ class ApiKeySectionWidget(QWidget):
             self.tested_label.setText(f"{last_tested if last_tested else '-'} | {model if model else '-'}")
             self.tested_label.setVisible(True)
             self.get_api_btn.setVisible(False)
+            try:
+                self.add_api_btn.setVisible(False)
+            except Exception:
+                pass
             self.selected_service = self.api_key_map[api_key]['service']
             self.selected_model_name = self.api_key_map[api_key]['model']
             self.tested_label.setToolTip(
@@ -141,7 +170,19 @@ class ApiKeySectionWidget(QWidget):
             self.selected_model_name = None
             self.tested_label.setVisible(False)
             self.get_api_btn.setVisible(True)
+            try:
+                self.add_api_btn.setVisible(True)
+            except Exception:
+                pass
             self.api_key_changed.emit('', '', '')
+
+    def _open_add_api_dialog(self):
+        try:
+            dlg = AddApiKeyDialog(self)
+            dlg.exec()
+            self.refresh()
+        except Exception as e:
+            print(f"Failed to open AddApiKeyDialog: {e}")
 
     @Slot(int)
     def _on_model_combo_changed(self, idx):
@@ -160,6 +201,10 @@ class ApiKeySectionWidget(QWidget):
             self.tested_label.setText(f"{last_tested if last_tested else '-'} | {model if model else '-'}")
             self.tested_label.setVisible(True)
             self.get_api_btn.setVisible(False)
+            try:
+                self.add_api_btn.setVisible(False)
+            except Exception:
+                pass
             self.tested_label.setToolTip(
                 "This application requires an API key to function.\n"
                 "For Gemini, Google provides free API keys at https://aistudio.google.com/."
@@ -171,6 +216,10 @@ class ApiKeySectionWidget(QWidget):
             self.selected_model_name = None
             self.tested_label.setVisible(False)
             self.get_api_btn.setVisible(True)
+            try:
+                self.add_api_btn.setVisible(True)
+            except Exception:
+                pass
             self.api_key_changed.emit('', '', '')
 
     def get_current_api_key(self):
