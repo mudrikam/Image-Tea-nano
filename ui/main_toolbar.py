@@ -278,7 +278,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6b.tiktok', icon_color_hover),
         "TikTok",
         "Visit TikTok @desainia",
-        lambda: webbrowser.open(links["website"]),
+        lambda: webbrowser.open(links["tiktok"]),
         window, icon_size)
 
     readme_action = create_toolbar_button_with_label(

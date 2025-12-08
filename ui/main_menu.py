@@ -59,6 +59,8 @@ MENU_TOOLTIPS = {
     "repository": "View source code on GitHub",
     "website": "Visit our official website",
     "readme": "Read detailed documentation on GitHub",
+    "tiktok": "Visit our TikTok profile",
+    "telegram": "Open our Telegram bot",
     "documentation": "View built-in help and documentation"
 }
 
@@ -266,6 +268,22 @@ def setup_main_menu(window):
     wa_action.triggered.connect(open_wa)
     help_menu.addAction(wa_action)
 
+    tiktok_action = QAction(qta.icon('fa6b.tiktok'), "TikTok", window)
+    tiktok_action.setToolTip(MENU_TOOLTIPS.get("tiktok"))
+    tiktok_action.setStatusTip(MENU_TOOLTIPS.get("tiktok"))
+    def open_tiktok():
+        webbrowser.open(links.get("tiktok"))
+    tiktok_action.triggered.connect(open_tiktok)
+    help_menu.addAction(tiktok_action)
+
+    telegram_action = QAction(qta.icon('fa6b.telegram'), "Telegram", window)
+    telegram_action.setToolTip(MENU_TOOLTIPS.get("telegram"))
+    telegram_action.setStatusTip(MENU_TOOLTIPS.get("telegram"))
+    def open_telegram():
+        webbrowser.open(links.get("telegram"))
+    telegram_action.triggered.connect(open_telegram)
+    help_menu.addAction(telegram_action)
+
     repo_action = QAction(qta.icon('fa5b.github'), "Repository", window)
     repo_action.setToolTip(MENU_TOOLTIPS["repository"])
     repo_action.setStatusTip(MENU_TOOLTIPS["repository"])
@@ -274,13 +292,6 @@ def setup_main_menu(window):
     repo_action.triggered.connect(open_repo)
     help_menu.addAction(repo_action)
 
-    website_action = QAction(qta.icon('fa6s.globe'), "Website", window)
-    website_action.setToolTip(MENU_TOOLTIPS["website"])
-    website_action.setStatusTip(MENU_TOOLTIPS["website"])
-    def open_website():
-        webbrowser.open(links["website"])
-    website_action.triggered.connect(open_website)
-    help_menu.addAction(website_action)
 
     readme_action = QAction(qta.icon('fa6s.book'), "Open README.md (GitHub)", window)
     readme_action.setToolTip(MENU_TOOLTIPS["readme"])
