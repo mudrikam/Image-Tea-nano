@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal
 from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor
 from PySide6.QtCore import QUrl
 import os
+import qtawesome as qta
 
 try:
     from PIL import Image
@@ -395,8 +396,8 @@ class PropertiesWidget(QWidget):
         self.content_layout.setAlignment(Qt.AlignTop)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.title_label = QLabel("<b>Properties</b>")
-        self.content_layout.addWidget(self.title_label)
+        title_widget, title_label = self._create_icon_label("<b>Properties</b>", "fa6s.circle-info")
+        self.content_layout.addWidget(title_widget)
 
         self.preview_widget = ImagePreviewWidget()
         self.content_layout.addWidget(self.preview_widget)
@@ -408,21 +409,32 @@ class PropertiesWidget(QWidget):
             "Filepath", "Filename", "Title", "Description", "Tags", "Status", "File Type", "Original Filename",
             "Shutterstock Category", "Adobe Stock Category"
         ]
-        
-        # Create tags pill widget
+
+        icon_map = {
+            "Filepath": "fa6s.folder",
+            "Filename": "fa6s.file",
+            "Title": "fa6s.heading",
+            "Description": "fa6s.align-left",
+            "Tags": "fa6s.tags",
+            "Status": "fa6s.circle-info",
+            "File Type": "fa6s.file-lines",
+            "Original Filename": "fa6s.file-signature",
+            "Shutterstock Category": "fa6s.image",
+            "Adobe Stock Category": "fa6s.pencil"
+        }
+
         self.tags_pill_widget = TagsPillWidget()
-        
+
         for idx, label_text in enumerate(field_names):
-            label = QLabel(f"<b>{label_text}:</b>")
-            label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            
+            icon_name = icon_map.get(label_text, "fa6s.tag")
+            label_widget_container, label_widget = self._create_icon_label(f"<b>{label_text}:</b>", icon_name)
+            label_widget.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
             if label_text == "Tags":
-                # Use pill widget for tags
-                self.content_layout.addWidget(label)
+                self.content_layout.addWidget(label_widget_container)
                 self.content_layout.addWidget(self.tags_pill_widget)
-                self.fields.append(self.tags_pill_widget)  # Store pill widget
+                self.fields.append(self.tags_pill_widget)
             else:
-                # Use regular label for other fields
                 value_label = QLabel("")
                 value_label.setWordWrap(True)
                 value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -431,14 +443,14 @@ class PropertiesWidget(QWidget):
                     value_label.setStyleSheet("font-size: 11pt;")
                 else:
                     value_label.setStyleSheet("font-size: 8pt;")
-                self.content_layout.addWidget(label)
+                self.content_layout.addWidget(label_widget_container)
                 self.content_layout.addWidget(value_label)
                 self.fields.append(value_label)
                 setattr(self, f"{label_text.lower().replace(' ', '_')}_val", value_label)
-            
+
             self._add_separator()
             self.labels.append(label_text)
-            self.label_widgets.append(label)
+            self.label_widgets.append(label_widget)
 
         content.setLayout(self.content_layout)
         scroll.setWidget(content)
@@ -456,6 +468,25 @@ class PropertiesWidget(QWidget):
         sep.setFixedHeight(8)
         sep.setStyleSheet("border-top: 1px solid rgba(128,128,128,0.3);")
         self.content_layout.addWidget(sep)
+
+    def _create_icon_label(self, text, icon_name):
+        """Return (container_widget, text_label) where container has icon on left and label on right."""
+        container = QWidget()
+        h = QHBoxLayout(container)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        icon_label = QLabel()
+        try:
+            icon = qta.icon(icon_name, color="#666")
+            icon_label.setPixmap(icon.pixmap(14, 14))
+        except Exception:
+            pass
+        text_label = QLabel(text)
+        text_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        h.addWidget(icon_label)
+        h.addWidget(text_label)
+        h.addStretch()
+        return container, text_label
 
     def set_properties(self, row_data):
         if not row_data:

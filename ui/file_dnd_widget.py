@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QColor
 from helpers.file_importer import import_files
 import qtawesome as qta
 import os
@@ -37,7 +37,8 @@ class DragDropWidget(QWidget):
 		
 		self.icon_label = QLabel()
 		self.icon_label.setAlignment(Qt.AlignCenter)
-		self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
+		dnd_green = QColor(103, 192, 51, int(0.5 * 255))
+		self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=dnd_green).pixmap(64, 64))
 		
 		self.text_label = QLabel("Add Files by Drag & Drop")
 		self.text_label.setAlignment(Qt.AlignCenter)

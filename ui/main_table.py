@@ -25,7 +25,8 @@ class NoDataWidget(QWidget):
         
         self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color="#888").pixmap(64, 64))
+        green_color = QColor(103, 192, 51, int(0.5 * 255))
+        self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=green_color).pixmap(64, 64))
         
         self.text_label = QLabel("No files to load")
         self.text_label.setAlignment(Qt.AlignCenter)
@@ -930,10 +931,10 @@ class ImageTableWidget(QWidget):
         self.tab_widget.addTab(self.details_tab, "Details")
         
         self.tab_widget.clear()
-        self.tab_widget.addTab(self.table_tab, "Table")
-        self.tab_widget.addTab(self.thumbnail_tab, "Thumbnail") 
-        self.tab_widget.addTab(self.details_tab, "Details")
-        self.tab_widget.addTab(self.add_files_tab, "Add Files")
+        self.tab_widget.addTab(self.table_tab, qta.icon("fa6s.table"), "Table")
+        self.tab_widget.addTab(self.thumbnail_tab, qta.icon("fa6s.images"), "Thumbnail") 
+        self.tab_widget.addTab(self.details_tab, qta.icon("fa6s.list"), "Details")
+        self.tab_widget.addTab(self.add_files_tab, qta.icon("fa6s.folder-plus"), "Add Files")
         
         # Progress section - moved after tab widget so it's visible in all tabs
         progress_layout = QVBoxLayout()

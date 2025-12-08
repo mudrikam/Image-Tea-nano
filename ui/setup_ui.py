@@ -22,6 +22,10 @@ def setup_ui(self):
     self.db = getattr(self, 'db', None) or ImageTeaDB()
     central = QWidget()
     layout = QVBoxLayout()
+
+    self.prompt_section = PromptSectionWidget(self)
+    layout.addWidget(self.prompt_section)
+
     api_layout = QHBoxLayout()
 
     self.api_key_section = ApiKeySectionWidget(self.db, self)
@@ -38,9 +42,6 @@ def setup_ui(self):
     self.api_key = self.api_key_section.get_current_api_key()
     self.selected_service = self.api_key_section.get_current_service()
     self.selected_model_name = self.api_key_section.get_current_model()
-
-    self.prompt_section = PromptSectionWidget(self)
-    layout.addWidget(self.prompt_section)
 
     main_content_layout = QHBoxLayout()
     self.table = ImageTableWidget(self, db=self.db)

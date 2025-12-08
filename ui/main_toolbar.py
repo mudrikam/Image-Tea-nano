@@ -256,43 +256,38 @@ def setup_main_toolbar(window: QWidget):
         "Support development with a donation",
         lambda: DonateDialog(window).exec(),
         window, icon_size)
-    toolbar.addAction(donate_action)
 
     wa_action = create_toolbar_button_with_label(
-        make_icon('fa5b.whatsapp', icon_color),
-        make_icon('fa5b.whatsapp', icon_color_hover),
+        make_icon('fa6b.whatsapp', icon_color),
+        make_icon('fa6b.whatsapp', icon_color_hover),
         "WhatsApp",
         "Join the WhatsApp support group",
         lambda: webbrowser.open(links["whatsapp"]),
         window, icon_size)
-    toolbar.addAction(wa_action)
 
     repo_action = create_toolbar_button_with_label(
-        make_icon('fa5b.github', icon_color),
-        make_icon('fa5b.github', icon_color_hover),
+        make_icon('fa6b.github', icon_color),
+        make_icon('fa6b.github', icon_color_hover),
         "Repo",
         "Open the GitHub repository",
         lambda: webbrowser.open(links["repo"]),
         window, icon_size)
-    toolbar.addAction(repo_action)
 
     website_action = create_toolbar_button_with_label(
-        make_icon('fa6s.globe', icon_color),
-        make_icon('fa6s.globe', icon_color_hover),
-        "Website",
-        "Visit the Image Tea website",
+        make_icon('fa6b.tiktok', icon_color),
+        make_icon('fa6b.tiktok', icon_color_hover),
+        "TikTok",
+        "Visit TikTok @desainia",
         lambda: webbrowser.open(links["website"]),
         window, icon_size)
-    toolbar.addAction(website_action)
 
     readme_action = create_toolbar_button_with_label(
-        make_icon('fa6s.book', icon_color),
-        make_icon('fa6s.book', icon_color_hover),
-        "README",
-        "Open the README.md on GitHub",
-        lambda: webbrowser.open(links["readme"]),
+        make_icon('fa6b.telegram', icon_color),
+        make_icon('fa6b.telegram', icon_color_hover),
+        "Telegram",
+        "Open the Telegram bot",
+        lambda: webbrowser.open(links["telegram"]),
         window, icon_size)
-    toolbar.addAction(readme_action)
 
     documentation_action = create_toolbar_button_with_label(
         make_icon('fa6s.book-open', icon_color),
@@ -301,6 +296,12 @@ def setup_main_toolbar(window: QWidget):
         "Open the documentation/help dialog",
         lambda: ReadDocumentationDialog(window).exec(),
         window, icon_size)
+    
+    toolbar.addAction(wa_action)
+    toolbar.addAction(website_action)
+    toolbar.addAction(readme_action)
+    toolbar.addAction(repo_action)
+    toolbar.addAction(donate_action)
     toolbar.addAction(documentation_action)
 
     window.addToolBar(toolbar)

@@ -244,6 +244,7 @@ class AddApiKeyDialog(QDialog):
         self.setWindowTitle("Add API Key")
         self.setFixedWidth(500)
         self.db = ImageTeaDB()
+        self._label_icon_color = "#666"
         layout = QVBoxLayout()
         label_width = 80
         self.model_list = {}
@@ -256,15 +257,14 @@ class AddApiKeyDialog(QDialog):
             print(f"Failed to load model list: {e}")
             self.model_list = {}
         service_layout = QHBoxLayout()
-        service_label = QLabel("Service:")
-        service_label.setFixedWidth(label_width)
+        _service_label_widget, service_label = self._create_icon_label_widget("Service:", 'fa6s.gears', label_width)
         service_label.setToolTip("Select the service/model for this API key")
         self.service_combo = QComboBox()
         self.service_combo.addItem("Gemini")
         self.service_combo.addItem("OpenAI")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
-        service_layout.addWidget(service_label)
+        service_layout.addWidget(_service_label_widget)
         service_layout.addWidget(self.service_combo)
         layout.addLayout(service_layout)
         self.service_hint_label = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
@@ -277,8 +277,7 @@ class AddApiKeyDialog(QDialog):
         hint_layout.addWidget(self.service_hint_label)
         layout.addLayout(hint_layout)
         model_layout = QHBoxLayout()
-        model_label = QLabel("Model:")
-        model_label.setFixedWidth(label_width)
+        _model_label_widget, model_label = self._create_icon_label_widget("Model:", 'fa6s.brain', label_width)
         model_label.setToolTip("Select the model for this API key")
         self.model_combo = QComboBox()
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -289,14 +288,13 @@ class AddApiKeyDialog(QDialog):
         self.model_manager_btn.setToolTip('Manage models')
         self.model_manager_btn.setFocusPolicy(Qt.NoFocus)
         self.model_manager_btn.clicked.connect(self._open_model_manager)
-        model_layout.addWidget(model_label)
+        model_layout.addWidget(_model_label_widget)
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_manager_btn)
         layout.addLayout(model_layout)
         self._refresh_model_combo()
         key_layout = QHBoxLayout()
-        self.key_label = QLabel("API Key:")
-        self.key_label.setFixedWidth(label_width)
+        _key_label_widget, self.key_label = self._create_icon_label_widget("API Key:", 'fa6s.key', label_width)
         self.key_label.setToolTip("Enter your API key here")
         self.key_edit = QLineEdit()
         self.key_edit.setPlaceholderText("Enter API Key")
@@ -308,19 +306,18 @@ class AddApiKeyDialog(QDialog):
         self.paste_btn.setToolTip("Paste from clipboard")
         self.paste_btn.setFocusPolicy(Qt.NoFocus)
         self.paste_btn.clicked.connect(self._on_paste_clicked)
-        key_layout.addWidget(self.key_label)
+        key_layout.addWidget(_key_label_widget)
         key_layout.addWidget(self.key_edit)
         key_layout.addWidget(self.paste_btn)
         layout.addLayout(key_layout)
         note_layout = QHBoxLayout()
-        note_label = QLabel("Note:")
-        note_label.setFixedWidth(label_width)
+        _note_label_widget, note_label = self._create_icon_label_widget("Note:", 'fa6s.clipboard', label_width)
         note_label.setToolTip("Optional note for this API key")
         self.note_edit = QLineEdit()
         self.note_edit.setPlaceholderText("Optional note")
         self.note_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.note_edit.setToolTip("Optional note for this API key")
-        note_layout.addWidget(note_label)
+        note_layout.addWidget(_note_label_widget)
         note_layout.addWidget(self.note_edit)
         layout.addLayout(note_layout)
 
@@ -434,6 +431,36 @@ class AddApiKeyDialog(QDialog):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         self.key_edit.setText(text)
+
+    def _create_icon_label_widget(self, text, icon_name, width):
+        """Create a small widget with an icon on the left and text label on the right.
+        Returns (widget_container, text_label).
+        """
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        icon_lbl = QLabel()
+        icon_size = 14
+        try:
+            icon = qta.icon(icon_name, color=self._label_icon_color)
+            pix = icon.pixmap(icon_size, icon_size)
+            icon_lbl.setPixmap(pix)
+        except Exception:
+            # fallback: empty icon
+            icon_lbl.setText("")
+            pix = None
+
+        text_lbl = QLabel(text)
+        spacing = layout.spacing() if layout.spacing() is not None else 6
+        icon_w = pix.width() if pix else icon_size
+        text_w = max(10, int(width) - icon_w - spacing)
+        text_lbl.setFixedWidth(text_w)
+        text_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(icon_lbl)
+        layout.addWidget(text_lbl)
+        widget.setFixedWidth(int(width))
+        return widget, text_lbl
 
     def _refresh_model_combo(self):
         service = self.service_combo.currentText().lower()
