@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QLabel, QSpacerItem, QSizePolicy, QPushButton
 from PySide6.QtCore import Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
+import qtawesome as qta
 
 class ApiKeySectionWidget(QWidget):
     api_key_changed = Signal(str, str, str)  # api_key, service, model
@@ -33,15 +34,31 @@ class ApiKeySectionWidget(QWidget):
         self.get_api_btn = QPushButton("Get FREE API Key")
         self.get_api_btn.setVisible(False)
         self.get_api_btn.setMinimumWidth(140)
+        # Add green color and icon to make the button more visible
+        try:
+            self.get_api_btn.setIcon(qta.icon('fa6s.key', color='#FFFFFF'))
+        except Exception:
+            pass
+        self.get_api_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4e9e20;
+                color: #ffffff;
+                border-radius: 4px;
+                padding: 6px 8px;
+            }
+            QPushButton:hover {
+                background-color: #3f8a1a;
+            }
+        """)
         self.get_api_btn.setToolTip(
             "This application requires an API key to function.\n"
             "For Gemini, Google provides free API keys at https://aistudio.google.com/."
         )
-        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/")))
+        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/api-keys")))
         self.tested_label.setText(" - | -")
         self.tested_label.setToolTip(
             "This application requires an API key to function.\n"
-            "For Gemini, Google provides free API keys at https://aistudio.google.com/."
+            "For Gemini, Google provides free API keys at https://aistudio.google.com/api-keys"
         )
         layout.addWidget(self.tested_label)
         layout.addWidget(self.get_api_btn)
