@@ -16,7 +16,7 @@ class CSVExporterDialog(QDialog):
         self.setWindowTitle("Export Metadata to CSV")
         self.setFixedWidth(400)
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(6)
         self.setLayout(main_layout)
 
