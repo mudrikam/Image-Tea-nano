@@ -11,6 +11,7 @@ import os
 from datetime import datetime
 from config import BASE_PATH
 from ui.api_key_section import ApiKeySectionWidget
+from dialogs.tools.imagen_config_dialog import ImagenConfigDialog
 from helpers.tools.imagen_generator_helper import (
     load_imagen_config, save_imagen_config, generate_images_from_prompts,
     validate_image_generation_params, get_default_image_settings
@@ -233,6 +234,12 @@ class ImagenGeneratorDialog(QDialog):
         
         row1_layout.addWidget(model_label)
         row1_layout.addWidget(self.model_combo)
+        
+        self.config_btn = QPushButton(qta.icon('fa6s.gear'), "")
+        self.config_btn.setToolTip("Configure Imagen models")
+        self.config_btn.setFixedSize(30, 25)
+        self.config_btn.clicked.connect(self.open_config_dialog)
+        row1_layout.addWidget(self.config_btn)
         
         images_label = QLabel("Number of Images")
         self.num_images_spin = QSpinBox()
@@ -1023,6 +1030,32 @@ class ImagenGeneratorDialog(QDialog):
                         cell_item.setBackground(QBrush(status_color))
                         cell_item.setData(Qt.UserRole + 1, status)
                 break
+
+    def open_config_dialog(self):
+        """Open configuration dialog for Imagen models"""
+        dialog = ImagenConfigDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            self.reload_models()
+    
+    def reload_models(self):
+        """Reload models from config after changes"""
+        try:
+            self.config = load_imagen_config()
+            current_model = self.model_combo.currentText()
+            self.model_combo.clear()
+            
+            models = self.config.get('models', ['imagen-4.0-generate-001'])
+            for model in models:
+                self.model_combo.addItem(model)
+            
+            if current_model in models:
+                self.model_combo.setCurrentText(current_model)
+            elif models:
+                self.model_combo.setCurrentIndex(0)
+            
+            print(f"[ImagenGeneratorDialog] Models reloaded: {len(models)} models")
+        except Exception as e:
+            print(f"[ImagenGeneratorDialog] Error reloading models: {e}")
 
     def closeEvent(self, event):
         """Handle dialog close event"""
