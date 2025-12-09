@@ -394,11 +394,22 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setMinimumHeight(32)
         self.test_and_save_btn.setToolTip("Test the API key and save it if valid")
         self.get_api_key_btn = QPushButton()
+        self.get_api_key_btn.setObjectName("get_api_key_btn")
         self.get_api_key_btn.setText("Get API Key")
         self.get_api_key_btn.setIcon(qta.icon('fa6s.cart-shopping', color='white'))
         self.get_api_key_btn.setIconSize(self.get_api_key_btn.iconSize())
         self.get_api_key_btn.setMinimumHeight(32)
-        self.get_api_key_btn.setStyleSheet("background-color: #4e9e20; color: white; font-weight: bold;")
+        self.get_api_key_btn.setStyleSheet("""
+            QPushButton#get_api_key_btn {
+                background-color: #4e9e20;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+            }
+            QPushButton#get_api_key_btn:hover {
+                background-color: #3f8a18;
+            }
+        """)
         self.get_api_key_btn.setToolTip("Open API key purchase page")
         self.get_api_key_btn.clicked.connect(self._open_buy_api_key_page)
         self.close_btn = QPushButton()

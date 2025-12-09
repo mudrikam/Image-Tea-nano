@@ -6,6 +6,7 @@ from config import BASE_PATH
 import threading
 import time
 import random
+from dialogs.get_api_key_dialog import GetApiKeyDialog
 
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
@@ -418,8 +419,8 @@ def batch_generate_metadata(window):
                 service = service.lower()
     
     if not api_key or not model or not service:
-        from PySide6.QtWidgets import QMessageBox
-        QMessageBox.warning(window, "API Key", "Please select both API Key and Model first.")
+        dlg = GetApiKeyDialog(window)
+        dlg.exec()
         return
 
     mode = "all"
