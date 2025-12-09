@@ -8,6 +8,8 @@ from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColo
 import os
 import json
 import csv
+import random
+import time
 from datetime import datetime
 from config import BASE_PATH
 import qtawesome as qta
@@ -295,6 +297,26 @@ class PromptGeneratorDialog(QDialog):
 		self.variation_level_spin.setToolTip("Control how different each prompt should be (1=very similar, 10=completely different)")
 		options_layout.addWidget(variation_label)
 		options_layout.addWidget(self.variation_level_spin)
+		
+        
+		delay_label = QLabel("Delay")
+		self.delay_combo = QComboBox()
+		self.delay_combo.setEditable(True)
+		self.delay_combo.addItems(["No Delay", "Random", "1", "2", "3", "4", "5", "10", "15", "20", "30"])
+		
+		config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+		try:
+			with open(config_path, 'r', encoding='utf-8') as f:
+				ai_config = json.load(f)
+			saved_delay = ai_config.get('delay_interval', 'Random')
+			self.delay_combo.setCurrentText(str(saved_delay))
+		except Exception:
+			self.delay_combo.setCurrentText('Random')
+		
+		self.delay_combo.setToolTip("Delay interval between files.\nNo Delay = 0s, Random = 1-5s, or enter custom value in seconds.")
+		self.delay_combo.currentTextChanged.connect(self.save_delay_to_config)
+		options_layout.addWidget(delay_label)
+		options_layout.addWidget(self.delay_combo)
 		
         
 		options_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
@@ -911,6 +933,24 @@ class PromptGeneratorDialog(QDialog):
 				json.dump(cfg, f, indent=2, ensure_ascii=False)
 		except Exception as e:
 			print(f"Failed to save ai_config.json: {e}")
+	
+	def save_delay_to_config(self):
+		"""Save delay interval to ai_config.json and update prompt section if available"""
+		try:
+			config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+			with open(config_path, 'r', encoding='utf-8') as f:
+				config = json.load(f)
+			
+			config['delay_interval'] = self.delay_combo.currentText()
+			
+			with open(config_path, 'w', encoding='utf-8') as f:
+				json.dump(config, f, indent=2, ensure_ascii=False)
+			
+			if self.parent() and hasattr(self.parent(), 'prompt_section'):
+				self.parent().prompt_section.load_prompt_config()
+				
+		except Exception as e:
+			print(f"Error saving delay to config: {e}")
 	
 	def open_prompt_config_editor(self):
 		from dialogs.prompt_generator_config_dialog import PromptGeneratorConfigDialog

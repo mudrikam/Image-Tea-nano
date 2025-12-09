@@ -7,7 +7,31 @@ Currently a placeholder for future implementation.
 
 import os
 import json
+import random
+import time
 from config import BASE_PATH
+
+
+def get_delay_interval():
+    """Get delay interval from config"""
+    try:
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        delay_value = config.get('delay_interval', 'Random')
+        
+        if delay_value == 'No Delay':
+            return 0
+        elif delay_value == 'Random':
+            return random.uniform(1, 5)
+        else:
+            try:
+                return float(delay_value)
+            except ValueError:
+                return random.uniform(1, 5)
+    except Exception as e:
+        print(f"Error loading delay interval: {e}")
+        return random.uniform(1, 5)
 
 
 def load_imagen_config():
@@ -190,6 +214,13 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                     'saved_images': [],
                     'error': error_msg
                 })
+            
+            # Add delay between prompts (except for the last one)
+            if idx < len(prompts):
+                delay_seconds = get_delay_interval()
+                if progress_callback:
+                    progress_callback(f"Waiting {delay_seconds:.1f} seconds delay...")
+                time.sleep(delay_seconds)
                 
         print(f"Debug: Completed all prompts. Total results: {len(results)}")
         return results

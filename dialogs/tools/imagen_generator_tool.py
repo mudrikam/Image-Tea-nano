@@ -8,6 +8,8 @@ from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColo
 import qtawesome as qta
 import json
 import os
+import random
+import time
 from datetime import datetime
 from config import BASE_PATH
 from ui.api_key_section import ApiKeySectionWidget
@@ -39,6 +41,27 @@ class ImagenGeneratorWorker(QThread):
     
     def stop(self):
         self.stop_flag['stop'] = True
+    
+    def get_delay_interval(self):
+        """Get delay interval from config"""
+        try:
+            config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            delay_value = config.get('delay_interval', 'Random')
+            
+            if delay_value == 'No Delay':
+                return 0
+            elif delay_value == 'Random':
+                return random.uniform(1, 5)
+            else:
+                try:
+                    return float(delay_value)
+                except ValueError:
+                    return random.uniform(1, 5)
+        except Exception as e:
+            print(f"Error loading delay interval: {e}")
+            return random.uniform(1, 5)
     
     def run(self):
         try:
@@ -135,6 +158,11 @@ class ImagenGeneratorWorker(QThread):
                             remaining_prompt_id = prompts[remaining_idx][0]
                             self.db.update_imagen_generation_status(remaining_prompt_id, 'stopped')
                         break
+                
+                if idx < total_prompts - 1:
+                    delay_seconds = self.get_delay_interval()
+                    self.progress_updated.emit(f"Waiting {delay_seconds:.1f} seconds delay...")
+                    time.sleep(delay_seconds)
             
             self.progress_value_changed.emit(100)
             print(f"Debug: Worker finished. Total generated: {total_generated}")
@@ -303,6 +331,30 @@ class ImagenGeneratorDialog(QDialog):
         
         row2_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         settings_layout.addLayout(row2_layout)
+        
+        row2_5_layout = QHBoxLayout()
+        
+        delay_label = QLabel("Delay Interval")
+        self.delay_combo = QComboBox()
+        self.delay_combo.setEditable(True)
+        self.delay_combo.addItems(["Random", "1", "2", "3", "4", "5", "10", "15", "20", "30"])
+        
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                ai_config = json.load(f)
+            saved_delay = ai_config.get('delay_interval', 'Random')
+            self.delay_combo.setCurrentText(str(saved_delay))
+        except Exception:
+            self.delay_combo.setCurrentText('Random')
+        
+        self.delay_combo.setToolTip("Delay interval between batches.\nRandom = 1-5s, or enter custom value in seconds.")
+        self.delay_combo.currentTextChanged.connect(self.save_delay_to_config)
+        row2_5_layout.addWidget(delay_label)
+        row2_5_layout.addWidget(self.delay_combo)
+        
+        row2_5_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        settings_layout.addLayout(row2_5_layout)
         
         row3_layout = QHBoxLayout()
         
@@ -514,6 +566,24 @@ class ImagenGeneratorDialog(QDialog):
             
         except Exception as e:
             print(f"Error saving settings: {e}")
+
+    def save_delay_to_config(self):
+        """Save delay interval to ai_config.json and update prompt section if available"""
+        try:
+            config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            config['delay_interval'] = self.delay_combo.currentText()
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            if self.parent() and hasattr(self.parent(), 'prompt_section'):
+                self.parent().prompt_section.load_prompt_config()
+                
+        except Exception as e:
+            print(f"Error saving delay to config: {e}")
 
     def update_run_button(self):
         """Update run button appearance based on current state"""

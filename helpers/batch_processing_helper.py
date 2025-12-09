@@ -5,12 +5,33 @@ from PySide6.QtGui import QColor
 from config import BASE_PATH
 import threading
 import time
+import random
 
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
     return int(config['batch_size'])
+
+def get_delay_interval():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        delay_value = config.get('delay_interval', 'Random')
+        
+        if delay_value == 'No Delay':
+            return 0
+        elif delay_value == 'Random':
+            return random.uniform(1, 5)
+        else:
+            try:
+                return float(delay_value)
+            except ValueError:
+                return random.uniform(1, 5)
+    except Exception as e:
+        print(f"Error loading delay interval: {e}")
+        return random.uniform(1, 5)
 
 class BatchWorkerSignals(QObject):
     finished = Signal(list)
@@ -1100,7 +1121,18 @@ def _run_next_batch(window):
         state['current'] += 1
         if errors:
             state['errors'].extend(errors)
-        _run_next_batch(window)
+        
+        if state['current'] < len(state['batches']):
+            delay_seconds = get_delay_interval()
+            if delay_seconds > 0 and hasattr(window, 'statusbar'):
+                window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds delay before next batch...")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(int(delay_seconds * 1000), lambda: _run_next_batch(window))
+        else:
+            # Clear delay message before finishing
+            if hasattr(window, 'statusbar'):
+                window.statusbar.clearMessage()
+            _run_next_batch(window)
     
     def on_timing_updated(gen_time, avg_time, longest_time, last_time):
         if hasattr(window, "stats_section"):

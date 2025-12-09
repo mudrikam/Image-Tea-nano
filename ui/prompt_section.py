@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QSpinBox, QSizePolicy, QLabel, QSpacerItem, QVBoxLayout, QFrame
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QSpinBox, QSizePolicy, QLabel, QSpacerItem, QVBoxLayout, QFrame, QComboBox
 from PySide6.QtCore import Qt
 import qtawesome as qta
 import json
@@ -178,6 +178,33 @@ class PromptSectionWidget(QWidget):
         compression_wrapper.setFixedWidth(fixed_width)
         main_layout.addWidget(compression_wrapper)
 
+        delay_group = QVBoxLayout()
+        delay_group.setSpacing(2)
+        delay_group.setContentsMargins(0, 0, 0, 0)
+        delay_header = QHBoxLayout()
+        delay_header.setSpacing(3)
+        delay_header.setContentsMargins(0, 0, 0, 0)
+        delay_icon = QLabel()
+        delay_icon.setPixmap(qta.icon('fa6s.hourglass-half', color=icon_color).pixmap(icon_size, icon_size))
+        delay_label = QLabel("Delay")
+        delay_label.setStyleSheet("color: #666; font-size: 10px;")
+        delay_header.addWidget(delay_icon)
+        delay_header.addWidget(delay_label)
+        delay_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        delay_group.addLayout(delay_header)
+        self.delay_combo = QComboBox()
+        self.delay_combo.setEditable(True)
+        self.delay_combo.addItems(["No Delay", "Random", "1", "2", "3", "4", "5", "10", "15", "20", "30"])
+        self.delay_combo.setFixedWidth(fixed_width)
+        self.delay_combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.delay_combo.setToolTip("Delay interval between batches.\nNo Delay = 0s, Random = 1-5s, or enter custom value in seconds.")
+        delay_group.addWidget(self.delay_combo)
+        
+        delay_wrapper = QWidget()
+        delay_wrapper.setLayout(delay_group)
+        delay_wrapper.setFixedWidth(fixed_width)
+        main_layout.addWidget(delay_wrapper)
+
         main_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         outer_layout.addLayout(main_layout)
@@ -190,6 +217,7 @@ class PromptSectionWidget(QWidget):
         self.tag_count_spin.valueChanged.connect(self.save_prompt_config)
         self.batch_size_spin.valueChanged.connect(self.save_prompt_config)
         self.cache_spin.valueChanged.connect(self.save_prompt_config)
+        self.delay_combo.currentTextChanged.connect(self.save_prompt_config)
         self.load_prompt_config()
 
     def load_prompt_config(self):
@@ -203,6 +231,8 @@ class PromptSectionWidget(QWidget):
             self.tag_count_spin.setValue(data["required_tag_count"])
             self.batch_size_spin.setValue(min(max(data["batch_size"], 1), 20))
             self.cache_spin.setValue(data["compression_quality"])
+            delay_value = data.get("delay_interval", "Random")
+            self.delay_combo.setCurrentText(str(delay_value))
         except Exception as e:
             print(f"Failed to load prompt config: {e}")
         self._loading = False
@@ -221,6 +251,7 @@ class PromptSectionWidget(QWidget):
         data["required_tag_count"] = self.tag_count_spin.value()
         data["batch_size"] = self.batch_size_spin.value()
         data["compression_quality"] = self.cache_spin.value()
+        data["delay_interval"] = self.delay_combo.currentText()
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

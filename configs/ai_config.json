@@ -16,6 +16,7 @@
   "required_tag_count": 30,
   "compression_quality": 80,
   "batch_size": 3,
+  "delay_interval": "Random",
   "model_list": {
     "gemini": [
       "gemini-2.5-flash",
@@ -184,11 +185,11 @@
     ],
     "settings": {
       "model": "imagen-4.0-ultra-generate-001",
-      "number_of_images": 4,
+      "number_of_images": 1,
       "sample_image_size": "2K",
       "aspect_ratio": "4:3",
       "person_generation": "dont_allow",
-      "output_folder": "",
+      "output_folder": "C:/Users/mudri/Downloads/New folder (3)",
       "generation_mode": "Generate All",
       "image_size": "2K",
       "output_mime_type": "image/png"

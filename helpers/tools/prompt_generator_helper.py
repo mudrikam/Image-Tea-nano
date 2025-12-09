@@ -1,11 +1,33 @@
 import os
 import json
 import time
+import random
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from config import BASE_PATH
 from helpers.ai_helper.gemini_helper import generate_metadata_gemini
 from helpers.ai_helper.openai_helper import generate_metadata_openai
 from helpers.image_compression_helper import compress_and_save_image
+
+def get_delay_interval():
+    """Get delay interval from config"""
+    try:
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        delay_value = config.get('delay_interval', 'Random')
+        
+        if delay_value == 'No Delay':
+            return 0
+        elif delay_value == 'Random':
+            return random.uniform(1, 5)
+        else:
+            try:
+                return float(delay_value)
+            except ValueError:
+                return random.uniform(1, 5)
+    except Exception as e:
+        print(f"Error loading delay interval: {e}")
+        return random.uniform(1, 5)
 
 def load_prompt_generator_config():
     """Load prompt generator configuration from ai_config.json"""
@@ -446,8 +468,11 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
                 except Exception as e:
                     print(f"Error saving prompt to database: {e}")
             
-            # Small delay to avoid rate limiting
-            time.sleep(0.1)
+            if i < len(files) - 1:
+                delay_seconds = get_delay_interval()
+                if progress_callback:
+                    progress_callback(f"Waiting {delay_seconds:.1f} seconds delay...", progress_percent)
+                time.sleep(delay_seconds)
         
         # Final progress update
         if progress_callback:
