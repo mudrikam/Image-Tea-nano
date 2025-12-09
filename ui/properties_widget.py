@@ -396,7 +396,7 @@ class PropertiesWidget(QWidget):
         self.content_layout.setAlignment(Qt.AlignTop)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
 
-        title_widget, title_label = self._create_icon_label("<b>Properties</b>", "fa6s.circle-info")
+        title_widget, title_label = self._create_icon_label("<b>Preview</b>", "fa6s.image")
         self.content_layout.addWidget(title_widget)
 
         self.preview_widget = ImagePreviewWidget()
