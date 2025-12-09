@@ -10,7 +10,7 @@ from config import BASE_PATH
 
 
 class ImagenConfigDialog(QDialog):
-    """Dialog untuk mengelola konfigurasi Imagen Generator"""
+    """Dialog to manage Imagen Generator configuration"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,13 +127,13 @@ class ImagenConfigDialog(QDialog):
         """Add new model to list"""
         model_name = self.model_input.text().strip()
         if not model_name:
-            QMessageBox.warning(self, "Empty Input", "Masukkan nama model terlebih dahulu.")
+            QMessageBox.warning(self, "Empty Input", "Please enter a model name first.")
             return
         
         # Check for duplicates
         existing_models = [self.model_list.item(i).text() for i in range(self.model_list.count())]
         if model_name in existing_models:
-            QMessageBox.warning(self, "Duplicate Model", "Model sudah ada dalam daftar.")
+            QMessageBox.warning(self, "Duplicate Model", "Model already exists in the list.")
             return
         
         self.model_list.addItem(model_name)
@@ -144,12 +144,12 @@ class ImagenConfigDialog(QDialog):
         """Edit selected model"""
         selected_items = self.model_list.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "No Selection", "Pilih model yang ingin diedit.")
+            QMessageBox.warning(self, "No Selection", "Please select a model to edit.")
             return
         
         model_name = self.model_input.text().strip()
         if not model_name:
-            QMessageBox.warning(self, "Empty Input", "Masukkan nama model baru terlebih dahulu.")
+            QMessageBox.warning(self, "Empty Input", "Please enter the new model name first.")
             return
         
         # Check for duplicates (excluding current item)
@@ -157,7 +157,7 @@ class ImagenConfigDialog(QDialog):
         existing_models = [self.model_list.item(i).text() for i in range(self.model_list.count())
                           if self.model_list.item(i) != current_item]
         if model_name in existing_models:
-            QMessageBox.warning(self, "Duplicate Model", "Model sudah ada dalam daftar.")
+            QMessageBox.warning(self, "Duplicate Model", "Model already exists in the list.")
             return
         
         current_item.setText(model_name)
@@ -168,14 +168,14 @@ class ImagenConfigDialog(QDialog):
         """Delete selected model"""
         selected_items = self.model_list.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "No Selection", "Pilih model yang ingin dihapus.")
+            QMessageBox.warning(self, "No Selection", "Please select a model to delete.")
             return
         
         model_name = selected_items[0].text()
         reply = QMessageBox.question(
-            self, 
-            "Confirm Delete", 
-            f"Kamu yakin ingin menghapus model '{model_name}'?",
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete the model '{model_name}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -189,7 +189,7 @@ class ImagenConfigDialog(QDialog):
     def save_config(self):
         """Save models back to configuration file"""
         if self.model_list.count() == 0:
-            QMessageBox.warning(self, "Empty List", "Tambahkan minimal satu model sebelum menyimpan.")
+            QMessageBox.warning(self, "Empty List", "Please add at least one model before saving.")
             return
         
         try:
@@ -207,9 +207,9 @@ class ImagenConfigDialog(QDialog):
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
             
             print(f"[ImagenConfigDialog] Configuration saved with {len(models)} models")
-            QMessageBox.information(self, "Success", "Konfigurasi berhasil disimpan.")
+            QMessageBox.information(self, "Success", "Configuration saved successfully.")
             self.accept()
             
         except Exception as e:
             print(f"[ImagenConfigDialog] Error saving config: {e}")
-            QMessageBox.critical(self, "Error", f"Gagal menyimpan konfigurasi: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save configuration: {e}")
