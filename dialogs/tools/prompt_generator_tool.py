@@ -157,7 +157,7 @@ class CSVImportProgressDialog(QDialog):
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setWindowTitle("Importing CSV")
-		self.setFixedSize(400, 150)
+		self.setFixedSize(450, 150)
 		self.setModal(True)
 		
 		layout = QVBoxLayout(self)
@@ -261,7 +261,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(self.prompt_type_combo)
 		
         
-		ratio_label = QLabel("Aspect Ratio")
+		ratio_label = QLabel("Ratio")
 		self.aspect_ratio_combo = QComboBox()
 		self.aspect_ratio_combo.setMinimumWidth(120)
 		self.aspect_ratio_combo.setToolTip("Select aspect ratio for generated prompts")
@@ -269,7 +269,7 @@ class PromptGeneratorDialog(QDialog):
 		options_layout.addWidget(self.aspect_ratio_combo)
 		
         
-		length_label = QLabel("Prompt Length")
+		length_label = QLabel("Length")
 		self.prompt_length_spin = QSpinBox()
 		self.prompt_length_spin.setMinimum(1)
 		self.prompt_length_spin.setMaximum(2048)
