@@ -391,15 +391,26 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setText("Test and Save")
         self.test_and_save_btn.setIcon(qta.icon('fa6s.play'))
         self.test_and_save_btn.setIconSize(self.test_and_save_btn.iconSize())
+        self.test_and_save_btn.setMinimumHeight(32)
         self.test_and_save_btn.setToolTip("Test the API key and save it if valid")
+        self.get_api_key_btn = QPushButton()
+        self.get_api_key_btn.setText("Get API Key")
+        self.get_api_key_btn.setIcon(qta.icon('fa6s.cart-shopping', color='white'))
+        self.get_api_key_btn.setIconSize(self.get_api_key_btn.iconSize())
+        self.get_api_key_btn.setMinimumHeight(32)
+        self.get_api_key_btn.setStyleSheet("background-color: #4e9e20; color: white; font-weight: bold;")
+        self.get_api_key_btn.setToolTip("Open API key purchase page")
+        self.get_api_key_btn.clicked.connect(self._open_buy_api_key_page)
         self.close_btn = QPushButton()
         self.close_btn.setText("Close")
         self.close_btn.setIcon(qta.icon('fa6s.xmark'))
         self.close_btn.setIconSize(self.close_btn.iconSize())
+        self.close_btn.setMinimumHeight(32)
         self.close_btn.setToolTip("Close this dialog")
         self.close_btn.clicked.connect(self.close)
         btn_layout.addWidget(self.test_and_save_btn)
         btn_layout.addWidget(self.close_btn)
+        btn_layout.addWidget(self.get_api_key_btn)
         layout.addLayout(btn_layout)
         self.setLayout(layout)
         self.test_and_save_btn.clicked.connect(self.test_and_save_api_key)
@@ -419,13 +430,16 @@ class AddApiKeyDialog(QDialog):
         self._test_all_results = []
         self._test_all_row_blinking = False
         self._whatsapp_link = None
+        self._get_api_key_link = None
         try:
             app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
             with open(app_cfg_path, 'r', encoding='utf-8') as f:
                 app_cfg = json.load(f)
                 self._whatsapp_link = app_cfg.get('links', {}).get('whatsapp')
+                self._get_api_key_link = app_cfg.get('links', {}).get('get_api_key')
         except Exception:
             self._whatsapp_link = None
+            self._get_api_key_link = None
 
     def _on_paste_clicked(self):
         clipboard = QApplication.clipboard()
@@ -883,6 +897,15 @@ class AddApiKeyDialog(QDialog):
             webbrowser.open(self._whatsapp_link)
         except Exception as e:
             QMessageBox.critical(self, "Report Error", f"Failed to open report link: {e}")
+
+    def _open_buy_api_key_page(self):
+        if not self._get_api_key_link:
+            QMessageBox.warning(self, "Buy API Key", "No buy API key link configured.")
+            return
+        try:
+            webbrowser.open(self._get_api_key_link)
+        except Exception as e:
+            QMessageBox.critical(self, "Buy API Key", f"Failed to open buy API key page: {e}")
 
     def export_api_keys_csv(self):
         try:
