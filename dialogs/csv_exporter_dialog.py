@@ -48,7 +48,9 @@ class CSVExporterDialog(QDialog):
             "123RF",
             "Vecteezy",
             "Pond5",
-            "Depositphotos"
+            "Depositphotos",
+            "Canva",
+            "MiriCanvas"
         ]
 
         grid_widget = QWidget()
@@ -106,6 +108,8 @@ class CSVExporterDialog(QDialog):
                 "Vecteezy": "#DB621C",
                 "Pond5": "#0EA4D6",
                 "Depositphotos": "#19B9CE",
+                "Canva": "#007CCF",
+                "MiriCanvas": "#00B2C6",
             }
             color = platform_colors.get(platform, "#333333")
             icon_btn = QPushButton(qta.icon('fa6s.file-csv', color=color), "")

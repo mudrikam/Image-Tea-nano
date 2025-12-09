@@ -149,6 +149,26 @@ def _depositphotos_format(file):
     editorial = "no"
     return f'"{filename}","{description}","{keywords}","{nudity}","{editorial}"'
 
+def _canva_format(file):
+    filename = file[2]
+    title = file[3] if file[3] is not None else ""
+    keywords = file[5] if file[5] is not None else ""
+    artist = ""
+    locale = "en"
+    description = file[4] if file[4] is not None else ""
+    return f'{filename},"{title}","{keywords}",{artist},{locale},"{description}"'
+
+def _miricanvas_format(file):
+    filename = file[2]
+    # Remove extension for MiriCanvas
+    filename_no_ext = re.sub(r'\.[^.]+$', '', filename)
+    unique_id = ""
+    element_name = file[3] if file[3] is not None else ""
+    keywords = file[5] if file[5] is not None else ""
+    tier = ""
+    content_type = ""
+    return f'"{filename_no_ext}","{unique_id}","{element_name}","{keywords}","{tier}","{content_type}"'
+
 def export_csv_for_platforms(platforms, output_path=None, progress_callback=None, name_map=None):
     print(f"[csv_exporter] Exporting CSV for platforms: {platforms}")
     print(f"[csv_exporter] Output path: {output_path}")
@@ -337,3 +357,48 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                     print(f"[csv_exporter] Depositphotos CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Depositphotos CSV: {e}")
+    if "Canva" in platforms and output_path:
+        rows = []
+        header = "filename,title,keywords,Artist,locale,description"
+        for file in files:
+            rows.append(_canva_format(file))
+            if progress_callback:
+                progress_callback()
+        if rows:
+            key = "Canva"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] Canva CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting Canva CSV: {e}")
+    if "MiriCanvas" in platforms and output_path:
+        rows = []
+        header = '"fileName","uniqueId","elementName","keywords","tier","contentType"'
+        for file in files:
+            rows.append(_miricanvas_format(file))
+            if progress_callback:
+                progress_callback()
+        if rows:
+            key = "MiriCanvas"
+            if key not in name_map:
+                print(f"[csv_exporter] Missing base name for {key} in name_map, skipping")
+            else:
+                csv_filename = generate_export_filename(name_map[key], output_path)
+                csv_path = os.path.join(output_path, csv_filename)
+                try:
+                    with open(csv_path, "w", encoding="utf-8") as f:
+                        f.write(header + "\n")
+                        for row in rows:
+                            f.write(row + "\n")
+                    print(f"[csv_exporter] MiriCanvas CSV exported to: {csv_path}")
+                except Exception as e:
+                    print(f"[csv_exporter] Error exporting MiriCanvas CSV: {e}")
+
