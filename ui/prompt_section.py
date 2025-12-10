@@ -186,7 +186,7 @@ class PromptSectionWidget(QWidget):
         delay_header.setContentsMargins(0, 0, 0, 0)
         delay_icon = QLabel()
         delay_icon.setPixmap(qta.icon('fa6s.hourglass-half', color=icon_color).pixmap(icon_size, icon_size))
-        delay_label = QLabel("Delay")
+        delay_label = QLabel("Delay (s)")
         delay_label.setStyleSheet("color: #666; font-size: 10px;")
         delay_header.addWidget(delay_icon)
         delay_header.addWidget(delay_label)
