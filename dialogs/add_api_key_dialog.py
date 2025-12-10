@@ -77,7 +77,7 @@ class ModelManagerDialog(QDialog):
         top_layout = QHBoxLayout()
         self.service_list = QListWidget()
         self.service_list.setFixedWidth(140)
-        # ensure services exist
+        
         services = sorted(self.model_list.keys()) if isinstance(self.model_list, dict) else []
         if not services:
             services = ['gemini', 'openai']
@@ -135,7 +135,7 @@ class ModelManagerDialog(QDialog):
         layout.addLayout(bottom_layout)
 
         self.setLayout(layout)
-        # select first service
+        
         if self.service_list.count() > 0:
             self.service_list.setCurrentRow(0)
 
@@ -222,7 +222,7 @@ class ModelManagerDialog(QDialog):
         self.models_list.setCurrentRow(idx+1)
 
     def _save_and_close(self):
-        # write back to configs/ai_config.json preserving other keys
+        
         cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
         try:
             with open(cfg_path, 'r', encoding='utf-8') as f:
@@ -242,7 +242,7 @@ class AddApiKeyDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add API Key")
-        self.setFixedWidth(500)
+        self.setFixedWidth(620)
         self.db = ImageTeaDB()
         self._label_icon_color = "#666"
         layout = QVBoxLayout()
@@ -327,6 +327,39 @@ class AddApiKeyDialog(QDialog):
         self.test_all_btn.setIcon(qta.icon('fa6s.list-check'))
         self.test_all_btn.setIconSize(self.test_all_btn.iconSize())
         self.test_all_btn.setToolTip("Test all API keys sequentially")
+        self.sort_combo = QComboBox()
+        self.sort_combo.setToolTip("Filter / Sort API table")
+        try:
+            rows = self.db.get_all_api_keys()
+            services = sorted({(r[0] if not isinstance(r, dict) else r.get('service')) for r in rows if r and (r[0] if not isinstance(r, dict) else r.get('service'))})
+        except Exception as e:
+            print(f"Error fetching services for sort combo: {e}")
+            services = []
+        sort_items = ["All"]
+        for s in services:
+            try:
+                sort_items.append(f"Service: {str(s).capitalize()}")
+            except Exception:
+                sort_items.append(f"Service: {s}")
+        sort_items += [
+            "Status: Active",
+            "Status: Invalid",
+            "Last Tested (Newest)",
+            "Last Tested (Oldest)",
+            "API (A-Z)",
+            "API (Z-A)",
+            "Model (A-Z)",
+            "Model (Z-A)"
+        ]
+        self.sort_combo.addItems(sort_items)
+        self.sort_combo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.sort_combo.setFixedWidth(140)
+        self.sort_combo.currentIndexChanged.connect(self._refresh_api_table)
+        self.refresh_btn = QPushButton()
+        self.refresh_btn.setIcon(qta.icon('fa6s.rotate'))
+        self.refresh_btn.setToolTip("Refresh table")
+        self.refresh_btn.setFixedWidth(32)
+        self.refresh_btn.clicked.connect(self._refresh_api_table)
         self.export_csv_btn = QPushButton()
         self.export_csv_btn.setText("Export CSV")
         self.export_csv_btn.setIcon(qta.icon('fa6s.file-csv'))
@@ -338,20 +371,26 @@ class AddApiKeyDialog(QDialog):
         self.import_csv_btn.setIconSize(self.import_csv_btn.iconSize())
         self.import_csv_btn.setToolTip("Import API key list from CSV")
         csv_btn_layout.addWidget(self.test_all_btn)
+        csv_btn_layout.addWidget(self.sort_combo)
+        csv_btn_layout.addWidget(self.refresh_btn)
         csv_btn_layout.addWidget(self.export_csv_btn)
         csv_btn_layout.addWidget(self.import_csv_btn)
         csv_btn_layout.addStretch()
         layout.addLayout(csv_btn_layout)
 
         self.api_table = QTableWidget()
-        self.api_table.setColumnCount(5)
-        self.api_table.setHorizontalHeaderLabels(["Service", "API", "Last Tested", "Note", ""])
+        self.api_table.setColumnCount(6)
+        self.api_table.setHorizontalHeaderLabels(["Service", "API", "Last Tested", "Model", "Note", "Actions"])
         self.api_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.api_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.api_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.api_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.api_table.setMinimumHeight(100)
         self.api_table.setToolTip("List of all API keys you have added")
+        header = self.api_table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        self.api_table.setSortingEnabled(True)
         layout.addWidget(self.api_table)
         self._row_testing = None
         self._blink_timer = QTimer(self)
@@ -440,8 +479,27 @@ class AddApiKeyDialog(QDialog):
         self._test_all_running = False
         self._test_all_results = []
         self._test_all_row_blinking = False
-        self._whatsapp_link = None
-        self._get_api_key_link = None
+        try:
+            self._load_app_links()
+        except Exception as e:
+            print(f"Failed to load app links in AddApiKeyDialog: {e}")
+            self._whatsapp_link = None
+            self._get_api_key_link = None
+
+    def _truncate_api_key(self, api, head=6, tail=6, min_len=20):
+        """Return a truncated API key for display in tooltips. Keep full API when editing."""
+        try:
+            if not api:
+                return ""
+            s = str(api)
+            if len(s) <= min_len:
+                return s
+            return f"{s[:head]}...{s[-tail:]}"
+        except Exception as e:
+            print(f"Error truncating API key: {e}")
+            return str(api)
+
+    def _load_app_links(self):
         try:
             app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
             with open(app_cfg_path, 'r', encoding='utf-8') as f:
@@ -472,7 +530,7 @@ class AddApiKeyDialog(QDialog):
             pix = icon.pixmap(icon_size, icon_size)
             icon_lbl.setPixmap(pix)
         except Exception:
-            # fallback: empty icon
+            
             icon_lbl.setText("")
             pix = None
 
@@ -502,34 +560,107 @@ class AddApiKeyDialog(QDialog):
             self.model_combo.setCurrentIndex(0)
 
     def _refresh_api_table(self):
+        
         try:
             rows = self.db.get_all_api_keys()
-        except Exception:
-            rows = []
-        self.api_table.setRowCount(len(rows))
-        for row_idx, row in enumerate(rows):
-            if isinstance(row, dict):
-                service = row["service"]
-                api = row["api"]
-                note = row["note"]
-                last_tested = row["last_tested"]
-                status = row["status"]
+        except Exception as e:
+            print(f"Error fetching API keys: {e}")
+            raise
+
+        
+        normalized = []
+        for r in rows:
+            if isinstance(r, dict):
+                normalized.append((r.get('service'), r.get('api'), r.get('note'), r.get('last_tested'), r.get('status'), r.get('model', '')))
             else:
-                if len(row) == 6:
-                    service, api, note, last_tested, status, model = row
-                elif len(row) == 5:
-                    service, api, note, last_tested, status = row
-                    model = ""
+                if len(r) == 6:
+                    normalized.append((r[0], r[1], r[2], r[3], r[4], r[5]))
+                elif len(r) == 5:
+                    normalized.append((r[0], r[1], r[2], r[3], r[4], ''))
                 else:
-                    service, api, note, last_tested = row
-                    status = ""
-                    model = ""
+                    
+                    normalized.append((r[0], r[1], r[2], r[3] if len(r) > 3 else None, '', ''))
+
+        
+        sel = self.sort_combo.currentText() if hasattr(self, 'sort_combo') else 'All'
+
+        def try_parse_dt(v):
+            if not v:
+                return None
+            if isinstance(v, (tuple, list)):
+                v = " ".join(str(x) for x in v)
+            try:
+                
+                return datetime.datetime.fromisoformat(str(v))
+            except Exception:
+                try:
+                    return datetime.datetime.strptime(str(v), '%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    try:
+                        return datetime.datetime.strptime(str(v), '%Y/%m/%d %H:%M:%S')
+                    except Exception:
+                        print(f"Failed to parse last_tested '{v}' for sorting")
+                        return None
+
+        display = list(normalized)
+        if sel.startswith('Service:'):
+            svc = sel.split(':', 1)[1].strip().lower()
+            display = [t for t in display if str(t[0]).lower() == svc]
+        elif sel == 'Status: Active':
+            display = [t for t in display if str(t[4]).lower() == 'active']
+        elif sel == 'Status: Invalid':
+            display = [t for t in display if str(t[4]).lower() == 'invalid']
+        elif sel == 'Last Tested (Newest)':
+            display.sort(key=lambda x: (try_parse_dt(x[3]) is None, try_parse_dt(x[3]) or datetime.datetime.min), reverse=True)
+        elif sel == 'Last Tested (Oldest)':
+            display.sort(key=lambda x: (try_parse_dt(x[3]) is None, try_parse_dt(x[3]) or datetime.datetime.min))
+        elif sel == 'API (A-Z)':
+            display.sort(key=lambda x: (x[1] or '').lower())
+        elif sel == 'API (Z-A)':
+            display.sort(key=lambda x: (x[1] or '').lower(), reverse=True)
+        elif sel == 'Model (A-Z)':
+            display.sort(key=lambda x: (x[5] or '').lower())
+        elif sel == 'Model (Z-A)':
+            display.sort(key=lambda x: (x[5] or '').lower(), reverse=True)
+
+        
+        self.api_table.setSortingEnabled(False)
+        self.api_table.setRowCount(len(display))
+        for row_idx, (service, api, note, last_tested, status, model) in enumerate(display):
             if isinstance(last_tested, (tuple, list)):
                 last_tested = " ".join(str(x) for x in last_tested)
-            self.api_table.setItem(row_idx, 0, QTableWidgetItem(str(service.capitalize() if str(service).lower() in ("openai", "gemini") else str(service))))
-            self.api_table.setItem(row_idx, 1, QTableWidgetItem(str(api)))
-            self.api_table.setItem(row_idx, 2, QTableWidgetItem(str(last_tested)))
-            self.api_table.setItem(row_idx, 3, QTableWidgetItem(str(note)))
+            
+            
+            tooltip_lines = []
+            tooltip_lines.append(f"Service: {service}")
+            truncated_api = self._truncate_api_key(api)
+            tooltip_lines.append(f"API Key: {truncated_api}")
+            tooltip_lines.append(f"Model: {model or 'N/A'}")
+            tooltip_lines.append(f"Last Tested: {last_tested or 'Never'}")
+            tooltip_lines.append(f"Status: {status or 'Unknown'}")
+            tooltip_lines.append(f"Note: {note or 'N/A'}")
+            tooltip_text = "\n".join(tooltip_lines)
+            
+            service_item = QTableWidgetItem(str(service.capitalize() if str(service).lower() in ("openai", "gemini") else str(service)))
+            service_item.setToolTip(tooltip_text)
+            self.api_table.setItem(row_idx, 0, service_item)
+            
+            api_item = QTableWidgetItem(str(api))
+            api_item.setToolTip(tooltip_text)
+            self.api_table.setItem(row_idx, 1, api_item)
+            
+            last_tested_item = QTableWidgetItem(str(last_tested))
+            last_tested_item.setToolTip(tooltip_text)
+            self.api_table.setItem(row_idx, 2, last_tested_item)
+            
+            model_item = QTableWidgetItem(str(model or ''))
+            model_item.setToolTip(tooltip_text)
+            self.api_table.setItem(row_idx, 3, model_item)
+            
+            note_item = QTableWidgetItem(str(note))
+            note_item.setToolTip(tooltip_text)
+            self.api_table.setItem(row_idx, 4, note_item)
+            
             action_widget = QWidget()
             action_layout = QHBoxLayout(action_widget)
             action_layout.setContentsMargins(0, 0, 0, 0)
@@ -548,7 +679,7 @@ class AddApiKeyDialog(QDialog):
             action_layout.addWidget(test_btn)
             action_layout.addWidget(delete_btn)
             action_layout.addStretch()
-            self.api_table.setCellWidget(row_idx, 4, action_widget)
+            self.api_table.setCellWidget(row_idx, 5, action_widget)
             if status == "active":
                 brush = QBrush(QColor(91, 184, 16, int(0.4 * 255)))
             elif status == "invalid":
@@ -556,10 +687,12 @@ class AddApiKeyDialog(QDialog):
             else:
                 brush = None
             if brush:
-                for col in range(4):
+                for col in range(5):
                     item = self.api_table.item(row_idx, col)
                     if item:
                         item.setBackground(brush)
+        
+        self.api_table.setSortingEnabled(True)
         self._stop_blinking()
 
     def _test_api_key_row(self, row):
@@ -572,15 +705,24 @@ class AddApiKeyDialog(QDialog):
         service = service_item.text().lower()
         api_key = api_item.text().strip()
         model = None
+        
         try:
             rows = self.db.get_all_api_keys()
-            if row < len(rows):
-                if isinstance(rows[row], dict):
-                    model = rows[row].get("model")
-                elif len(rows[row]) == 6:
-                    model = rows[row][5]
-        except Exception:
-            pass
+            for r in rows:
+                if isinstance(r, dict):
+                    if r.get('api') == api_key and str(r.get('service')).lower() == service:
+                        model = r.get('model')
+                        break
+                else:
+                    if len(r) >= 2 and r[1] == api_key and str(r[0]).lower() == service:
+                        if len(r) == 6:
+                            model = r[5]
+                        elif len(r) == 5:
+                            
+                            model = r[5] if len(r) > 5 else None
+                        break
+        except Exception as e:
+            print(f"Error fetching API keys for model lookup: {e}")
         test_btn = self._get_action_btn(row, 0)
         if test_btn:
             test_btn.setIcon(qta.icon('fa6s.stop'))
@@ -622,7 +764,7 @@ class AddApiKeyDialog(QDialog):
                 pass
 
     def _get_action_btn(self, row, btn_idx):
-        widget = self.api_table.cellWidget(row, 4)
+        widget = self.api_table.cellWidget(row, 5)
         if widget:
             layout = widget.layout()
             if layout and layout.count() > btn_idx:
@@ -635,7 +777,7 @@ class AddApiKeyDialog(QDialog):
         color1 = QColor(255, 255, 128, 180)
         color2 = QColor(255, 255, 255, 0)
         color = color1 if self._blink_state else color2
-        for col in range(4):
+        for col in range(5):
             item = self.api_table.item(self._row_testing, col)
             if item:
                 item.setBackground(QBrush(color))
@@ -649,7 +791,7 @@ class AddApiKeyDialog(QDialog):
                 test_btn.setToolTip("Test this API Key")
         self._blink_timer.stop()
         if self._row_testing is not None:
-            for col in range(4):
+            for col in range(5):
                 item = self.api_table.item(self._row_testing, col)
                 if item:
                     item.setBackground(QBrush())
@@ -676,20 +818,66 @@ class AddApiKeyDialog(QDialog):
             self.note_edit.clear()
 
     def _on_api_table_row_clicked(self, row, column):
-        if column == 4:
+        if column == 5:
             return
         service_item = self.api_table.item(row, 0)
         api_item = self.api_table.item(row, 1)
-        note_item = self.api_table.item(row, 3)
+        model_item = self.api_table.item(row, 3)
+        note_item = self.api_table.item(row, 4)
         if service_item and api_item:
             service_text = service_item.text()
             api_text = api_item.text()
+            model_text = model_item.text() if model_item else ""
             note_text = note_item.text() if note_item else ""
             self.key_edit.setText(api_text)
             self.note_edit.setText(note_text)
             self.service_combo.setCurrentText(service_text.capitalize())
             self._refresh_model_combo()
-            if self.model_combo.count() > 0:
+            
+            if model_text:
+                idx = self.model_combo.findText(model_text)
+                if idx >= 0:
+                    self.model_combo.setCurrentIndex(idx)
+                else:
+                    
+                    mb = QMessageBox(self)
+                    mb.setWindowTitle("Save Model")
+                    mb.setText(f"The model '{model_text}' is not in your model list.\n\nWould you like to add it to your {service_text} models?")
+                    btn_yes = QPushButton("Save")
+                    btn_yes.setIcon(qta.icon('fa6s.floppy-disk'))
+                    btn_no = QPushButton("No")
+                    btn_no.setIcon(qta.icon('fa6s.xmark'))
+                    mb.addButton(btn_yes, QMessageBox.AcceptRole)
+                    mb.addButton(btn_no, QMessageBox.RejectRole)
+                    mb.setDefaultButton(btn_yes)
+                    mb.exec()
+                    reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
+                    if reply == QMessageBox.Yes:
+                        
+                        service_key = service_text.lower()
+                        if service_key not in self.model_list:
+                            self.model_list[service_key] = []
+                        if model_text not in self.model_list[service_key]:
+                            self.model_list[service_key].append(model_text)
+                            
+                            ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+                            try:
+                                with open(ai_prompt_path, "r", encoding="utf-8") as f:
+                                    ai_config = json.load(f)
+                                ai_config["model_list"] = self.model_list
+                                with open(ai_prompt_path, "w", encoding="utf-8") as f:
+                                    json.dump(ai_config, f, indent=2, ensure_ascii=False)
+                            except Exception as e:
+                                print(f"Error saving model to config: {e}")
+                        
+                        self._refresh_model_combo()
+                    
+                    idx = self.model_combo.findText(model_text)
+                    if idx < 0:
+                        self.model_combo.addItem(model_text)
+                        idx = self.model_combo.findText(model_text)
+                    self.model_combo.setCurrentIndex(idx)
+            elif self.model_combo.count() > 0:
                 self.model_combo.setCurrentIndex(0)
             if service_text.lower() == "openai":
                 self._detected_service = "openai"
@@ -731,7 +919,7 @@ class AddApiKeyDialog(QDialog):
     def _open_model_manager(self):
         dlg = ModelManagerDialog(self.model_list, self)
         if dlg.exec():
-            # reload model list from file (dialog saved)
+            
             ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
             try:
                 with open(ai_prompt_path, "r", encoding="utf-8") as f:
@@ -856,17 +1044,63 @@ class AddApiKeyDialog(QDialog):
         self.api_table.selectRow(row)
         service_item = self.api_table.item(row, 0)
         api_item = self.api_table.item(row, 1)
-        note_item = self.api_table.item(row, 3)
+        model_item = self.api_table.item(row, 3)
+        note_item = self.api_table.item(row, 4)
         if not service_item or not api_item:
             return
         service_text = service_item.text()
         api_text = api_item.text()
+        model_text = model_item.text() if model_item else ""
         note_text = note_item.text() if note_item else ""
         self.key_edit.setText(api_text)
         self.note_edit.setText(note_text)
         self.service_combo.setCurrentText(service_text.capitalize())
         self._refresh_model_combo()
-        if self.model_combo.count() > 0:
+        # Set model combo to match the model from DB
+        if model_text:
+            idx = self.model_combo.findText(model_text)
+            if idx >= 0:
+                self.model_combo.setCurrentIndex(idx)
+            else:
+                # Model not in config - offer to save it
+                mb = QMessageBox(self)
+                mb.setWindowTitle("Save Model")
+                mb.setText(f"The model '{model_text}' is not in your model list.\n\nWould you like to add it to your {service_text} models?")
+                btn_yes = QPushButton("Save")
+                btn_yes.setIcon(qta.icon('fa6s.floppy-disk'))
+                btn_no = QPushButton("No")
+                btn_no.setIcon(qta.icon('fa6s.xmark'))
+                mb.addButton(btn_yes, QMessageBox.AcceptRole)
+                mb.addButton(btn_no, QMessageBox.RejectRole)
+                mb.setDefaultButton(btn_yes)
+                mb.exec()
+                reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
+                if reply == QMessageBox.Yes:
+                    # Add to model_list and save to config
+                    service_key = service_text.lower()
+                    if service_key not in self.model_list:
+                        self.model_list[service_key] = []
+                    if model_text not in self.model_list[service_key]:
+                        self.model_list[service_key].append(model_text)
+                        # Save to ai_config.json
+                        ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+                        try:
+                            with open(ai_prompt_path, "r", encoding="utf-8") as f:
+                                ai_config = json.load(f)
+                            ai_config["model_list"] = self.model_list
+                            with open(ai_prompt_path, "w", encoding="utf-8") as f:
+                                json.dump(ai_config, f, indent=2, ensure_ascii=False)
+                        except Exception as e:
+                            print(f"Error saving model to config: {e}")
+                    # Refresh combo to show the newly added model
+                    self._refresh_model_combo()
+                # Add temporarily to combo so it's visible even if user declined to save
+                idx = self.model_combo.findText(model_text)
+                if idx < 0:
+                    self.model_combo.addItem(model_text)
+                    idx = self.model_combo.findText(model_text)
+                self.model_combo.setCurrentIndex(idx)
+        elif self.model_combo.count() > 0:
             self.model_combo.setCurrentIndex(0)
         if service_text.lower() == "openai":
             self._detected_service = "openai"
@@ -1096,12 +1330,12 @@ class AddApiKeyDialog(QDialog):
         else:
             brush = None
         if brush:
-            for col in range(4):
+            for col in range(5):
                 item = self.api_table.item(row_idx, col)
                 if item:
                     item.setBackground(brush)
         else:
-            for col in range(4):
+            for col in range(5):
                 item = self.api_table.item(row_idx, col)
                 if item:
                     item.setBackground(QBrush())
