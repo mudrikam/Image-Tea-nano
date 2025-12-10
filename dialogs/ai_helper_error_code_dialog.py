@@ -116,7 +116,7 @@ def parse_api_error(message):
         return {}
 
 class AIHelperErrorCodeDialog(QDialog):
-    def __init__(self, error_code: str, message: str, parent=None, status: str = None, filenames=None, file_map=None, error_code_map=None):
+    def __init__(self, error_code: str, message: str, parent=None, status: str = None, filenames=None, file_map=None, error_code_map=None, service='gemini'):
         super().__init__(parent)
         self.setWindowTitle("Error Report")
         self.setModal(True)
@@ -125,6 +125,7 @@ class AIHelperErrorCodeDialog(QDialog):
         self._error_code_map = error_code_map or {}
         self._filenames = filenames or []
         self._should_auto_select = False
+        self._service = service
 
         layout = QVBoxLayout(self)
 
@@ -178,18 +179,21 @@ class AIHelperErrorCodeDialog(QDialog):
         provided_status = status
         entries = []
         
+        # Pilih error definitions berdasarkan service
+        error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
+        
         # Jika ada error_code_map dan filenames, gunakan error code dari file pertama
         if self._error_code_map and filenames:
             first_file = filenames[0]
             first_error_code = self._error_code_map.get(first_file)
-            if first_error_code and first_error_code in PREDEFINED_ERRORS:
+            if first_error_code and first_error_code in error_definitions:
                 code_key = str(first_error_code)
-                ent = PREDEFINED_ERRORS.get(code_key)
+                ent = error_definitions.get(code_key)
                 if ent:
                     entries = [ent]
-                    print(f"[Dialog] Auto-loading initial details from first file: {first_file} (error {first_error_code})")
-        elif code_key and code_key in PREDEFINED_ERRORS:
-            ent = PREDEFINED_ERRORS.get(code_key)
+                    print(f"[Dialog] Auto-loading initial details from first file: {first_file} (error {first_error_code}, service: {self._service})")
+        elif code_key and code_key in error_definitions:
+            ent = error_definitions.get(code_key)
             if ent:
                 entries = [ent]
 
@@ -522,16 +526,19 @@ Solution: {entry.get('solution', '')}"""
             fn = item.text()
             file_error_code = self._error_code_map.get(fn)
             
-            print(f"[Dialog Click] File: {fn}, Error Code: {file_error_code}")
+            print(f"[Dialog Click] File: {fn}, Error Code: {file_error_code}, Service: {self._service}")
+            
+            # Pilih error definitions berdasarkan service
+            error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
             
             if file_error_code:
-                entry = PREDEFINED_ERRORS.get(str(file_error_code))
+                entry = error_definitions.get(str(file_error_code))
                 if entry:
                     # Hanya update label text, tidak rebuild widget
                     self._update_error_labels(str(file_error_code), entry)
-                    print(f"[Dialog Click] Updated labels for error {file_error_code}")
+                    print(f"[Dialog Click] Updated labels for error {file_error_code} from {self._service.upper()} definitions")
                 else:
-                    print(f"[Dialog Click] No predefined error for code {file_error_code}")
+                    print(f"[Dialog Click] No predefined error for code {file_error_code} in {self._service.upper()} definitions")
             else:
                 print(f"[Dialog Click] No error code found for {fn}")
                 
@@ -551,7 +558,7 @@ Solution: {entry.get('solution', '')}"""
             print(f"[Dialog Copy Error] {e}")
 
 class _DialogInvoker(QObject):
-    showRequested = Signal(str, str, str)
+    showRequested = Signal(str, str, str, str)
 
     def __init__(self):
         super().__init__()
@@ -561,13 +568,17 @@ class _DialogInvoker(QObject):
         self._last_shown = {}
         self.buffering_enabled = False
 
-    @Slot(str, str, str)
-    def _on_show(self, signature, message, filename):
+    @Slot(str, str, str, str)
+    def _on_show(self, signature, message, filename, service='gemini'):
         try:
             entry = self._buffer.get(signature)
             if not entry:
-                entry = {'count': 0, 'messages': [], 'filenames': [], 'file_map': {}}
+                entry = {'count': 0, 'messages': [], 'filenames': [], 'file_map': {}, 'service': service}
                 self._buffer[signature] = entry
+            else:
+                # Update service jika belum ada
+                if 'service' not in entry:
+                    entry['service'] = service
             entry['count'] += 1
             if message not in entry['messages']:
                 entry['messages'].append(message)
@@ -646,6 +657,7 @@ class _DialogInvoker(QObject):
 
             count = entry.get('count', 0)
             messages = entry.get('messages', [])
+            service = entry.get('service', 'gemini')
 
             header = f"{count} occurrence(s) of this error were received."
             sample_header = "Sample messages (truncated):"
@@ -669,7 +681,7 @@ class _DialogInvoker(QObject):
             filenames = entry.get('filenames', [])
             file_map = entry.get('file_map', {})
             error_code_map = entry.get('error_code_map', {})
-            dlg = AIHelperErrorCodeDialog(code, aggregated, parent, status=status, filenames=filenames, file_map=file_map, error_code_map=error_code_map)
+            dlg = AIHelperErrorCodeDialog(code, aggregated, parent, status=status, filenames=filenames, file_map=file_map, error_code_map=error_code_map, service=service)
             try:
                 dlg.show()
                 try:

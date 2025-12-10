@@ -317,7 +317,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 signature = str(code) if not status else f"{code}|{status}"
                 try:
                     from dialogs.ai_helper_error_code_dialog import invoker
-                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path))
+                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path), 'gemini')
                     # Kirim error code ke buffer untuk file ini
                     if signature in invoker._buffer:
                         error_code_map = invoker._buffer[signature].setdefault('error_code_map', {})

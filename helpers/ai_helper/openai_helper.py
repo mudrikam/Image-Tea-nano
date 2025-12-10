@@ -235,16 +235,16 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_url": image_data_url}
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}}
                 ]
             }
         ]
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
-        response = client.responses.create(
+        response = client.chat.completions.create(
             model=model,
-            input=messages
+            messages=messages
         )
         
         print("="*80)
@@ -258,21 +258,14 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         token_total = 0
         usage = getattr(response, "usage", None)
         if usage:
-            token_input = getattr(usage, "input_tokens", 0)
-            token_output = getattr(usage, "output_tokens", 0)
+            token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+            token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
             token_total = getattr(usage, "total_tokens", 0)
         text = None
-        if hasattr(response, "output") and response.output:
-            for msg in response.output:
-                if hasattr(msg, "content") and msg.content:
-                    for part in msg.content:
-                        if hasattr(part, "text"):
-                            text = part.text
-                            break
-                    if text:
-                        break
-        if not text:
-            text = getattr(response, "output_text", None)
+        if hasattr(response, "choices") and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                text = choice.message.content
         if not text:
             text = str(response)
         
@@ -338,7 +331,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 signature = str(code) if not status else f"{code}|{status}"
                 try:
                     from dialogs.ai_helper_error_code_dialog import invoker
-                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path))
+                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path), 'openai')
                     # Kirim error code ke buffer untuk file ini
                     if signature in invoker._buffer:
                         error_code_map = invoker._buffer[signature].setdefault('error_code_map', {})
