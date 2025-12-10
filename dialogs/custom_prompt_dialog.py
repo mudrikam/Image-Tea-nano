@@ -13,6 +13,7 @@ class CustomPromptDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.text_edit = QTextEdit(self)
+        self.text_edit.setPlaceholderText("Enter a custom prompt here")
         layout.addWidget(self.text_edit)
 
         btn_layout = QHBoxLayout()
@@ -39,7 +40,8 @@ class CustomPromptDialog(QDialog):
         prompt = data["prompt"]
         value = prompt["custom_prompt"]
         self._initial_value = value
-        self.text_edit.setPlainText(value)
+        if value and value.strip():
+            self.text_edit.setPlainText(value)
 
     def save_and_close(self):
         text = self.text_edit.toPlainText()
@@ -49,8 +51,9 @@ class CustomPromptDialog(QDialog):
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
-            data = {}
+        except Exception as e:
+            print(f"Failed to open config for saving custom prompt: {e}")
+            return
         if "prompt" not in data:
             data["prompt"] = {}
         data["prompt"]["custom_prompt"] = text
