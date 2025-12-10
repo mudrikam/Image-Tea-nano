@@ -152,6 +152,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', '', '', 0, 0, 0
     start_time = time.perf_counter()
+    uploaded_file_id = None
     try:
         client = genai.Client(api_key=api_key)
         ext = os.path.splitext(image_path)[1].lower()
@@ -195,7 +196,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             )
         if is_video:
             myfile = client.files.upload(file=image_path)
-            file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
+            uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
             status = None
             max_wait_seconds = 600
             poll_interval = 1
@@ -203,14 +204,14 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             while waited < max_wait_seconds:
                 if stop_flag and stop_flag.get('stop'):
                     return '', '', '', '', '', 0, 0, 0
-                fileinfo = client.files.get(name=file_id)
+                fileinfo = client.files.get(name=uploaded_file_id)
                 status = getattr(fileinfo, 'state', None) or getattr(fileinfo, 'status', None)
                 if status == 'ACTIVE':
                     break
                 time.sleep(poll_interval)
                 waited += poll_interval
             if status != 'ACTIVE':
-                print(f"[Gemini ERROR] File {file_id} not ACTIVE after upload, status: {status}")
+                print(f"[Gemini ERROR] File {uploaded_file_id} not ACTIVE after upload, status: {status}")
                 return '', '', '', '', '', 0, 0, 0
             contents = [myfile, prompt]
         else:
@@ -218,9 +219,9 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             if not compressed_path:
                 print(f"[Gemini ERROR] Failed to compress image: {image_path}")
                 return '', '', '', '', '', 0, 0, 0
-            with open(compressed_path, 'rb') as f:
-                image_bytes = f.read()
-            contents = [types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'), prompt]
+            myfile = client.files.upload(file=compressed_path)
+            uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
+            contents = [myfile, prompt]
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', '', '', 0, 0, 0
         response = client.models.generate_content(
@@ -327,5 +328,16 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             pass
         return '', '', '', {}, '', f"[Gemini ERROR] {err_str}", 0, 0, 0
     finally:
+        if uploaded_file_id:
+            try:
+                client.files.delete(name=uploaded_file_id)
+                print(f"[Gemini] File {uploaded_file_id} deleted from server")
+                try:
+                    client.files.get(name=uploaded_file_id)
+                    print(f"[Gemini] Verification: file {uploaded_file_id} still exists after delete")
+                except Exception:
+                    print(f"[Gemini] Verification: file {uploaded_file_id} not found (deleted).")
+            except Exception:
+                print(f"[Gemini] File {uploaded_file_id} auto cleanup by Gemini")
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_gemini_generation_time(duration_ms)
