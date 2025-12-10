@@ -23,19 +23,21 @@ from helpers.check_for_update_helper import check_for_update
 
 check_folders()
 
-def get_app_version():
+def load_app_config():
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
-    return config.get("version", "")
+    return config
 
 class ImageTeaMainWindow(QMainWindow):
     show_ai_unsupported_dialog = Signal(str)
 
     def __init__(self):
         super().__init__()
-        version = get_app_version()
-        self.setWindowTitle(f"Image Tea (nano) Metadata Generator v{version}")
+        config = load_app_config()
+        name = config["name"]
+        version = config["version"]
+        self.setWindowTitle(f"{name} v{version}")
         icon_path = os.path.join(BASE_PATH, "res", "image_tea.ico")
         self.setWindowIcon(QIcon(icon_path))
         from database.db_operation import ImageTeaDB
