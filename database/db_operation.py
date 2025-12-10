@@ -87,6 +87,12 @@ class ImageTeaDB:
             c.execute('DELETE FROM api_keys WHERE service=? AND api_key=?', (service, api_key))
             conn.commit()
 
+    def delete_all_api_keys(self):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM api_keys')
+            conn.commit()
+
     def add_file(self, filepath, filename, title=None, description=None, tags=None, status=None, original_filename=None):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()

@@ -370,11 +370,18 @@ class AddApiKeyDialog(QDialog):
         self.import_csv_btn.setIcon(qta.icon('fa6s.file-import'))
         self.import_csv_btn.setIconSize(self.import_csv_btn.iconSize())
         self.import_csv_btn.setToolTip("Import API key list from CSV")
+        self.delete_all_btn = QPushButton()
+        self.delete_all_btn.setText("Delete All")
+        self.delete_all_btn.setIcon(qta.icon('fa6s.trash'))
+        self.delete_all_btn.setToolTip("Delete all API keys (cannot be undone)")
+        self.delete_all_btn.setFixedWidth(100)
+        self.delete_all_btn.clicked.connect(self._delete_all_api_keys)
         csv_btn_layout.addWidget(self.test_all_btn)
         csv_btn_layout.addWidget(self.sort_combo)
         csv_btn_layout.addWidget(self.refresh_btn)
         csv_btn_layout.addWidget(self.export_csv_btn)
         csv_btn_layout.addWidget(self.import_csv_btn)
+        csv_btn_layout.addWidget(self.delete_all_btn)
         csv_btn_layout.addStretch()
         layout.addLayout(csv_btn_layout)
 
@@ -1036,6 +1043,28 @@ class AddApiKeyDialog(QDialog):
             self.key_edit.clear()
             self.note_edit.clear()
 
+    def _delete_all_api_keys(self):
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Delete All API Keys")
+        mb.setText("Delete ALL API keys?\n\nThis action cannot be undone.")
+        btn_yes = QPushButton("Delete")
+        btn_yes.setIcon(qta.icon('fa6s.trash'))
+        btn_no = QPushButton("Cancel")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_no)
+        mb.exec()
+        if mb.clickedButton() == btn_yes:
+            try:
+                self.db.delete_all_api_keys()
+                self._refresh_api_table()
+                self.key_edit.clear()
+                self.note_edit.clear()
+                QMessageBox.information(self, "Delete All API Keys", "All API keys have been deleted.")
+            except Exception as e:
+                print(f"Error deleting all API keys: {e}")
+                
     def _show_context_menu(self, pos: QPoint):
         index = self.api_table.indexAt(pos)
         if not index.isValid():
