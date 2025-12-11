@@ -177,9 +177,10 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
     start_time = time.perf_counter()
     try:
         ext = os.path.splitext(image_path)[1].lower()
-        is_video = ext in ['.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp']
+        is_video = ext in ['.mp4', '.mpeg', '.mpg', '.mov', '.webm']
         filename = os.path.basename(image_path)
-        if is_video:
+        is_openrouter = _is_openrouter_key(api_key)
+        if is_video and not is_openrouter:
             error_message = (
                 "OpenAI Vision API belum mendukung input video secara langsung. "
                 "Silakan gunakan gambar atau pilih layanan Gemini untuk video. "
@@ -223,23 +224,46 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 adobe_map,
                 filename=filename
             )
-        compressed_path = compress_and_save_image(image_path)
-        if not compressed_path:
-            error_message = f"[OpenAI ERROR] Failed to compress image: {image_path}"
-            return '', '', '', {}, '', error_message, 0, 0, 0
-        with open(compressed_path, "rb") as f:
-            image_bytes = f.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_url = f"data:image/jpeg;base64,{image_b64}"
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_data_url}}
-                ]
+        if is_video:
+            video_mime_map = {
+                '.mp4': 'video/mp4',
+                '.mpeg': 'video/mpeg',
+                '.mpg': 'video/mpeg',
+                '.mov': 'video/mov',
+                '.webm': 'video/webm'
             }
-        ]
+            mime_type = video_mime_map.get(ext, 'video/mp4')
+            with open(image_path, "rb") as f:
+                video_bytes = f.read()
+            video_b64 = base64.b64encode(video_bytes).decode("utf-8")
+            video_data_url = f"data:{mime_type};base64,{video_b64}"
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "video_url", "video_url": {"url": video_data_url}}
+                    ]
+                }
+            ]
+        else:
+            compressed_path = compress_and_save_image(image_path)
+            if not compressed_path:
+                error_message = f"[OpenAI ERROR] Failed to compress image: {image_path}"
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            with open(compressed_path, "rb") as f:
+                image_bytes = f.read()
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            image_data_url = f"data:image/jpeg;base64,{image_b64}"
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_data_url}}
+                    ]
+                }
+            ]
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
         response = client.chat.completions.create(
@@ -276,11 +300,14 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         print("="*80)
         
         try:
-            if text.strip().startswith('```'):
-                text = text.strip().lstrip('`').lstrip('json').strip()
-                if text.endswith('```'):
-                    text = text[:text.rfind('```')].strip()
-            meta = json.loads(text)
+            text_stripped = text.strip()
+            if text_stripped.startswith('<|begin_of_box|>') and text_stripped.endswith('<|end_of_box|>'):
+                text_stripped = text_stripped[len('<|begin_of_box|>'):-len('<|end_of_box|>')].strip()
+            if text_stripped.startswith('```'):
+                text_stripped = text_stripped.lstrip('`').lstrip('json').strip()
+                if text_stripped.endswith('```'):
+                    text_stripped = text_stripped[:text_stripped.rfind('```')].strip()
+            meta = json.loads(text_stripped)
             title = meta.get('title', '')
             description = meta.get('description', '')
             tags = meta.get('tags', [])
