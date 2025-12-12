@@ -191,8 +191,19 @@ class ModelManagerDialog(QDialog):
         if not service_item or not sel:
             return
         service = service_item.text().lower()
-        confirm = QMessageBox.question(self, 'Delete Model', f"Delete model '{sel.text()}' for '{service}'?", QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Delete Model")
+        mb.setText(f"Delete model '{sel.text()}' for '{service}'?")
+        mb.setIcon(QMessageBox.Warning)
+        btn_yes = QPushButton("Delete")
+        btn_yes.setIcon(qta.icon('fa6s.trash'))
+        btn_no = QPushButton("Cancel")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_no)
+        mb.exec()
+        if mb.clickedButton() == btn_yes:
             idx = self.models_list.row(sel)
             self.models_list.takeItem(idx)
             try:
@@ -778,8 +789,19 @@ class AddApiKeyDialog(QDialog):
         if not api_key or not service:
             QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
             return
-        confirm = QMessageBox.question(self, "Delete API Key", f"Delete API Key for '{service}'?\nThis cannot be undone.", QMessageBox.Yes | QMessageBox.No)
-        if confirm == QMessageBox.Yes:
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Delete API Key")
+        mb.setText(f"Delete API Key for '{service}'?\nThis cannot be undone.")
+        mb.setIcon(QMessageBox.Warning)
+        btn_yes = QPushButton("Delete")
+        btn_yes.setIcon(qta.icon('fa6s.trash'))
+        btn_no = QPushButton("Cancel")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_no)
+        mb.exec()
+        if mb.clickedButton() == btn_yes:
             self.db.delete_api_key(service, api_key)
             self._refresh_api_table()
             self.key_edit.clear()
