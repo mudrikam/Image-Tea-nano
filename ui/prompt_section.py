@@ -40,7 +40,7 @@ class PromptSectionWidget(QWidget):
         self.min_title_spin.setRange(1, 1000)
         self.min_title_spin.setFixedWidth(fixed_width)
         self.min_title_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.min_title_spin.setToolTip("Minimum title length in characters.\nShorter titles may be less descriptive.")
+        self.min_title_spin.setToolTip("Minimum title length in characters.\nModels will aim to meet this length.")
         min_title_group.addWidget(self.min_title_spin)
         
         min_title_wrapper = QWidget()
@@ -66,7 +66,7 @@ class PromptSectionWidget(QWidget):
         self.max_title_spin.setRange(1, 1000)
         self.max_title_spin.setFixedWidth(fixed_width)
         self.max_title_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.max_title_spin.setToolTip("Maximum title length in characters.\nTitles longer than this will be truncated.")
+        self.max_title_spin.setToolTip("Maximum title length in characters.\nModels will aim to not exceed this length.")
         max_title_group.addWidget(self.max_title_spin)
         
         max_title_wrapper = QWidget()
@@ -92,7 +92,7 @@ class PromptSectionWidget(QWidget):
         self.max_desc_spin.setRange(1, 2000)
         self.max_desc_spin.setFixedWidth(fixed_width)
         self.max_desc_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.max_desc_spin.setToolTip("Maximum description length in characters.\nKeep descriptions concise and clear.")
+        self.max_desc_spin.setToolTip("Maximum description length in characters.\nModels will aim to not exceed this length.")
         max_desc_group.addWidget(self.max_desc_spin)
         
         max_desc_wrapper = QWidget()
@@ -118,7 +118,7 @@ class PromptSectionWidget(QWidget):
         self.tag_count_spin.setRange(1, 100)
         self.tag_count_spin.setFixedWidth(fixed_width)
         self.tag_count_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.tag_count_spin.setToolTip("Number of keywords/tags to generate.\nExactly this many tags will be used.")
+        self.tag_count_spin.setToolTip("Number of keywords/tags to generate.\nModels will aim to generate exactly this many tags.")
         tag_count_group.addWidget(self.tag_count_spin)
         
         tag_count_wrapper = QWidget()
@@ -170,7 +170,7 @@ class PromptSectionWidget(QWidget):
         self.cache_spin.setRange(1, 100)
         self.cache_spin.setFixedWidth(fixed_width)
         self.cache_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.cache_spin.setToolTip("Compression quality (1-100).\nLower value = higher compression, more efficient internet data usage.")
+        self.cache_spin.setToolTip("Image Compression quality (1-100).\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality.")
         compression_group.addWidget(self.cache_spin)
         
         compression_wrapper = QWidget()
@@ -197,7 +197,7 @@ class PromptSectionWidget(QWidget):
         self.delay_combo.addItems(["No Delay", "Random", "1", "2", "3", "4", "5", "10", "15", "20", "30"])
         self.delay_combo.setFixedWidth(fixed_width)
         self.delay_combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.delay_combo.setToolTip("Delay interval between batches.\nNo Delay = 0s, Random = 1-5s, or enter custom value in seconds.")
+        self.delay_combo.setToolTip("Delay interval between batches.\nNo Delay = 0s, Random = 1-5s, \nor enter custom value in seconds.")
         delay_group.addWidget(self.delay_combo)
         
         delay_wrapper = QWidget()

@@ -116,7 +116,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.folder-open', icon_color),
         make_icon('fa6s.folder-open', icon_color_hover),
         "Import",
-        "Import files into the project",
+        "Import files into the table for metadata generation. \nSupports common images, vector graphics, and videos.",
         lambda: (import_files(window, window.db) and window.table.refresh_table()),
         window, icon_size)
     toolbar.addAction(import_action)
@@ -125,7 +125,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.broom', icon_color),
         make_icon('fa6s.broom', icon_color_hover),
         "Clear",
-        "Clear all files from the table",
+        "Clear all files from the table. \nThis does NOT delete files from disk. \nOnly clears the database entries. \nUse when you want to start fresh.",
         lambda: window.table.clear_all(),
         window, icon_size)
     toolbar.addAction(clear_all_action)
@@ -134,7 +134,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.trash', icon_color),
         make_icon('fa6s.trash', icon_color_hover),
         "Delete",
-        "Delete selected files from the table",
+        "Delete selected files from the table. \nThis does NOT delete files from disk. \nSame as Clear All, but only for selected rows.",
         lambda: window.table.delete_selected(),
         window, icon_size)
     toolbar.addAction(delete_selected_action)
@@ -145,7 +145,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.eraser', icon_color),
         make_icon('fa6s.eraser', icon_color_hover),
         "Clear",
-        "Clear all metadata from database (not from files)",
+        "Clear all metadata from database for all files. \nThis does NOT delete files from disk. \nOnly clears the metadata entries in the database. \nOriginal metadata in files remains unchanged. \nBut you CAN NOT UNDO this action. \nUSE WITH CAUTION.",
         lambda: clear_existing_metadata(window),
         window, icon_size)
     toolbar.addAction(clear_metadata_action)
@@ -154,7 +154,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.i-cursor', icon_color),
         make_icon('fa6s.i-cursor', icon_color_hover),
         "Rename",
-        "Batch rename selected files",
+        "Batch rename selected files in the table. \nThis does NOT modify metadata. \nBut renaming your files directly on disk. \nUSE WITH CAUTION. \nRollback is supported via the dialog by Undo Rename button.",
         lambda: BatchRenameDialog(window, table_widget=window.table, db=window.db).exec(),
         window, icon_size)
     toolbar.addAction(batch_rename_action)
@@ -163,7 +163,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.pen-to-square', icon_color),
         make_icon('fa6s.pen-to-square', icon_color_hover),
         "Edit",
-        "Edit metadata for selected file",
+        "Edit metadata for selected file in a dialog window. \nYou can modify title, description, keywords, \nand other metadata fields manually. \nSupports both images and videos.",
         lambda: open_edit_metadata(window),
         window, icon_size)
     toolbar.addAction(edit_metadata_action)
@@ -174,7 +174,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.image', icon_color),
         make_icon('fa6s.image', icon_color_hover),
         "Write",
-        "Write metadata to image files",
+        "Write metadata to image files in the table \nThis will modify the actual image files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome image formats may not support certain metadata fields.",
         lambda: write_metadata_to_images(window.db, window),
         window, icon_size)
     toolbar.addAction(write_metadata_images_action)
@@ -183,7 +183,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.film', icon_color),
         make_icon('fa6s.film', icon_color_hover),
         "Write",
-        "Write metadata to video files",
+        "Write metadata to video files in the table \nThis will modify the actual video files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome video formats may not support certain metadata fields.",
         lambda: write_metadata_to_videos(window.db, window),
         window, icon_size)
     toolbar.addAction(write_metadata_videos_action)
@@ -192,7 +192,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.file-csv', icon_color),
         make_icon('fa6s.file-csv', icon_color_hover),
         "Export",
-        "Export metadata to CSV file",
+        "Export metadata to CSV file in the table \nYou can choose the destination and filename. \nUseful for backup or further processing. \nSupports common CSV format \nthat can be used for microstock submissions.",
         lambda: CSVExporterDialog(window).exec(),
         window, icon_size)
     toolbar.addAction(export_metadata_action)
@@ -203,7 +203,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.pen-to-square', icon_color),
         make_icon('fa6s.pen-to-square', icon_color_hover),
         "Prompt",
-        "Edit the prompt for AI metadata generation",
+        "Edit the system prompt for AI metadata generation models. \nCustomize how the AI generates titles, descriptions, and keywords. \nAdvanced users can tailor the prompt to their needs. \nChanges affect all subsequent metadata generations. \nThis setting is overwritten to default if you update the Image Tea application. \n\nConsider saving a backup of your custom prompt.",
         lambda: EditPromptDialog(window).exec(),
         window, icon_size)
     toolbar.addAction(edit_prompt_action)
@@ -212,7 +212,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.comment', icon_color),
         make_icon('fa6s.comment', icon_color_hover),
         "Custom",
-        "Open custom prompt dialog",
+        "Use a custom prompt for AI metadata generation. \nUse this to override the default prompt temporarily. \nUseful for one-off generations with different requirements. \nDoes not modify the saved system prompt. \nBut don't forget to clear it after use if you want to revert to the default prompt.",
         lambda: CustomPromptDialog(window).exec(),
         window, icon_size)
     toolbar.addAction(custom_prompt_action)
@@ -221,7 +221,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.key', icon_color),
         make_icon('fa6s.key', icon_color_hover),
         "API Key",
-        "Add or edit your API key",
+        "Add or edit your API key for AI metadata generation services. \nAn API key is required to access AI models. \nMake sure to use a valid key from your AI service provider. \nKeep your API key secure and do not share it publicly.",
         lambda: AddApiKeyDialog(window).exec(),
         window, icon_size)
     toolbar.addAction(add_api_action)
@@ -233,7 +233,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.rotate-right', icon_color),
         make_icon('fa6s.rotate-right', icon_color_hover),
         "Relaunch",
-        "Relaunch aplikasi",
+        "Relaunch the application if needed (after updates or config changes).",
         lambda: relaunch_app(window),
         window, icon_size)
     toolbar.addAction(relaunch_action)
@@ -242,7 +242,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.download', icon_color),
         make_icon('fa6s.download', icon_color_hover),
         "Update",
-        "Check for updates and run updater",
+        "Check for updates and run the updater if a new version is available. \nMake sure you have an active internet connection. \nPlease save your work before updating, as the application will restart. \nSome settings may be reset to default after an update. \nIt's recommended to back up your configuration files periodically. \n\nUpdates bring new features, improvements, and bug fixes.",
         lambda: run_updater(window),
         window, icon_size)
     toolbar.addAction(update_now_action)
@@ -253,7 +253,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.circle-dollar-to-slot', icon_color),
         make_icon('fa6s.circle-dollar-to-slot', icon_color_hover),
         "Donate",
-        "Support development with a donation",
+        "Support development of this application by making a donation. \nYour contributions help fund new features and improvements. \nAny amount is appreciated, no matter how small. \nThank you for supporting the project!",
         lambda: DonateDialog(window).exec(),
         window, icon_size)
 
@@ -261,7 +261,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6b.whatsapp', icon_color),
         make_icon('fa6b.whatsapp', icon_color_hover),
         "WhatsApp",
-        "Join the WhatsApp support group",
+        "Join the WhatsApp support community for help and discussions.",
         lambda: webbrowser.open(links["whatsapp"]),
         window, icon_size)
 
@@ -269,7 +269,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6b.github', icon_color),
         make_icon('fa6b.github', icon_color_hover),
         "Repo",
-        "Open the GitHub repository",
+        "Open the GitHub repository for this application.",
         lambda: webbrowser.open(links["repo"]),
         window, icon_size)
 
@@ -277,7 +277,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6b.tiktok', icon_color),
         make_icon('fa6b.tiktok', icon_color_hover),
         "TikTok",
-        "Visit TikTok @desainia",
+        "Visit TikTok @desainia for tutorials and updates.",
         lambda: webbrowser.open(links["tiktok"]),
         window, icon_size)
 
@@ -285,7 +285,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6b.telegram', icon_color),
         make_icon('fa6b.telegram', icon_color_hover),
         "Telegram",
-        "Open the Telegram bot",
+        "Chat with our Telegram bot for support and information.",
         lambda: webbrowser.open(links["telegram"]),
         window, icon_size)
 
@@ -293,7 +293,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.book-open', icon_color),
         make_icon('fa6s.book-open', icon_color_hover),
         "Help",
-        "Open the documentation/help dialog",
+        "Open the documentation/help dialog for guidance and troubleshooting.",
         lambda: ReadDocumentationDialog(window).exec(),
         window, icon_size)
     

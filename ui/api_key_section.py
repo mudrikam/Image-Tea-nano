@@ -52,14 +52,12 @@ class ApiKeySectionWidget(QWidget):
             }
         """)
         self.get_api_btn.setToolTip(
-            "This application requires an API key to function.\n"
-            "For Gemini, Google provides free API keys at https://aistudio.google.com/."
+            "This application requires an API key to function."
         )
         self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/api-keys")))
         self.tested_label.setText(" - | -")
         self.tested_label.setToolTip(
-            "This application requires an API key to function.\n"
-            "For Gemini, Google provides free API keys at https://aistudio.google.com/api-keys"
+            "This application requires an API key to function."
         )
         layout.addWidget(self.tested_label)
         layout.addWidget(self.get_api_btn)
@@ -160,8 +158,7 @@ class ApiKeySectionWidget(QWidget):
             self.selected_service = self.api_key_map[api_key]['service']
             self.selected_model_name = self.api_key_map[api_key]['model']
             self.tested_label.setToolTip(
-                "This application requires an API key to function.\n"
-                "For Gemini, Google provides free API keys at https://aistudio.google.com/."
+                "This application requires an API key to function."
             )
             self.api_key_changed.emit(self.api_key, self.selected_service, self.selected_model_name)
         else:
@@ -206,8 +203,7 @@ class ApiKeySectionWidget(QWidget):
             except Exception:
                 pass
             self.tested_label.setToolTip(
-                "This application requires an API key to function.\n"
-                "For Gemini, Google provides free API keys at https://aistudio.google.com/."
+                "This application requires an API key to function."
             )
             self.api_key_changed.emit(self.api_key, self.selected_service, self.selected_model_name)
         else:
