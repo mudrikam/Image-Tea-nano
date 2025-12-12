@@ -1,10 +1,11 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QMessageBox, QWidget, QGridLayout, QTabWidget
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QMessageBox, QWidget, QGridLayout, QTabWidget, QFileDialog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextOption, QPixmap, QPainter, QColor, QIcon
 import qtawesome as qta
 import os
 import sys
 import json
+import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import BASE_PATH
@@ -110,10 +111,20 @@ class EditPromptDialog(QDialog):
         self.cancel_btn.setIcon(qta.icon("fa6s.xmark"))
         self.cancel_btn.clicked.connect(self.reject)
 
+        self.import_btn = QPushButton("Import")
+        self.import_btn.setIcon(qta.icon("fa6s.file-import"))
+        self.import_btn.clicked.connect(self.import_prompt)
+
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setIcon(qta.icon("fa6s.file-export"))
+        self.export_btn.clicked.connect(self.export_prompt)
+
         self.save_btn = QPushButton("Save")
         self.save_btn.setIcon(qta.icon("fa6s.floppy-disk"))
 
         btn_layout.addStretch(1)
+        btn_layout.addWidget(self.import_btn)
+        btn_layout.addWidget(self.export_btn)
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addWidget(self.save_btn)
         main_layout.addLayout(btn_layout)
@@ -154,3 +165,48 @@ class EditPromptDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save prompt: {e}")
+
+    def export_prompt(self):
+        try:
+            data = {
+                "prompt": {
+                    "title_requirements": self.title_req_edit.toPlainText(),
+                    "description_requirements": self.desc_req_edit.toPlainText(),
+                    "keywords_requirements": self.keywords_req_edit.toPlainText(),
+                    "general_guides": self.general_guides_edit.toPlainText(),
+                    "strict_donts": self.strict_donts_edit.toPlainText(),
+                    "negative_prompt": self.negative_prompt_edit.toPlainText(),
+                }
+            }
+            default_name = f"Image_Tea_Prompt_Backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            start_path = os.path.join(os.path.expanduser("~"), default_name)
+            path, _ = QFileDialog.getSaveFileName(self, "Export Prompt Backup", start_path, "JSON files (*.json)")
+            if not path:
+                return
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            QMessageBox.information(self, "Exported", f"Prompt exported to:\n{path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to export prompt: {e}")
+
+    def import_prompt(self):
+        try:
+            path, _ = QFileDialog.getOpenFileName(self, "Import Prompt Backup", os.path.expanduser("~"), "JSON files (*.json)")
+            if not path:
+                return
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "prompt" not in data or not isinstance(data["prompt"], dict):
+                QMessageBox.warning(self, "Invalid File", "Selected file does not contain a valid prompt backup.")
+                return
+            prompt_data = data["prompt"]
+            # Populate editor fields — user must click Save to persist to config
+            self.title_req_edit.setPlainText(prompt_data.get("title_requirements", ""))
+            self.desc_req_edit.setPlainText(prompt_data.get("description_requirements", ""))
+            self.keywords_req_edit.setPlainText(prompt_data.get("keywords_requirements", ""))
+            self.general_guides_edit.setPlainText(prompt_data.get("general_guides", ""))
+            self.strict_donts_edit.setPlainText(prompt_data.get("strict_donts", ""))
+            self.negative_prompt_edit.setPlainText(prompt_data.get("negative_prompt", ""))
+            QMessageBox.information(self, "Imported", "Prompt values loaded into editor. Click Save to persist changes to the application configuration.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to import prompt: {e}")

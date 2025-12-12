@@ -21,12 +21,17 @@ class CustomPromptDialog(QDialog):
         self.cancel_btn.setIcon(qta.icon("fa6s.xmark"))
         self.cancel_btn.clicked.connect(self.reject)
 
+        self.clear_btn = QPushButton("Clear", self)
+        self.clear_btn.setIcon(qta.icon("fa6s.broom"))
+        self.clear_btn.clicked.connect(lambda: self.text_edit.clear())
+
         self.save_btn = QPushButton("Save", self)
         self.save_btn.setIcon(qta.icon("fa6s.floppy-disk"))
         self.save_btn.clicked.connect(self.save_and_close)
 
         btn_layout.addStretch()
         btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.clear_btn)
         btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
 
