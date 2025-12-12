@@ -165,19 +165,23 @@ def update_update_config(remote_tag, remote_hash, local_tag, local_hash):
     update_config["tag_remote"] = remote_tag
     update_config["tag_local"] = local_tag
 
-    # Save release notes for remote_tag if available
-    if remote_tag:
-        notes = fetch_release_notes_for_tag(remote_tag)
-        if notes:
-            if "release_notes" not in update_config:
-                update_config["release_notes"] = {}
-            update_config["release_notes"][remote_tag] = notes
     save_update_config(update_config)
 
 def check_for_update():
     remote_tag, remote_hash = fetch_latest_tag_and_commit()
     local_tag, local_hash = get_local_tag_and_commit()
     update_update_config(remote_tag, remote_hash, local_tag, local_hash)
+
+    if remote_tag:
+        update_config = get_update_config()
+        if "release_notes" not in update_config or remote_tag not in update_config["release_notes"]:
+            notes = fetch_release_notes_for_tag(remote_tag)
+            if notes:
+                if "release_notes" not in update_config:
+                    update_config["release_notes"] = {}
+                update_config["release_notes"][remote_tag] = notes
+                save_update_config(update_config)
+    
     if not remote_tag:
         print("Failed to fetch remote tag.")
         return
