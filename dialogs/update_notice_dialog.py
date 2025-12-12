@@ -117,6 +117,7 @@ class UpdateNoticeDialog(QDialog):
             app_cfg = json.load(f)
             wa_link = app_cfg["links"]["whatsapp"]
 
+
         bug_icon = qta.icon('fa6s.bug')
         report_btn = QPushButton(bug_icon, " Found a Bug")
         report_btn.setCursor(Qt.PointingHandCursor)
@@ -125,8 +126,18 @@ class UpdateNoticeDialog(QDialog):
         else:
             report_btn.setEnabled(False)
 
+        # Community button (WhatsApp group)
+        community_icon = qta.icon('fa6b.whatsapp')
+        community_btn = QPushButton(community_icon, " Community")
+        community_btn.setCursor(Qt.PointingHandCursor)
+        if wa_link:
+            community_btn.clicked.connect(lambda _, u=wa_link: QDesktopServices.openUrl(QUrl(u)))
+        else:
+            community_btn.setEnabled(False)
+
         buttons_layout.addWidget(commit_btn)
         buttons_layout.addWidget(report_btn)
+        buttons_layout.addWidget(community_btn)
         buttons_widget.setLayout(buttons_layout)
         info_layout.addWidget(buttons_widget)
 

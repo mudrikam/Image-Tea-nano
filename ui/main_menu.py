@@ -6,6 +6,7 @@ import webbrowser
 import sys
 import os
 import subprocess
+import json
 from helpers.file_importer import import_files
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
 from dialogs.csv_exporter_dialog import CSVExporterDialog
@@ -17,6 +18,7 @@ from dialogs.donation_dialog import DonateDialog
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 from dialogs.about_dialog import AboutDialog
 from dialogs.file_metadata_dialog import FileMetadataDialog
+from dialogs.update_notice_dialog import UpdateNoticeDialog
 from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
@@ -245,11 +247,46 @@ def setup_main_menu(window):
     about_action.triggered.connect(show_about)
     help_menu.addAction(about_action)
 
+
     update_now_action = QAction(qta.icon('fa6s.download'), "Update Now", window)
     update_now_action.setToolTip(MENU_TOOLTIPS["update_now"])
     update_now_action.setStatusTip(MENU_TOOLTIPS["update_now"])
     update_now_action.triggered.connect(lambda: run_updater(window))
     help_menu.addAction(update_now_action)
+
+    # Version menu item
+    version_action = QAction(qta.icon('fa6s.code-branch'), "Version", window)
+    version_action.setToolTip("Show version and update information")
+    version_action.setStatusTip("Show version and update information")
+    def show_version_dialog():
+        update_cfg_path = os.path.join(BASE_PATH, "configs", "update_config.json")
+        local_tag = remote_tag = remote_hash = release_notes = checked_time = None
+        if os.path.exists(update_cfg_path):
+            with open(update_cfg_path, "r", encoding="utf-8") as f:
+                update_cfg = json.load(f)
+                local_tag = update_cfg.get("tag_local")
+                remote_tag = update_cfg.get("tag_remote")
+                remote_hash = None
+                commit_hash = update_cfg.get("commit_hash", {})
+                if isinstance(commit_hash, dict):
+                    remote_hash = commit_hash.get("remote")
+                checked_time = update_cfg.get("update", {}).get("last_checked")
+        # Read release notes only from cache (helper is responsible for updating cache)
+        release_notes = ""
+        notes = None
+        if os.path.exists(update_cfg_path):
+            try:
+                with open(update_cfg_path, "r", encoding="utf-8") as f:
+                    update_cfg2 = json.load(f)
+                    notes = update_cfg2.get("release_notes", {}).get(remote_tag)
+            except Exception as e:
+                print(f"Failed to load cached release notes: {e}")
+        if notes:
+            release_notes = notes
+        dialog = UpdateNoticeDialog(parent=window, local_tag=local_tag, remote_tag=remote_tag, remote_hash=remote_hash, release_notes=release_notes, checked_time=checked_time)
+        dialog.exec()
+    version_action.triggered.connect(show_version_dialog)
+    help_menu.addAction(version_action)
 
     donate_action = QAction(qta.icon('fa6s.circle-dollar-to-slot'), "Donate", window)
     donate_action.setToolTip(MENU_TOOLTIPS["donate"])

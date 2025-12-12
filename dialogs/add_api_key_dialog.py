@@ -1,5 +1,5 @@
 from PySide6.QtCore import QThread, Signal, Qt, QPoint, QTimer
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog, QPlainTextEdit
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog, QPlainTextEdit, QToolTip
 from PySide6.QtGui import QColor, QBrush, QAction
 from database.db_operation import ImageTeaDB
 import datetime
@@ -9,6 +9,7 @@ import os
 import csv
 import re
 import webbrowser
+import urllib.parse
 
 class ApiKeyTestThread(QThread):
     result = Signal(str, str, object)
@@ -74,6 +75,10 @@ class ModelManagerDialog(QDialog):
         self.setFixedWidth(520)
         self.model_list = {k: list(v) for k, v in (model_list or {}).items()}
         layout = QVBoxLayout()
+        openrouter_hint = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
+        openrouter_hint.setWordWrap(True)
+        openrouter_hint.setStyleSheet("font-size:10px; color: #696969;")
+        layout.addWidget(openrouter_hint)
         top_layout = QHBoxLayout()
         self.service_list = QListWidget()
         self.service_list.setFixedWidth(140)
@@ -267,15 +272,6 @@ class AddApiKeyDialog(QDialog):
         service_layout.addWidget(_service_label_widget)
         service_layout.addWidget(self.service_combo)
         layout.addLayout(service_layout)
-        self.service_hint_label = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
-        self.service_hint_label.setWordWrap(True)
-        self.service_hint_label.setStyleSheet("font-size:10px; color: #696969;")
-        hint_layout = QHBoxLayout()
-        left_spacer = QWidget()
-        left_spacer.setFixedWidth(label_width)
-        hint_layout.addWidget(left_spacer)
-        hint_layout.addWidget(self.service_hint_label)
-        layout.addLayout(hint_layout)
         model_layout = QHBoxLayout()
         _model_label_widget, model_label = self._create_icon_label_widget("Model:", 'fa6s.brain', label_width)
         model_label.setToolTip("Select the model for this API key")
@@ -411,27 +407,7 @@ class AddApiKeyDialog(QDialog):
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.progress_bar.setToolTip("Shows progress when testing API key")
         layout.addWidget(self.progress_bar)
-        self.error_text = QPlainTextEdit()
-        self.error_text.setReadOnly(True)
-        self.error_text.setPlaceholderText("Raw error / response will appear here when a test fails.")
-        self.error_text.setVisible(False)
-        self.error_text.setFixedHeight(140)
-        layout.addWidget(self.error_text)
-        report_layout = QHBoxLayout()
-        self.copy_error_btn = QPushButton()
-        self.copy_error_btn.setText("Copy Error")
-        self.copy_error_btn.setIcon(qta.icon('fa6s.copy'))
-        self.copy_error_btn.setVisible(False)
-        self.copy_error_btn.clicked.connect(self._copy_error_to_clipboard)
-        self.report_error_btn = QPushButton()
-        self.report_error_btn.setText("Report Error")
-        self.report_error_btn.setIcon(qta.icon('fa6s.bug'))
-        self.report_error_btn.setVisible(False)
-        self.report_error_btn.clicked.connect(self._report_error_via_whatsapp)
-        report_layout.addStretch()
-        report_layout.addWidget(self.copy_error_btn)
-        report_layout.addWidget(self.report_error_btn)
-        layout.addLayout(report_layout)
+        # Raw error display moved to a dedicated dialog; in-line widgets removed
         btn_layout = QHBoxLayout()
         self.test_and_save_btn = QPushButton()
         self.test_and_save_btn.setText("Test and Save")
@@ -747,26 +723,11 @@ class AddApiKeyDialog(QDialog):
         self._refresh_api_table()
         if status == 'success':
             QMessageBox.information(self, "API Key Test", "API Key is valid and active.")
-            try:
-                self.error_text.setVisible(False)
-            except Exception:
-                pass
-            try:
-                self.copy_error_btn.setVisible(False)
-            except Exception:
-                pass
-            try:
-                self.report_error_btn.setVisible(False)
-            except Exception:
-                pass
         else:
             QMessageBox.warning(self, "API Key Test", "API Key invalid or not supported.")
             err = text or "<no raw error available>"
             try:
-                self.error_text.setPlainText(err)
-                self.error_text.setVisible(True)
-                self.copy_error_btn.setVisible(True)
-                self.report_error_btn.setVisible(bool(self._whatsapp_link))
+                self._show_error_dialog(err)
             except Exception:
                 pass
 
@@ -1022,13 +983,41 @@ class AddApiKeyDialog(QDialog):
             self._refresh_api_table()
             QMessageBox.warning(self, "Test API Key", "API Key invalid or not supported.")
             err = text or "<no raw error available>"
+            self._show_error_dialog(err)
+
+    def _show_error_dialog(self, error_text):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("API Error Details")
+        dlg.setMinimumWidth(480)
+        vbox = QVBoxLayout()
+        label = QLabel("Raw error / response:")
+        vbox.addWidget(label)
+        error_box = QPlainTextEdit()
+        error_box.setReadOnly(True)
+        error_box.setPlainText(error_text)
+        error_box.setMinimumHeight(120)
+        vbox.addWidget(error_box)
+        hbox = QHBoxLayout()
+        copy_btn = QPushButton(qta.icon('fa6s.copy'), "Copy Error")
+        def _popup_copy():
+            QApplication.clipboard().setText(error_text)
             try:
-                self.error_text.setPlainText(err)
-                self.error_text.setVisible(True)
-                self.copy_error_btn.setVisible(True)
-                self.report_error_btn.setVisible(bool(self._whatsapp_link))
+                pos = copy_btn.mapToGlobal(copy_btn.rect().center())
+                QToolTip.showText(pos, "Error report copied to clipboard — click 'Report Error' to send.", copy_btn)
             except Exception:
                 pass
+        copy_btn.clicked.connect(_popup_copy)
+        report_btn = QPushButton(qta.icon('fa6s.bug'), "Report Error")
+        report_btn.clicked.connect(lambda: self._report_error_via_whatsapp(error_text))
+        hbox.addStretch()
+        hbox.addWidget(copy_btn)
+        hbox.addWidget(report_btn)
+        vbox.addLayout(hbox)
+        close_btn = QPushButton(qta.icon('fa6s.xmark'), "Close")
+        close_btn.clicked.connect(dlg.accept)
+        vbox.addWidget(close_btn)
+        dlg.setLayout(vbox)
+        dlg.exec()
 
     def delete_api_key(self):
         service = self.service_combo.currentText().lower()
@@ -1085,13 +1074,11 @@ class AddApiKeyDialog(QDialog):
         self.note_edit.setText(note_text)
         self.service_combo.setCurrentText(service_text.capitalize())
         self._refresh_model_combo()
-        # Set model combo to match the model from DB
         if model_text:
             idx = self.model_combo.findText(model_text)
             if idx >= 0:
                 self.model_combo.setCurrentIndex(idx)
             else:
-                # Model not in config - offer to save it
                 mb = QMessageBox(self)
                 mb.setWindowTitle("Save Model")
                 mb.setText(f"The model '{model_text}' is not in your model list.\n\nWould you like to add it to your {service_text} models?")
@@ -1105,13 +1092,11 @@ class AddApiKeyDialog(QDialog):
                 mb.exec()
                 reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
                 if reply == QMessageBox.Yes:
-                    # Add to model_list and save to config
                     service_key = service_text.lower()
                     if service_key not in self.model_list:
                         self.model_list[service_key] = []
                     if model_text not in self.model_list[service_key]:
                         self.model_list[service_key].append(model_text)
-                        # Save to ai_config.json
                         ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
                         try:
                             with open(ai_prompt_path, "r", encoding="utf-8") as f:
@@ -1121,9 +1106,7 @@ class AddApiKeyDialog(QDialog):
                                 json.dump(ai_config, f, indent=2, ensure_ascii=False)
                         except Exception as e:
                             print(f"Error saving model to config: {e}")
-                    # Refresh combo to show the newly added model
                     self._refresh_model_combo()
-                # Add temporarily to combo so it's visible even if user declined to save
                 idx = self.model_combo.findText(model_text)
                 if idx < 0:
                     self.model_combo.addItem(model_text)
@@ -1143,32 +1126,19 @@ class AddApiKeyDialog(QDialog):
         menu.addAction(action_test)
         menu.exec(self.api_table.viewport().mapToGlobal(pos))
 
-    def _copy_error_to_clipboard(self):
-        try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(self.error_text.toPlainText())
-            try:
-                self.error_text.setVisible(False)
-            except Exception:
-                pass
-            try:
-                self.copy_error_btn.setVisible(False)
-            except Exception:
-                pass
-            try:
-                self.report_error_btn.setVisible(False)
-            except Exception:
-                pass
-            QMessageBox.information(self, "Copy Error", "Error copied to clipboard.")
-        except Exception as e:
-            QMessageBox.critical(self, "Copy Error", f"Failed to copy error: {e}")
-
-    def _report_error_via_whatsapp(self):
-        if not self._whatsapp_link:
+    def _report_error_via_whatsapp(self, error_text=None):
+        if not getattr(self, '_whatsapp_link', None):
             QMessageBox.warning(self, "Report Error", "No reporting link configured.")
             return
         try:
-            webbrowser.open(self._whatsapp_link)
+            link = self._whatsapp_link
+            if error_text and ('wa.me' in link or 'api.whatsapp.com' in link):
+                msg = urllib.parse.quote(f"Image Tea API Key Error Report:\n{error_text}")
+                sep = '&' if '?' in link else '?'
+                url = f"{link}{sep}text={msg}"
+            else:
+                url = link
+            webbrowser.open(url)
         except Exception as e:
             QMessageBox.critical(self, "Report Error", f"Failed to open report link: {e}")
 

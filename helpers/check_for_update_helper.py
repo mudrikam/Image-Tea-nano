@@ -1,8 +1,10 @@
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from config import BASE_PATH
+import subprocess
+from dialogs.update_notice_dialog import UpdateNoticeDialog
 
 def get_app_config():
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
@@ -131,7 +133,6 @@ def get_local_tag_and_commit():
     git_dir = os.path.join(BASE_PATH, ".git")
     if os.path.exists(git_dir):
         try:
-            import subprocess
             result = subprocess.run(
                 ["git", "-C", BASE_PATH, "rev-list", "-n", "1", tag],
                 capture_output=True, text=True, check=True
@@ -160,8 +161,17 @@ def update_update_config(remote_tag, remote_hash, local_tag, local_hash):
     update_config["update"]["last_checked"] = now_iso
     if "last_update" not in update_config["update"]:
         update_config["update"]["last_update"] = now_iso
+    prev_tag = update_config.get("tag_remote")
     update_config["tag_remote"] = remote_tag
     update_config["tag_local"] = local_tag
+
+    # Save release notes for remote_tag if available
+    if remote_tag:
+        notes = fetch_release_notes_for_tag(remote_tag)
+        if notes:
+            if "release_notes" not in update_config:
+                update_config["release_notes"] = {}
+            update_config["release_notes"][remote_tag] = notes
     save_update_config(update_config)
 
 def check_for_update():
@@ -181,9 +191,35 @@ def check_for_update():
 
 
 def show_update_dialog_if_available(parent=None):
-    remote_tag, remote_hash = fetch_latest_tag_and_commit()
-    local_tag, local_hash = get_local_tag_and_commit()
-    update_update_config(remote_tag, remote_hash, local_tag, local_hash)
+    update_cfg = get_update_config()
+    last_checked_str = update_cfg.get('update', {}).get('last_checked')
+    use_cache = False
+    if last_checked_str:
+        try:
+            if last_checked_str.endswith('Z'):
+                last_checked_str = last_checked_str[:-1] + '+00:00'
+            last_checked = datetime.fromisoformat(last_checked_str.replace('Z', '+00:00'))
+            now = datetime.utcnow().replace(tzinfo=timezone.utc)
+            if now - last_checked < timedelta(minutes=5):
+                use_cache = True
+        except Exception:
+            pass
+
+    if use_cache:
+        # Use cached data
+        remote_tag = update_cfg.get('tag_remote')
+        remote_hash = update_cfg.get('commit_hash', {}).get('remote')
+        local_tag = update_cfg.get('tag_local')
+        local_hash = update_cfg.get('commit_hash', {}).get('local')
+        release_notes = update_cfg.get('release_notes', {}).get(remote_tag, "") if remote_tag else ""
+        checked_time = last_checked_str
+    else:
+        # Fetch fresh data
+        remote_tag, remote_hash = fetch_latest_tag_and_commit()
+        local_tag, local_hash = get_local_tag_and_commit()
+        update_update_config(remote_tag, remote_hash, local_tag, local_hash)
+        release_notes = fetch_release_notes_for_tag(remote_tag) or ""
+        checked_time = update_cfg.get('update', {}).get('last_checked')
 
     if not remote_tag or not local_tag:
         return
@@ -191,46 +227,27 @@ def show_update_dialog_if_available(parent=None):
     if (remote_tag == local_tag) and (not (remote_hash and local_hash and remote_hash != local_hash)):
         return
 
-    update_cfg = get_update_config()
-    skipped = None
-    try:
-        skipped = update_cfg.get('update', {}).get('skipped_tag')
-    except Exception:
-        skipped = None
+    skipped = update_cfg.get('update', {}).get('skipped_tag')
     if skipped and skipped == remote_tag:
         return
 
-    release_notes = fetch_release_notes_for_tag(remote_tag) or ""
-
-    update_cfg = get_update_config()
-    checked_time = None
-    try:
-        checked_time = update_cfg.get('update', {}).get('last_checked')
-    except Exception:
-        checked_time = None
-
-    try:
-        from dialogs.update_notice_dialog import UpdateNoticeDialog
-        dialog = UpdateNoticeDialog(parent=parent, local_tag=local_tag, remote_tag=remote_tag, remote_hash=remote_hash, release_notes=release_notes, checked_time=checked_time)
-        result = dialog.exec()
-        action = getattr(dialog, 'result_action', None)
-        if action == 'skip':
-            cfg = get_update_config()
-            now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
-            if 'update' not in cfg:
-                cfg['update'] = {}
-            cfg['update']['skipped_tag'] = remote_tag
-            cfg['update']['skipped_at'] = now_iso
-            save_update_config(cfg)
-        elif action == 'update':
-            try:
-                import subprocess
-                updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
-                if os.name == 'nt':
-                    subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\"{updater_path}\\""', shell=True)
-                else:
-                    subprocess.Popen([updater_path])
-            except Exception as e:
-                print(f"Failed to launch updater: {e}")
-    except Exception as e:
-        print(f"Update available: {remote_tag} (local: {local_tag}), commit: {remote_hash}. Error showing dialog: {e}")
+    dialog = UpdateNoticeDialog(parent=parent, local_tag=local_tag, remote_tag=remote_tag, remote_hash=remote_hash, release_notes=release_notes, checked_time=checked_time)
+    result = dialog.exec()
+    action = getattr(dialog, 'result_action', None)
+    if action == 'skip':
+        cfg = get_update_config()
+        now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+        if 'update' not in cfg:
+            cfg['update'] = {}
+        cfg['update']['skipped_tag'] = remote_tag
+        cfg['update']['skipped_at'] = now_iso
+        save_update_config(cfg)
+    elif action == 'update':
+        try:
+            updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
+            if os.name == 'nt':
+                subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\\"{updater_path}\\\""', shell=True)
+            else:
+                subprocess.Popen([updater_path])
+        except Exception as e:
+            print(f"Failed to launch updater: {e}")
