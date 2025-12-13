@@ -22,6 +22,7 @@ from dialogs.update_notice_dialog import UpdateNoticeDialog
 from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
+from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -225,6 +226,15 @@ def setup_main_menu(window):
     custom_prompt_action.triggered.connect(open_custom_prompt)
     prompt_menu.addAction(custom_prompt_action)
 
+    video_proxy_settings_action = QAction(qta.icon('fa6s.video'), "Video Proxy Settings", window)
+    video_proxy_settings_action.setToolTip("Edit video proxy presets (bitrate, CRF, resolution)")
+    video_proxy_settings_action.setStatusTip("Edit video proxy presets (bitrate, CRF, resolution)")
+    def open_video_proxy_settings():
+        dlg = VideoProxyPromptSettingsDialog(window)
+        dlg.exec()
+    video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
+    prompt_menu.addAction(video_proxy_settings_action)
+
     api_menu = QMenu("API", menubar)
     api_menu.setToolTipsVisible(True)
     add_api_action = QAction(qta.icon('fa6s.key'), "Add API Key", window)
@@ -367,6 +377,7 @@ def setup_main_menu(window):
         dlg.exec()
     imagen_generator_action.triggered.connect(open_imagen_generator)
     tools_menu.addAction(imagen_generator_action)
+
 
     # Add separator
     tools_menu.addSeparator()

@@ -18,6 +18,26 @@
   "batch_size": 3,
   "delay_interval": "Random",
   "video_proxy_setting": "Auto",
+  "video_proxy_presets": {
+    "High": {
+      "label": "1080p High Quality",
+      "resolution": "1920:-2",
+      "bitrate": "5000k",
+      "crf": 18
+    },
+    "Medium": {
+      "label": "720p Medium Quality",
+      "resolution": "1280:-2",
+      "bitrate": "2500k",
+      "crf": 23
+    },
+    "Low": {
+      "label": "480p Low Quality",
+      "resolution": "854:-2",
+      "bitrate": "1000k",
+      "crf": 28
+    }
+  },
   "model_list": {
     "gemini": [
       "gemini-2.5-flash",

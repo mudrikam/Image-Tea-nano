@@ -14,11 +14,11 @@ FFMPEG_PATH = os.path.join(BASE_PATH, "tools", "ffmpeg", "ffmpeg.exe")
 
 VIDEO_EXTENSIONS = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
 
-PROXY_PRESETS = {
-    "High": {"resolution": "1920:-2", "bitrate": "5000k", "label": "1080p High Quality", "crf": 18},
-    "Medium": {"resolution": "1280:-2", "bitrate": "2500k", "label": "720p Medium Quality", "crf": 23},
-    "Low": {"resolution": "854:-2", "bitrate": "1000k", "label": "480p Low Quality", "crf": 28}
-}
+def get_video_proxy_presets():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    return cfg["video_proxy_presets"]
 
 def ensure_video_temp_folder():
     temp_folder = os.path.join(BASE_PATH, "temp", "videos")
@@ -137,8 +137,13 @@ class VideoProxyWorker(QThread):
             preset_name = determine_auto_proxy_preset(self.video_path)
         else:
             preset_name = self.proxy_setting
-        
-        preset = PROXY_PRESETS.get(preset_name, PROXY_PRESETS["Medium"])
+        try:
+            presets = get_video_proxy_presets()
+            preset = presets[preset_name]
+        except Exception as e:
+            self.progress_update.emit({"status": "error", "error": f"Video proxy preset error: {e}"})
+            self.finished.emit(None)
+            return
         
         crf = preset.get('crf', 23)
         
@@ -260,8 +265,14 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
         preset_name = determine_auto_proxy_preset(video_path)
     else:
         preset_name = proxy_setting
-    
-    preset = PROXY_PRESETS.get(preset_name, PROXY_PRESETS["Medium"])
+    try:
+        presets = get_video_proxy_presets()
+        preset = presets[preset_name]
+    except Exception as e:
+        if progress_callback:
+            progress_callback({"status": "error", "error": f"Video proxy preset error: {e}"})
+        print(f"[VideoProxy] Preset error: {e}")
+        return None
     
     crf = preset.get('crf', 23)
     

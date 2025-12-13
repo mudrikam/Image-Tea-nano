@@ -228,10 +228,10 @@ class PromptSectionWidget(QWidget):
             "Off = upload original file unchanged.\n"
             "Auto = pick Low/Medium/High based on input resolution.\n"
             "Low/Medium/High = preset bitrates and resolutions (see items).\n"
-            "Proxy converts to MP4 (H.264) and uses `compression_quality` from config\n"
-            "to derive CRF; files are written to `temp/videos/` and auto-cleaned."
+            "Using proxies can greatly reduce upload times and data usage.\n"
+            "Proxies are created using FFmpeg and converted to MP4 H.264 format.\n"
+            "May affect model output quality depending on compression level."
         )
-        # Per-item tooltips (detailed to match helpers/video_proxy_helper.py)
         self.proxy_combo.setItemData(0, "Off - Upload original file without proxy conversion", Qt.ToolTipRole)
         self.proxy_combo.setItemData(1, "Auto - Choose preset based on input resolution (Low/Medium/High)", Qt.ToolTipRole)
         self.proxy_combo.setItemData(2, "Low - 480p target (~1000k bitrate), converts to MP4 H.264", Qt.ToolTipRole)
