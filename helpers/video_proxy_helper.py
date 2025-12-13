@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal
 _video_proxy_invoker = None
 
 FFMPEG_PATH = os.path.join(BASE_PATH, "tools", "ffmpeg", "ffmpeg.exe")
+FFPROBE_PATH = os.path.join(BASE_PATH, "tools", "ffmpeg", "ffprobe.exe")
 
 VIDEO_EXTENSIONS = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
 
@@ -42,24 +43,67 @@ def get_video_proxy_setting():
     return config["video_proxy_setting"]
 
 def get_video_info(video_path):
+    # Prefer ffprobe for structured metadata parsing if available
     try:
-        cmd = [
-            FFMPEG_PATH,
-            "-i", video_path,
-            "-hide_banner"
-        ]
+        if os.path.exists(FFPROBE_PATH):
+            cmd = [
+                FFPROBE_PATH,
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                "-show_streams",
+                video_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
+            if result and result.stdout:
+                try:
+                    info = json.loads(result.stdout)
+                    duration = None
+                    resolution = None
+                    bitrate = None
+                    fmt = info.get('format', {})
+                    streams = info.get('streams', [])
+                    if fmt.get('duration'):
+                        try:
+                            duration = float(fmt.get('duration'))
+                        except Exception:
+                            duration = None
+                    if fmt.get('bit_rate'):
+                        bitrate = fmt.get('bit_rate')
+                    # find video stream
+                    for s in streams:
+                        if s.get('codec_type') == 'video':
+                            w = s.get('width')
+                            h = s.get('height')
+                            if w and h:
+                                resolution = f"{w}x{h}"
+                            if not bitrate and s.get('bit_rate'):
+                                bitrate = s.get('bit_rate')
+                            break
+                    return {
+                        'duration': duration,
+                        'resolution': resolution,
+                        'bitrate': bitrate,
+                        'size': os.path.getsize(video_path)
+                    }
+                except Exception as e:
+                    print(f"[VideoProxy] ffprobe parse error: {e}")
+        # Fallback: use ffmpeg -i parsing
+        cmd = [FFMPEG_PATH, "-i", video_path, "-hide_banner"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         output = result.stdout
-        
+
         duration = None
         resolution = None
         bitrate = None
-        
         for line in output.split('\n'):
             if "Duration:" in line:
                 parts = line.split("Duration:")[1].split(",")[0].strip()
-                h, m, s = parts.split(":")
-                duration = int(h) * 3600 + int(m) * 60 + float(s)
+                try:
+                    h, m, s = parts.split(":")
+                    duration = int(h) * 3600 + int(m) * 60 + float(s)
+                except Exception:
+                    duration = None
             if "Video:" in line:
                 if " x " in line:
                     res_part = line.split(" x ")[0].split()[-1]
@@ -67,9 +111,11 @@ def get_video_info(video_path):
                     height = line.split(" x ")[1].split()[0].split(',')[0]
                     resolution = f"{width}x{height}"
             if "bitrate:" in line:
-                bitrate_str = line.split("bitrate:")[1].split()[0].strip()
-                bitrate = bitrate_str
-        
+                try:
+                    bitrate_str = line.split("bitrate:")[1].split()[0].strip()
+                    bitrate = bitrate_str
+                except Exception:
+                    pass
         return {
             "duration": duration,
             "resolution": resolution,
@@ -102,6 +148,135 @@ def determine_auto_proxy_preset(video_path):
             return "Low"
     except Exception:
         return "Medium"
+
+
+def get_ffmpeg_thread_args():
+    """Return ffmpeg threading args that let FFmpeg/codec auto-detect threads.
+
+    Use -threads 0 so encoders (libx264, etc.) decide optimal threading.
+    Use -filter_threads 0 to allow filtergraph auto-pick where supported.
+    """
+    return ["-filter_threads", "0", "-threads", "0"]
+
+
+def choose_video_encoder():
+    """Return (encoder_name, is_hardware_encoder).
+
+    Prefer GPU encoders (NVENC, QSV, AMF, VAAPI) if available; fallback to libx264.
+    """
+    try:
+        result = subprocess.run(
+            [FFMPEG_PATH, "-hide_banner", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            timeout=5,
+        )
+        output = result.stdout or ""
+        # Order of preference
+        preferred = ["h264_nvenc", "hevc_nvenc", "h264_qsv", "hevc_qsv", "h264_amf", "h264_vaapi"]
+        for enc in preferred:
+            if enc in output:
+                return enc, True
+    except Exception as e:
+        print(f"[VideoProxy] Encoder detection failed: {e}")
+    return "libx264", False
+
+
+def detect_gpu_pipeline_support():
+    """Detect if ffmpeg build supports a CUDA/NV pipeline (decoding, NPP scaling, NVENC).
+
+    Returns a dict with keys: has_nvenc, has_cuvid, has_scale_npp, has_hwaccel_cuda
+    """
+    support = {
+        'has_nvenc': False,
+        'has_cuvid': False,
+        'has_scale_npp': False,
+        'has_hwaccel_cuda': False
+    }
+    try:
+        # encoders
+        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        out = result.stdout or ''
+        if 'h264_nvenc' in out or 'hevc_nvenc' in out:
+            support['has_nvenc'] = True
+    except Exception:
+        pass
+    try:
+        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        out = result.stdout or ''
+        if 'h264_cuvid' in out or 'hevc_cuvid' in out:
+            support['has_cuvid'] = True
+    except Exception:
+        pass
+    try:
+        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        out = result.stdout or ''
+        if 'scale_npp' in out:
+            support['has_scale_npp'] = True
+    except Exception:
+        pass
+    try:
+        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        out = result.stdout or ''
+        if 'cuda' in out.lower():
+            support['has_hwaccel_cuda'] = True
+    except Exception:
+        pass
+    return support
+
+
+def build_ffmpeg_cmd(video_path, output_path, preset, crf, encoder, hw_encoder, prefer_gpu_pipeline=True):
+    """Construct ffmpeg command using GPU pipeline if available and requested.
+
+    Returns (cmd_list, used_gpu_pipeline_bool)
+    """
+    support = detect_gpu_pipeline_support()
+    use_gpu_pipeline = False
+    cmd = [FFMPEG_PATH, *get_ffmpeg_thread_args()]
+
+    # Decide whether we can and should use a full GPU pipeline
+    if hw_encoder and support['has_nvenc'] and prefer_gpu_pipeline:
+        # require both hwaccel and scale_npp for full offload
+        if support['has_hwaccel_cuda'] and support['has_scale_npp'] and support['has_cuvid']:
+            use_gpu_pipeline = True
+            # Use CUDA HW accel for decoding and NPP for scaling
+            cmd += ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda']
+            cmd += ['-i', video_path]
+            cmd += ['-vf', f"scale_npp={preset['resolution']}"]
+            cmd += ['-c:v', encoder]
+            cmd += ['-b:v', preset['bitrate']]
+            cmd += ['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-y', output_path]
+            return cmd, True
+
+    # Fallback: either GPU encode only or CPU path
+    cmd += ['-i', video_path]
+    cmd += ['-vf', f"scale={preset['resolution']}"]
+    cmd += ['-c:v', encoder]
+    cmd += ['-b:v', preset['bitrate']]
+    if not hw_encoder:
+        cmd += ['-crf', str(crf), '-preset', 'medium']
+    cmd += ['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-y', output_path]
+    return cmd, False
+
+
+def _is_hw_encoder_error(err_text: str) -> bool:
+    """Return True if ffmpeg error text indicates a hardware encoder/driver problem."""
+    if not err_text:
+        return False
+    checks = [
+        "Driver does not support the required nvenc API version",
+        "minimum required Nvidia driver",
+        "Error while opening encoder",
+        "Could not open encoder",
+        "Function not implemented",
+        "Invalid argument",
+    ]
+    lower = err_text.lower()
+    for c in checks:
+        if c.lower() in lower:
+            return True
+    return False
 
 class VideoProxyWorker(QThread):
     progress_update = Signal(dict)
@@ -162,22 +337,18 @@ class VideoProxyWorker(QThread):
         })
         
         try:
-            cmd = [
-                FFMPEG_PATH,
-                "-i", self.video_path,
-                "-vf", f"scale={preset['resolution']}",
-                "-c:v", "libx264",
-                "-b:v", preset["bitrate"],
-                "-crf", str(crf),
-                "-preset", "medium",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "+faststart",
-                "-y",
-                output_path
-            ]
+            encoder, hw_encoder = choose_video_encoder()
+            print(f"[VideoProxy] Selected encoder: {encoder} (hw={hw_encoder})")
+            cmd, used_gpu_pipeline = build_ffmpeg_cmd(self.video_path, output_path, preset, crf, encoder, hw_encoder, prefer_gpu_pipeline=True)
+            if not hw_encoder:
+                # CRF and preset only for CPU codecs (e.g., libx264)
+                cmd[cmd.index("-b:v")+2:cmd.index("-b:v")+2] = ["-crf", str(crf), "-preset", "medium"]
             
             print(f"[VideoProxy] Running ffmpeg command: {' '.join(cmd)}")
+            if 'scale_npp' in ' '.join(cmd) and 'hwaccel' in ' '.join(cmd):
+                print("[VideoProxy] Using full GPU pipeline: decode(hwaccel) + scale_npp + nvenc")
+            elif encoder.startswith('h264_nvenc') or encoder.startswith('hevc_nvenc'):
+                print("[VideoProxy] Using NVENC for encoding (CPU decode/scale) — consider enabling full GPU pipeline (nvdec+scale_npp) to reduce CPU load")
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -212,18 +383,76 @@ class VideoProxyWorker(QThread):
                             })
                     except Exception:
                         pass
-            
+
             process.wait()
-            
+
             if process.returncode != 0:
                 err_snippet = "".join(tail[-32:]) if tail else ""
                 print(f"FFmpeg error: return code {process.returncode}. Last output: {err_snippet}")
-                self.progress_update.emit({
-                    "status": "error",
-                    "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()
-                })
-                self.finished.emit(None)
-                return
+                # If this looks like a hardware encoder/driver problem and we used a HW encoder, retry with CPU encoder
+                if hw_encoder and _is_hw_encoder_error(err_snippet):
+                    print("[VideoProxy] Hardware encoder failed, retrying with libx264")
+                    self.progress_update.emit({"status": "info", "info": "Hardware encoder failed, retrying with CPU encoder"})
+                    encoder = "libx264"
+                    hw_encoder = False
+                    cmd = [
+                        FFMPEG_PATH,
+                        *get_ffmpeg_thread_args(),
+                        "-i", self.video_path,
+                        "-vf", f"scale={preset['resolution']}",
+                        "-c:v", encoder,
+                        "-b:v", preset["bitrate"],
+                        "-c:a", "aac",
+                        "-b:a", "128k",
+                        "-movflags", "+faststart",
+                        "-y",
+                        output_path
+                    ]
+                    cmd[cmd.index("-b:v")+2:cmd.index("-b:v")+2] = ["-crf", str(crf), "-preset", "medium"]
+                    print(f"[VideoProxy] Retrying ffmpeg with: {' '.join(cmd)}")
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        universal_newlines=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                    )
+                    tail = []
+                    for line in process.stdout:
+                        tail.append(line)
+                        if self.stop_flag:
+                            process.terminate()
+                            self.finished.emit(None)
+                            return
+                        if "time=" in line:
+                            try:
+                                time_str = line.split("time=")[1].split()[0]
+                                h, m, s = time_str.split(":")
+                                current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                                if duration > 0:
+                                    progress = int((current_time / duration) * 100)
+                                    self.progress_update.emit({
+                                        "status": "processing",
+                                        "progress": min(progress, 100),
+                                        "current_time": current_time,
+                                        "duration": duration
+                                    })
+                            except Exception:
+                                pass
+                    process.wait()
+                    if process.returncode != 0:
+                        err_snippet = "".join(tail[-32:]) if tail else ""
+                        print(f"FFmpeg retry error: return code {process.returncode}. Last output: {err_snippet}")
+                        self.progress_update.emit({"status": "error", "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()})
+                        self.finished.emit(None)
+                        return
+                else:
+                    self.progress_update.emit({
+                        "status": "error",
+                        "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()
+                    })
+                    self.finished.emit(None)
+                    return
             
             if os.path.exists(output_path):
                 output_size = os.path.getsize(output_path)
@@ -298,22 +527,17 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
             if progress_callback:
                 progress_callback({"status": "error", "error": err})
             return None
-        cmd = [
-            FFMPEG_PATH,
-            "-i", video_path,
-            "-vf", f"scale={preset['resolution']}",
-            "-c:v", "libx264",
-            "-b:v", preset["bitrate"],
-            "-crf", str(crf),
-            "-preset", "medium",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-y",
-            output_path
-        ]
+        encoder, hw_encoder = choose_video_encoder()
+        print(f"[VideoProxy] Selected encoder: {encoder} (hw={hw_encoder})")
+        cmd, used_gpu_pipeline = build_ffmpeg_cmd(video_path, output_path, preset, crf, encoder, hw_encoder, prefer_gpu_pipeline=True)
+        if not hw_encoder:
+            cmd[cmd.index("-b:v")+2:cmd.index("-b:v")+2] = ["-crf", str(crf), "-preset", "medium"]
         
         print(f"[VideoProxy] Running ffmpeg command: {' '.join(cmd)}")
+        if 'scale_npp' in ' '.join(cmd) and 'hwaccel' in ' '.join(cmd):
+            print("[VideoProxy] Using full GPU pipeline: decode(hwaccel) + scale_npp + nvenc")
+        elif encoder.startswith('h264_nvenc') or encoder.startswith('hevc_nvenc'):
+            print("[VideoProxy] Using NVENC for encoding (CPU decode/scale) — consider enabling full GPU pipeline (nvdec+scale_npp) to reduce CPU load")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -350,16 +574,74 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
                     pass
         
         process.wait()
-        
+
         if process.returncode != 0:
             err_snippet = "".join(tail[-32:]) if tail else ""
             print(f"FFmpeg error: return code {process.returncode}. Last output: {err_snippet}")
-            if progress_callback:
-                progress_callback({
-                    "status": "error",
-                    "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()
-                })
-            return None
+            # If hardware encoder failed, retry with CPU encoder
+            if hw_encoder and _is_hw_encoder_error(err_snippet):
+                print("[VideoProxy] Hardware encoder failed, retrying with libx264")
+                if progress_callback:
+                    progress_callback({"status": "info", "info": "Hardware encoder failed, retrying with CPU encoder"})
+                encoder = "libx264"
+                hw_encoder = False
+                cmd = [
+                    FFMPEG_PATH,
+                    *get_ffmpeg_thread_args(),
+                    "-i", video_path,
+                    "-vf", f"scale={preset['resolution']}",
+                    "-c:v", encoder,
+                    "-b:v", preset["bitrate"],
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-movflags", "+faststart",
+                    "-y",
+                    output_path
+                ]
+                cmd[cmd.index("-b:v")+2:cmd.index("-b:v")+2] = ["-crf", str(crf), "-preset", "medium"]
+                print(f"[VideoProxy] Retrying ffmpeg with: {' '.join(cmd)}")
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+                tail = []
+                for line in process.stdout:
+                    tail.append(line)
+                    if stop_flag and stop_flag.get('stop'):
+                        process.terminate()
+                        return None
+                    if "time=" in line:
+                        try:
+                            time_str = line.split("time=")[1].split()[0]
+                            h, m, s = time_str.split(":")
+                            current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                            if duration > 0 and progress_callback:
+                                progress = int((current_time / duration) * 100)
+                                progress_callback({
+                                    "status": "processing",
+                                    "progress": min(progress, 100),
+                                    "current_time": current_time,
+                                    "duration": duration
+                                })
+                        except Exception:
+                            pass
+                process.wait()
+                if process.returncode != 0:
+                    err_snippet = "".join(tail[-32:]) if tail else ""
+                    print(f"FFmpeg retry error: return code {process.returncode}. Last output: {err_snippet}")
+                    if progress_callback:
+                        progress_callback({"status": "error", "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()})
+                    return None
+            else:
+                if progress_callback:
+                    progress_callback({
+                        "status": "error",
+                        "error": f"FFmpeg return code {process.returncode}: {err_snippet}".strip()
+                    })
+                return None
         
         if os.path.exists(output_path):
             output_size = os.path.getsize(output_path)
