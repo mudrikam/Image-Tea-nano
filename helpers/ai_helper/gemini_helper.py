@@ -338,11 +338,22 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
         print("="*80)
         
         try:
-            if text.strip().startswith('```'):
-                text = text.strip().lstrip('`').lstrip('json').strip()
-                if text.endswith('```'):
-                    text = text[:text.rfind('```')].strip()
-            meta = json.loads(text)
+            def _extract_json_string_from_text(txt: str) -> str:
+                txt = txt.strip()
+                if '```' in txt:
+                    start = txt.find('```')
+                    end = txt.rfind('```')
+                    inner = txt[start+3:end].strip()
+                    if inner.lower().startswith('json'):
+                        inner = inner[len('json'):].lstrip('\n \t')
+                    return inner.strip()
+                m = re.search(r"\{.*\}", txt, re.DOTALL)
+                if m:
+                    return m.group(0).strip()
+                return txt
+
+            text_clean = _extract_json_string_from_text(text)
+            meta = json.loads(text_clean)
             title = meta.get('title', '')
             description = meta.get('description', '')
             tags = meta.get('tags', [])

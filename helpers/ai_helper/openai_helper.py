@@ -377,13 +377,25 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         print("="*80)
         
         try:
-            text_stripped = text.strip()
-            if text_stripped.startswith('<|begin_of_box|>') and text_stripped.endswith('<|end_of_box|>'):
-                text_stripped = text_stripped[len('<|begin_of_box|>'):-len('<|end_of_box|>')].strip()
-            if text_stripped.startswith('```'):
-                text_stripped = text_stripped.lstrip('`').lstrip('json').strip()
-                if text_stripped.endswith('```'):
-                    text_stripped = text_stripped[:text_stripped.rfind('```')].strip()
+            def _extract_json_string_from_text(txt: str) -> str:
+                txt = txt.strip()
+                begin_marker = '<|begin_of_box|>'
+                end_marker = '<|end_of_box|>'
+                if txt.startswith(begin_marker) and txt.endswith(end_marker):
+                    txt = txt[len(begin_marker):-len(end_marker)].strip()
+                if '```' in txt:
+                    start = txt.find('```')
+                    end = txt.rfind('```')
+                    inner = txt[start+3:end].strip()
+                    if inner.lower().startswith('json'):
+                        inner = inner[len('json'):].lstrip('\n \t')
+                    return inner.strip()
+                m = re.search(r"\{.*\}", txt, re.DOTALL)
+                if m:
+                    return m.group(0).strip()
+                return txt
+
+            text_stripped = _extract_json_string_from_text(text)
             meta = json.loads(text_stripped)
             title = meta.get('title', '')
             description = meta.get('description', '')
