@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QHBoxLayout, QPushButton, QCheckBox, QWidget, QSizePolicy
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextBrowser, QHBoxLayout, QPushButton, QCheckBox, QWidget, QSizePolicy
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QPixmap, QImageReader, QDesktopServices
 import qtawesome as qta
@@ -150,9 +150,14 @@ class UpdateNoticeDialog(QDialog):
         notes_label = QLabel("<b>Release notes:</b>")
         main_layout.addWidget(notes_label)
 
-        notes = QTextEdit()
-        notes.setReadOnly(True)
-        notes.setPlainText(release_notes or "No release notes available.")
+        notes = QTextBrowser()
+        notes.setOpenExternalLinks(True)
+        notes.setSearchPaths([os.path.join(BASE_PATH, "res", "images")])
+        notes.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        try:
+            notes.setMarkdown(release_notes or "No release notes available.")
+        except Exception:
+            notes.setPlainText(release_notes or "No release notes available.")
         main_layout.addWidget(notes)
 
         self.skip_checkbox = QCheckBox("Skip this version until next release")
