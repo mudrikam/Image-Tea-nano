@@ -17,6 +17,7 @@
   "compression_quality": 80,
   "batch_size": 3,
   "delay_interval": "Random",
+  "video_proxy_setting": "Auto",
   "model_list": {
     "gemini": [
       "gemini-2.5-flash",

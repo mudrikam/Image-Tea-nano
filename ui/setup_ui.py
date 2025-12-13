@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QTimer
 from helpers.check_for_update_helper import show_update_dialog_if_available
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
+from helpers.video_proxy_helper import get_video_proxy_invoker
 from ui.main_table import ImageTableWidget
 from ui.prompt_section import PromptSectionWidget
 from ui.stats_section import StatsSectionWidget
@@ -17,6 +18,12 @@ from ui.main_statusbar import MainStatusBar
 from database.db_operation import ImageTeaDB
 
 def setup_ui(self):
+    invoker = get_video_proxy_invoker(timeout=5)
+    if invoker is None:
+        print('[Startup Warning] VideoProxyInvoker could not be created; video dialogs will not appear.')
+    else:
+        print('[Startup] VideoProxyInvoker registered')
+
     setup_main_menu(self)
     setup_main_toolbar(self)
     self.db = getattr(self, 'db', None) or ImageTeaDB()

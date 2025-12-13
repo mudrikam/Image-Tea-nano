@@ -8,7 +8,8 @@ from config import BASE_PATH
 expected = [
     "exiftool",
     "ghostscript",
-    "cairo"
+    "cairo",
+    "ffmpeg"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
@@ -51,6 +52,8 @@ def check_folders():
                 download_and_extract_exiftool(folder)
             elif folder.endswith("cairo"):
                 download_and_extract_cairo(folder)
+            elif folder.endswith("ffmpeg"):
+                download_and_extract_ffmpeg(folder)
 
 def download_and_extract_ghostscript(target_folder):
     url = "https://github.com/mudrikam/ghostscript-for-image-tea/archive/refs/heads/main.zip"
@@ -131,6 +134,39 @@ def download_and_extract_cairo(target_folder):
         print("Cairo extracted successfully.")
     except Exception as e:
         print(f"Failed to download or extract Cairo: {e}")
+
+def download_and_extract_ffmpeg(target_folder):
+    url = "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip"
+    zip_path = os.path.join(target_folder, "ffmpeg.zip")
+    print(f"Downloading FFmpeg to {zip_path} ...")
+    try:
+        download_with_progress(url, zip_path)
+        print("Download complete. Extracting...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(target_folder)
+            extracted_root = None
+            for name in zip_ref.namelist():
+                root = name.split('/')[0]
+                if root:
+                    extracted_root = os.path.join(target_folder, root)
+                    break
+            if extracted_root and os.path.isdir(extracted_root):
+                for item in os.listdir(extracted_root):
+                    src = os.path.join(extracted_root, item)
+                    dst = os.path.join(target_folder, item)
+                    if os.path.isdir(src):
+                        if not os.path.exists(dst):
+                            os.rename(src, dst)
+                    else:
+                        os.replace(src, dst)
+                try:
+                    os.rmdir(extracted_root)
+                except Exception:
+                    pass
+        os.remove(zip_path)
+        print("FFmpeg extracted successfully.")
+    except Exception as e:
+        print(f"Failed to download or extract FFmpeg: {e}")
 
 if __name__ == "__main__":
     check_folders()

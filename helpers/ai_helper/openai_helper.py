@@ -6,9 +6,11 @@ import re
 from openai import OpenAI
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
-from helpers.image_compression_helper import compress_and_save_image
+import threading
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
+from helpers.image_compression_helper import compress_and_save_image
+from dialogs.video_proxy_dialog import VideoProxyDialog
+from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
 
 _generation_times_openai = []
 
@@ -225,6 +227,81 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 filename=filename
             )
         if is_video:
+            result_container = [None]
+            finished_event = threading.Event()
+            proxy_setting = get_video_proxy_setting()
+
+            def dialog_factory(video_path, proxy_setting, stop_flag, result_container, finished_event):
+                try:
+                    parent = QApplication.instance().activeWindow() if QApplication.instance() else None
+                    dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': 1})
+                    dlg.set_current_file(0, os.path.basename(video_path))
+                    proxy_worker = VideoProxyWorker(video_path, proxy_setting)
+
+                    def on_progress(data):
+                        try:
+                            dlg.update_progress(data)
+                            QApplication.processEvents()
+                        except Exception:
+                            pass
+
+                    def on_finished(result):
+                        if isinstance(result, str) and result:
+                            result_container[0] = (result, None)
+                        else:
+                            result_container[0] = (None, 'proxy failed or cancelled')
+                        try:
+                            if dlg and dlg.isVisible():
+                                dlg.close()
+                        except Exception:
+                            pass
+                        finished_event.set()
+
+                    proxy_worker.progress_update.connect(on_progress)
+                    proxy_worker.finished.connect(on_finished)
+
+                    def on_cancel_clicked():
+                        proxy_worker.stop()
+                        if stop_flag:
+                            stop_flag['stop'] = True
+                        dlg.request_stop()
+
+                    try:
+                        dlg.cancel_button.clicked.disconnect()
+                    except Exception:
+                        pass
+                    dlg.cancel_button.clicked.connect(on_cancel_clicked)
+
+                    proxy_worker.start()
+                    dlg.exec()
+                except Exception as e:
+                    print(f"[OpenAI] Dialog factory error: {e}")
+                    try:
+                        result_container[0] = (None, f"dialog factory error: {e}")
+                    except Exception:
+                        pass
+                    try:
+                        finished_event.set()
+                    except Exception:
+                        pass
+                    raise
+
+            invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
+            if not invoked:
+                error_message = f"[OpenAI ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered."
+                print(error_message)
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            else:
+                if not finished_event.wait(600):
+                    error_message = f"[OpenAI ERROR] Video proxy dialog timeout"
+                    print(error_message)
+                    return '', '', '', {}, '', error_message, 0, 0, 0
+                proxy_path, proxy_err = result_container[0]
+                if proxy_err:
+                    error_message = f"[OpenAI ERROR] Video proxy failed: {proxy_err}"
+                    print(error_message)
+                    return '', '', '', {}, '', error_message, 0, 0, 0
+                video_to_upload = proxy_path or image_path
             video_mime_map = {
                 '.mp4': 'video/mp4',
                 '.mpeg': 'video/mpeg',
@@ -233,7 +310,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 '.webm': 'video/webm'
             }
             mime_type = video_mime_map.get(ext, 'video/mp4')
-            with open(image_path, "rb") as f:
+            with open(video_to_upload, "rb") as f:
                 video_bytes = f.read()
             video_b64 = base64.b64encode(video_bytes).decode("utf-8")
             video_data_url = f"data:{mime_type};base64,{video_b64}"

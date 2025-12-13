@@ -6,9 +6,11 @@ import google.genai as genai
 from google.genai import types
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
-from helpers.image_compression_helper import compress_and_save_image
+import threading
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
+from helpers.image_compression_helper import compress_and_save_image
+from dialogs.video_proxy_dialog import VideoProxyDialog
+from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
 
 _generation_times_gemini = []
 
@@ -195,7 +197,80 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 filename=filename
             )
         if is_video:
-            myfile = client.files.upload(file=image_path)
+            result_container = [None]
+            finished_event = threading.Event()
+            proxy_setting = get_video_proxy_setting()
+
+            def dialog_factory(video_path, proxy_setting, stop_flag, result_container, finished_event):
+                try:
+                    parent = QApplication.instance().activeWindow() if QApplication.instance() else None
+                    dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': 1})
+                    dlg.set_current_file(0, os.path.basename(video_path))
+                    proxy_worker = VideoProxyWorker(video_path, proxy_setting)
+
+                    def on_progress(data):
+                        try:
+                            dlg.update_progress(data)
+                            QApplication.processEvents()
+                        except Exception:
+                            pass
+
+                    def on_finished(result):
+                        if isinstance(result, str) and result:
+                            result_container[0] = (result, None)
+                        else:
+                            result_container[0] = (None, 'proxy failed or cancelled')
+                        try:
+                            if dlg and dlg.isVisible():
+                                dlg.close()
+                        except Exception:
+                            pass
+                        finished_event.set()
+
+                    proxy_worker.progress_update.connect(on_progress)
+                    proxy_worker.finished.connect(on_finished)
+
+                    def on_cancel_clicked():
+                        proxy_worker.stop()
+                        if stop_flag:
+                            stop_flag['stop'] = True
+                        dlg.request_stop()
+
+                    try:
+                        dlg.cancel_button.clicked.disconnect()
+                    except Exception:
+                        pass
+                    dlg.cancel_button.clicked.connect(on_cancel_clicked)
+
+                    proxy_worker.start()
+                    dlg.exec()
+                except Exception as e:
+                    print(f"[Gemini] Dialog factory error: {e}")
+                    try:
+                        result_container[0] = (None, f"dialog factory error: {e}")
+                    except Exception:
+                        pass
+                    try:
+                        finished_event.set()
+                    except Exception:
+                        pass
+                    raise
+
+            invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
+            if not invoked:
+                print(f"[Gemini ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered.")
+                return '', '', '', {}, '', '[Gemini ERROR] Video proxy dialog invocation failed', 0, 0, 0
+            else:
+                if not finished_event.wait(600):
+                    print("[Gemini ERROR] Video proxy dialog timeout")
+                    return '', '', '', {}, '', '[Gemini ERROR] Video proxy timeout', 0, 0, 0
+                proxy_path, proxy_err = result_container[0]
+                if proxy_err:
+                    print(f"[Gemini ERROR] Video proxy failed: {proxy_err}")
+                    return '', '', '', {}, '', f"[Gemini ERROR] Video proxy failed: {proxy_err}", 0, 0, 0
+                video_to_upload = proxy_path or image_path
+
+            myfile = client.files.upload(file=video_to_upload)
             uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
             status = None
             max_wait_seconds = 600

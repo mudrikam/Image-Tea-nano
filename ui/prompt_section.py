@@ -160,7 +160,7 @@ class PromptSectionWidget(QWidget):
         compression_header.setContentsMargins(0, 0, 0, 0)
         compression_icon = QLabel()
         compression_icon.setPixmap(qta.icon('fa6s.compress', color=icon_color).pixmap(icon_size, icon_size))
-        compression_label = QLabel("Compression")
+        compression_label = QLabel("Quality")
         compression_label.setStyleSheet("color: #666; font-size: 10px;")
         compression_header.addWidget(compression_icon)
         compression_header.addWidget(compression_label)
@@ -170,7 +170,7 @@ class PromptSectionWidget(QWidget):
         self.cache_spin.setRange(1, 100)
         self.cache_spin.setFixedWidth(fixed_width)
         self.cache_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.cache_spin.setToolTip("Image Compression quality (1-100).\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality.")
+        self.cache_spin.setToolTip("Image Compression quality (1-100).\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality. \nThis method uses lossy compression \nto reduce file size before upload for processing.")
         compression_group.addWidget(self.cache_spin)
         
         compression_wrapper = QWidget()
@@ -205,6 +205,45 @@ class PromptSectionWidget(QWidget):
         delay_wrapper.setFixedWidth(fixed_width)
         main_layout.addWidget(delay_wrapper)
 
+        proxy_group = QVBoxLayout()
+        proxy_group.setSpacing(2)
+        proxy_group.setContentsMargins(0, 0, 0, 0)
+        proxy_header = QHBoxLayout()
+        proxy_header.setSpacing(3)
+        proxy_header.setContentsMargins(0, 0, 0, 0)
+        proxy_icon = QLabel()
+        proxy_icon.setPixmap(qta.icon('fa6s.video', color=icon_color).pixmap(icon_size, icon_size))
+        proxy_label = QLabel("Proxy")
+        proxy_label.setStyleSheet("color: #666; font-size: 10px;")
+        proxy_header.addWidget(proxy_icon)
+        proxy_header.addWidget(proxy_label)
+        proxy_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        proxy_group.addLayout(proxy_header)
+        self.proxy_combo = QComboBox()
+        self.proxy_combo.addItems(["Off", "Auto", "Low", "Medium", "High"])
+        self.proxy_combo.setFixedWidth(fixed_width)
+        self.proxy_combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.proxy_combo.setToolTip(
+            "Video proxy (FFmpeg) presets for uploading to AI services:\n"
+            "Off = upload original file unchanged.\n"
+            "Auto = pick Low/Medium/High based on input resolution.\n"
+            "Low/Medium/High = preset bitrates and resolutions (see items).\n"
+            "Proxy converts to MP4 (H.264) and uses `compression_quality` from config\n"
+            "to derive CRF; files are written to `temp/videos/` and auto-cleaned."
+        )
+        # Per-item tooltips (detailed to match helpers/video_proxy_helper.py)
+        self.proxy_combo.setItemData(0, "Off - Upload original file without proxy conversion", Qt.ToolTipRole)
+        self.proxy_combo.setItemData(1, "Auto - Choose preset based on input resolution (Low/Medium/High)", Qt.ToolTipRole)
+        self.proxy_combo.setItemData(2, "Low - 480p target (~1000k bitrate), converts to MP4 H.264", Qt.ToolTipRole)
+        self.proxy_combo.setItemData(3, "Medium - 720p target (~2500k bitrate), converts to MP4 H.264", Qt.ToolTipRole)
+        self.proxy_combo.setItemData(4, "High - 1080p target (~5000k bitrate), converts to MP4 H.264", Qt.ToolTipRole)
+        proxy_group.addWidget(self.proxy_combo)
+
+        proxy_wrapper = QWidget()
+        proxy_wrapper.setLayout(proxy_group)
+        proxy_wrapper.setFixedWidth(fixed_width)
+        main_layout.addWidget(proxy_wrapper)
+
         main_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         outer_layout.addLayout(main_layout)
@@ -218,6 +257,7 @@ class PromptSectionWidget(QWidget):
         self.batch_size_spin.valueChanged.connect(self.save_prompt_config)
         self.cache_spin.valueChanged.connect(self.save_prompt_config)
         self.delay_combo.currentTextChanged.connect(self.save_prompt_config)
+        self.proxy_combo.currentTextChanged.connect(self.save_prompt_config)
         self.load_prompt_config()
 
     def load_prompt_config(self):
@@ -233,6 +273,8 @@ class PromptSectionWidget(QWidget):
             self.cache_spin.setValue(data["compression_quality"])
             delay_value = data.get("delay_interval", "Random")
             self.delay_combo.setCurrentText(str(delay_value))
+            proxy_value = data.get("video_proxy_setting", "Auto")
+            self.proxy_combo.setCurrentText(str(proxy_value))
         except Exception as e:
             print(f"Failed to load prompt config: {e}")
         self._loading = False
@@ -252,6 +294,7 @@ class PromptSectionWidget(QWidget):
         data["batch_size"] = self.batch_size_spin.value()
         data["compression_quality"] = self.cache_spin.value()
         data["delay_interval"] = self.delay_combo.currentText()
+        data["video_proxy_setting"] = self.proxy_combo.currentText()
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

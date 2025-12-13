@@ -213,7 +213,8 @@ tests/
 temp/
 tools/exiftool/
 tools/ghostscript/
-tools/cairo
+tools/cairo/
+tools/ffmpeg/
 database/db_backups
 
 Sign-Image-Tea.bat
