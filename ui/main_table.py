@@ -11,6 +11,7 @@ from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from ui.file_dnd_widget import DragDropWidget
 import qtawesome as qta
 import os
+import html
 import qtawesome as qta
 import os
 
@@ -160,7 +161,7 @@ class FlowLayout(QLayout):
                 lineHeight = 0
                 
             if not testOnly:
-                # Force explicit positioning to prevent stacking
+                                                                
                 item.setGeometry(QRect(QtQPoint(x, y), itemSize))
                 if widget:
                     widget.move(x, y)
@@ -174,7 +175,7 @@ class FlowLayout(QLayout):
     def invalidate(self):
         super().invalidate()
         self.updateGeometry()
-        # Force a complete re-layout to prevent stacking issues
+                                                               
         if self.parent():
             self.parent().update()
 
@@ -188,7 +189,7 @@ class GridManager:
     def __init__(self):
         self.image_items = []
         self.image_size = 150
-        # pixmap cache target size (store higher-res cache to avoid blur when scaling up)
+                                                                                         
         self._pixmap_cache_size = max(300, self.image_size * 2)
         self.grid_spacing = 10
         self.active_image = None
@@ -243,7 +244,7 @@ class GridManager:
                             pix = cache_pix.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             image_label.setPixmap(pix)
                         else:
-                            # fallback: set scaled QPixmap directly (may be slower)
+                                                                                   
                             pm = QPixmap(filepath)
                             if not pm.isNull():
                                 pm = pm.scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -936,7 +937,7 @@ class ImageTableWidget(QWidget):
         self.tab_widget.addTab(self.details_tab, qta.icon("fa6s.list"), "Details")
         self.tab_widget.addTab(self.add_files_tab, qta.icon("fa6s.folder-plus"), "Add Files")
         
-        # Progress section - moved after tab widget so it's visible in all tabs
+                                                                               
         progress_layout = QVBoxLayout()
         progress_layout.setContentsMargins(4, 4, 4, 4)
         progress_layout.setSpacing(2)
@@ -969,6 +970,10 @@ class ImageTableWidget(QWidget):
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.table.viewport().installEventFilter(self)
         self.table.setMouseTracking(True)
+                                                                    
+        self._last_hover_row = None
+                                                           
+        self._tooltip_max_width = 360
         self._current_rows = []
         self.grid_manager = GridManager()
         self.grid_manager.set_status_color_func(self._status_color)
@@ -976,24 +981,33 @@ class ImageTableWidget(QWidget):
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         self._inject_open_metadata_dialog_for_grid()
         self.thumbnail_scroll.installEventFilter(self)
-        # Also install on viewport to capture wheel events reliably
+                                                                   
         try:
             self.thumbnail_scroll.viewport().installEventFilter(self)
         except Exception:
             pass
 
-        # Debounce timer for regenerating high-res thumbnail cache after user stops Ctrl+scroll
+                                                                                               
         self._pending_thumb_size = None
         self._thumb_resize_timer = QTimer(self)
         self._thumb_resize_timer.setSingleShot(True)
         self._thumb_resize_timer.setInterval(300)
         self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
-        
+
+                                                          
+        self._pending_hover_row = None
+        self._pending_tooltip_global_pos = None
+        self._pending_tooltip_content = ""
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(3000)
+        self._tooltip_timer.timeout.connect(self._show_pending_tooltip)
+
         self.refresh_table()
 
     def eventFilter(self, obj, event):
         """Handle resize events to force thumbnail layout refresh and checkbox drag selection"""
-        # Handle checkbox drag selection in table
+                                                 
         if obj == self.table.viewport():
             if event.type() == QEvent.MouseButtonPress:
                 pos = event.pos()
@@ -1024,20 +1038,73 @@ class ImageTableWidget(QWidget):
                     self._drag_check_state = None
                     return True
         
-        # Resize -> refresh layout
+                                                                                   
+        if obj == self.table.viewport() and event.type() == QEvent.MouseMove and not self._checkbox_dragging:
+            pos = event.pos()
+            index = self.table.indexAt(pos)
+            if index.isValid():
+                row = index.row()
+                                                                          
+                if row == self._last_hover_row:
+                    pass
+                elif row == getattr(self, '_pending_hover_row', None):
+                                                                            
+                    self._pending_tooltip_global_pos = self.table.viewport().mapToGlobal(pos)
+                else:
+                                                                                           
+                    if row != getattr(self, '_pending_hover_row', None):
+                        try:
+                            self._tooltip_timer.stop()
+                        except Exception:
+                            pass
+                                                                                                           
+                        try:
+                            QToolTip.hideText()
+                        except Exception:
+                            pass
+                                                                                   
+                        self._last_hover_row = None
+
+                        tooltip = self._get_tooltip_for_row_index(row)
+                        global_pos = self.table.viewport().mapToGlobal(pos)
+                        if tooltip:
+                                                                                
+                            self._pending_hover_row = row
+                            self._pending_tooltip_global_pos = global_pos
+                            self._pending_tooltip_content = tooltip
+                            self._tooltip_timer.start()
+                        else:
+                                                                                           
+                            self._pending_hover_row = None
+                            self._pending_tooltip_global_pos = None
+                            self._pending_tooltip_content = ""
+            else:
+                                                                                          
+                try:
+                    self._tooltip_timer.stop()
+                except Exception:
+                    pass
+                if self._last_hover_row is not None:
+                    QToolTip.hideText()
+                    self._last_hover_row = None
+                self._pending_hover_row = None
+                self._pending_tooltip_global_pos = None
+                self._pending_tooltip_content = ""
+
+                                  
         if obj == self.thumbnail_scroll and event.type() == QEvent.Resize:
             if self.tab_widget.currentIndex() == 1:
                 QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
                 return True
 
-        # Wheel with Ctrl -> resize thumbnails
+                                              
         if event.type() == QEvent.Wheel and self.tab_widget.currentIndex() == 1:
-            # wheel events may come from scroll area or its viewport
+                                                                    
             if obj in (self.thumbnail_scroll, self.thumbnail_scroll.viewport(), self.thumbnail_content):
                 from PySide6.QtWidgets import QApplication
                 mods = QApplication.keyboardModifiers()
                 if mods & Qt.ControlModifier:
-                    # angleDelta is a QPoint; vertical delta in .y()
+                                                                    
                     delta = 0
                     try:
                         delta = event.angleDelta().y()
@@ -1048,20 +1115,37 @@ class ImageTableWidget(QWidget):
                     steps = delta / 120.0
                     step_size = 12
                     new_size = int(self.grid_manager.image_size + steps * step_size)
-                    # clamp
+                           
                     new_size = max(48, min(600, new_size))
 
-                    # Immediate fast resize (reuse existing cache) so UI feels responsive
+                                                                                         
                     self.grid_manager.set_image_size(new_size)
-                    # schedule debounced regeneration of high-res cache
+                                                                       
                     self._pending_thumb_size = new_size
                     self._thumb_resize_timer.start()
 
-                    # quick layout refresh so thumbnails immediately rearrange
+                                                                              
                     QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
                     return True
 
         return super().eventFilter(obj, event)
+
+    def _show_pending_tooltip(self):
+        """Show tooltip scheduled by hover debounce timer."""
+        try:
+            pending_row = getattr(self, '_pending_hover_row', None)
+            tooltip = getattr(self, '_pending_tooltip_content', '')
+            pos = getattr(self, '_pending_tooltip_global_pos', None)
+            if pending_row is None or not tooltip or pos is None:
+                return
+            QToolTip.showText(pos, tooltip, self.table.viewport())
+                                                                
+            self._last_hover_row = pending_row
+        finally:
+                                 
+            self._pending_hover_row = None
+            self._pending_tooltip_global_pos = None
+            self._pending_tooltip_content = ""
 
     def _inject_open_metadata_dialog_for_grid(self):
         def _open_metadata_dialog_by_filepath(filepath):
@@ -1077,7 +1161,7 @@ class ImageTableWidget(QWidget):
     def _on_reload_clicked(self):
         self._page_cache.clear()
         self.refresh_table()
-        # Force thumbnail layout refresh if we're on thumbnail tab
+                                                                  
         if self.tab_widget.currentIndex() == 1:
             QTimer.singleShot(100, self._force_thumbnail_layout_refresh)
 
@@ -1142,7 +1226,7 @@ class ImageTableWidget(QWidget):
         
         if self.tab_widget.currentIndex() == 1:
             self.refresh_thumbnail_grid()
-            # Force layout refresh after a short delay
+                                                      
             QTimer.singleShot(50, self._force_thumbnail_layout_refresh)
         elif self.tab_widget.currentIndex() == 2:
             self._refresh_details_cards()
@@ -1197,10 +1281,16 @@ class ImageTableWidget(QWidget):
                 item = self.table.item(row_idx, col)
                 if item:
                     item.setBackground(QBrush(color))
+                                                                                             
+            tooltip = self._format_row_tooltip(row, max_width_px=self._tooltip_max_width)
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row_idx, col)
+                if item:
+                    item.setToolTip(tooltip)
 
     def _on_tab_changed(self, idx):
         if self.tab_widget.tabText(idx) == "Thumbnail":
-            # Force immediate layout refresh when switching to thumbnail tab
+                                                                            
             QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
             self.refresh_thumbnail_grid()
             self._sync_thumbnail_selection_with_table()
@@ -1215,7 +1305,7 @@ class ImageTableWidget(QWidget):
             target = int(self._pending_thumb_size)
             self.grid_manager.image_size = target
             self.grid_manager.regenerate_pixmap_cache()
-            # force layout refresh
+                                  
             QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
         finally:
             self._pending_thumb_size = None
@@ -1223,65 +1313,65 @@ class ImageTableWidget(QWidget):
     def _force_thumbnail_layout_refresh(self):
         """Force thumbnail layout to refresh properly"""
         if hasattr(self, 'thumbnail_content') and hasattr(self, 'thumbnail_flow'):
-            # Get current geometry
+                                  
             content_rect = self.thumbnail_content.rect()
             
-            # Force layout recalculation
+                                        
             self.thumbnail_flow.invalidate()
             
-            # Set geometry explicitly if valid
+                                              
             if content_rect.width() > 0 and content_rect.height() > 0:
                 self.thumbnail_flow.setGeometry(content_rect)
             
-            # Update all components
+                                   
             self.thumbnail_content.updateGeometry()
             self.thumbnail_content.update()
             self.thumbnail_scroll.updateGeometry()
             
-            # Process events to apply changes
+                                             
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
 
     def _on_paste_clicked(self):
-        # Stop any pending search timer
+                                       
         self.search_timer.stop()
         
         clipboard = QGuiApplication.clipboard()
         text = clipboard.text()
         self.search_edit.setText(text)
         
-        # Immediately perform search after paste
+                                                
         self._pending_search_text = text.strip()
         self._perform_search()
 
     def _on_clear_search(self):
-        # Stop any pending search timer
+                                       
         self.search_timer.stop()
         
-        # Clear the search field
+                                
         self.search_edit.clear()
         
-        # Immediately perform search with empty text
+                                                    
         self._pending_search_text = ''
         self._perform_search()
 
     def _on_search_text_changed_delayed(self, text):
         """Handle search text change with delay - restart timer on each keystroke"""
-        # Stop current timer if running
+                                       
         self.search_timer.stop()
         
-        # Store the search text temporarily
+                                           
         self._pending_search_text = text.strip()
         
-        # Start timer with 800ms delay (user stops typing for 0.8 seconds)
+                                                                          
         self.search_timer.start(800)
 
     def _perform_search(self):
         """Perform the actual search after delay"""
-        # Get the pending search text
+                                     
         text = getattr(self, '_pending_search_text', '')
         
-        # Perform the search
+                            
         self.search_text = text
         self.current_page = 1
         self._page_cache.clear()
@@ -1291,11 +1381,11 @@ class ImageTableWidget(QWidget):
 
     def _on_search_text_changed(self, text):
         """Legacy method - now handled by delayed search"""
-        # This method is kept for compatibility but not used
+                                                            
         pass
 
     def _filter_table(self, text):
-        # This method is now replaced by pagination logic
+                                                         
         pass
 
     def _row_matches_search(self, row, text):
@@ -1320,6 +1410,62 @@ class ImageTableWidget(QWidget):
             last10 = filename[-10:] if len(filename) > 10 else filename
             return f"...{os.sep}{last10}"
         return path
+
+    def _format_row_tooltip(self, row, max_width_px=360):
+                                                                  
+        if not row or len(row) < 2:
+            return ""
+        filepath = row[1] if len(row) > 1 and row[1] else ""
+        filename = row[2] if len(row) > 2 and row[2] else ""
+        title = row[3] if len(row) > 3 and row[3] else ""
+        desc = row[4] if len(row) > 4 and row[4] else ""
+        tags = row[5] if len(row) > 5 and row[5] else ""
+        status = row[6] if len(row) > 6 and row[6] else ""
+
+        def esc(val):
+            return html.escape(str(val)) if val is not None else ""
+
+        parts = []
+                                           
+        parts.append(f"<b>Filename:</b> {esc(filename)}")
+        if title:
+            parts.append(f"<b>Title:</b> {esc(title)}")
+        if desc:
+            parts.append(f"<b>Description:</b> {esc(desc)}")
+        if tags:
+            parts.append(f"<b>Tags:</b> {esc(tags)}")
+        if status:
+            parts.append(f"<b>Status:</b> {esc(status)}")
+        parts.append(f"<b>Filepath:</b> {esc(filepath)}")
+
+        inner = "<br/><br/>".join(parts)
+        html_tooltip = f'<div style="max-width: {int(max_width_px)}px; white-space: pre-wrap; word-wrap: break-word;">{inner}</div>'
+        return html_tooltip
+
+    def _get_tooltip_for_row_index(self, row_idx):
+        if 0 <= row_idx < len(self._current_rows):
+            return self._format_row_tooltip(self._current_rows[row_idx], max_width_px=self._tooltip_max_width)
+        return ""
+
+    def _get_tooltip_for_filepath(self, filepath):
+                                                        
+        for row in self._current_rows:
+            if len(row) > 1 and row[1] == filepath:
+                return self._format_row_tooltip(row, max_width_px=self._tooltip_max_width)
+                                          
+        return self._format_row_tooltip([None, filepath], max_width_px=self._tooltip_max_width) if filepath else ""
+
+    def _update_widget_tooltip_for_filepath(self, filepath):
+        if not filepath:
+            return
+        tooltip = self._get_tooltip_for_filepath(filepath)
+        widget = self.grid_manager._widget_cache.get(filepath)
+        if widget:
+            widget.setToolTip(tooltip)
+                                                                             
+            lbls = [c for c in widget.findChildren(QLabel)]
+            for lbl in lbls:
+                lbl.setToolTip(tooltip)
 
     def _show_context_menu(self, pos: QPoint):
         index = self.table.indexAt(pos)
@@ -1456,14 +1602,14 @@ class ImageTableWidget(QWidget):
         if status_item:
             status_item.setText(status.capitalize())
         
-        # Update current page data and cache
+                                            
         if 0 <= row_idx < len(self._current_rows):
             row_list = list(self._current_rows[row_idx])
             if len(row_list) > 6:
                 row_list[6] = status
                 self._current_rows[row_idx] = tuple(row_list)
                 
-                # Update cache for current page
+                                               
                 cache_key = (self.current_page, self.page_size, self.search_text)
                 if cache_key in self._page_cache:
                     cache_rows = list(self._page_cache[cache_key])
@@ -1482,6 +1628,8 @@ class ImageTableWidget(QWidget):
                 filepath = item.text()
         if filepath:
             self.grid_manager.update_thumbnail_status(filepath, status)
+                                                  
+            self._update_widget_tooltip_for_filepath(filepath)
         self._highlight_selected_row()
 
     def _status_color(self, status):
@@ -1521,14 +1669,24 @@ class ImageTableWidget(QWidget):
         status_item = self.table.item(row_idx, 8)
         if status_item:
             status_item.setText(str(status_val))
+                                                    
+        filepath = row_data[1] if len(row_data) > 1 else None
+        if filepath:
+            self._update_widget_tooltip_for_filepath(filepath)
+                                                                     
+            tooltip = self._format_row_tooltip(row_data, max_width_px=self._tooltip_max_width)
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row_idx, col)
+                if item:
+                    item.setToolTip(tooltip)
 
     def refresh_table(self):
         self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
-        self._page_cache.clear()  # Clear cache on refresh
+        self._page_cache.clear()                          
         self._load_page_data()
         self._update_pagination_ui()
         
-        # Check for donation dialog based on total count
+                                                        
         if self.total_count >= 100:
             if not self._donation_dialog_shown and not is_donation_optout_today():
                 self._donation_dialog_shown = True
@@ -1554,14 +1712,14 @@ class ImageTableWidget(QWidget):
             self._refresh_details_cards()
 
     def refresh_thumbnail_grid(self):
-        # Prevent multiple simultaneous calls
+                                             
         if self._refreshing_thumbnails:
             return
         
         self._refreshing_thumbnails = True
         
         try:
-            # Show progress bar
+                               
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             self.progress_label.setText("Loading thumbnails...")
@@ -1581,7 +1739,7 @@ class ImageTableWidget(QWidget):
                 
             self.progress_bar.setMaximum(len(files_data) if files_data else 1)
                 
-            # Clear current thumbnails
+                                      
             current_keys = set(self.grid_manager._widget_cache.keys())
             new_keys = set(f['filepath'] for f in files_data)
             for key in current_keys - new_keys:
@@ -1595,44 +1753,51 @@ class ImageTableWidget(QWidget):
                     widget.setParent(None)
             
             if not files_data:
-                # Hide thumbnail content, show no data overlay
+                                                              
                 self.thumbnail_scroll.setVisible(False)
                 self.thumbnail_no_data_overlay.setVisible(True)
             else:
-                # Show thumbnail content, hide no data overlay
+                                                              
                 self.thumbnail_scroll.setVisible(True)
                 self.thumbnail_no_data_overlay.setVisible(False)
                 
                 for i, file_info in enumerate(files_data):
                     widget = self.grid_manager._create_image_widget(file_info)
+                                                                         
+                    tooltip = self._get_tooltip_for_filepath(file_info.get('filepath', ''))
+                    if tooltip:
+                        widget.setToolTip(tooltip)
+                        lbls = [c for c in widget.findChildren(QLabel)]
+                        for lbl in lbls:
+                            lbl.setToolTip(tooltip)
                     self.thumbnail_flow.addWidget(widget)
                     
-                    # Update progress with visual feedback
+                                                          
                     self.progress_bar.setValue(i + 1)
                     self.progress_label.setText(f"Loading thumbnails... ({i + 1}/{len(files_data)})")
                     
-                    # Process events every few items for incremental rendering
+                                                                              
                     if i % 3 == 0:
                         QApplication.processEvents()
                         
-                # Force complete layout refresh to prevent stacking issues
+                                                                          
                 self.thumbnail_flow.invalidate()
                 self.thumbnail_content.updateGeometry()
                 self.thumbnail_scroll.updateGeometry()
                 
-                # Force layout recalculation by setting geometry explicitly
+                                                                           
                 content_rect = self.thumbnail_content.rect()
                 if content_rect.width() > 0:
                     self.thumbnail_flow.setGeometry(content_rect)
                 
-                # Multiple process events to ensure layout is properly applied
+                                                                              
                 QApplication.processEvents()
                 self.thumbnail_content.update()
                 QApplication.processEvents()
                 
                 self._update_thumbnail_checklist_style()
             
-            # Hide progress bar
+                               
             self.progress_bar.setVisible(False)
             self.progress_label.setText("Ready")
             
@@ -1692,8 +1857,8 @@ class ImageTableWidget(QWidget):
         return []
 
     def _emit_stats(self):
-        # Stats are calculated from current page only for selected/checked
-        # but total/failed/success/draft from ALL data
+                                                                          
+                                                      
         page_total = self.table.rowCount()
         checked = 0
         status_col = 8
@@ -1702,7 +1867,7 @@ class ImageTableWidget(QWidget):
             if checkbox_item and checkbox_item.checkState() == Qt.Checked:
                 checked += 1
         
-        # Get total stats from database for all data
+                                                    
         all_files = self.db.get_all_files()
         total = len(all_files)
         failed = sum(1 for row in all_files if len(row) > 6 and row[6] and row[6].strip().lower() == "failed")
@@ -1715,7 +1880,7 @@ class ImageTableWidget(QWidget):
         if item.column() == 0:
             self._emit_stats()
             self._update_thumbnail_checklist_style()
-        # Details cards don't need refresh when checkbox changes
+                                                                
 
     def _on_selection_changed(self, selected, deselected):
         if self._properties_widget is None:
@@ -1739,7 +1904,7 @@ class ImageTableWidget(QWidget):
             self._properties_widget.set_properties(None)
         if self.tab_widget.currentIndex() == 1:
             self._sync_thumbnail_selection_with_table()
-        # Details cards don't need refresh on selection change
+                                                              
         self._highlight_selected_row()
     
     def _select_all_rows(self):
@@ -1881,7 +2046,7 @@ class ImageTableWidget(QWidget):
                     row_data = [row[0]] + list(row[1:7]) + [row[7] if len(row) > 7 else ""] + [str(title_length), str(tag_count)]
                     self._properties_widget.set_properties(row_data)
                     break
-        # Details cards don't need refresh on thumbnail click
+                                                             
 
     def _update_thumbnail_checklist_style(self):
         checked_filepaths = []
@@ -1913,14 +2078,14 @@ class ImageTableWidget(QWidget):
             self.refresh_table()
 
     def _refresh_details_cards(self):
-        # Prevent multiple simultaneous calls
+                                             
         if self._refreshing_details:
             return
         
         self._refreshing_details = True
         
         try:
-            # Show progress bar
+                               
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             self.progress_label.setText("Loading details...")
@@ -1928,7 +2093,7 @@ class ImageTableWidget(QWidget):
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             
-            # Remove all widgets from layout, but keep cache
+                                                            
             for i in reversed(range(self.details_vbox.count())):
                 item = self.details_vbox.itemAt(i)
                 widget = item.widget()
@@ -1938,7 +2103,7 @@ class ImageTableWidget(QWidget):
             rows = self._current_rows
             self.progress_bar.setMaximum(len(rows) if rows else 1)
             
-            # Remove cache for files not in current page
+                                                        
             current_filepaths = set(row[1] for row in rows)
             for filepath in list(self.details_card_cache.keys()):
                 if filepath not in current_filepaths:
@@ -1949,14 +2114,14 @@ class ImageTableWidget(QWidget):
                         del self.grid_manager._pixmap_cache[filepath]
             
             if not rows:
-                # Hide details content, show no data overlay
+                                                            
                 self.details_scroll.setVisible(False)
                 self.details_no_data_overlay.setVisible(True)
                 self.progress_bar.setVisible(False)
                 self.progress_label.setText("Ready")
                 return
             else:
-                # Show details content, hide no data overlay
+                                                            
                 self.details_scroll.setVisible(True)
                 self.details_no_data_overlay.setVisible(False)
             
@@ -1970,15 +2135,15 @@ class ImageTableWidget(QWidget):
                     self.details_card_cache[filepath] = card
                 self.details_vbox.addWidget(card)
                 
-                # Update progress with visual feedback
+                                                      
                 self.progress_bar.setValue(i + 1)
                 self.progress_label.setText(f"Loading details... ({i + 1}/{len(rows)})")
                 
-                # Process events every few items for incremental rendering
-                if i % 2 == 0:  # Process more frequently for details since they're larger
+                                                                          
+                if i % 2 == 0:                                                            
                     QApplication.processEvents()
             
-            # Hide progress bar
+                               
             self.progress_bar.setVisible(False)
             self.progress_label.setText("Ready")
             
@@ -2034,7 +2199,7 @@ class ImageTableWidget(QWidget):
                     elif m["platform"] == "adobe_stock":
                         adobe_val = adobe_map.get(str(m["category_id"]), "-")
 
-        # Helper to create a single row with icon, label name and value
+                                                                       
         def make_row(icon_name, label_text, value_text):
             row_widget = QWidget()
             row_h = QHBoxLayout(row_widget)
@@ -2061,14 +2226,14 @@ class ImageTableWidget(QWidget):
 
             return row_widget, value_lbl
 
-        # Create rows
+                     
         r1, val_filename = make_row("fa6s.file", "Filename", filename)
         r2, val_title = make_row("fa6s.heading", "Title", title)
         r3, val_desc = make_row("fa6s.align-left", "Description", desc)
         r4, val_tags = make_row("fa6s.tags", "Tags", tags)
         r5, val_status = make_row("fa6s.circle-info", "Status", status)
 
-        # Set status color on value label
+                                         
         color = self._status_color(status)
         val_status.setStyleSheet(f"color: rgb({color.red()}, {color.green()}, {color.blue()});")
 
@@ -2078,13 +2243,13 @@ class ImageTableWidget(QWidget):
         vbox.addWidget(r4)
         vbox.addWidget(r5)
 
-        # Add horizontal separator
+                                  
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
         vbox.addWidget(sep)
 
-        # Categories
+                    
         r6, val_cat_primary = make_row("fa6s.shapes", "Shutterstock Primary", primary_val)
         r7, val_cat_secondary = make_row("fa6s.layer-group", "Shutterstock Secondary", secondary_val)
         r8, val_cat_adobe = make_row("fa6s.briefcase", "Adobe Stock Category", adobe_val)
@@ -2094,7 +2259,7 @@ class ImageTableWidget(QWidget):
 
         card_hbox.addLayout(vbox)
 
-        # store references for updates (value labels only)
+                                                          
         frame._details_thumb = thumb
         frame._details_label_filename = val_filename
         frame._details_label_title = val_title
@@ -2141,13 +2306,13 @@ class ImageTableWidget(QWidget):
                             secondary_val = shutterstock_map.get(str(m["category_id"]), "-")
                     elif m["platform"] == "adobe_stock":
                         adobe_val = adobe_map.get(str(m["category_id"]), "-")
-        # Update only the value parts (name labels are static)
+                                                              
         card._details_label_filename.setText(filename)
         card._details_label_title.setText(title)
         card._details_label_desc.setText(desc)
         card._details_label_tags.setText(tags)
         card._details_label_status.setText(status)
-        # Set status color
+                          
         color = self._status_color(status)
         card._details_label_status.setStyleSheet(f"color: rgb({color.red()}, {color.green()}, {color.blue()});")
         card._details_label_cat_primary.setText(primary_val)
@@ -2262,7 +2427,7 @@ class ImageTableWidget(QWidget):
         base_text = f"Generating metadata ({mode_text})"
         
         if service and api_key:
-            # Show last 5 characters of API key
+                                               
             masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
             base_text += f" - {service}: {masked_key}"
         
