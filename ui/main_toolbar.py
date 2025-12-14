@@ -57,12 +57,16 @@ def add_vertical_separator(toolbar):
     sep_action.setDefaultWidget(wrapper)
     toolbar.addAction(sep_action)
 
-def create_toolbar_button_with_label(icon_normal, icon_hover, text, tooltip, triggered_func, window, icon_size):
+def create_toolbar_button_with_label(icon_normal, icon_hover, text, tooltip, triggered_func, window, icon_size, obj_name=None):
     btn_widget = QWidget()
+    if obj_name:
+        btn_widget.setObjectName(f"wrapper_{obj_name}")
     v_layout = QVBoxLayout(btn_widget)
     v_layout.setContentsMargins(2, 2, 2, 2)
     v_layout.setSpacing(0)
     btn = QToolButton()
+    if obj_name:
+        btn.setObjectName(obj_name)
     btn.setIcon(icon_normal)
     btn.setIconSize(icon_size)
     btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
@@ -75,6 +79,8 @@ def create_toolbar_button_with_label(icon_normal, icon_hover, text, tooltip, tri
     v_layout.addWidget(btn, alignment=Qt.AlignHCenter)
     v_layout.addWidget(label, alignment=Qt.AlignHCenter)
     action = QWidgetAction(window)
+    if obj_name:
+        action.setObjectName(f"action_{obj_name}")
     action.setDefaultWidget(btn_widget)
     return action
 
@@ -89,6 +95,10 @@ def relaunch_app(window):
 
 def setup_main_toolbar(window: QWidget):
     toolbar = QToolBar("Main Toolbar", window)
+    try:
+        window.main_toolbar = toolbar
+    except Exception:
+        pass
     toolbar.setMovable(False)
     toolbar.setFloatable(False)
     toolbar.setIconSize(window.style().standardIcon(QStyle.SP_DesktopIcon).actualSize(toolbar.iconSize()))
@@ -118,7 +128,7 @@ def setup_main_toolbar(window: QWidget):
         "Import",
         "Import files into the table for metadata generation. \nSupports common images, vector graphics, and videos.",
         lambda: (import_files(window, window.db) and window.table.refresh_table()),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_import')
     toolbar.addAction(import_action)
 
     clear_all_action = create_toolbar_button_with_label(
@@ -127,7 +137,7 @@ def setup_main_toolbar(window: QWidget):
         "Clear",
         "Clear all files from the table. \nThis does NOT delete files from disk. \nOnly clears the database entries. \nUse when you want to start fresh.",
         lambda: window.table.clear_all(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_clear')
     toolbar.addAction(clear_all_action)
 
     delete_selected_action = create_toolbar_button_with_label(
@@ -136,7 +146,7 @@ def setup_main_toolbar(window: QWidget):
         "Delete",
         "Delete selected files from the table. \nThis does NOT delete files from disk. \nSame as Clear All, but only for selected rows.",
         lambda: window.table.delete_selected(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_delete')
     toolbar.addAction(delete_selected_action)
 
     add_vertical_separator(toolbar)
@@ -147,7 +157,7 @@ def setup_main_toolbar(window: QWidget):
         "Clear",
         "Clear all metadata from database for all files. \nThis does NOT delete files from disk. \nOnly clears the metadata entries in the database. \nOriginal metadata in files remains unchanged. \nBut you CAN NOT UNDO this action. \nUSE WITH CAUTION.",
         lambda: clear_existing_metadata(window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_clear_metadata')
     toolbar.addAction(clear_metadata_action)
 
     batch_rename_action = create_toolbar_button_with_label(
@@ -156,7 +166,7 @@ def setup_main_toolbar(window: QWidget):
         "Rename",
         "Batch rename selected files in the table. \nThis does NOT modify metadata. \nBut renaming your files directly on disk. \nUSE WITH CAUTION. \nRollback is supported via the dialog by Undo Rename button.",
         lambda: BatchRenameDialog(window, table_widget=window.table, db=window.db).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_rename')
     toolbar.addAction(batch_rename_action)
 
     edit_metadata_action = create_toolbar_button_with_label(
@@ -165,7 +175,7 @@ def setup_main_toolbar(window: QWidget):
         "Edit",
         "Edit metadata for selected file in a dialog window. \nYou can modify title, description, keywords, \nand other metadata fields manually. \nSupports both images and videos.",
         lambda: open_edit_metadata(window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_edit')
     toolbar.addAction(edit_metadata_action)
 
     add_vertical_separator(toolbar)
@@ -176,7 +186,7 @@ def setup_main_toolbar(window: QWidget):
         "Write",
         "Write metadata to image files in the table \nThis will modify the actual image files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome image formats may not support certain metadata fields.",
         lambda: write_metadata_to_images(window.db, window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_write_images')
     toolbar.addAction(write_metadata_images_action)
 
     write_metadata_videos_action = create_toolbar_button_with_label(
@@ -185,7 +195,7 @@ def setup_main_toolbar(window: QWidget):
         "Write",
         "Write metadata to video files in the table \nThis will modify the actual video files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome video formats may not support certain metadata fields.",
         lambda: write_metadata_to_videos(window.db, window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_write_videos')
     toolbar.addAction(write_metadata_videos_action)
 
     export_metadata_action = create_toolbar_button_with_label(
@@ -194,7 +204,7 @@ def setup_main_toolbar(window: QWidget):
         "Export",
         "Export metadata to CSV file in the table \nYou can choose the destination and filename. \nUseful for backup or further processing. \nSupports common CSV format \nthat can be used for microstock submissions.",
         lambda: CSVExporterDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_export')
     toolbar.addAction(export_metadata_action)
 
     add_vertical_separator(toolbar)
@@ -205,7 +215,7 @@ def setup_main_toolbar(window: QWidget):
         "Prompt",
         "Edit the system prompt for AI metadata generation models. \nCustomize how the AI generates titles, descriptions, and keywords. \nAdvanced users can tailor the prompt to their needs. \nChanges affect all subsequent metadata generations. \nThis setting is overwritten to default if you update the Image Tea application. \n\nConsider saving a backup of your custom prompt.",
         lambda: EditPromptDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_prompt')
     toolbar.addAction(edit_prompt_action)
 
     custom_prompt_action = create_toolbar_button_with_label(
@@ -214,7 +224,7 @@ def setup_main_toolbar(window: QWidget):
         "Custom",
         "Use a custom prompt for AI metadata generation. \nUse this to override the default prompt temporarily. \nUseful for one-off generations with different requirements. \nDoes not modify the saved system prompt. \nBut don't forget to clear it after use if you want to revert to the default prompt.",
         lambda: CustomPromptDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_custom')
     toolbar.addAction(custom_prompt_action)
 
     add_api_action = create_toolbar_button_with_label(
@@ -223,7 +233,7 @@ def setup_main_toolbar(window: QWidget):
         "API Key",
         "Add or edit your API key for AI metadata generation services. \nAn API key is required to access AI models. \nMake sure to use a valid key from your AI service provider. \nKeep your API key secure and do not share it publicly.",
         lambda: AddApiKeyDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_api_key')
     toolbar.addAction(add_api_action)
 
     add_vertical_separator(toolbar)
@@ -235,7 +245,7 @@ def setup_main_toolbar(window: QWidget):
         "Relaunch",
         "Relaunch the application if needed (after updates or config changes).",
         lambda: relaunch_app(window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_relaunch')
     toolbar.addAction(relaunch_action)
 
     update_now_action = create_toolbar_button_with_label(
@@ -244,7 +254,7 @@ def setup_main_toolbar(window: QWidget):
         "Update",
         "Check for updates and run the updater if a new version is available. \nMake sure you have an active internet connection. \nPlease save your work before updating, as the application will restart. \nSome settings may be reset to default after an update. \nIt's recommended to back up your configuration files periodically. \n\nUpdates bring new features, improvements, and bug fixes.",
         lambda: run_updater(window),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_update')
     toolbar.addAction(update_now_action)
 
     add_vertical_separator(toolbar)
@@ -255,7 +265,7 @@ def setup_main_toolbar(window: QWidget):
         "Donate",
         "Support development of this application by making a donation. \nYour contributions help fund new features and improvements. \nAny amount is appreciated, no matter how small. \nThank you for supporting the project!",
         lambda: DonateDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_donate')
 
     wa_action = create_toolbar_button_with_label(
         make_icon('fa6b.whatsapp', icon_color),
@@ -263,7 +273,7 @@ def setup_main_toolbar(window: QWidget):
         "WhatsApp",
         "Join the WhatsApp support community for help and discussions.",
         lambda: webbrowser.open(links["whatsapp"]),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_whatsapp')
 
     repo_action = create_toolbar_button_with_label(
         make_icon('fa6b.github', icon_color),
@@ -271,7 +281,7 @@ def setup_main_toolbar(window: QWidget):
         "Repo",
         "Open the GitHub repository for this application.",
         lambda: webbrowser.open(links["repo"]),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_repo')
 
     website_action = create_toolbar_button_with_label(
         make_icon('fa6b.tiktok', icon_color),
@@ -279,7 +289,7 @@ def setup_main_toolbar(window: QWidget):
         "TikTok",
         "Visit TikTok @desainia for tutorials and updates.",
         lambda: webbrowser.open(links["tiktok"]),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_website')
 
     readme_action = create_toolbar_button_with_label(
         make_icon('fa6b.telegram', icon_color),
@@ -287,7 +297,7 @@ def setup_main_toolbar(window: QWidget):
         "Telegram",
         "Chat with our Telegram bot for support and information.",
         lambda: webbrowser.open(links["telegram"]),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_telegram')
 
     documentation_action = create_toolbar_button_with_label(
         make_icon('fa6s.book-open', icon_color),
@@ -295,7 +305,7 @@ def setup_main_toolbar(window: QWidget):
         "Help",
         "Open the documentation/help dialog for guidance and troubleshooting.",
         lambda: ReadDocumentationDialog(window).exec(),
-        window, icon_size)
+        window, icon_size, obj_name='toolbar_help')
     
     toolbar.addAction(wa_action)
     toolbar.addAction(website_action)

@@ -257,6 +257,18 @@ def setup_main_menu(window):
     about_action.triggered.connect(show_about)
     help_menu.addAction(about_action)
 
+    show_guide_action = QAction(qta.icon('fa6s.lightbulb'), "Show Guide", window)
+    show_guide_action.setToolTip("Reset and show the interactive guide tour")
+    show_guide_action.setStatusTip("Reset and show the interactive guide tour")
+    def show_guide():
+        try:
+            if hasattr(window, 'guide_overlay') and window.guide_overlay:
+                window.guide_overlay.reset_and_show()
+        except Exception as e:
+            print(f"Failed to show guide overlay: {e}")
+    show_guide_action.triggered.connect(show_guide)
+    help_menu.addAction(show_guide_action)
+
 
     update_now_action = QAction(qta.icon('fa6s.download'), "Update Now", window)
     update_now_action.setToolTip(MENU_TOOLTIPS["update_now"])
@@ -264,7 +276,6 @@ def setup_main_menu(window):
     update_now_action.triggered.connect(lambda: run_updater(window))
     help_menu.addAction(update_now_action)
 
-    # Version menu item
     version_action = QAction(qta.icon('fa6s.code-branch'), "Version", window)
     version_action.setToolTip("Show version and update information")
     version_action.setStatusTip("Show version and update information")
@@ -281,7 +292,6 @@ def setup_main_menu(window):
                 if isinstance(commit_hash, dict):
                     remote_hash = commit_hash.get("remote")
                 checked_time = update_cfg.get("update", {}).get("last_checked")
-        # Read release notes only from cache (helper is responsible for updating cache)
         release_notes = ""
         notes = None
         if os.path.exists(update_cfg_path):

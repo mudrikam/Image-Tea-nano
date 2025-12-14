@@ -16,6 +16,7 @@ from ui.properties_widget import PropertiesWidget
 from ui.api_key_section import ApiKeySectionWidget
 from ui.main_statusbar import MainStatusBar
 from database.db_operation import ImageTeaDB
+from dialogs.guide_tour import GuideOverlay
 
 def setup_ui(self):
     invoker = get_video_proxy_invoker(timeout=5)
@@ -155,6 +156,12 @@ def setup_ui(self):
     self.setStatusBar(self.statusbar)
     try:
         QTimer.singleShot(500, lambda: show_update_dialog_if_available(parent=self))
+    except Exception:
+        pass
+
+    try:
+        self.guide_overlay = GuideOverlay(self)
+        QTimer.singleShot(100, lambda: self.guide_overlay.show_if_needed())
     except Exception:
         pass
 
