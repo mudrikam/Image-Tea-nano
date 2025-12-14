@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal
+from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal, QTimer
 from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor
 from PySide6.QtCore import QUrl
 import os
@@ -35,12 +35,10 @@ def _is_similar(tag, other_tag):
     other_l = other_tag.lower()
     if tag_l == other_l:
         return True
-    # Only consider substring if length > 3
     if len(tag_l) > 3 and tag_l in other_l:
         return True
     if len(other_l) > 3 and other_l in tag_l:
         return True
-    # Only consider Levenshtein for words longer than 4 and distance <= 2
     if len(tag_l) > 4 and len(other_l) > 4:
         dist = _levenshtein(tag_l, other_l)
         if dist <= 2:
@@ -256,7 +254,8 @@ class ImagePreviewWidget(QGraphicsView):
             self._pixmap_item = self._scene.addPixmap(pixmap)
             self._scene.setSceneRect(self._pixmap_item.boundingRect())
             self.resetTransform()
-            self._fit_to_view()
+            QTimer.singleShot(0, self._fit_to_view)
+            QTimer.singleShot(100, self._fit_to_view)
         else:
             self._scene.setSceneRect(0, 0, self.width(), self.height())
             self.resetTransform()
@@ -277,10 +276,12 @@ class ImagePreviewWidget(QGraphicsView):
         if self._pixmap_item and not self._fit_done:
             pix_rect = self._pixmap_item.boundingRect()
             view_width = self.viewport().width()
+            did_fit = False
             if pix_rect.width() > 0 and view_width > 0:
                 scale_factor = view_width / pix_rect.width()
                 self.resetTransform()
                 self.scale(scale_factor, scale_factor)
+                did_fit = True
             else:
                 self.resetTransform()
             try:
@@ -291,8 +292,8 @@ class ImagePreviewWidget(QGraphicsView):
                 v.setValue((v.minimum() + v.maximum()) // 2)
             except Exception:
                 pass
-
-            self._fit_done = True
+            if did_fit:
+                self._fit_done = True
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
