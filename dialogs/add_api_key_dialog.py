@@ -1055,6 +1055,14 @@ class AddApiKeyDialog(QDialog):
             self.note_edit.clear()
 
     def _delete_all_api_keys(self):
+        try:
+            rows = self.db.get_all_api_keys()
+        except Exception as e:
+            print(f"Error fetching API keys for delete all check: {e}")
+            rows = []
+        if not rows:
+            QMessageBox.information(self, "Delete All API Keys", "No API keys saved.")
+            return
         mb = QMessageBox(self)
         mb.setWindowTitle("Delete All API Keys")
         mb.setText("Delete ALL API keys?\n\nThis action cannot be undone.")
