@@ -157,8 +157,8 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 2: Add An API Key',
-                    'description': "Image Tea requires an API key to generate metadata. Add or select API keys here. Supported services include Gemini, OpenAI, and OpenRouter. Use the 'Get FREE API Key' or 'Add API Key' buttons to manage keys. Image Tea does not provide API keys. You must use your own API key. You can also purchase API keys from the community by clicking 'Add API Key' and selecting 'Get API Key'.",
-                    'target': 'api_key_section'
+                    'description': "Image Tea requires an API key to generate metadata. Click the 'Get FREE API Key' button to obtain keys from providers, or use 'Add API Key' to add your own key. You can also purchase API keys from the community via the 'Add API Key' dialog. Supported services include Gemini, OpenAI, and OpenRouter. Image Tea does not provide API keys. You must use your own.",
+                    'targets': ['api_key_section.get_api_btn', 'api_key_section.add_api_btn']
                 },
                 {
                     'title': 'Step 3: Select Service and Model',
@@ -217,7 +217,7 @@ class GuideOverlay(QWidget):
                 }, 
                 {
                     'title': 'Step 14: App Tools (Relaunch, Update)',
-                    'description': 'Relaunch restarts Image Tea. Update checks for and applies new versions — save your work before updating as the app may restart.',
+                    'description': 'Relaunch restarts Image Tea. Update checks for and applies new versions. Save your work before updating as the app may restart.',
                     'targets': ['find:wrapper_toolbar_relaunch', 'find:wrapper_toolbar_update']
                 },
                 {
@@ -254,8 +254,8 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Langkah 2: Menambahkan API Key',
-                    'description': "Image Tea membutuhkan API key untuk menghasilkan metadata. Tambahkan atau pilih API key di sini. Layanan yang didukung termasuk Gemini, OpenAI, dan OpenRouter. Gunakan tombol 'Get FREE API Key' atau 'Add API Key' untuk mengelola API key. Image Tea tidak menyediakan API key. Kamu harus menggunakan API key milik sendiri. Kamu juga bisa membeli API key dari komunitas dengan klik 'Add API Key' lalu pilih 'Get API Key'.",
-                    'target': 'api_key_section'
+                    'description': "Image Tea membutuhkan API key untuk menghasilkan metadata. Klik tombol 'Get FREE API Key' untuk mendapatkan key dari penyedia, atau tombol 'Add API Key' untuk menambahkan key sendiri. Kamu juga bisa membeli API key dari komunitas melalui dialog 'Add API Key'. Layanan yang didukung termasuk Gemini, OpenAI, dan OpenRouter. Image Tea tidak menyediakan API key. Gunakan API key milikmu sendiri.",
+                    'targets': ['api_key_section.get_api_btn', 'api_key_section.add_api_btn']
                 },
                 {
                     'title': 'Langkah 3: Memilih Layanan dan Model',
@@ -315,7 +315,7 @@ class GuideOverlay(QWidget):
 
                 {
                     'title': 'Langkah 14: Alat Aplikasi (Relaunch, Update)',
-                    'description': 'Relaunch memulai ulang Image Tea. Update memeriksa dan memasang versi baru — simpan pekerjaanmu sebelum memperbarui karena aplikasi mungkin akan dimulai ulang.',
+                    'description': 'Relaunch memulai ulang Image Tea. Update memeriksa dan memasang versi baru. Simpan pekerjaanmu sebelum memperbarui karena aplikasi mungkin akan dimulai ulang.',
                     'targets': ['find:wrapper_toolbar_relaunch', 'find:wrapper_toolbar_update']
                 },
                 {
