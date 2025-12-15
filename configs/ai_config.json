@@ -208,7 +208,7 @@
       "google/gemini-2.5-flash-image"
     ],
     "settings": {
-      "model": "imagen-4.0-generate-001",
+      "model": "google/gemini-2.5-flash-image",
       "number_of_images": 1,
       "sample_image_size": "2K",
       "aspect_ratio": "4:3",
@@ -216,7 +216,8 @@
       "output_folder": "C:/Users/mudri/Downloads/New folder (3)",
       "generation_mode": "Generate All",
       "image_size": "2K",
-      "output_mime_type": "image/png"
+      "output_mime_type": "image/png",
+      "resolution": "2368x1728"
     },
     "aspect_ratios": {
       "1:1": "Square (1:1)",

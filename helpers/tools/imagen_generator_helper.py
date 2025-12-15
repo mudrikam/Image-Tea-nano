@@ -12,6 +12,58 @@ import time
 import base64
 from config import BASE_PATH
 
+# Base mapping of OpenRouter supported aspect ratios to recommended base resolution
+_OPENROUTER_ASPECT_RES_BASE = {
+    '1:1': '1024x1024',
+    '2:3': '832x1248',
+    '3:2': '1248x832',
+    '3:4': '864x1184',
+    '4:3': '1184x864',
+    '4:5': '896x1152',
+    '5:4': '1152x896',
+    '9:16': '768x1344',
+    '16:9': '1344x768',
+    '21:9': '1536x672'
+}
+
+
+def _parse_resolution(res_str: str):
+    try:
+        w, h = res_str.split('x')
+        return int(w), int(h)
+    except Exception:
+        return None, None
+
+
+def _format_resolution(w: int, h: int):
+    return f"{int(w)}x{int(h)}"
+
+
+def get_openrouter_resolutions(aspect_ratio: str):
+    """Return a list of resolution options for given aspect ratio.
+
+    Includes base resolution and scaled variants (1.5x and 2x) when reasonable.
+    """
+    base = _OPENROUTER_ASPECT_RES_BASE.get(aspect_ratio)
+    if not base:
+        return []
+    w, h = _parse_resolution(base)
+    if not w or not h:
+        return [base]
+    variants = []
+    for factor in (1.0, 1.5, 2.0):
+        nw = int(round(w * factor))
+        nh = int(round(h * factor))
+        variants.append(_format_resolution(nw, nh))
+    # Deduplicate while preserving order
+    seen = set()
+    dedup = []
+    for v in variants:
+        if v not in seen:
+            dedup.append(v)
+            seen.add(v)
+    return dedup
+
 
 def get_delay_interval():
     """Get delay interval from config"""
@@ -148,14 +200,22 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
 
                     # Save generated images
                     output_folder = kwargs.get('output_folder', '')
-                    if not output_folder or not os.path.exists(output_folder):
-                        # Use default temp folder
+                    if output_folder:
+                        try:
+                            if not os.path.exists(output_folder):
+                                os.makedirs(output_folder, exist_ok=True)
+                        except Exception as e:
+                            print(f"Debug: Failed to create provided output folder '{output_folder}': {e}")
+                            output_folder = os.path.join(BASE_PATH, 'temp', 'images')
+                            os.makedirs(output_folder, exist_ok=True)
+                    else:
                         output_folder = os.path.join(BASE_PATH, 'temp', 'images')
                         os.makedirs(output_folder, exist_ok=True)
 
                     print(f"Debug: Saving images to: {output_folder}")
 
                     saved_images = []
+                    saved_images_meta = []
                     images_generated = 0
 
                     # Determine file extension from output_mime_type
@@ -247,15 +307,50 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                 if status_callback:
                     status_callback({'prompt': prompt_text}, 'processing')
 
+                image_cfg = {}
+                # Respect explicit aspect_ratio when provided
+                aspect_ratio = kwargs.get('aspect_ratio') if kwargs.get('aspect_ratio') else None
+                if aspect_ratio:
+                    image_cfg['aspect_ratio'] = aspect_ratio
+
+                # Resolve resolution preference: explicit > kwargs aliases > auto-select highest supported
+                resolution = (kwargs.get('resolution') or kwargs.get('image_resolution') or kwargs.get('output_resolution') or '').strip()
+                if not resolution and aspect_ratio:
+                    # Default to the largest available OpenRouter variant for the aspect ratio
+                    opts = get_openrouter_resolutions(aspect_ratio)
+                    if opts:
+                        resolution = opts[-1]
+                        print(f"Debug: No explicit resolution provided. Defaulting to highest OpenRouter resolution: {resolution}")
+
+                if resolution:
+                    image_cfg['resolution'] = resolution
+
+                if image_cfg:
+                    # Delay adding to payload until we build the message and the payload dict below
+                    pass
+
+                # Helpful debug: show what image_config we will send
+                if image_cfg:
+                    print(f"Debug: OpenRouter image_config: {json.dumps(image_cfg)}")
+
+                # Augment the user message to explicitly request the chosen resolution so the model sees it
+                sent_message = prompt_text
+                if image_cfg.get('resolution'):
+                    req_res = image_cfg.get('resolution')
+                    ar_text = image_cfg.get('aspect_ratio') or ''
+                    sent_message = (
+                        f"{prompt_text}\n\nPlease generate the image at exact resolution {req_res}"
+                        f"{(' (' + ar_text + ')' ) if ar_text else ''}."
+                        " If you cannot produce the exact size, return the largest possible image maintaining the same aspect ratio."
+                    )
+                    print(f"Debug: Augmented prompt to request resolution: {req_res}")
+
+                # Build payload now that message and image_config are finalized
                 payload = {
                     'model': model,
-                    'messages': [{'role': 'user', 'content': prompt_text}],
-                    'modalities': ['image', 'text'],
+                    'messages': [{'role': 'user', 'content': sent_message}],
+                    'modalities': ['image', 'text']
                 }
-
-                image_cfg = {}
-                if 'aspect_ratio' in kwargs and kwargs.get('aspect_ratio'):
-                    image_cfg['aspect_ratio'] = kwargs.get('aspect_ratio')
                 if image_cfg:
                     payload['image_config'] = image_cfg
 
@@ -286,24 +381,45 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                         results.append({'prompt': prompt_text, 'status': 'error', 'images_generated': 0, 'saved_images': [], 'error': 'No images in OpenRouter response'})
                         continue
 
-                    # Prepare output folder
+                    # Prepare output folder - prefer user-provided folder; try to create if missing
                     output_folder = kwargs.get('output_folder', '')
-                    if not output_folder or not os.path.exists(output_folder):
+                    if output_folder:
+                        try:
+                            if not os.path.exists(output_folder):
+                                os.makedirs(output_folder, exist_ok=True)
+                        except Exception as e:
+                            print(f"Debug: Failed to create provided output folder '{output_folder}': {e}")
+                            output_folder = os.path.join(BASE_PATH, 'temp', 'images')
+                            os.makedirs(output_folder, exist_ok=True)
+                    else:
                         output_folder = os.path.join(BASE_PATH, 'temp', 'images')
                         os.makedirs(output_folder, exist_ok=True)
 
                     saved_images = []
+                    saved_images_meta = []
+                    warnings = []
                     images_generated = 0
 
                     for i, image_obj in enumerate(images, 1):
                         try:
                             # Try several fields for image data
                             img_url = None
+                            fetched_url = None
+                            resp_content_len = None
+                            resp_content_type = None
                             if isinstance(image_obj, dict):
                                 # image_url may be nested
                                 img_url = image_obj.get('image_url', {}).get('url') if image_obj.get('image_url') else image_obj.get('url')
                                 # Some responses include b64 directly
                                 b64data = image_obj.get('b64_json') or image_obj.get('b64') or image_obj.get('base64')
+                                # Capture any provided metadata from OpenRouter response
+                                meta_w = image_obj.get('width') or image_obj.get('w') or None
+                                meta_h = image_obj.get('height') or image_obj.get('h') or None
+                                if meta_w or meta_h:
+                                    print(f"Debug: OpenRouter returned image metadata: width={meta_w}, height={meta_h}")
+                                else:
+                                    meta_w = None
+                                    meta_h = None
                             else:
                                 img_url = str(image_obj)
                                 b64data = None
@@ -333,14 +449,18 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                             elif img_url and img_url.startswith('http'):
                                 try:
                                     r = requests.get(img_url, timeout=30)
+                                    fetched_url = getattr(r, 'url', img_url)
+                                    resp_content_type = r.headers.get('Content-Type', '')
+                                    resp_content_len = int(r.headers.get('Content-Length')) if r.headers.get('Content-Length') else len(r.content)
                                     if r.status_code == 200:
                                         img_bytes = r.content
                                         # try to infer extension
-                                        ctype = r.headers.get('Content-Type', '')
+                                        ctype = resp_content_type
                                         if 'png' in ctype:
                                             ext = '.png'
                                         elif 'jpeg' in ctype or 'jpg' in ctype:
                                             ext = '.jpg'
+                                        print(f"Debug: Fetched image URL: {fetched_url}, content-type={resp_content_type}, content-length={resp_content_len}")
                                 except Exception as e:
                                     print(f"Debug: Failed to fetch image url: {e}")
                                     img_bytes = None
@@ -354,15 +474,66 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                             filepath = os.path.join(output_folder, filename)
                             with open(filepath, 'wb') as out_f:
                                 out_f.write(img_bytes)
-                            saved_images.append(filepath)
-                            images_generated += 1
+
+                            # Post-save verification: ensure file exists and has content
+                            try:
+                                if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+                                    print(f"Debug: Error: file '{filepath}' missing or zero bytes after write")
+                                    continue
+
+                                # Try to inspect image dimensions when Pillow is available
+                                try:
+                                    from PIL import Image
+                                    with Image.open(filepath) as im:
+                                        actual_w, actual_h = im.size
+                                    filesize = os.path.getsize(filepath)
+                                    print(f"Debug: Saved OpenRouter image to: {filepath} ({actual_w}x{actual_h}, {filesize} bytes)")
+
+                                    # If we requested a specific resolution, compare actual vs requested
+                                    req_res = image_cfg.get('resolution') if isinstance(image_cfg, dict) else None
+                                    if req_res:
+                                        req_w, req_h = _parse_resolution(req_res)
+                                        if req_w and req_h and (actual_w != req_w or actual_h != req_h):
+                                            print(f"Debug: Warning: actual image size {actual_w}x{actual_h} differs from requested {req_w}x{req_h}")
+
+                                    # Append metadata for returned image (include fetch info and any claimed metadata)
+                                    saved_images.append(filepath)
+                                    saved_images_meta.append({'path': filepath, 'width': actual_w, 'height': actual_h, 'bytes': filesize, 'fetched_url': fetched_url, 'response_content_length': resp_content_len, 'response_content_type': resp_content_type, 'claimed_width': meta_w, 'claimed_height': meta_h})
+                                    # If the server claimed larger dimensions but returned smaller image, note it
+                                    if meta_w and meta_h and (actual_w != int(meta_w) or actual_h != int(meta_h)):
+                                        msg = f"OpenRouter claimed {meta_w}x{meta_h} but fetched image is {actual_w}x{actual_h} (likely a preview)."
+                                        print(f"Debug: {msg}")
+                                        warnings.append(msg)
+                                    images_generated += 1
+
+                                except ImportError:
+                                    # Pillow not available; at least report file size
+                                    filesize = os.path.getsize(filepath)
+                                    print(f"Debug: Saved OpenRouter image to: {filepath} (size={filesize} bytes) - Pillow not installed for dimension check")
+                                    saved_images.append(filepath)
+                                    saved_images_meta.append({'path': filepath, 'width': None, 'height': None, 'bytes': filesize, 'fetched_url': fetched_url, 'response_content_length': resp_content_len, 'response_content_type': resp_content_type, 'claimed_width': meta_w, 'claimed_height': meta_h})
+                                    images_generated += 1
+                                except Exception as e:
+                                    print(f"Debug: Error inspecting saved image {filepath}: {e}")
+                                    # still include the file path if present
+                                    try:
+                                        filesize = os.path.getsize(filepath)
+                                    except Exception:
+                                        filesize = None
+                                    saved_images.append(filepath)
+                                    saved_images_meta.append({'path': filepath, 'width': None, 'height': None, 'bytes': filesize, 'fetched_url': fetched_url, 'response_content_length': resp_content_len, 'response_content_type': resp_content_type})
+                                    images_generated += 1
+
+                            except Exception as e:
+                                print(f"Debug: Post-save verification failed for {filepath}: {e}")
+                                continue
 
                         except Exception as e:
                             print(f"Debug: Error saving OpenRouter image {i}: {e}")
                             continue
 
                     status = 'success' if images_generated > 0 else 'error'
-                    results.append({'prompt': prompt_text, 'status': status, 'images_generated': images_generated, 'saved_images': saved_images, 'error': None if images_generated > 0 else 'No images saved'})
+                    results.append({'prompt': prompt_text, 'status': status, 'images_generated': images_generated, 'saved_images': saved_images, 'saved_images_meta': saved_images_meta, 'requested_resolution': image_cfg.get('resolution') if isinstance(image_cfg, dict) else None, 'sent_message': sent_message, 'warnings': warnings, 'error': None if images_generated > 0 else 'No images saved'})
 
                 except Exception as e:
                     error_msg = str(e)

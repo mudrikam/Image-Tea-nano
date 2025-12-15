@@ -16,7 +16,7 @@ from ui.api_key_section import ApiKeySectionWidget
 from dialogs.tools.imagen_config_dialog import ImagenConfigDialog
 from helpers.tools.imagen_generator_helper import (
     load_imagen_config, save_imagen_config, generate_images_from_prompts,
-    validate_image_generation_params, get_default_image_settings
+    validate_image_generation_params, get_default_image_settings, get_openrouter_resolutions
 )
 
 
@@ -109,7 +109,7 @@ class ImagenGeneratorWorker(QThread):
                 try:
                     print(f"Debug: Calling generate_images_from_prompts with model={self.model}")
                     
-                    valid_params = ['number_of_images', 'image_size', 'aspect_ratio', 'output_mime_type', 'output_folder', 'generation_mode']
+                    valid_params = ['number_of_images', 'image_size', 'aspect_ratio', 'output_mime_type', 'output_folder', 'generation_mode', 'resolution']
                     config_for_generation = {k: v for k, v in self.config.items() if k in valid_params}
                     
                     results = generate_images_from_prompts(
@@ -127,6 +127,21 @@ class ImagenGeneratorWorker(QThread):
                         if result['status'] == 'success':
                             images_count = result.get('images_generated', self.config['number_of_images'])
                             print(f"Debug: Success! Generated {images_count} images")
+                            # Persist generation metadata (warnings, requested resolution, sent message, saved_images_meta)
+                            try:
+                                meta = {
+                                    'requested_resolution': result.get('requested_resolution'),
+                                    'sent_message': result.get('sent_message'),
+                                    'warnings': result.get('warnings', []),
+                                    'saved_images_meta': result.get('saved_images_meta', [])
+                                }
+                                meta_folder = os.path.join(BASE_PATH, 'temp', 'imagen_meta')
+                                os.makedirs(meta_folder, exist_ok=True)
+                                meta_path = os.path.join(meta_folder, f"{prompt_id}.json")
+                                with open(meta_path, 'w', encoding='utf-8') as mf:
+                                    json.dump(meta, mf, indent=2, ensure_ascii=False)
+                            except Exception as e:
+                                print(f"Debug: Failed to save imagen meta for prompt {prompt_id}: {e}")
                             self.db.update_imagen_generation_status(prompt_id, 'generated', images_count)
                             self.status_updated.emit(prompt_id, 'generated', images_count, "")
                             total_generated += images_count
@@ -219,6 +234,7 @@ class ImagenGeneratorDialog(QDialog):
                 'generation_mode': 'Generate All',
                 'aspect_ratio': '1:1',
                 'image_size': '1K',
+                'resolution': '',
                 'output_mime_type': 'image/png',
                 'output_folder': ''
             },
@@ -302,10 +318,28 @@ class ImagenGeneratorDialog(QDialog):
         for i in range(self.aspect_ratio_combo.count()):
             if self.aspect_ratio_combo.itemData(i) == saved_ratio:
                 self.aspect_ratio_combo.setCurrentIndex(i)
-                break
+
+        # Populate resolution options based on current aspect ratio
+        try:
+            self.update_resolution_options()
+        except Exception:
+            pass
         
         row2_layout.addWidget(ratio_label)
         row2_layout.addWidget(self.aspect_ratio_combo)
+
+        # Resolution combo for OpenRouter models (updates based on aspect ratio)
+        res_label = QLabel("Resolution")
+        self.resolution_combo = QComboBox()
+        self.resolution_combo.setMinimumWidth(180)
+        self.resolution_combo.setToolTip("Choose explicit resolution for OpenRouter image models (optional)")
+        row2_layout.addWidget(res_label)
+        row2_layout.addWidget(self.resolution_combo)
+        # Populate initial resolution options now that combo exists
+        try:
+            self.update_resolution_options()
+        except Exception:
+            pass
         
         size_label = QLabel("Image Size")
         self.image_size_combo = QComboBox()
@@ -386,6 +420,10 @@ class ImagenGeneratorDialog(QDialog):
         self.num_images_spin.valueChanged.connect(self.save_settings)
         self.generation_mode_combo.currentTextChanged.connect(self.save_settings)
         self.aspect_ratio_combo.currentTextChanged.connect(self.save_settings)
+        # Update resolution options when aspect ratio changes
+        self.aspect_ratio_combo.currentTextChanged.connect(self.update_resolution_options)
+        if hasattr(self, 'resolution_combo'):
+            self.resolution_combo.currentTextChanged.connect(self.save_settings)
         self.image_size_combo.currentTextChanged.connect(self.save_settings)
         self.output_format_combo.currentTextChanged.connect(self.save_settings)
         self.output_folder_line.textChanged.connect(self.save_settings)
@@ -556,6 +594,10 @@ class ImagenGeneratorDialog(QDialog):
                 config['settings']['aspect_ratio'] = self.aspect_ratio_combo.currentData()
             if hasattr(self, 'image_size_combo'):
                 config['settings']['image_size'] = self.image_size_combo.currentText()
+            if hasattr(self, 'resolution_combo'):
+                # store resolution string (empty means auto/default)
+                res = self.resolution_combo.currentData() or self.resolution_combo.currentText()
+                config['settings']['resolution'] = res
             if hasattr(self, 'output_format_combo'):
                 config['settings']['output_mime_type'] = self.output_format_combo.currentData()
             if hasattr(self, 'output_folder_line'):
@@ -573,17 +615,41 @@ class ImagenGeneratorDialog(QDialog):
             config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            
+
             config['delay_interval'] = self.delay_combo.currentText()
-            
+
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
-            
+
             if self.parent() and hasattr(self.parent(), 'prompt_section'):
                 self.parent().prompt_section.load_prompt_config()
-                
+
         except Exception as e:
             print(f"Error saving delay to config: {e}")
+
+    def update_resolution_options(self):
+        """Populate resolution options based on selected aspect ratio (OpenRouter mapping)."""
+        try:
+            ar = self.aspect_ratio_combo.currentData() or self.aspect_ratio_combo.currentText()
+            options = get_openrouter_resolutions(ar)
+            if not hasattr(self, 'resolution_combo'):
+                return
+            self.resolution_combo.blockSignals(True)
+            self.resolution_combo.clear()
+            # First option: Auto (choose highest available if left unset)
+            self.resolution_combo.addItem("Auto (highest available)", "")
+            for opt in options:
+                self.resolution_combo.addItem(opt, opt)
+            # Try to set saved value
+            saved_res = self.config.get('settings', {}).get('resolution', '')
+            if saved_res:
+                for i in range(self.resolution_combo.count()):
+                    if self.resolution_combo.itemData(i) == saved_res or self.resolution_combo.itemText(i) == saved_res:
+                        self.resolution_combo.setCurrentIndex(i)
+                        break
+            self.resolution_combo.blockSignals(False)
+        except Exception:
+            pass
 
     def update_run_button(self):
         """Update run button appearance based on current state"""
@@ -660,6 +726,7 @@ class ImagenGeneratorDialog(QDialog):
             'generation_mode': self.generation_mode_combo.currentText(),
             'aspect_ratio': self.aspect_ratio_combo.currentData() or '1:1',
             'image_size': self.image_size_combo.currentText(),
+            'resolution': self.resolution_combo.currentData() or self.resolution_combo.currentText(),
             'output_mime_type': self.output_format_combo.currentData() or 'image/png',
             'output_folder': self.output_folder_line.text()
         }
@@ -924,6 +991,37 @@ class ImagenGeneratorDialog(QDialog):
         if hasattr(self, 'run_btn'):
             self.run_btn.setEnabled(has_api_key and has_output_folder and not self.is_running)
 
+        # Enable resolution combo when OpenRouter is available, even if service is 'openai' (OpenRouter-compatible keys)
+        try:
+            from helpers.ai_helper.openai_helper import _is_openrouter_key
+        except Exception:
+            def _is_openrouter_key(k):
+                return isinstance(k, str) and k.startswith('sk-or-')
+
+        is_or_key = _is_openrouter_key(api_key) if api_key else False
+        is_or_service = service and service.lower() in ('openrouter', 'openrouter.ai')
+        if hasattr(self, 'resolution_combo'):
+            if is_or_service or is_or_key:
+                self.resolution_combo.setEnabled(True)
+                self.resolution_combo.setToolTip("Choose explicit resolution for OpenRouter image models (optional)")
+                # refresh options to reflect aspect ratio
+                try:
+                    self.update_resolution_options()
+                except Exception:
+                    pass
+            else:
+                # Not OpenRouter-capable: set to Auto and disable
+                try:
+                    self.resolution_combo.blockSignals(True)
+                    self.resolution_combo.clear()
+                    self.resolution_combo.addItem("Auto (default)", "")
+                    self.resolution_combo.setCurrentIndex(0)
+                    self.resolution_combo.setEnabled(False)
+                    self.resolution_combo.setToolTip("Resolution only available for OpenRouter image models (OpenRouter key required)")
+                    self.resolution_combo.blockSignals(False)
+                except Exception:
+                    pass
+
     def clear_all_status(self):
         """Clear all generation status from database"""
         if not self.db:
@@ -1018,6 +1116,28 @@ class ImagenGeneratorDialog(QDialog):
                     details += f"Generated At: {status_record[5]}\n"
                 if status_record[6]:
                     details += f"Error: {status_record[6]}\n"
+                # Include any saved generation metadata if present
+                try:
+                    meta_path = os.path.join(BASE_PATH, 'temp', 'imagen_meta', f"{prompt_data['id']}.json")
+                    if os.path.exists(meta_path):
+                        with open(meta_path, 'r', encoding='utf-8') as mf:
+                            meta = json.load(mf)
+                        details += "\nGeneration Metadata:\n"
+                        if meta.get('requested_resolution'):
+                            details += f"Requested Resolution: {meta.get('requested_resolution')}\n"
+                        if meta.get('warnings'):
+                            details += "Warnings:\n"
+                            for w in meta.get('warnings'):
+                                details += f" - {w}\n"
+                        if meta.get('saved_images_meta'):
+                            details += "Saved Images:\n"
+                            for im in meta.get('saved_images_meta'):
+                                try:
+                                    details += f" - {os.path.basename(im.get('path'))}: {im.get('width')}x{im.get('height')} ({im.get('bytes')} bytes)\n"
+                                except Exception:
+                                    pass
+                except Exception as e:
+                    print(f"Error loading generation metadata: {e}")
             
             details += f"\nPrompt Text:\n{prompt_data['prompt']}"
             
