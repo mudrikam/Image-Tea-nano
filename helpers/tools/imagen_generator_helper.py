@@ -39,6 +39,29 @@ def _format_resolution(w: int, h: int):
     return f"{int(w)}x{int(h)}"
 
 
+def _make_unique_filepath(output_folder: str, prefix: str, index: int, ext: str, middle: str = '_'):
+    """Return a filepath that doesn't overwrite existing files by incrementing the numeric suffix.
+
+    prefix: base safe name (without suffix)
+    index: starting integer index
+    ext: file extension including dot
+    middle: separator between prefix and index, e.g. '_' or '_or_'
+    """
+    # Ensure folder exists
+    try:
+        os.makedirs(output_folder, exist_ok=True)
+    except Exception:
+        pass
+
+    n = int(index)
+    while True:
+        filename = f"{prefix}{middle}{n:03d}{ext}"
+        filepath = os.path.join(output_folder, filename)
+        if not os.path.exists(filepath):
+            return filepath
+        n += 1
+
+
 def get_openrouter_resolutions(aspect_ratio: str):
     """Return a list of resolution options for given aspect ratio.
 
@@ -227,9 +250,9 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                             # Create filename based on prompt and index
                             safe_prompt = "".join(c for c in prompt_info.get('prompt', prompt) if c.isalnum() or c in (' ', '-', '_')).rstrip()
                             safe_prompt = safe_prompt[:50]  # Limit length
-                            filename = f"{safe_prompt}_{i:03d}{file_extension}"
-                            filepath = os.path.join(output_folder, filename)
-
+                            # Build unique filename, avoid overwriting existing files
+                            filepath = _make_unique_filepath(output_folder, safe_prompt, i, file_extension, middle='_')
+                            filename = os.path.basename(filepath)
                             print(f"Debug: Saving image {i} as: {filename}")
 
                             # Save the image
@@ -470,8 +493,8 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                                 continue
 
                             safe_prompt = "".join(c for c in prompt_text if c.isalnum() or c in (' ', '-', '_')).rstrip()[:50]
-                            filename = f"{safe_prompt}_or_{i:03d}{ext}"
-                            filepath = os.path.join(output_folder, filename)
+                            # Use unique filename to avoid replacing existing files
+                            filepath = _make_unique_filepath(output_folder, safe_prompt, i, ext, middle='_or_')
                             with open(filepath, 'wb') as out_f:
                                 out_f.write(img_bytes)
 
