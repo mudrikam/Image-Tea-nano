@@ -185,7 +185,8 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     try:
         if service.lower() == 'gemini':
             prompts, token_input, token_output, token_total = generate_prompts_with_gemini(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
-        elif service.lower() == 'openai':
+        elif service.lower() in ('openai', 'openrouter'):
+            # Support both OpenAI and OpenRouter through the OpenAI-compatible client
             prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         else:
             print(f"Unsupported service: {service}")
@@ -296,9 +297,10 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
     
     try:
         import base64
-        from openai import OpenAI
-        
-        client = OpenAI(api_key=api_key)
+        # Use project's OpenAI helper to create a client so OpenRouter keys are supported
+        from helpers.ai_helper.openai_helper import create_openai_client
+
+        client = create_openai_client(api_key)
         
         # Load and encode image
         with open(image_path, "rb") as f:
