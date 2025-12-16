@@ -6,7 +6,7 @@ import threading
 import time
 import random
 from PySide6.QtWidgets import (
-	QApplication, QDialog, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QDoubleSpinBox, QMessageBox, QFileDialog, QCheckBox, QSizePolicy
+	QApplication, QDialog, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QDoubleSpinBox, QMessageBox, QFileDialog, QCheckBox, QSizePolicy, QProgressBar
 )
 from PySide6.QtCore import Qt, QPoint, Signal, Slot, QTimer, QSize
 from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QIcon
@@ -102,6 +102,7 @@ class PromptInjectorDialog(QDialog):
 		super().__init__(parent)
 		self.setWindowTitle("Prompt Injector Tool")
 		self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+		self.setWindowFlag(Qt.WindowMaximizeButtonHint, False)
 
 		icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
 		if os.path.exists(icon_path):
@@ -113,17 +114,21 @@ class PromptInjectorDialog(QDialog):
 		self.btn_action.clicked.connect(self.on_run_automation)
 		self.btn_action.setIcon(qta.icon('fa6s.play'))
 		self.btn_action.setIconSize(QSize(16, 16))
+		self.btn_action.setToolTip("Start the automation sequence: markers will be clicked and texts pasted according to configured delays.")
 
 		self.btn_pause = QPushButton("Pause")
 		self.btn_pause.setEnabled(False)
 		self.btn_pause.clicked.connect(self.on_pause_toggle)
 		self.btn_pause.setIcon(qta.icon('fa6s.pause'))
 		self.btn_pause.setIconSize(QSize(16, 16))
+		self.btn_pause.setToolTip("Pause or resume the automation. While paused, countdowns freeze.")
 		self.btn_stop = QPushButton("Stop")
 		self.btn_stop.setEnabled(False)
 		self.btn_stop.clicked.connect(self.on_stop)
 		self.btn_stop.setIcon(qta.icon('fa6s.stop'))
 		self.btn_stop.setIconSize(QSize(16, 16))
+		self.btn_stop.setToolTip("Stop the automation immediately.")
+
 
 		self.btn_reset = QPushButton("Reset Points")
 		self.btn_reset.setEnabled(True)
@@ -140,6 +145,10 @@ class PromptInjectorDialog(QDialog):
 
 		self.delay_spinboxes = []
 		layout = QVBoxLayout()
+		layout.setSpacing(8)
+		layout.setContentsMargins(8, 8, 8, 8)
+		from PySide6.QtWidgets import QLayout
+		layout.setSizeConstraint(QLayout.SetFixedSize)
 		colors = ["red", "green", "blue", "orange"]
 		self.color_map = {
 			"red": "#ff4d4d",
@@ -148,20 +157,29 @@ class PromptInjectorDialog(QDialog):
 			"orange": "#ff8800",
 		}
 		self.point_notes = [" (select all & paste)", " (click)", " (click)", " (click)"]
+		self.point_enabled = []
 		for i, color in enumerate(colors, start=1):
+			note = self.point_notes[i-1] if (i-1) < len(self.point_notes) else ""
 			h = QHBoxLayout()
-			lbl = QLabel(f"Point {i} ({color}) delay (s):")
-			lbl.setStyleSheet(f"color: {self.color_map.get(color, color)};")
+			chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
+			chk.setChecked(True)
+			chk.setProperty("color_name", color)
+			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
+			chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+			chk.setToolTip("Enable/disable this point. Disabled points are skipped during automation.")
 			spin = QDoubleSpinBox()
 			spin.setRange(0.0, 600.0)
 			spin.setSingleStep(0.05)
 			spin.setDecimals(2)
 			spin.setValue(0.0)
 			spin.setSuffix(" s")
-			h.addWidget(lbl)
+			spin.setToolTip("Delay before the action at this point in seconds. Use decimals for fine control.")
+			h.addWidget(chk)
 			h.addWidget(spin)
 			layout.addLayout(h)
 			self.delay_spinboxes.append(spin)
+			self.point_enabled.append(chk)
+			chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
 
 		h = QHBoxLayout()
 		self.rand_lbl = QLabel("Random extra delay (s):")
@@ -171,6 +189,7 @@ class PromptInjectorDialog(QDialog):
 		self.rand_spin.setDecimals(2)
 		self.rand_spin.setValue(0.0)
 		self.rand_spin.setSuffix(" s")
+		self.rand_spin.setToolTip("Random extra delay added to each base delay (0 disables randomness).")
 		h.addWidget(self.rand_lbl)
 		h.addWidget(self.rand_spin)
 		layout.addLayout(h)
@@ -182,52 +201,64 @@ class PromptInjectorDialog(QDialog):
 		self.btn_load_csv.clicked.connect(self.on_load_csv)
 		self.btn_load_csv.setIcon(qta.icon('fa6s.file-csv'))
 		self.btn_load_csv.setIconSize(QSize(16, 16))
+		self.btn_load_csv.setToolTip("Load a CSV file containing texts to paste (one per row).")
 		self.btn_load_prompt = QPushButton("Load Prompt")
 		self.btn_load_prompt.clicked.connect(self.on_load_prompt)
 		self.btn_load_prompt.setIcon(qta.icon('fa6s.database'))
 		self.btn_load_prompt.setIconSize(QSize(16, 16))
+		self.btn_load_prompt.setToolTip("Load stored prompts from the database as the source for automation.")
 		self.csv_label = QLabel("CSV/Prompt: (none)")
-		self.progress_label = QLabel("Progress: 0 / 0")
-		layout.addWidget(self.btn_load_csv)
-		layout.addWidget(self.btn_load_prompt)
+		self.csv_label.setToolTip("Shows currently loaded CSV or prompt source.")
+		self.progress_bar = QProgressBar()
+		self.progress_bar.setMinimum(0)
+		self.progress_bar.setMaximum(1)
+		self.progress_bar.setValue(0)
+		self.progress_bar.setTextVisible(True)
+		self.progress_bar.setFormat("0 / 0")
+		self.progress_bar.setToolTip("Automation progress: processed / total.")
+		h_files = QHBoxLayout()
+		h_files.setSpacing(8)
+		h_files.addWidget(self.btn_load_csv)
+		h_files.addWidget(self.btn_load_prompt)
+		self.btn_clear_data = QPushButton("Clear")
+		self.btn_clear_data.setIcon(qta.icon('fa6s.trash-can'))
+		self.btn_clear_data.setIconSize(QSize(16, 16))
+		self.btn_clear_data.setToolTip("Clear loaded CSV/Prompt data from this dialog")
+		self.btn_clear_data.setCursor(Qt.PointingHandCursor)
+		self.btn_clear_data.clicked.connect(self.on_clear_data)
+		h_files.addWidget(self.btn_clear_data)
+		self.btn_prompt_help = QPushButton()
+		self.btn_prompt_help.setIcon(qta.icon('fa6s.question'))
+		self.btn_prompt_help.setFixedWidth(28)
+		self.btn_prompt_help.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+		self.btn_prompt_help.setIconSize(QSize(14, 14))
+		self.btn_prompt_help.setToolTip("Help about prompts: shows what 'Load Prompt' does")
+		self.btn_prompt_help.setCursor(Qt.PointingHandCursor)
+		self.btn_prompt_help.clicked.connect(self.show_help_dialog)
+		h_files.addWidget(self.btn_prompt_help)
+		layout.addLayout(h_files)
 		layout.addWidget(self.csv_label)
-		layout.addWidget(self.progress_label)
+		layout.addWidget(self.progress_bar)
 
 		h_top = QHBoxLayout()
 		h_top.addWidget(self.btn_action)
 		h_top.addWidget(self.btn_pause)
 		h_top.addWidget(self.btn_stop)
+		h_top.addWidget(self.btn_reset)
 		layout.addLayout(h_top)
 
-		h_bottom = QHBoxLayout()
-		h_bottom.addWidget(self.btn_help)
-		h_bottom.addWidget(self.btn_reset)
-		layout.addLayout(h_bottom)
 
 		self.btn_reset.setToolTip("Reset Points: Move the four markers back to their default centered positions and save them to settings.")
 
 		self.delay_label = QLabel("")
+		self.delay_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+		self.delay_label.setFixedHeight(0)
 		layout.addWidget(self.delay_label)
 
-		self.point_enabled = []
-		for i, color in enumerate(colors, start=1):
-			h2 = QHBoxLayout()
-			note = self.point_notes[i-1] if (i-1) < len(self.point_notes) else ""
-			chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
-			chk.setChecked(True)
-			chk.setProperty("color_name", color)
-			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
-			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
-			chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-			self.point_enabled.append(chk)
-			h2.setContentsMargins(0, 0, 0, 0)
-			h2.setSpacing(6)
-			h2.addWidget(chk, 0, Qt.AlignLeft)
-			layout.addLayout(h2)
-			chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
 
 		self.setLayout(layout)
-		self.setFixedWidth(380)
+		self.setMinimumWidth(360)
+		QTimer.singleShot(0, self.adjustSize)
 
 		self.points = []
 		screen = QGuiApplication.primaryScreen().availableGeometry()
@@ -307,7 +338,9 @@ class PromptInjectorDialog(QDialog):
 			QMessageBox.warning(self, "No Data", "No records to process (CSV/Prompt is empty)")
 			return
 		total = len(paste_texts)
-		self.progress_label.setText(f"Progress: 0 / {total}")
+		self.progress_bar.setMaximum(total)
+		self.progress_bar.setValue(0)
+		self.progress_bar.setFormat(f"0 / {total}")
 		self._stop_event = threading.Event()
 		self._pause_event = threading.Event()
 		self._clipboard_set_event = threading.Event()
@@ -326,7 +359,12 @@ class PromptInjectorDialog(QDialog):
 			p.set_click_through(enable)
 		self.btn_action.setEnabled(not enable)
 		try:
-			self.btn_reset.setEnabled(not enable)
+			if enable:
+				self.btn_reset.setEnabled(False)
+				self.btn_reset.setToolTip("Reset disabled while automation is running")
+			else:
+				self.btn_reset.setEnabled(True)
+				self.btn_reset.setToolTip("Reset Points: Move the four markers back to their default centered positions and save them to settings.")
 		except Exception:
 			pass
 		self.btn_action.setText("Running..." if enable else "Run Action")
@@ -338,17 +376,21 @@ class PromptInjectorDialog(QDialog):
 		self.btn_stop.setEnabled(False)
 		self._stop_event.set()
 		self._pause_event.clear()
-		self.delay_label.setText("")
+		self._set_delay_text("")
+		self.progress_bar.setValue(self.progress_bar.maximum())
+		self.progress_bar.setFormat(f"{self.progress_bar.maximum()} / {self.progress_bar.maximum()}")
 		self._last_set_clipboard = None
 
 	@Slot(int, int)
 	def _on_progress_updated(self, done: int, total: int):
-		self.progress_label.setText(f"Progress: {done} / {total}")
+		self.progress_bar.setMaximum(total)
+		self.progress_bar.setValue(done)
+		self.progress_bar.setFormat(f"{done} / {total}")
 
 	def on_pause_toggle(self):
 		if not getattr(self, '_pause_event', None):
-			self.delay_label.setText("Not running")
-			QTimer.singleShot(1000, lambda: self.delay_label.setText(""))
+			self._set_delay_text("Not running")
+			QTimer.singleShot(1000, lambda: self._set_delay_text(""))
 			return
 		if self._pause_event.is_set():
 			self._pause_event.clear()
@@ -360,6 +402,10 @@ class PromptInjectorDialog(QDialog):
 	def on_stop(self):
 		self._stop_event.set()
 		self._pause_event.clear()
+		self._set_run_mode(False)
+		self.btn_pause.setEnabled(False)
+		self.btn_stop.setEnabled(False)
+		self.btn_pause.setText("Pause")
 
 	def on_reset_points(self):
 		screen = QGuiApplication.primaryScreen().availableGeometry()
@@ -388,7 +434,21 @@ class PromptInjectorDialog(QDialog):
 		QMessageBox.information(self, "Help Points and Buttons", html)
 
 	def _on_countdown_updated(self, remaining: float):
-		self.delay_label.setText(f"Waiting: {remaining:.2f} s")
+		if remaining > 0:
+			self._set_delay_text(f"Waiting: {remaining:.2f} s")
+		else:
+			self._set_delay_text("")
+
+	def _set_delay_text(self, text: str):
+		"""Set the delay label text and collapse the label when empty to avoid layout gaps."""
+		if not text:
+			self.delay_label.setText("")
+			self.delay_label.setFixedHeight(0)
+		else:
+			self.delay_label.setText(text)
+			h = self.delay_label.sizeHint().height()
+			self.delay_label.setFixedHeight(h)
+		QTimer.singleShot(0, self.adjustSize)
 
 	def on_load_csv(self):
 		path, _ = QFileDialog.getOpenFileName(self, "Select CSV", os.path.dirname(__file__), "CSV Files (*.csv);;All Files (*)")
@@ -416,6 +476,20 @@ class PromptInjectorDialog(QDialog):
 		self.loaded_from_db = True
 		self._copied_count = 0
 		self.csv_label.setText(f"Prompt DB: {len(prompts)} records (copied: 0)")
+		self.save_settings()
+
+	def on_clear_data(self):
+		"""Clear any loaded CSV or prompt data from the dialog and reset UI state."""
+		self.loaded_paste_texts = None
+		self.loaded_from_db = False
+		self._loaded_prompt_ids = []
+		self._copied_count = 0
+		self.csv_label.setText("CSV/Prompt: (none)")
+		self.progress_bar.setMaximum(1)
+		self.progress_bar.setValue(0)
+		self.progress_bar.setFormat("0 / 0")
+		self.btn_reset.setEnabled(True)
+		self.btn_reset.setToolTip("Reset Points: Move the four markers back to their default centered positions and save them to settings.")
 		self.save_settings()
 
 	def _set_clipboard(self, text: str):
