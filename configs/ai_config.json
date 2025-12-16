@@ -55,7 +55,8 @@
       "gpt-5-nano",
       "openai/gpt-4.1-nano",
       "google/gemini-2.5-flash",
-      "google/gemini-2.5-flash-image"
+      "google/gemini-2.5-flash-image",
+      "google/gemini-2.0-flash-lite-001"
     ]
   },
   "shutterstock_category_map": {

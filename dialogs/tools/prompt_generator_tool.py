@@ -1079,7 +1079,7 @@ class PromptGeneratorDialog(QDialog):
 				print(f"Prompt copied to clipboard: {prompt_text[:50]}...")
 				
                 
-				if self.db and hasattr(self.db, 'add_prompt_status'):
+				if self.db and hasattr(self.db, 'add_prompt_status') and (prompt_id is not None):
 					self.db.add_prompt_status(prompt_id, 'copied')
 					
                 

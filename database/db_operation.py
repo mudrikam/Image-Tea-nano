@@ -570,6 +570,10 @@ class ImageTeaDB:
     # --- Generated prompt status methods ---
     def add_prompt_status(self, prompt_id, status='pending'):
         """Add or update prompt status"""
+        # Do not insert a status row for a null prompt_id
+        if prompt_id is None:
+            # nothing to do
+            return
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             # Check if status already exists
@@ -614,4 +618,11 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('DELETE FROM generated_prompt_status')
+            conn.commit()
+
+    def remove_null_prompt_statuses(self):
+        """Remove generated_prompt_status rows with NULL prompt_id to clean up bad entries."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM generated_prompt_status WHERE prompt_id IS NULL')
             conn.commit()
