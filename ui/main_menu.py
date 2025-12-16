@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout
-from PySide6.QtGui import QAction, QPixmap
+from PySide6.QtGui import QAction, QPixmap, QIcon
 from PySide6.QtCore import Qt
 import qtawesome as qta
 import webbrowser
@@ -370,6 +370,7 @@ def setup_main_menu(window):
     # Tools menu
     tools_menu = QMenu("Tools", menubar)
     tools_menu.setToolTipsVisible(True)
+
     prompt_generator_action = QAction(qta.icon('fa6s.wand-magic-sparkles'), "Prompt Generator", window)
     prompt_generator_action.setToolTip(MENU_TOOLTIPS["prompt_generator"])
     prompt_generator_action.setStatusTip(MENU_TOOLTIPS["prompt_generator"])
@@ -379,6 +380,17 @@ def setup_main_menu(window):
     prompt_generator_action.triggered.connect(open_prompt_generator)
     tools_menu.addAction(prompt_generator_action)
 
+    from dialogs.tools.prompt_injector import PromptInjectorDialog
+    prompt_injector_action = QAction(qta.icon('fa6s.bolt'), "Prompt Injector", window)
+    prompt_injector_action.setToolTip("Inject prompts/clicks using points and clipboard")
+    prompt_injector_action.setStatusTip("Inject prompts/clicks using points and clipboard")
+    def open_prompt_injector():
+        # open as independent non-modal tool (no parent) so it's always-on-top and doesn't block main window
+        dlg = PromptInjectorDialog(None)
+        dlg.show()
+    prompt_injector_action.triggered.connect(open_prompt_injector)
+    tools_menu.addAction(prompt_injector_action)
+
     imagen_generator_action = QAction(qta.icon('fa6s.image'), "Imagen Generator", window)
     imagen_generator_action.setToolTip(MENU_TOOLTIPS["imagen_generator"])
     imagen_generator_action.setStatusTip(MENU_TOOLTIPS["imagen_generator"])
@@ -387,7 +399,6 @@ def setup_main_menu(window):
         dlg.exec()
     imagen_generator_action.triggered.connect(open_imagen_generator)
     tools_menu.addAction(imagen_generator_action)
-
 
     # Add separator
     tools_menu.addSeparator()
