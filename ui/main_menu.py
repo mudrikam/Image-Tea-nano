@@ -23,6 +23,7 @@ from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
+from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -30,6 +31,7 @@ MENU_TOOLTIPS = {
     "import_files": "Import image and video files into the database for metadata processing",
     "relaunch": "Restart the application with current settings",
     "exit": "Close the application",
+    "backup_configs": "Create and restore backups of the application's configs folder",
     
     # Edit menu
     "delete_selected": "Remove selected files from the database",
@@ -126,6 +128,15 @@ def setup_main_menu(window):
         window.close()
     relaunch_action.triggered.connect(relaunch_app)
     file_menu.addAction(relaunch_action)
+
+    backup_configs_action = QAction(qta.icon('fa6s.file-zipper'), "Backup Configs", window)
+    backup_configs_action.setToolTip(MENU_TOOLTIPS["backup_configs"])
+    backup_configs_action.setStatusTip(MENU_TOOLTIPS["backup_configs"])
+    def open_backup_configs():
+        dlg = BackupGlobalConfigDialog(window)
+        dlg.exec()
+    backup_configs_action.triggered.connect(open_backup_configs)
+    file_menu.addAction(backup_configs_action)
 
     exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
     exit_action.setToolTip(MENU_TOOLTIPS["exit"])
