@@ -137,6 +137,7 @@ def setup_main_menu(window):
         dlg.exec()
     backup_configs_action.triggered.connect(open_backup_configs)
     file_menu.addAction(backup_configs_action)
+    window.backup_configs_action = backup_configs_action
 
     exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
     exit_action.setToolTip(MENU_TOOLTIPS["exit"])

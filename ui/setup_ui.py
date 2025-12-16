@@ -24,6 +24,15 @@ def setup_ui(self):
         print('[Startup Warning] VideoProxyInvoker could not be created; video dialogs will not appear.')
 
     setup_main_menu(self)
+    try:
+        from dialogs.backup_global_config_dialog import configs_newer_than_latest_backup
+        if configs_newer_than_latest_backup() and hasattr(self, 'backup_configs_action'):
+            try:
+                self.backup_configs_action.setIcon(qta.icon('fa6s.triangle-exclamation', color="#e61515"))
+            except Exception:
+                pass
+    except Exception:
+        pass
     setup_main_toolbar(self)
     self.db = getattr(self, 'db', None) or ImageTeaDB()
     central = QWidget()
