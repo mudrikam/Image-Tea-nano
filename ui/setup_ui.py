@@ -22,8 +22,6 @@ def setup_ui(self):
     invoker = get_video_proxy_invoker(timeout=5)
     if invoker is None:
         print('[Startup Warning] VideoProxyInvoker could not be created; video dialogs will not appear.')
-    else:
-        print('[Startup] VideoProxyInvoker registered')
 
     setup_main_menu(self)
     setup_main_toolbar(self)

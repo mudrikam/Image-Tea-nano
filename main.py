@@ -16,12 +16,12 @@ from helpers.batch_processing_helper import (
     stop_generate_metadata,
     update_token_stats_ui
 )
-from tools.tools_checker import check_folders
+from tools.tools_checker import ensure_tools_ready
 from dialogs.disclaimer_dialog import DisclaimerDialog
 import json
 from helpers.check_for_update_helper import check_for_update
 
-check_folders()
+ensure_tools_ready()
 
 def load_app_config():
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")

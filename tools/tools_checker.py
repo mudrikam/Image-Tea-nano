@@ -3,6 +3,7 @@ import urllib.request
 import zipfile
 import sys
 import shutil
+import subprocess
 from config import BASE_PATH
 
 expected = [
@@ -168,5 +169,109 @@ def download_and_extract_ffmpeg(target_folder):
     except Exception as e:
         print(f"Failed to download or extract FFmpeg: {e}")
 
-if __name__ == "__main__":
+def install_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> bool:
+    """Upgrade pip/tools and install a specific PyAutoGUI version using the given python executable.
+
+    If no executable is provided, the embedded Python under BASE_PATH\\python\\Windows\\python.exe is used when present,
+    otherwise the current running interpreter is used.
+    """
+    if python_exe is None:
+        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+        if os.path.exists(candidate):
+            python_exe = candidate
+        else:
+            python_exe = sys.executable
+    if not os.path.exists(python_exe):
+        print("Error: Python executable not found; cannot install pyautogui.")
+        return False
+    try:
+        subprocess.check_call([python_exe, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+    except subprocess.CalledProcessError as e:
+        print(f"Error upgrading pip/setuptools/wheel: {e}")
+        # continue and attempt install anyway
+    try:
+        subprocess.check_call([python_exe, "-m", "pip", "install", f"pyautogui=={version}", "--no-warn-script-location"])
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing pyautogui: {e}")
+        return False
+
+
+def is_pyautogui_installed(python_exe: str | None = None) -> tuple[bool, str]:
+    """Return (True, version) if PyAutoGUI can be imported with the selected python executable,
+    otherwise return (False, error_message).
+    """
+    if python_exe is None:
+        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+        if os.path.exists(candidate):
+            python_exe = candidate
+        else:
+            python_exe = sys.executable
+    try:
+        out = subprocess.check_output(
+            [python_exe, "-c", "import pyautogui; print(pyautogui.__version__)"],
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            timeout=15,
+        )
+        ver = out.strip().splitlines()[-1].strip()
+        return True, ver
+    except subprocess.CalledProcessError as e:
+        return False, (e.output or str(e)).strip()
+    except Exception as e:
+        return False, str(e)
+
+
+def ensure_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> bool:
+    """Ensure PyAutoGUI is installed and importable. If missing, attempt installation.
+
+    Returns True if PyAutoGUI is importable after this call, otherwise False.
+    """
+    installed, info = is_pyautogui_installed(python_exe)
+    if installed:
+        return True
+    ok = install_pyautogui(python_exe, version)
+    if not ok:
+        print("Error: PyAutoGUI installation command failed.")
+        return False
+    # verify installation
+    installed2, info2 = is_pyautogui_installed(python_exe)
+    if installed2:
+        return True
+    else:
+        print(f"Error: PyAutoGUI not importable after install: {info2}")
+        return False
+
+
+def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53') -> bool:
+    """Perform the standard tool checks and ensure PyAutoGUI is available.
+
+    Returns True if basic tooling appears ready (folders present and PyAutoGUI importable).
+    """
     check_folders()
+    ok = ensure_pyautogui(python_exe, pyautogui_version)
+    return ok
+
+
+if __name__ == "__main__":
+    # Support explicit commands:
+    #   --install-pyautogui  : install the pinned version
+    #   --ensure-pyautogui   : install if missing
+    # Running with no args will run the normal folder checks and ensure PyAutoGUI.
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd in ("--install-pyautogui", "install-pyautogui"):
+            ok = install_pyautogui()
+            if not ok:
+                print("Error: PyAutoGUI installation failed.")
+        elif cmd in ("--ensure-pyautogui", "ensure-pyautogui"):
+            ok = ensure_pyautogui()
+            if not ok:
+                print("Error: PyAutoGUI is not ready after attempted installation.")
+        else:
+            check_folders()
+    else:
+        # Default startup: ensure folders + pyautogui
+        ok = ensure_tools_ready()
+        if not ok:
+            print("Error: One or more tool checks failed; see messages above.")

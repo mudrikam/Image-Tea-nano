@@ -8,6 +8,5 @@ PyExifTool==0.5.6
 opencv-python
 CairoSVG==2.8.2
 py7zr==1.0.0
-requests>=2.30.0
-pyautogui
+requests==2.32.5
 pynput
