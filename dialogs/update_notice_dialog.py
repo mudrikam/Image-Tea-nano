@@ -101,7 +101,6 @@ class UpdateNoticeDialog(QDialog):
         short_hash = (commit_text or "")[:7]
         commit_btn = QPushButton(commit_icon, f" {short_hash}")
         commit_btn.setToolTip(commit_text or "No commit available")
-        commit_btn.setFlat(True)
         commit_btn.setCursor(Qt.PointingHandCursor)
 
         commit_url = ""
