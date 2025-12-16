@@ -12,6 +12,8 @@
 
 The Desainia Studio team is focused on our work and may not always have time to respond to user questions or requests.
 
+Please note that updates are not released on a fixed schedule and are made as needed to accommodate Desainia Studio's requirements and requests from the community.
+
 This application is free. If you find it useful, feel free to share it with anyone who needs it and teach them how to use it. From the beginning, this app has been shared as an act of charity.
 
 ---

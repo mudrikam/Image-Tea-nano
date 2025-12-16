@@ -216,6 +216,7 @@ tools/ghostscript/
 tools/cairo/
 tools/ffmpeg/
 database/db_backups
+backup_configs/
 
 Sign-Image-Tea.bat
 Image Tea.bat

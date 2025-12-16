@@ -959,7 +959,7 @@ class PromptGeneratorDialog(QDialog):
 		result = dialog.exec()
 		
 		if result == QDialog.Accepted:
-			QMessageBox.information(self, "Success", "Konfigurasi prompt berhasil diupdate!")
+			QMessageBox.information(self, "Success", "Prompt configuration updated successfully.")
 
 	def load_prompts_from_db(self):
 		"""Load prompts from the database with pagination support."""

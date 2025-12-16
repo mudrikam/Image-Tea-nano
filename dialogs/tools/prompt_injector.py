@@ -240,6 +240,26 @@ class PromptInjectorDialog(QDialog):
 		layout.addWidget(self.csv_label)
 		layout.addWidget(self.progress_bar)
 
+		h_stats = QHBoxLayout()
+		left_v = QVBoxLayout()
+		right_v = QVBoxLayout()
+		self.stats_eta_lbl = QLabel("ETA: -")
+		self.stats_remaining_lbl = QLabel("Remaining: -")
+		self.stats_elapsed_lbl = QLabel("Elapsed: -")
+		self.stats_progress_lbl = QLabel("Progress: 0/0")
+		self.stats_speed_lbl = QLabel("Speed: 0.00/m")
+		for lbl in (self.stats_eta_lbl, self.stats_remaining_lbl, self.stats_elapsed_lbl, self.stats_progress_lbl, self.stats_speed_lbl):
+			lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+			lbl.setToolTip("Estimated stats (dynamic and approximate due to random delays).")
+		left_v.addWidget(self.stats_eta_lbl)
+		left_v.addWidget(self.stats_remaining_lbl)
+		left_v.addWidget(self.stats_elapsed_lbl)
+		right_v.addWidget(self.stats_progress_lbl)
+		right_v.addWidget(self.stats_speed_lbl)
+		h_stats.addLayout(left_v)
+		h_stats.addLayout(right_v)
+		layout.addLayout(h_stats)
+
 		h_top = QHBoxLayout()
 		h_top.addWidget(self.btn_action)
 		h_top.addWidget(self.btn_pause)
@@ -289,6 +309,15 @@ class PromptInjectorDialog(QDialog):
 		self.automationFinished.connect(self._on_automation_finished)
 		self.progressUpdated.connect(self._on_progress_updated)
 		self.countdownUpdated.connect(self._on_countdown_updated)
+
+		self._stats_timer = QTimer(self)
+		self._stats_timer.setInterval(1000)
+		self._stats_timer.timeout.connect(lambda: self._update_stats(getattr(self, '_current_done', 0), getattr(self, '_total', 0)))
+		self._run_start_time = None
+		self._pause_start = None
+		self._pause_accum = 0.0
+		self._current_done = 0
+		self._total = 0
 
 		def _on_key_press(key):
 			from pynput import keyboard
@@ -353,6 +382,13 @@ class PromptInjectorDialog(QDialog):
 			target=self._run_sequence, args=(coords, base_delays, random_delay, paste_texts), daemon=True
 		)
 		self._worker_thread.start()
+		self._run_start_time = time.time()
+		self._pause_accum = 0.0
+		self._pause_start = None
+		self._current_done = 0
+		self._total = total
+		self._stats_timer.start()
+		self._update_stats(0, total)
 
 	def _set_run_mode(self, enable: bool):
 		for p in self.points:
@@ -379,6 +415,8 @@ class PromptInjectorDialog(QDialog):
 		self._set_delay_text("")
 		self.progress_bar.setValue(self.progress_bar.maximum())
 		self.progress_bar.setFormat(f"{self.progress_bar.maximum()} / {self.progress_bar.maximum()}")
+		self._stats_timer.stop()
+		self._update_stats(self.progress_bar.maximum(), self.progress_bar.maximum())
 		self._last_set_clipboard = None
 
 	@Slot(int, int)
@@ -386,6 +424,9 @@ class PromptInjectorDialog(QDialog):
 		self.progress_bar.setMaximum(total)
 		self.progress_bar.setValue(done)
 		self.progress_bar.setFormat(f"{done} / {total}")
+		self._current_done = done
+		self._total = total
+		self._update_stats(done, total)
 
 	def on_pause_toggle(self):
 		if not getattr(self, '_pause_event', None):
@@ -394,10 +435,15 @@ class PromptInjectorDialog(QDialog):
 			return
 		if self._pause_event.is_set():
 			self._pause_event.clear()
+			if getattr(self, "_pause_start", None):
+				self._pause_accum += time.time() - self._pause_start
+				self._pause_start = None
 			self.btn_pause.setText("Pause")
 		else:
 			self._pause_event.set()
+			self._pause_start = time.time()
 			self.btn_pause.setText("Resume")
+		self._update_stats(getattr(self, "_current_done", 0), getattr(self, "_total", 0))
 
 	def on_stop(self):
 		self._stop_event.set()
@@ -406,6 +452,8 @@ class PromptInjectorDialog(QDialog):
 		self.btn_pause.setEnabled(False)
 		self.btn_stop.setEnabled(False)
 		self.btn_pause.setText("Pause")
+		self._stats_timer.stop()
+		self._update_stats(getattr(self, "_current_done", 0), getattr(self, "_total", 0))
 
 	def on_reset_points(self):
 		screen = QGuiApplication.primaryScreen().availableGeometry()
@@ -449,6 +497,54 @@ class PromptInjectorDialog(QDialog):
 			h = self.delay_label.sizeHint().height()
 			self.delay_label.setFixedHeight(h)
 		QTimer.singleShot(0, self.adjustSize)
+
+	def _format_duration(self, seconds):
+		if seconds is None:
+			return "-"
+		try:
+			seconds = int(round(seconds))
+		except Exception:
+			return "-"
+		h, rem = divmod(seconds, 3600)
+		m, s = divmod(rem, 60)
+		if h:
+			return f"{h:d}:{m:02d}:{s:02d}"
+		return f"{m:d}:{s:02d}"
+
+	def _update_stats(self, done, total):
+		if total <= 0:
+			self.stats_eta_lbl.setText("ETA: -")
+			self.stats_remaining_lbl.setText("Remaining: -")
+			self.stats_elapsed_lbl.setText("Elapsed: -")
+			self.stats_progress_lbl.setText("Progress: 0/0")
+			self.stats_speed_lbl.setText("Speed: 0.00/m")
+			return
+		now = time.time()
+		start = getattr(self, "_run_start_time", None)
+		if not start:
+			elapsed = 0.0
+		else:
+			elapsed = now - start - getattr(self, "_pause_accum", 0.0)
+			if getattr(self, "_pause_start", None):
+				elapsed -= (now - self._pause_start)
+			if elapsed < 0:
+				elapsed = 0.0
+		remaining_items = max(0, total - done)
+		avg = (elapsed / done) if done > 0 and elapsed > 0 else None
+		if avg:
+			remaining_time = avg * remaining_items
+			eta_str = time.strftime("%H:%M:%S", time.localtime(now + remaining_time))
+		else:
+			remaining_time = None
+			eta_str = "-"
+		speed = (done / elapsed * 60.0) if elapsed > 0 else 0.0
+		percent = int(done / total * 100) if total > 0 else 0
+		paused = " (paused)" if getattr(self, "_pause_event", None) and self._pause_event.is_set() else ""
+		self.stats_eta_lbl.setText(f"ETA: {eta_str}")
+		self.stats_remaining_lbl.setText(f"Remaining: {self._format_duration(remaining_time)}")
+		self.stats_elapsed_lbl.setText(f"Elapsed: {self._format_duration(elapsed)}{paused}")
+		self.stats_progress_lbl.setText(f"Progress: {done}/{total} ({percent}%)")
+		self.stats_speed_lbl.setText(f"Speed: {speed:.2f}/m")
 
 	def on_load_csv(self):
 		path, _ = QFileDialog.getOpenFileName(self, "Select CSV", os.path.dirname(__file__), "CSV Files (*.csv);;All Files (*)")
