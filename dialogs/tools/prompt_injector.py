@@ -103,12 +103,10 @@ class PromptInjectorDialog(QDialog):
 		self.setWindowTitle("Prompt Injector Tool")
 		self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
 
-		# window icon should match main app
 		icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
 		if os.path.exists(icon_path):
 			self.setWindowIcon(QIcon(icon_path))
 
-		# database instance for prompt status updates
 		self.db = ImageTeaDB()
 
 		self.btn_action = QPushButton("Run Action")
@@ -143,19 +141,16 @@ class PromptInjectorDialog(QDialog):
 		self.delay_spinboxes = []
 		layout = QVBoxLayout()
 		colors = ["red", "green", "blue", "orange"]
-		# explicit color hex codes for consistent rendering (ensures orange looks orange)
 		self.color_map = {
 			"red": "#ff4d4d",
 			"green": "#00b050",
 			"blue": "#1e90ff",
 			"orange": "#ff8800",
 		}
-		# per-point extra notes
 		self.point_notes = [" (select all & paste)", " (click)", " (click)", " (click)"]
 		for i, color in enumerate(colors, start=1):
 			h = QHBoxLayout()
 			lbl = QLabel(f"Point {i} ({color}) delay (s):")
-			# use explicit color codes to avoid platform-dependent color rendering
 			lbl.setStyleSheet(f"color: {self.color_map.get(color, color)};")
 			spin = QDoubleSpinBox()
 			spin.setRange(0.0, 600.0)
@@ -179,7 +174,6 @@ class PromptInjectorDialog(QDialog):
 		h.addWidget(self.rand_lbl)
 		h.addWidget(self.rand_spin)
 		layout.addLayout(h)
-		# auto-save delay changes so user edits persist immediately
 		for sb in self.delay_spinboxes:
 			sb.valueChanged.connect(lambda v, s=sb: self.save_settings())
 		self.rand_spin.valueChanged.connect(lambda v: self.save_settings())
@@ -210,7 +204,6 @@ class PromptInjectorDialog(QDialog):
 		h_bottom.addWidget(self.btn_reset)
 		layout.addLayout(h_bottom)
 
-		# Put reset explanation into the Reset button tooltip instead of a visible label
 		self.btn_reset.setToolTip("Reset Points: Move the four markers back to their default centered positions and save them to settings.")
 
 		self.delay_label = QLabel("")
@@ -219,22 +212,18 @@ class PromptInjectorDialog(QDialog):
 		self.point_enabled = []
 		for i, color in enumerate(colors, start=1):
 			h2 = QHBoxLayout()
-			# single checkbox with the label text included
 			note = self.point_notes[i-1] if (i-1) < len(self.point_notes) else ""
 			chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
 			chk.setChecked(True)
-			# store color for toggling visual state later (color_name is the logical color name)
 			chk.setProperty("color_name", color)
-			# apply explicit color code for consistent display
+			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
 			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
 			chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 			self.point_enabled.append(chk)
-			# compact layout
 			h2.setContentsMargins(0, 0, 0, 0)
 			h2.setSpacing(6)
 			h2.addWidget(chk, 0, Qt.AlignLeft)
 			layout.addLayout(h2)
-			# connect toggle to handler
 			chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
 
 		self.setLayout(layout)
@@ -245,10 +234,8 @@ class PromptInjectorDialog(QDialog):
 		center = screen.center()
 		offsets = [QPoint(0, 0), QPoint(40, 0), QPoint(-40, 0), QPoint(0, 40)]
 		for idx, (color, off) in enumerate(zip(colors, offsets)):
-			# create PointWidget using explicit hex color from the color_map so the visual marker matches the checkbox
 			hex_color = self.color_map.get(color, color)
 			p = PointWidget(hex_color, idx + 1)
-			# Ensure point widgets are independent top-level tool windows
 			p.setParent(None)
 			p.setWindowFlag(Qt.Tool, True)
 			p.setWindowFlag(Qt.WindowStaysOnTopHint, True)
@@ -282,7 +269,6 @@ class PromptInjectorDialog(QDialog):
 		self._pynput_listener.daemon = True
 		self._pynput_listener.start()
 
-		# load persisted settings (create defaults if missing)
 		self.load_settings()
 
 	def _make_updater(self, idx: int, color: str):
@@ -293,7 +279,6 @@ class PromptInjectorDialog(QDialog):
 		return updater
 
 	def _on_point_toggle(self, idx: int, enabled: bool):
-		# show/hide the point widget, keep saved position intact
 		if idx < 0 or idx >= len(self.points):
 			return
 		p = self.points[idx]
@@ -305,13 +290,10 @@ class PromptInjectorDialog(QDialog):
 			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
 		else:
 			p.hide()
-			# visually dim the checkbox text but keep it interactive
 			chk.setStyleSheet("color: gray;")
-		# persist enabled/disabled immediately
 		self.save_settings()
 
 	def on_run_automation(self):
-		# only use enabled points
 		coords = []
 		base_delays = []
 		for idx, p in enumerate(self.points):
@@ -392,7 +374,6 @@ class PromptInjectorDialog(QDialog):
 		self.save_settings()
 
 	def show_help_dialog(self):
-		# build HTML using the color map and per-point notes so the help dialog matches current settings
 		c = lambda name: self.color_map.get(name, name)
 		note = lambda idx: self.point_notes[idx] if idx < len(self.point_notes) else ""
 		html = (
@@ -430,7 +411,6 @@ class PromptInjectorDialog(QDialog):
 		if not prompts:
 			QMessageBox.warning(self, "No Data", "No prompts found in database.")
 			return
-		# prompts: list of (id, text)
 		self._loaded_prompt_ids = [p[0] for p in prompts]
 		self.loaded_paste_texts = [p[1] for p in prompts]
 		self.loaded_from_db = True
@@ -446,7 +426,6 @@ class PromptInjectorDialog(QDialog):
 		self._clipboard_set_event.set()
 
 	def closeEvent(self, event):
-		# persist state on close
 		self.save_settings()
 		for p in list(self.points):
 			p.close()
@@ -455,7 +434,6 @@ class PromptInjectorDialog(QDialog):
 		super().closeEvent(event)
 
 	def settings_path(self):
-		# persist settings to global configs folder
 		return os.path.join(BASE_PATH, "configs", "prompt_injector_settings.json")
 
 	def save_settings(self):
@@ -479,12 +457,10 @@ class PromptInjectorDialog(QDialog):
 			with open(path, "w", encoding="utf-8") as fh:
 				json.dump(data, fh, indent=2)
 		except Exception:
-			# do not crash; persistence is best-effort
 			pass
 
 	def load_settings(self):
 		path = self.settings_path()
-		# create default config if missing
 		if not os.path.exists(path):
 			default = {
 				"base_delays": [3.0, 3.0, 3.0, 3.0],
@@ -499,7 +475,6 @@ class PromptInjectorDialog(QDialog):
 					json.dump(default, fh, indent=2)
 			except Exception:
 				pass
-			# Apply defaults to UI even if subsequent load fails
 			bd = default.get("base_delays") or []
 			for i, val in enumerate(bd):
 				if i < len(self.delay_spinboxes):
@@ -516,12 +491,10 @@ class PromptInjectorDialog(QDialog):
 		for i, val in enumerate(bd):
 			if i < len(self.delay_spinboxes):
 				self.delay_spinboxes[i].setValue(float(val))
-		# load enabled points
 		en = data.get("enabled_points") or []
 		for i, chk in enumerate(self.point_enabled):
 			if i < len(en):
 				chk.setChecked(bool(en[i]))
-		# apply visible states based on enabled flags
 		for i, chk in enumerate(self.point_enabled):
 			self._on_point_toggle(i, chk.isChecked())
 		rd = data.get("random_delay")
@@ -592,7 +565,7 @@ class PromptInjectorDialog(QDialog):
 				copied_count += 1
 				self._copied_count = copied_count
 				self.csv_label.setText(f"Prompt DB: {total} records (copied: {copied_count})")
-				# update DB status for this prompt if we have ids
+
 				try:
 					if self.db and len(self._loaded_prompt_ids) >= idx:
 						prompt_id = self._loaded_prompt_ids[idx - 1]
