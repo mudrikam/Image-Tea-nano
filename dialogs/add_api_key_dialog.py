@@ -208,8 +208,8 @@ class ModelManagerDialog(QDialog):
             self.models_list.takeItem(idx)
             try:
                 self.model_list[service].pop(idx)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[ModelManager] Error removing model at index {idx} for service {service}: {e}")
 
     def _move_up(self):
         sel = self.models_list.currentItem()
@@ -739,8 +739,8 @@ class AddApiKeyDialog(QDialog):
             err = text or "<no raw error available>"
             try:
                 self._show_error_dialog(err)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[AddApiKeyDialog] Error showing error dialog: {e}")
 
     def _get_action_btn(self, row, btn_idx):
         widget = self.api_table.cellWidget(row, 5)
@@ -904,7 +904,10 @@ class AddApiKeyDialog(QDialog):
         self._api_key_valid = False
 
     def _on_model_combo_changed(self, idx):
-        pass
+        try:
+            self._api_key_valid = False
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error handling model combo change: {e}")
 
     def _open_model_manager(self):
         dlg = ModelManagerDialog(self.model_list, self)
@@ -992,8 +995,8 @@ class AddApiKeyDialog(QDialog):
                         if s == service and a == self.key_edit.text().strip():
                             api_exists = True
                             break
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[AddApiKeyDialog] Error checking existing API keys: {e}")
             if api_exists:
                 QMessageBox.information(self, "Saved", f"API Key for '{service}' is valid and active, ready to use.")
             else:
@@ -1026,8 +1029,8 @@ class AddApiKeyDialog(QDialog):
             try:
                 pos = copy_btn.mapToGlobal(copy_btn.rect().center())
                 QToolTip.showText(pos, "Error report copied to clipboard — click 'Report Error' to send.", copy_btn)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[AddApiKeyDialog] Error showing tooltip after copy: {e}")
         copy_btn.clicked.connect(_popup_copy)
         report_btn = QPushButton(qta.icon('fa6s.bug'), "Report Error")
         report_btn.clicked.connect(lambda: self._report_error_via_whatsapp(error_text))

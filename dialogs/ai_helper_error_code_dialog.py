@@ -1,11 +1,17 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QSizePolicy
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QSizePolicy, QMessageBox, QFileDialog, QApplication
 from PySide6.QtGui import QIcon, QGuiApplication
 from PySide6.QtCore import Qt
 import qtawesome as qta
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 import ast
+import json
+import csv
+import os
 import webbrowser
 from datetime import datetime
+from config import BASE_PATH
+import re
+import traceback
 
 GEMINI_ERRORS = {
     "400": {
@@ -99,13 +105,12 @@ def parse_api_error(message):
         except Exception:
             parsed = None
         if not parsed:
-            import re, json as _json
             m = re.search(r"(\{\s*\"?error\"?[\s\S]*\})", message)
             if m:
                 js = m.group(1)
                 js2 = js.replace("'", '"')
                 try:
-                    parsed = _json.loads(js2)
+                    parsed = json.loads(js2)
                 except Exception:
                     parsed = None
         if isinstance(parsed, dict):
@@ -171,18 +176,16 @@ class AIHelperErrorCodeDialog(QDialog):
             ts_lbl.setStyleSheet('color: gray; font-size: 11px;')
             ts_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             top.addWidget(ts_lbl)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Dialog Timestamp Error] {e}")
         layout.addLayout(top)
 
         code_key = str(error_code) if error_code is not None else ''
         provided_status = status
         entries = []
         
-        # Pilih error definitions berdasarkan service
         error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
         
-        # Jika ada error_code_map dan filenames, gunakan error code dari file pertama
         if self._error_code_map and filenames:
             first_file = filenames[0]
             first_error_code = self._error_code_map.get(first_file)
@@ -198,6 +201,7 @@ class AIHelperErrorCodeDialog(QDialog):
                 entries = [ent]
 
         api_info = parse_api_error(message)
+        self._aggregated_message = message or ""
 
         self._file_map = file_map or {}
         if filenames:
@@ -220,11 +224,20 @@ class AIHelperErrorCodeDialog(QDialog):
                 header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
                 self.table.cellClicked.connect(self._on_table_click)
                 layout.addWidget(self.table)
+
+                instr = QLabel("Click a table row to view the error details. Use 'Export CSV' to save a report file you can share when asking for help in community channels.")
+                instr.setWordWrap(True)
+                instr.setStyleSheet('color: gray; font-size: 12px;')
+                layout.addWidget(instr)
+
+                cfg_path = os.path.join(BASE_PATH, 'configs', 'app_config.json')
+                print(f"[Dialog Config] Loading app_config.json from: {cfg_path}")
+                with open(cfg_path, 'r', encoding='utf-8') as cf:
+                    cfg = json.load(cf)
+                self._wa_link = cfg['links']['whatsapp']
             except Exception as e:
                 print(f"[Dialog Table Error] {e}")
 
-        # ALWAYS create error detail section jika ada error_code_map atau entries
-        # Widget dibuat sejak awal, hanya konten yang di-update
         self.error_label = None
         self.status_label = None
         self.description_label = None
@@ -232,13 +245,11 @@ class AIHelperErrorCodeDialog(QDialog):
         self.solution_label = None
         
         if self._error_code_map or entries:
-            # Buat frame untuk detail error (ALWAYS created, not conditional)
             detail_frame = QFrame()
             detail_frame.setFrameShape(QFrame.StyledPanel)
             detail_layout = QVBoxLayout(detail_frame)
             detail_layout.setContentsMargins(8, 8, 8, 8)
             
-            # Error row
             error_row = QFrame()
             error_layout = QHBoxLayout(error_row)
             error_layout.setContentsMargins(4, 2, 4, 2)
@@ -256,7 +267,6 @@ class AIHelperErrorCodeDialog(QDialog):
             error_layout.addWidget(self.error_label)
             detail_layout.addWidget(error_row)
             
-            # Status row
             status_row = QFrame()
             status_layout = QHBoxLayout(status_row)
             status_layout.setContentsMargins(4, 2, 4, 2)
@@ -274,7 +284,6 @@ class AIHelperErrorCodeDialog(QDialog):
             status_layout.addWidget(self.status_label)
             detail_layout.addWidget(status_row)
             
-            # Description row
             desc_row = QFrame()
             desc_layout = QHBoxLayout(desc_row)
             desc_layout.setContentsMargins(4, 2, 4, 2)
@@ -292,7 +301,6 @@ class AIHelperErrorCodeDialog(QDialog):
             desc_layout.addWidget(self.description_label)
             detail_layout.addWidget(desc_row)
             
-            # Example row
             example_row = QFrame()
             example_layout = QHBoxLayout(example_row)
             example_layout.setContentsMargins(4, 2, 4, 2)
@@ -310,7 +318,6 @@ class AIHelperErrorCodeDialog(QDialog):
             example_layout.addWidget(self.example_label)
             detail_layout.addWidget(example_row)
             
-            # Solution row
             solution_row = QFrame()
             solution_layout = QHBoxLayout(solution_row)
             solution_layout.setContentsMargins(4, 2, 4, 2)
@@ -329,15 +336,11 @@ class AIHelperErrorCodeDialog(QDialog):
             detail_layout.addWidget(solution_row)
             
             layout.addWidget(detail_frame)
-            
-            # Jangan load di init, biarkan showEvent yang handle untuk consistency
 
-        # Set flag untuk auto-select di showEvent (setelah dialog benar-benar ditampilkan)
-        if hasattr(self, 'table') and self._error_code_map and self.table.rowCount() > 0:
+        if hasattr(self, 'table') and self.table.rowCount() > 0:
             self._should_auto_select = True
             print("[Dialog] Will auto-select first row after dialog is shown")
         elif entries and len(entries) > 0:
-            # Jika tidak ada tabel tapi ada entries, load langsung
             entry = entries[0]
             print(f"[Dialog Init] Loading initial entry for error {code_key} (no table)")
             if self.error_label:
@@ -348,8 +351,25 @@ class AIHelperErrorCodeDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+
+        export_btn = QPushButton("Export CSV")
+        try:
+            export_btn.setIcon(qta.icon('fa6s.file-csv'))
+        except Exception as e:
+            print(f"[Dialog Export Icon Error] {e}")
+        export_btn.setToolTip("Export the table as CSV for reporting or community support")
+        export_btn.clicked.connect(self._export_csv)
+        btn_layout.addWidget(export_btn)
+
+        wa_btn = QPushButton("Report Error")
+        wa_btn.setIcon(qta.icon('fa6b.whatsapp', color='#25D366'))
+        wa_btn.setToolTip("Report this error via WhatsApp")
+        wa_btn.clicked.connect(self._report_via_whatsapp)
+        btn_layout.addWidget(wa_btn)
+
         copy_btn = QPushButton("Copy")
         copy_btn.setIcon(qta.icon('fa6s.copy'))
+        copy_btn.setToolTip("Copy current error details to clipboard")
         copy_btn.clicked.connect(self._copy)
         btn_layout.addWidget(copy_btn)
 
@@ -364,7 +384,6 @@ class AIHelperErrorCodeDialog(QDialog):
         """Override showEvent untuk auto-select row pertama dan center dialog"""
         super().showEvent(event)
         
-        # Center dialog di layar
         try:
             if self.parent():
                 parent_geo = self.parent().geometry()
@@ -373,7 +392,6 @@ class AIHelperErrorCodeDialog(QDialog):
                     parent_geo.y() + (parent_geo.height() - self.height()) // 2
                 )
             else:
-                from PySide6.QtWidgets import QApplication
                 screen = QApplication.primaryScreen().geometry()
                 self.move(
                     (screen.width() - self.width()) // 2,
@@ -382,12 +400,9 @@ class AIHelperErrorCodeDialog(QDialog):
         except Exception as e:
             print(f"[Dialog Center Error] {e}")
         
-        # Auto-select row pertama setelah dialog ditampilkan
         if self._should_auto_select and hasattr(self, 'table'):
             try:
-                from PySide6.QtCore import QTimer
-                # Delay sedikit untuk memastikan UI sudah ter-render penuh
-                QTimer.singleShot(50, self._do_auto_select)
+                QTimer.singleShot(150, self._do_auto_select)
             except Exception as e:
                 print(f"[Dialog Auto-select Timer Error] {e}")
     
@@ -396,7 +411,6 @@ class AIHelperErrorCodeDialog(QDialog):
         try:
             if hasattr(self, 'table') and self.table.rowCount() > 0:
                 self.table.selectRow(0)
-                # Trigger click event untuk load detail
                 first_file = self._filenames[0] if self._filenames else None
                 if first_file:
                     first_error_code = self._error_code_map.get(first_file)
@@ -439,7 +453,6 @@ class AIHelperErrorCodeDialog(QDialog):
             if self.solution_label:
                 self.solution_label.setText(f"Solution : {entry.get('solution', 'N/A')}")
             
-            # Update copy text
             self._copy_text = f"""Error: {error_code}
 Status: {entry.get('status', '')}
 Description: {entry.get('description', '')}
@@ -449,7 +462,6 @@ Solution: {entry.get('solution', '')}"""
             print(f"[Dialog Update Labels] Labels updated successfully")
         except Exception as e:
             print(f"[Dialog Update Labels Error] {e}")
-            import traceback
             traceback.print_exc()
 
     def _render_parsed_message(self, message, target_layout):
@@ -525,30 +537,38 @@ Solution: {entry.get('solution', '')}"""
             
             fn = item.text()
             file_error_code = self._error_code_map.get(fn)
-            
+            if not file_error_code:
+                try:
+                    second_item = self.table.item(row, 1)
+                    if second_item:
+                        file_error_code = second_item.text()
+                except Exception:
+                    file_error_code = None
+
             print(f"[Dialog Click] File: {fn}, Error Code: {file_error_code}, Service: {self._service}")
-            
-            # Pilih error definitions berdasarkan service
-            error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
-            
+
+            entry = None
             if file_error_code:
-                entry = error_definitions.get(str(file_error_code))
+                entry = PREDEFINED_ERRORS.get(str(file_error_code))
                 if entry:
-                    # Hanya update label text, tidak rebuild widget
                     self._update_error_labels(str(file_error_code), entry)
-                    print(f"[Dialog Click] Updated labels for error {file_error_code} from {self._service.upper()} definitions")
+                    print(f"[Dialog Click] Updated labels for error {file_error_code} from PREDEFINED_ERRORS")
                 else:
-                    print(f"[Dialog Click] No predefined error for code {file_error_code} in {self._service.upper()} definitions")
+                    error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
+                    entry = error_definitions.get(str(file_error_code))
+                    if entry:
+                        self._update_error_labels(str(file_error_code), entry)
+                        print(f"[Dialog Click] Updated labels for error {file_error_code} from {self._service.upper()} definitions")
+                    else:
+                        print(f"[Dialog Click] No predefined error for code {file_error_code} in known definitions")
             else:
                 print(f"[Dialog Click] No error code found for {fn}")
-                
-            # Select row
+
             self.table.selectRow(row)
             self.table.scrollToItem(self.table.item(row, 0))
             
         except Exception as e:
             print(f"[Dialog Table Click Error] {e}")
-            import traceback
             traceback.print_exc()
     
     def _copy(self):
@@ -556,6 +576,75 @@ Solution: {entry.get('solution', '')}"""
             QGuiApplication.clipboard().setText(self._copy_text)
         except Exception as e:
             print(f"[Dialog Copy Error] {e}")
+
+    def _report_via_whatsapp(self):
+        """Open the configured WhatsApp link in the default browser.
+
+        Deterministic: no try/except; errors should surface to the console.
+        """
+        wa = self._wa_link
+        webbrowser.open(wa)
+
+    def _export_csv(self):
+        """Show a Save File dialog and export the table details to the selected CSV file.
+        """
+        try:
+            home = os.path.expanduser('~')
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            default_name = f"Image_Tea_AI_Generation_Error_Report_{ts}.csv"
+            default_path = os.path.join(home, default_name)
+
+            path, _ = QFileDialog.getSaveFileName(self, "Save Error Report", default_path, "CSV Files (*.csv);;All Files (*)")
+            if not path:
+                print("[Dialog Export] Save canceled by user")
+                return
+
+            if not path.lower().endswith('.csv'):
+                path = path + '.csv'
+
+            with open(path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Filename', 'Error Code', 'Status', 'Description', 'Example', 'Solution'])
+
+                if hasattr(self, 'table'):
+                    rows = self.table.rowCount()
+                    for i in range(rows):
+                        fn_item = self.table.item(i, 0)
+                        ec_item = self.table.item(i, 1)
+                        fn = fn_item.text() if fn_item else ''
+                        ec = ec_item.text() if ec_item else ''
+
+                        status = ''
+                        description = ''
+                        example = ''
+                        solution = ''
+
+                        try:
+                            entry = PREDEFINED_ERRORS.get(str(ec)) if ec else None
+                            if not entry:
+                                entry = (GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS).get(str(ec)) if ec else None
+
+                            if isinstance(entry, dict):
+                                status = entry.get('status', '')
+                                description = entry.get('description', '')
+                                example = entry.get('example', '')
+                                solution = entry.get('solution', '')
+                        except Exception as e:
+                            print(f"[Dialog Export] Error looking up details for code {ec}: {e}")
+
+                        writer.writerow([fn, ec, status, description, example, solution])
+
+            print(f"[Dialog Export] Wrote CSV to {path}")
+            try:
+                QMessageBox.information(self, "Export Completed", f"Exported error report to:\n{path}")
+            except Exception as e:
+                print(f"[Dialog Export Notify Error] {e}")
+        except Exception as e:
+            print(f"[Dialog Export Error] {e}")
+            try:
+                QMessageBox.critical(self, "Export Failed", f"Failed to write CSV: {e}")
+            except Exception as e2:
+                print(f"[Dialog Export Critical Notify Error] {e2}")
 
 class _DialogInvoker(QObject):
     showRequested = Signal(str, str, str, str)
@@ -576,7 +665,6 @@ class _DialogInvoker(QObject):
                 entry = {'count': 0, 'messages': [], 'filenames': [], 'file_map': {}, 'service': service}
                 self._buffer[signature] = entry
             else:
-                # Update service jika belum ada
                 if 'service' not in entry:
                     entry['service'] = service
             entry['count'] += 1
@@ -628,8 +716,8 @@ class _DialogInvoker(QObject):
         for timer in list(self._timers.values()):
             try:
                 timer.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Dialog Timer Stop Error] {e}")
         self._timers.clear()
         
         signatures = list(self._buffer.keys())
@@ -644,8 +732,8 @@ class _DialogInvoker(QObject):
         for timer in list(self._timers.values()):
             try:
                 timer.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Dialog Timer Stop Error] {e}")
         self._timers.clear()
         self._buffer.clear()
 
@@ -673,7 +761,6 @@ class _DialogInvoker(QObject):
 
             parent = None
             try:
-                from PySide6.QtWidgets import QApplication
                 parent = QApplication.activeWindow()
             except Exception:
                 parent = None
@@ -687,8 +774,8 @@ class _DialogInvoker(QObject):
                 try:
                     dlg.raise_()
                     dlg.activateWindow()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[Dialog Activate Error] {e}")
             except Exception as e:
                 print(f"[Dialog Show Error] {e}")
         except Exception as e:
@@ -696,7 +783,6 @@ class _DialogInvoker(QObject):
 
 invoker = _DialogInvoker()
 try:
-    from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
     if app is not None:
         try:

@@ -213,8 +213,8 @@ def read_metadata_pyexiv2(file_path):
 				if isinstance(xpsubject, bytes):
 					xpsubject = xpsubject.decode('utf-16le').rstrip('\x00')
 				tags = [t.strip() for t in xpsubject.split(',')]
-			except Exception:
-				pass
+			except Exception as e:
+				print(f"[pyexiv2] Error decoding Exif.Image.XPSubject for {file_path}: {e}")
 		if isinstance(tags, list):
 			tags_str = ','.join(tags)
 		elif isinstance(tags, str):

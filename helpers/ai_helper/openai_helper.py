@@ -242,8 +242,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         try:
                             dlg.update_progress(data)
                             QApplication.processEvents()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"[OpenAI] Dialog progress update error: {e}")
 
                     def on_finished(result):
                         if isinstance(result, str) and result:
@@ -253,8 +253,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         try:
                             if dlg and dlg.isVisible():
                                 dlg.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"[OpenAI] Error closing dialog after proxy finished: {e}")
                         finished_event.set()
 
                     proxy_worker.progress_update.connect(on_progress)
@@ -268,8 +268,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
 
                     try:
                         dlg.cancel_button.clicked.disconnect()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[OpenAI] Warning: failed to disconnect cancel button: {e}")
                     dlg.cancel_button.clicked.connect(on_cancel_clicked)
 
                     proxy_worker.start()
@@ -278,12 +278,12 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                     print(f"[OpenAI] Dialog factory error: {e}")
                     try:
                         result_container[0] = (None, f"dialog factory error: {e}")
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        print(f"[OpenAI] Failed to set result container after dialog factory error: {e2}")
                     try:
                         finished_event.set()
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        print(f"[OpenAI] Failed to set finished_event after dialog factory error: {e2}")
                     raise
 
             invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
@@ -440,8 +440,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             m = re.search(r"['\"]status['\"]\s*[:=]\s*['\"]([^'\"]+)['\"]", err_str)
             if m:
                 status = m.group(1)
-        except Exception:
-            pass
+        except Exception as e2:
+            print(f"[OpenAI] Error extracting code/status from exception: {e2}")
         try:
             if code or ('quota' in err_str.lower()) or ('rate limit' in err_str.lower()):
                 signature = str(code) if not status else f"{code}|{status}"
@@ -454,8 +454,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         error_code_map[os.path.basename(image_path)] = code
                 except Exception:
                     print("[Dialog Error] Failed to show error dialog")
-        except Exception:
-            pass
+        except Exception as e2:
+            print(f"[OpenAI] Error during error-dialog notification: {e2}")
         return '', '', '', {}, '', error_message, 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)

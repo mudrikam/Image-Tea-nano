@@ -140,8 +140,8 @@ class CSVExporterDialog(QDialog):
 
             try:
                 self.checkbox_map[platform].setStyleSheet(f'color: {color}')
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error styling checkbox for {platform}: {e}")
             self.rename_layout.addWidget(row_widget)
             self.rename_rows[platform] = (row_widget, entry, suffix_label)
             visible = bool(self.config.get(platform, False))
@@ -227,15 +227,15 @@ class CSVExporterDialog(QDialog):
                 if self.fs_watcher and self.fs_watcher.files():
                     if self.CONFIG_PATH in self.fs_watcher.files():
                         self.fs_watcher.removePath(self.CONFIG_PATH)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error removing watcher path: {e}")
             with open(self.CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
             try:
                 if os.path.exists(self.CONFIG_PATH):
                     self.fs_watcher.addPath(self.CONFIG_PATH)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error adding watcher path: {e}")
         except Exception:
             print(f"[CSVExporterDialog] Error saving config to {self.CONFIG_PATH}")
 
@@ -328,8 +328,8 @@ class CSVExporterDialog(QDialog):
             self.update_suffixes()
             try:
                 self.rename_layout.activate()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error activating rename layout: {e}")
             self.rename_container.updateGeometry()
             self.adjustSize()
             self.validate_output_and_buttons()
@@ -348,8 +348,8 @@ class CSVExporterDialog(QDialog):
             self.update_suffixes()
             try:
                 self.rename_layout.activate()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error activating rename layout: {e}")
             self.rename_container.updateGeometry()
             self.adjustSize()
             self.validate_output_and_buttons()
@@ -414,12 +414,13 @@ class CSVExporterDialog(QDialog):
         try:
             if bool(self.open_folder_checkbox.isChecked()):
                 self.open_folder_windows(output_path)
-        except Exception:
+        except Exception as e:
+            print(f"[CSVExporterDialog] Error opening output folder (open_folder_checkbox): {e}")
             try:
                 if bool(self.config.get("open_folder_on_export", True)):
                     self.open_folder_windows(output_path)
-            except Exception:
-                pass
+            except Exception as e2:
+                print(f"[CSVExporterDialog] Error opening output folder (config fallback): {e2}")
         self.accept()
 
     def update_suffixes(self):

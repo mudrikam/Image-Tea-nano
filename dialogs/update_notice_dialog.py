@@ -67,8 +67,8 @@ class UpdateNoticeDialog(QDialog):
                     pixmap = QPixmap.fromImage(largest_image)
                     pixmap = pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     logo_label.setPixmap(pixmap)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[UpdateNoticeDialog] Error loading icon '{ico_path}': {e}")
         top_layout.addWidget(logo_label, alignment=Qt.AlignTop)
 
 

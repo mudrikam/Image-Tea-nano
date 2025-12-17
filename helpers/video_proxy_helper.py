@@ -114,8 +114,8 @@ def get_video_info(video_path):
                 try:
                     bitrate_str = line.split("bitrate:")[1].split()[0].strip()
                     bitrate = bitrate_str
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[VideoProxy] Error parsing bitrate from ffmpeg output for {video_path}: {e}")
         return {
             "duration": duration,
             "resolution": resolution,
@@ -200,29 +200,29 @@ def detect_gpu_pipeline_support():
         out = result.stdout or ''
         if 'h264_nvenc' in out or 'hevc_nvenc' in out:
             support['has_nvenc'] = True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[VideoProxy] Failed to probe ffmpeg encoders: {e}")
     try:
         result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'h264_cuvid' in out or 'hevc_cuvid' in out:
             support['has_cuvid'] = True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[VideoProxy] Failed to probe ffmpeg decoders: {e}")
     try:
         result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'scale_npp' in out:
             support['has_scale_npp'] = True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[VideoProxy] Failed to probe ffmpeg filters: {e}")
     try:
         result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'cuda' in out.lower():
             support['has_hwaccel_cuda'] = True
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[VideoProxy] Failed to probe ffmpeg hwaccels: {e}")
     return support
 
 
@@ -381,8 +381,8 @@ class VideoProxyWorker(QThread):
                                 "current_time": current_time,
                                 "duration": duration
                             })
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[VideoProxy] Error parsing ffmpeg time progress for {self.video_path}: {e}")
 
             process.wait()
 
@@ -437,8 +437,8 @@ class VideoProxyWorker(QThread):
                                         "current_time": current_time,
                                         "duration": duration
                                     })
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print(f"[VideoProxy] Error parsing ffmpeg time progress during retry for {self.video_path}: {e}")
                     process.wait()
                     if process.returncode != 0:
                         err_snippet = "".join(tail[-32:]) if tail else ""
@@ -570,8 +570,8 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
                                 "current_time": current_time,
                                 "duration": duration
                             })
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[VideoProxy] Error parsing ffmpeg time progress for {video_path}: {e}")
         
         process.wait()
 
@@ -626,8 +626,8 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
                                     "current_time": current_time,
                                     "duration": duration
                                 })
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"[VideoProxy] Error parsing ffmpeg time progress during retry for {video_path}: {e}")
                 process.wait()
                 if process.returncode != 0:
                     err_snippet = "".join(tail[-32:]) if tail else ""
@@ -714,8 +714,8 @@ def get_video_proxy_invoker(timeout=5):
         if QThread.currentThread() == app.thread():
             _create_invoker()
             return _video_proxy_invoker
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[VideoProxy] Could not verify QThread current thread: {e}")
 
     QTimer.singleShot(0, _create_invoker)
     creation_done.wait(timeout=timeout)
@@ -750,15 +750,15 @@ def invoke_in_main_thread(callable_obj, args=(), timeout=600):
                     if isinstance(arg, list) and len(arg) and hasattr(arg, '__setitem__'):
                         try:
                             arg[0] = (None, f"invoker callable error: {e}")
-                        except Exception:
-                            pass
+                        except Exception as e2:
+                            print(f"[VideoProxy] Failed to set invoker list result for arg: {e2}")
                     if isinstance(arg, threading.Event):
                         try:
                             arg.set()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as e2:
+                            print(f"[VideoProxy] Failed to set event arg after invoker error: {e2}")
+            except Exception as e2:
+                print(f"[VideoProxy] Error handling invoker callback args after callable exception: {e2}")
             print(f"[VideoProxy] Invoker callable raised: {e}")
         finally:
             done.set()
