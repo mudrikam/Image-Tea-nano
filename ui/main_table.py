@@ -2080,6 +2080,27 @@ class ImageTableWidget(QWidget):
             self.db.clear_files()
             self.refresh_table()
 
+    def clear_existing_metadata(self):
+        """Confirm and clear all metadata entries from the database (does not touch file-embedded metadata)."""
+        msg = (
+            "Are you sure you want to clear all metadata (title, description, tags, status and categories)?\n\n"
+            "This will NOT remove metadata embedded in the image files, only metadata stored in the database."
+        )
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Clear Metadata")
+        mb.setIcon(QMessageBox.Warning)
+        mb.setText(msg)
+        btn_yes = QPushButton("Yes")
+        btn_yes.setIcon(qta.icon('fa6s.check'))
+        btn_no = QPushButton("No")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.exec()
+        if mb.clickedButton() == btn_yes:
+            self.db.clear_all_metadata()
+            self.refresh_table()
+
     def _refresh_details_cards(self):
                                              
         if self._refreshing_details:

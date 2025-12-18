@@ -17,7 +17,7 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from helpers.file_importer import import_files
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
-from ui.main_menu import clear_existing_metadata, run_updater
+from ui.main_menu import run_updater
 
 def get_app_links():
     import json
@@ -156,7 +156,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.eraser', icon_color_hover),
         "Clear",
         "Clear all metadata from database for all files. \nThis does NOT delete files from disk. \nOnly clears the metadata entries in the database. \nOriginal metadata in files remains unchanged. \nBut you CAN NOT UNDO this action. \nUSE WITH CAUTION.",
-        lambda: clear_existing_metadata(window),
+        lambda: window.table.clear_existing_metadata(),
         window, icon_size, obj_name='toolbar_clear_metadata')
     toolbar.addAction(clear_metadata_action)
 

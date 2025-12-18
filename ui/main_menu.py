@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout
+from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton
 from PySide6.QtGui import QAction, QPixmap, QIcon
 from PySide6.QtCore import Qt
 import qtawesome as qta
@@ -77,15 +77,7 @@ def get_app_links():
         config = json.load(f)
     return config["links"]
 
-def clear_existing_metadata(window):
-    msg = (
-        "Are you sure you want to clear all metadata (title, description, tags, status and categories)?\n\n"
-        "This will NOT remove metadata embedded in the image files, only metadata stored in the database."
-    )
-    reply = QMessageBox.question(window, "Clear Metadata", msg, QMessageBox.Yes | QMessageBox.No)
-    if reply == QMessageBox.Yes:
-        window.db.clear_all_metadata()
-        window.table.refresh_table()
+
 
 def run_updater(window):
     updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
@@ -162,7 +154,7 @@ def setup_main_menu(window):
     clear_metadata_action = QAction(qta.icon('fa6s.eraser'), "Clear Existing Metadata", window)
     clear_metadata_action.setToolTip(MENU_TOOLTIPS["clear_metadata"])
     clear_metadata_action.setStatusTip(MENU_TOOLTIPS["clear_metadata"])
-    clear_metadata_action.triggered.connect(lambda: clear_existing_metadata(window))
+    clear_metadata_action.triggered.connect(lambda: window.table.clear_existing_metadata())
     edit_menu.addAction(clear_metadata_action)
 
     batch_rename_action = QAction(qta.icon('fa6s.i-cursor'), "Batch Rename", window)
