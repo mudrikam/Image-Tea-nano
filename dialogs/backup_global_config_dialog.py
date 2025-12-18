@@ -333,27 +333,39 @@ class BackupGlobalConfigDialog(QDialog):
 		sub = datetime.now().strftime('%Y%m%d_%H%M%S')
 		tmpdir = os.path.join(temp_base, f"restore_{sub}")
 		os.makedirs(tmpdir, exist_ok=True)
-		with zipfile.ZipFile(path, 'r') as zf:
-			for m in zf.infolist():
-				dest = os.path.join(tmpdir, m.filename)
-				abs_dest = os.path.abspath(dest)
-				abs_tmp = os.path.abspath(tmpdir)
-				if not (abs_dest == abs_tmp or abs_dest.startswith(abs_tmp + os.sep)):
-					raise ValueError("Illegal file path in backup (possible Zip Slip)")
-				if m.filename.endswith('/'):
-					os.makedirs(abs_dest, exist_ok=True)
-					continue
-				os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
-				with zf.open(m) as src, open(abs_dest, 'wb') as dst:
-					dst.write(src.read())
+		try:
+			with zipfile.ZipFile(path, 'r') as zf:
+				for m in zf.infolist():
+					dest = os.path.join(tmpdir, m.filename)
+					abs_dest = os.path.abspath(dest)
+					abs_tmp = os.path.abspath(tmpdir)
+					if not (abs_dest == abs_tmp or abs_dest.startswith(abs_tmp + os.sep)):
+						raise ValueError("Illegal file path in backup (possible Zip Slip)")
+					if m.filename.endswith('/'):
+						os.makedirs(abs_dest, exist_ok=True)
+						continue
+					os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+					with zf.open(m) as src, open(abs_dest, 'wb') as dst:
+						dst.write(src.read())
+		except Exception as e:
+			print(f"Error preparing backup contents for restore: {e}")
+			shutil.rmtree(tmpdir, ignore_errors=True)
+			return
 		temp_app = os.path.join(tmpdir, 'app_config.json')
 		current_app = os.path.join(BASE_PATH, 'configs', 'app_config.json')
 		if not os.path.exists(temp_app) or not os.path.exists(current_app):
-			raise FileNotFoundError('app_config.json missing in backup or current configs')
-		with open(temp_app, 'r', encoding='utf-8') as f:
-			tmp_json = json.load(f)
-		with open(current_app, 'r', encoding='utf-8') as f:
-			cur_json = json.load(f)
+			print('Error: app_config.json missing in backup or current configs')
+			shutil.rmtree(tmpdir, ignore_errors=True)
+			return
+		try:
+			with open(temp_app, 'r', encoding='utf-8') as f:
+				tmp_json = json.load(f)
+			with open(current_app, 'r', encoding='utf-8') as f:
+				cur_json = json.load(f)
+		except Exception as e:
+			print(f"Error reading configuration files: {e}")
+			shutil.rmtree(tmpdir, ignore_errors=True)
+			return
 		backup_ver = tmp_json['version']
 		current_ver = cur_json['version']
 		if backup_ver != current_ver:
@@ -374,41 +386,71 @@ class BackupGlobalConfigDialog(QDialog):
 			if reply != QMessageBox.Yes:
 				shutil.rmtree(tmpdir)
 				return
-		pre_prefix = f"pre_restore_{(self.name_input.text().strip() or 'backup_configs')}"
-		pre_backup = self.create_backup(prefix=pre_prefix)
+		ask_msg = "Skip creating pre/post backups around this restore? (Yes = Skip backups, No = Create backups)"
+		reply2 = QMessageBox.question(self, "Pre/Post Backups", ask_msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+		skip_backups = reply2 == QMessageBox.Yes
+		pre_backup = None
+		post_backup = None
+		if not skip_backups:
+			name_text = self.name_input.text().strip()
+			if not name_text:
+				print("Error: Backup name prefix is empty; cannot create pre/post backups.")
+				shutil.rmtree(tmpdir, ignore_errors=True)
+				return
+			pre_prefix = f"pre_restore_{name_text}"
+			try:
+				pre_backup = self.create_backup(prefix=pre_prefix)
+			except Exception as e:
+				print(f"Error creating pre-restore backup: {e}")
+				shutil.rmtree(tmpdir, ignore_errors=True)
+				return
 		parent = self.parent()
 		if parent and hasattr(parent, 'backup_configs_action'):
 			parent.backup_configs_action.setIcon(qta.icon('fa6s.file-zipper'))
 		cfg_dir = os.path.join(BASE_PATH, 'configs')
-		with zipfile.ZipFile(path, 'r') as zf:
-			for m in zf.infolist():
-				name = os.path.basename(m.filename)
-				if name in EXCLUDED_FILES:
-					continue
-				dest = os.path.join(cfg_dir, m.filename)
-				abs_dest = os.path.abspath(dest)
-				abs_cfg = os.path.abspath(cfg_dir)
-				if not (abs_dest == abs_cfg or abs_dest.startswith(abs_cfg + os.sep)):
-					raise ValueError("Illegal file path in backup (possible Zip Slip)")
-				if m.filename.endswith('/'):
-					os.makedirs(abs_dest, exist_ok=True)
-					continue
-				os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
-				with zf.open(m) as src, open(abs_dest, 'wb') as dst:
-					dst.write(src.read())
-		post_prefix = f"post_restore_{(self.name_input.text().strip() or 'backup_configs')}"
-		post_backup = self.create_backup(prefix=post_prefix)
+		try:
+			with zipfile.ZipFile(path, 'r') as zf:
+				for m in zf.infolist():
+					name = os.path.basename(m.filename)
+					if name in EXCLUDED_FILES:
+						continue
+					dest = os.path.join(cfg_dir, m.filename)
+					abs_dest = os.path.abspath(dest)
+					abs_cfg = os.path.abspath(cfg_dir)
+					if not (abs_dest == abs_cfg or abs_dest.startswith(abs_cfg + os.sep)):
+						raise ValueError("Illegal file path in backup (possible Zip Slip)")
+					if m.filename.endswith('/'):
+						os.makedirs(abs_dest, exist_ok=True)
+						continue
+					os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+					with zf.open(m) as src, open(abs_dest, 'wb') as dst:
+						dst.write(src.read())
+		except Exception as e:
+			print(f"Error during restore operation: {e}")
+			shutil.rmtree(tmpdir, ignore_errors=True)
+			return
+		if not skip_backups:
+			post_prefix = f"post_restore_{name_text}"
+			try:
+				post_backup = self.create_backup(prefix=post_prefix)
+			except Exception as e:
+				print(f"Error creating post-restore backup: {e}")
+				shutil.rmtree(tmpdir, ignore_errors=True)
+				return
 		shutil.rmtree(tmpdir)
-		pre_name = os.path.basename(pre_backup)
-		post_name = os.path.basename(post_backup)
-		pre_prefix, _ = self._parse_backup_filename(pre_name)
-		post_prefix, _ = self._parse_backup_filename(post_name)
-		pre_display = pre_prefix if pre_prefix else (pre_name[:-4] if pre_name.lower().endswith('.zip') else pre_name)
-		post_display = post_prefix if post_prefix else (post_name[:-4] if post_name.lower().endswith('.zip') else post_name)
-		msg = (
-			f"Restore complete.<br/>Pre-restore backup: <span style='color:#4e9e20'><b>{pre_display}</b></span><br/>"
-			f"Post-restore backup: <span style='color:#4e9e20'><b>{post_display}</b></span>"
-		)
+		if skip_backups:
+			msg = "Restore complete. Pre/post backups were skipped."
+		else:
+			pre_name = os.path.basename(pre_backup)
+			post_name = os.path.basename(post_backup)
+			pre_prefix, _ = self._parse_backup_filename(pre_name)
+			post_prefix, _ = self._parse_backup_filename(post_name)
+			pre_display = pre_prefix if pre_prefix else (pre_name[:-4] if pre_name.lower().endswith('.zip') else pre_name)
+			post_display = post_prefix if post_prefix else (post_name[:-4] if post_name.lower().endswith('.zip') else post_name)
+			msg = (
+				f"Restore complete.<br/>Pre-restore backup: <span style='color:#4e9e20'><b>{pre_display}</b></span><br/>"
+				f"Post-restore backup: <span style='color:#4e9e20'><b>{post_display}</b></span>"
+			)
 		mb = QMessageBox(self)
 		mb.setWindowTitle("Restore Complete")
 		mb.setIcon(QMessageBox.Information)
