@@ -7,7 +7,7 @@
 ## I'm sick of paying for something this basic. Every time I need a simple metadata generator, I hit a paywall. I'm done with it.
 
 ### SO I BUILT MY OWN!
-![Image Tea UI](res\images\ui_screenshot.png)
+![Image Tea UI](res/images/ui_screenshot.png)
 
 - It's FREE.
 - No trial. I don't want sweet promises and time limits.
