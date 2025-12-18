@@ -2076,7 +2076,19 @@ class ImageTableWidget(QWidget):
         self.refresh_table()
 
     def clear_all(self):
-        if QMessageBox.question(self, "Clear All", "Are you sure you want to clear all files?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Clear All")
+        mb.setIcon(QMessageBox.Warning)
+        mb.setText("Are you sure you want to clear all files?")
+        btn_clear = QPushButton("Clear")
+        btn_clear.setIcon(qta.icon('fa6s.broom'))
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_clear, QMessageBox.AcceptRole)
+        mb.addButton(btn_cancel, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_cancel)
+        mb.exec()
+        if mb.clickedButton() == btn_clear:
             self.db.clear_files()
             self.refresh_table()
 
