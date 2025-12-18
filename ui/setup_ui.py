@@ -103,12 +103,19 @@ def setup_ui(self):
     self.gen_btn = QPushButton(qta.icon('fa6s.wand-magic-sparkles', color='white'), "Generate Metadata")
     self.gen_btn.setStyleSheet("""
         QPushButton {
-            background-color: #4e9e20; 
+            background-color: #4e9e20;
             color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 12px;
+            min-height: 36px;
+            max-height: 36px;
+            min-width: 240px;
+            max-width: 240px;
         }
-        QPushButton:hover {
-            background-color: #3d7307;
-        }
+        QPushButton:hover { background-color: #3d7307; }
+        QPushButton:pressed { background-color: #376006; }
+        QPushButton:disabled { background-color: #9fbf9a; color: #f2f2f2; }
     """)
     self.gen_btn.setCursor(Qt.PointingHandCursor)
 
@@ -132,8 +139,7 @@ def setup_ui(self):
     self.gen_mode_combo.currentIndexChanged.connect(update_gen_btn_tooltip)
     update_gen_btn_tooltip(self.gen_mode_combo.currentIndex())
 
-    self.gen_btn.setMinimumWidth(260)
-    self.gen_btn.setMinimumHeight(48)
+    self.gen_btn.setFixedSize(240, 36)
     font = self.gen_btn.font()
     font.setPointSize(font.pointSize() + 4)
     font.setBold(True)

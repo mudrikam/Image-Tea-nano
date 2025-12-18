@@ -16,23 +16,22 @@ def get_batch_size():
 
 def get_delay_interval():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        delay_value = config.get('delay_interval', 'Random')
-        
-        if delay_value == 'No Delay':
-            return 0
-        elif delay_value == 'Random':
-            return random.uniform(1, 5)
-        else:
-            try:
-                return float(delay_value)
-            except ValueError:
-                return random.uniform(1, 5)
-    except Exception as e:
-        print(f"Error loading delay interval: {e}")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    delay_value = config['delay_interval']
+    if delay_value == 'No Delay':
+        return 0.0
+    if delay_value == 'Random':
         return random.uniform(1, 5)
+    return float(delay_value)
+
+def interruptible_sleep(total_seconds, stop_check):
+    end_time = time.time() + total_seconds
+    while time.time() < end_time:
+        if stop_check():
+            return False
+        time.sleep(0.1)
+    return True
 
 class BatchWorkerSignals(QObject):
     finished = Signal(list)
@@ -188,11 +187,8 @@ class BatchWorker(QThread):
         
         while remaining_files and api_attempt < max_api_attempts:
             if self._should_stop or (stop_flag and stop_flag.get('stop')):
-                # Add delay like in normal mode to show stopping state
-                import time
                 time.sleep(3)
                 break
-                
             # Get current API credentials and detailed info
             current_api_key, current_service, current_model = self.get_current_api_credentials()
             api_detail = self.get_current_api_info_detailed()
@@ -290,8 +286,6 @@ class BatchWorker(QThread):
                 self.msleep(50)
 
             if self._should_stop or (stop_flag and stop_flag.get('stop')):
-                # Add delay like in normal mode to show stopping state
-                import time
                 time.sleep(3)
                 break
 
@@ -783,6 +777,27 @@ def batch_generate_metadata(window):
     window._gen_total_time_start = time.perf_counter()
     _run_next_batch(window)
 
+def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_color=None):
+    color_line = f"color: {text_color};\n        " if text_color is not None else ""
+    pressed = pressed_color if pressed_color is not None else '#376006'
+    hover = hover_color if hover_color is not None else pressed
+    return f"""
+    QPushButton {{
+        background-color: {bg_color};
+        {color_line}border: none;
+        border-radius: 5px;
+        padding: 6px 12px;
+        min-height: 36px;
+        max-height: 36px;
+        min-width: 240px;
+        max-width: 240px;
+    }}
+    QPushButton:hover {{ background-color: {hover}; }}
+    QPushButton:pressed {{ background-color: {pressed}; }}
+    QPushButton:disabled {{ background-color: #9fbf9a; color: #f2f2f2; }}
+    """
+
+
 def _set_gen_btn_blinking(window, blinking, color=None, text=None):
     if not hasattr(window, "gen_btn"):
         return
@@ -794,12 +809,15 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
         from PySide6.QtCore import QTimer
 
         def set_bg_color(bg_color):
-            btn.setStyleSheet(f"background-color: {bg_color};")
+            style = _gen_btn_style_string(bg_color, text_color=None, hover_color=bg_color)
+            btn.setStyleSheet(style)
 
-        color1 = color if color else "rgba(255, 220, 28, 0.3)"
-        color2 = "rgba(255, 255, 255, 0.1)"
+        # Use thin yellow and thin grey for blinking to support light/dark themes
+        color1 = color if color else "rgba(255,220,28,0.22)"
+        color2 = "rgba(128,128,128,0.12)"
         window._gen_btn_blink_state = True
 
+        # Keep the full last stylesheet so it can be restored exactly
         window._gen_btn_last_bg = btn.styleSheet()
 
         def blink():
@@ -836,21 +854,24 @@ def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
     import qtawesome as qta
     btn = window.gen_btn
     if is_stopping:
-        btn.setText("Stopping Workers")
+        btn.setText("Stopping process")
         btn.setIcon(qta.icon('fa6s.stop'))
-        _set_gen_btn_blinking(window, True, "rgba(255, 220, 28, 0.3)", "Stopping Workers")
+        _set_gen_btn_blinking(window, True, "rgba(255, 220, 28, 0.3)", "Stopping process")
     elif is_stop:
         btn.setText("Stop Processes")
-        btn.setIcon(qta.icon('fa6s.stop'))
+        btn.setIcon(qta.icon('fa6s.stop', color='white'))
         _set_gen_btn_blinking(window, False)
-        btn.setStyleSheet("background-color: rgba(204, 0, 0, 0.3);")
-        window._gen_btn_last_bg = "background-color: rgba(204, 0, 0, 0.3);"
+        # Semi-opaque red (lighter) with white text for contrast; provide a slightly darker pressed color
+        style = _gen_btn_style_string('rgba(179,0,0,0.60)', text_color='white', pressed_color='rgba(140,0,0,0.80)', hover_color='rgba(179,0,0,0.75)')
+        btn.setStyleSheet(style)
+        window._gen_btn_last_bg = style
     else:
         btn.setText("Generate Metadata")
         btn.setIcon(qta.icon('fa6s.wand-magic-sparkles', color='white'))
         _set_gen_btn_blinking(window, False)
-        btn.setStyleSheet("background-color: #4e9e20; color: white;")
-        window._gen_btn_last_bg = "background-color: #4e9e20; color: white;"
+        style = _gen_btn_style_string('#4e9e20', 'white', pressed_color='#376006', hover_color='#3d7307')
+        btn.setStyleSheet(style)
+        window._gen_btn_last_bg = style
 
 def _run_next_batch(window):
     state = window._batch_processing_state
@@ -976,7 +997,7 @@ def _run_next_batch(window):
     
     def on_progress(cur, total):
         if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
-            window.table.set_progress_info('Stopping...')
+            window.table.set_progress_info('Stopping process...')
             window.table.progress_bar.setMinimum(0)
             window.table.progress_bar.setMaximum(0)
             _set_gen_btn_stop_state(window, False, is_stopping=True)
@@ -1125,10 +1146,30 @@ def _run_next_batch(window):
         
         if state['current'] < len(state['batches']):
             delay_seconds = get_delay_interval()
-            if delay_seconds > 0 and hasattr(window, 'statusbar'):
-                window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds delay before next batch...")
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(int(delay_seconds * 1000), lambda: _run_next_batch(window))
+            if delay_seconds > 0:
+                if hasattr(window, 'statusbar'):
+                    window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds delay before next batch...")
+                from PySide6.QtCore import QTimer
+                def _delayed_cb():
+                    state2 = getattr(window, '_batch_processing_state', {})
+                    stop_flag2 = state2.get('stop_flag')
+                    if state2.get('should_stop', False) or (stop_flag2 and stop_flag2.get('stop')):
+                        if hasattr(window, 'statusbar'):
+                            window.statusbar.clearMessage()
+                        _on_generation_finished(window, state2.get('errors', []), stopped=True)
+                        window._batch_delay_timer = None
+                        return
+                    window._batch_delay_timer = None
+                    _run_next_batch(window)
+                timer = QTimer(window)
+                timer.setSingleShot(True)
+                timer.timeout.connect(_delayed_cb)
+                timer.start(int(delay_seconds * 1000))
+                window._batch_delay_timer = timer
+            else:
+                if hasattr(window, 'statusbar'):
+                    window.statusbar.clearMessage()
+                _run_next_batch(window)
         else:
             # Clear delay message before finishing
             if hasattr(window, 'statusbar'):
@@ -1147,27 +1188,77 @@ def _run_next_batch(window):
 
 def stop_generate_metadata(window):
     state = getattr(window, '_batch_processing_state', None)
-    if state and state.get('worker'):
-        worker = state['worker']
-        if worker.isRunning():
-            print("[STOP] Stopping batch worker thread...")
-            state['should_stop'] = True
-            stop_flag = state.get('stop_flag')
-            if stop_flag is not None:
-                stop_flag['stop'] = True
-            table_widget = window.table.table
-            for row in range(table_widget.rowCount()):
-                status_item = table_widget.item(row, 8)
-                if status_item and status_item.text().lower() == "processing":
-                    window.table.set_row_status_color(row, "stopping")
-            window.table.set_progress_info('Stopping...')
-            window.table.progress_bar.setMinimum(0)
-            window.table.progress_bar.setMaximum(0)
-            window.table.progress_bar.setVisible(True)
-            _set_gen_btn_stop_state(window, False, is_stopping=True)
-            from PySide6.QtWidgets import QApplication
-            QApplication.processEvents()
-            worker.stop()
+    if not state:
+        print("[STOP] No active generation state found.")
+        return
+
+    # Always signal stop deterministically
+    state['should_stop'] = True
+    stop_flag = state.get('stop_flag')
+    if stop_flag is not None:
+        stop_flag['stop'] = True
+
+    # Update UI to stopping regardless of whether a worker is running
+    table_widget = window.table.table
+    for row in range(table_widget.rowCount()):
+        status_item = table_widget.item(row, 8)
+        if status_item and status_item.text().lower() == "processing":
+            window.table.set_row_status_color(row, "stopping")
+    window.table.set_progress_info('Stopping process...')
+    window.table.progress_bar.setMinimum(0)
+    window.table.progress_bar.setMaximum(0)
+    window.table.progress_bar.setVisible(True)
+    _set_gen_btn_stop_state(window, False, is_stopping=True)
+    from PySide6.QtWidgets import QApplication
+    QApplication.processEvents()
+
+    # Stop running worker if present
+    worker = state.get('worker')
+    if worker and worker.isRunning():
+        print("[STOP] Stopping batch worker thread...")
+        worker.stop()
+
+    # Cancel any pending inter-batch delay timer immediately
+    if hasattr(window, '_batch_delay_timer') and window._batch_delay_timer:
+        try:
+            window._batch_delay_timer.stop()
+            window._batch_delay_timer.deleteLater()
+        except Exception as e:
+            print(f"[STOP] Failed to stop batch delay timer: {e}")
+        window._batch_delay_timer = None
+        if hasattr(window, 'statusbar'):
+            window.statusbar.clearMessage()
+
+    # If there is no active worker running, schedule a 3s cooldown then finalize
+    if not (worker and worker.isRunning()):
+        from PySide6.QtCore import QTimer
+        if hasattr(window, '_stop_cooldown_timer') and window._stop_cooldown_timer:
+            try:
+                window._stop_cooldown_timer.stop()
+                window._stop_cooldown_timer.deleteLater()
+            except Exception as e:
+                print(f"[STOP] Failed to reset stop cooldown timer: {e}")
+            window._stop_cooldown_timer = None
+        def _finish_after_cooldown():
+            # Clear the cooldown timer first so _on_generation_finished is not deferred
+            window._stop_cooldown_timer = None
+            # If a deferred finish was set during cooldown, use it
+            if hasattr(window, '_deferred_finish') and window._deferred_finish:
+                errors2, stopped2 = window._deferred_finish
+                window._deferred_finish = None
+                _on_generation_finished(window, errors2, stopped2)
+            else:
+                state2 = getattr(window, '_batch_processing_state', None)
+                if state2:
+                    _on_generation_finished(window, state2.get('errors', []), stopped=True)
+            if hasattr(window, 'statusbar'):
+                window.statusbar.clearMessage()
+        timer = QTimer(window)
+        timer.setSingleShot(True)
+        timer.timeout.connect(_finish_after_cooldown)
+        timer.start(3000)
+        window._stop_cooldown_timer = timer
+        print("[STOP] Scheduled finalization after 3s cooldown.")
     
     # Clear error buffer saat stop
     try:
@@ -1187,6 +1278,12 @@ def stop_generate_metadata(window):
     print("[STOP] Metadata generation stopped and UI reset.")
 
 def _on_generation_finished(window, errors, stopped=False):
+    # If stop cooldown in progress, defer finalization
+    if hasattr(window, '_stop_cooldown_timer') and window._stop_cooldown_timer:
+        window._deferred_finish = (errors, stopped)
+        print("[DEFER] Finalization deferred until stop cooldown completes.")
+        return
+
     window.is_generating = False
     
     # Disable buffering dan flush semua error yang terkumpul

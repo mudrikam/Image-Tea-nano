@@ -1000,7 +1000,7 @@ class ImageTableWidget(QWidget):
         self._pending_tooltip_content = ""
         self._tooltip_timer = QTimer(self)
         self._tooltip_timer.setSingleShot(True)
-        self._tooltip_timer.setInterval(3000)
+        self._tooltip_timer.setInterval(0)
         self._tooltip_timer.timeout.connect(self._show_pending_tooltip)
 
         self.refresh_table()
@@ -1072,7 +1072,10 @@ class ImageTableWidget(QWidget):
                             self._pending_hover_row = row
                             self._pending_tooltip_global_pos = global_pos
                             self._pending_tooltip_content = tooltip
-                            self._tooltip_timer.start()
+                            try:
+                                self._show_pending_tooltip()
+                            except Exception as e:
+                                print(f"[Tooltip] Failed to show tooltip immediately: {e}")
                         else:
                                                                                            
                             self._pending_hover_row = None
