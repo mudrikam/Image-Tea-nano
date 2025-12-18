@@ -227,10 +227,15 @@ class BackupGlobalConfigDialog(QDialog):
 		mb.setIcon(QMessageBox.Warning)
 		mb.setTextFormat(Qt.RichText)
 		mb.setText(msg)
-		mb.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-		mb.setDefaultButton(QMessageBox.No)
-		reply = mb.exec()
-		if reply == QMessageBox.Yes:
+		btn_yes = QPushButton("Delete")
+		btn_yes.setIcon(qta.icon('fa6s.trash'))
+		btn_no = QPushButton("Cancel")
+		btn_no.setIcon(qta.icon('fa6s.xmark'))
+		mb.addButton(btn_yes, QMessageBox.AcceptRole)
+		mb.addButton(btn_no, QMessageBox.RejectRole)
+		mb.setDefaultButton(btn_no)
+		mb.exec()
+		if mb.clickedButton() == btn_yes:
 			os.remove(path)
 			self.refresh_backup_list()
 
@@ -240,13 +245,31 @@ class BackupGlobalConfigDialog(QDialog):
 			"This action cannot be undone. Consider exporting backups before proceeding.\n\n"
 			"Do you want to continue?"
 		)
-		reply = QMessageBox.question(self, "Delete All Backups", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-		if reply == QMessageBox.Yes:
+		mb = QMessageBox(self)
+		mb.setWindowTitle("Delete All Backups")
+		mb.setIcon(QMessageBox.Warning)
+		mb.setText(msg)
+		btn_yes = QPushButton("Delete")
+		btn_yes.setIcon(qta.icon('fa6s.trash'))
+		btn_no = QPushButton("Cancel")
+		btn_no.setIcon(qta.icon('fa6s.xmark'))
+		mb.addButton(btn_yes, QMessageBox.AcceptRole)
+		mb.addButton(btn_no, QMessageBox.RejectRole)
+		mb.setDefaultButton(btn_no)
+		mb.exec()
+		if mb.clickedButton() == btn_yes:
 			files = self.list_backups()
 			for f in files:
 				os.remove(os.path.join(self.backups_dir, f))
 			self.refresh_backup_list()
-			QMessageBox.information(self, "Deleted", "All backups have been permanently deleted.")
+			mb2 = QMessageBox(self)
+			mb2.setWindowTitle("Deleted")
+			mb2.setIcon(QMessageBox.Information)
+			mb2.setText("All backups have been permanently deleted.")
+			btn_close = QPushButton("Close")
+			btn_close.setIcon(qta.icon('fa6s.xmark'))
+			mb2.addButton(btn_close, QMessageBox.AcceptRole)
+			mb2.exec()
 
 	def export_backup(self, path):
 		home = os.path.expanduser('~')
@@ -263,6 +286,9 @@ class BackupGlobalConfigDialog(QDialog):
 			mb.setIcon(QMessageBox.Information)
 			mb.setTextFormat(Qt.RichText)
 			mb.setText(msg)
+			btn_close = QPushButton("Close")
+			btn_close.setIcon(qta.icon('fa6s.xmark'))
+			mb.addButton(btn_close, QMessageBox.AcceptRole)
 			mb.exec()
 
 	def _parse_backup_filename(self, filename):
@@ -301,32 +327,56 @@ class BackupGlobalConfigDialog(QDialog):
 		fname = os.path.basename(path)
 		prefix, timestamp = self._parse_backup_filename(fname)
 		if not timestamp:
-			QMessageBox.warning(self, "Invalid Backup", "Selected file is not a valid config backup.")
+			mb = QMessageBox(self)
+			mb.setWindowTitle("Invalid Backup")
+			mb.setIcon(QMessageBox.Warning)
+			mb.setText("Selected file is not a valid config backup.")
+			btn_close = QPushButton("Close")
+			btn_close.setIcon(qta.icon('fa6s.xmark'))
+			mb.addButton(btn_close, QMessageBox.AcceptRole)
+			mb.exec()
 			return
 		text, ok = QInputDialog.getText(self, "Edit Backup Name", "Edit backup name prefix (timestamp will be preserved):", text=prefix)
 		if ok:
 			new_prefix = text.strip()
 			if not new_prefix:
-				QMessageBox.warning(self, "Invalid Name", "Backup name prefix cannot be empty.")
+				mb = QMessageBox(self)
+				mb.setWindowTitle("Invalid Name")
+				mb.setIcon(QMessageBox.Warning)
+				mb.setText("Backup name prefix cannot be empty.")
+				btn_close = QPushButton("Close")
+				btn_close.setIcon(qta.icon('fa6s.xmark'))
+				mb.addButton(btn_close, QMessageBox.AcceptRole)
+				mb.exec()
 				return
 			new_name = f"{new_prefix}_{timestamp}.zip"
 			new_path = os.path.join(self.backups_dir, new_name)
 			os.rename(path, new_path)
-		msg = f"Backup renamed to: <span style='color:#4e9e20'><b>{new_prefix}</b></span>"
-		mb = QMessageBox(self)
-		mb.setWindowTitle("Renamed")
-		mb.setIcon(QMessageBox.Information)
-		mb.setTextFormat(Qt.RichText)
-		mb.setText(msg)
-		mb.exec()
-		self.refresh_backup_list()
-		return
+			msg = f"Backup renamed to: <span style='color:#4e9e20'><b>{new_prefix}</b></span>"
+			mb = QMessageBox(self)
+			mb.setWindowTitle("Renamed")
+			mb.setIcon(QMessageBox.Information)
+			mb.setTextFormat(Qt.RichText)
+			mb.setText(msg)
+			btn_close = QPushButton("Close")
+			btn_close.setIcon(qta.icon('fa6s.xmark'))
+			mb.addButton(btn_close, QMessageBox.AcceptRole)
+			mb.exec()
+			self.refresh_backup_list()
+			return
 
 	def confirm_and_restore(self, path):
 		fname = os.path.basename(path)
 		_, timestamp = self._parse_backup_filename(fname)
 		if not timestamp:
-			QMessageBox.warning(self, "Invalid Backup", "Selected file is not a valid config backup.")
+			mb = QMessageBox(self)
+			mb.setWindowTitle("Invalid Backup")
+			mb.setIcon(QMessageBox.Warning)
+			mb.setText("Selected file is not a valid config backup.")
+			btn_close = QPushButton("Close")
+			btn_close.setIcon(qta.icon('fa6s.xmark'))
+			mb.addButton(btn_close, QMessageBox.AcceptRole)
+			mb.exec()
 			return
 		temp_base = os.path.join(BASE_PATH, 'temp', 'backup_config')
 		os.makedirs(temp_base, exist_ok=True)
@@ -380,15 +430,31 @@ class BackupGlobalConfigDialog(QDialog):
 			mb.setIcon(QMessageBox.Warning)
 			mb.setTextFormat(Qt.RichText)
 			mb.setText(msg_html)
-			mb.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-			mb.setDefaultButton(QMessageBox.No)
-			reply = mb.exec()
-			if reply != QMessageBox.Yes:
+			btn_yes = QPushButton("Yes")
+			btn_yes.setIcon(qta.icon('fa6s.check'))
+			btn_no = QPushButton("No")
+			btn_no.setIcon(qta.icon('fa6s.xmark'))
+			mb.addButton(btn_yes, QMessageBox.AcceptRole)
+			mb.addButton(btn_no, QMessageBox.RejectRole)
+			mb.setDefaultButton(btn_no)
+			mb.exec()
+			if mb.clickedButton() != btn_yes:
 				shutil.rmtree(tmpdir)
 				return
 		ask_msg = "Skip creating pre/post backups around this restore? (Yes = Skip backups, No = Create backups)"
-		reply2 = QMessageBox.question(self, "Pre/Post Backups", ask_msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-		skip_backups = reply2 == QMessageBox.Yes
+		mb = QMessageBox(self)
+		mb.setWindowTitle("Pre/Post Backups")
+		mb.setIcon(QMessageBox.Question)
+		mb.setText(ask_msg)
+		btn_yes = QPushButton("Yes")
+		btn_yes.setIcon(qta.icon('fa6s.check'))
+		btn_no = QPushButton("No")
+		btn_no.setIcon(qta.icon('fa6s.xmark'))
+		mb.addButton(btn_yes, QMessageBox.AcceptRole)
+		mb.addButton(btn_no, QMessageBox.RejectRole)
+		mb.setDefaultButton(btn_no)
+		mb.exec()
+		skip_backups = (mb.clickedButton() == btn_yes)
 		pre_backup = None
 		post_backup = None
 		if not skip_backups:
@@ -456,6 +522,9 @@ class BackupGlobalConfigDialog(QDialog):
 		mb.setIcon(QMessageBox.Information)
 		mb.setTextFormat(Qt.RichText)
 		mb.setText(msg)
+		btn_close = QPushButton("Close")
+		btn_close.setIcon(qta.icon('fa6s.xmark'))
+		mb.addButton(btn_close, QMessageBox.AcceptRole)
 		mb.exec()
 		self.refresh_backup_list()
 

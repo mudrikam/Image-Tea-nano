@@ -137,10 +137,7 @@ class AIHelperErrorCodeDialog(QDialog):
         top = QHBoxLayout()
 
         icon_lbl = QLabel()
-        try:
-            icon_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color='#FFD600').pixmap(28, 28))
-        except Exception:
-            icon_lbl.setText("!")
+        icon_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color='#FFD600').pixmap(28, 28))
         icon_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         top.addWidget(icon_lbl)
 
@@ -255,10 +252,7 @@ class AIHelperErrorCodeDialog(QDialog):
             error_layout.setContentsMargins(4, 2, 4, 2)
             error_layout.setAlignment(Qt.AlignLeft)
             error_icon = QLabel()
-            try:
-                error_icon.setPixmap(qta.icon('fa6s.xmark', color='#ff6464').pixmap(14, 14))
-            except Exception as e:
-                print(f"[Dialog Icon Error] {e}")
+            error_icon.setPixmap(qta.icon('fa6s.xmark', color='#ff6464').pixmap(14, 14))
             self.error_label = QLabel("Error : Loading...")
             self.error_label.setWordWrap(True)
             self.error_label.setStyleSheet('background-color: rgba(255,100,100,0.12); padding:6px; border-radius:4px;')
@@ -272,10 +266,7 @@ class AIHelperErrorCodeDialog(QDialog):
             status_layout.setContentsMargins(4, 2, 4, 2)
             status_layout.setAlignment(Qt.AlignLeft)
             status_icon = QLabel()
-            try:
-                status_icon.setPixmap(qta.icon('fa6s.circle-info', color='#ffa500').pixmap(14, 14))
-            except Exception as e:
-                print(f"[Dialog Icon Error] {e}")
+            status_icon.setPixmap(qta.icon('fa6s.circle-info', color='#ffa500').pixmap(14, 14))
             self.status_label = QLabel("Status : Loading...")
             self.status_label.setWordWrap(True)
             self.status_label.setStyleSheet('background-color: rgba(255,165,0,0.12); padding:6px; border-radius:4px;')
@@ -289,10 +280,7 @@ class AIHelperErrorCodeDialog(QDialog):
             desc_layout.setContentsMargins(4, 2, 4, 2)
             desc_layout.setAlignment(Qt.AlignLeft)
             desc_icon = QLabel()
-            try:
-                desc_icon.setPixmap(qta.icon('fa6s.book', color='#f0f0f0').pixmap(14, 14))
-            except Exception as e:
-                print(f"[Dialog Icon Error] {e}")
+            desc_icon.setPixmap(qta.icon('fa6s.book', color='#f0f0f0').pixmap(14, 14))
             self.description_label = QLabel("Description : Loading...")
             self.description_label.setWordWrap(True)
             self.description_label.setStyleSheet('background-color: rgba(240,240,240,0.12); padding:6px; border-radius:4px;')
@@ -306,10 +294,7 @@ class AIHelperErrorCodeDialog(QDialog):
             example_layout.setContentsMargins(4, 2, 4, 2)
             example_layout.setAlignment(Qt.AlignLeft)
             example_icon = QLabel()
-            try:
-                example_icon.setPixmap(qta.icon('fa6s.clipboard', color='#dcdcdc').pixmap(14, 14))
-            except Exception as e:
-                print(f"[Dialog Icon Error] {e}")
+            example_icon.setPixmap(qta.icon('fa6s.clipboard', color='#dcdcdc').pixmap(14, 14))
             self.example_label = QLabel("Example : Loading...")
             self.example_label.setWordWrap(True)
             self.example_label.setStyleSheet('background-color: rgba(220,220,220,0.12); padding:6px; border-radius:4px;')
@@ -323,10 +308,7 @@ class AIHelperErrorCodeDialog(QDialog):
             solution_layout.setContentsMargins(4, 2, 4, 2)
             solution_layout.setAlignment(Qt.AlignLeft)
             solution_icon = QLabel()
-            try:
-                solution_icon.setPixmap(qta.icon('fa6s.circle-check', color='#4bb64b').pixmap(14, 14))
-            except Exception as e:
-                print(f"[Dialog Icon Error] {e}")
+            solution_icon.setPixmap(qta.icon('fa6s.circle-check', color='#4bb64b').pixmap(14, 14))
             self.solution_label = QLabel("Solution : Loading...")
             self.solution_label.setWordWrap(True)
             self.solution_label.setStyleSheet('background-color: rgba(200,255,200,0.12); padding:6px; border-radius:4px;')
@@ -352,11 +334,7 @@ class AIHelperErrorCodeDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        export_btn = QPushButton("Export CSV")
-        try:
-            export_btn.setIcon(qta.icon('fa6s.file-csv'))
-        except Exception as e:
-            print(f"[Dialog Export Icon Error] {e}")
+        export_btn = QPushButton(qta.icon('fa6s.file-csv'), " Export CSV")
         export_btn.setToolTip("Export the table as CSV for reporting or community support")
         export_btn.clicked.connect(self._export_csv)
         btn_layout.addWidget(export_btn)

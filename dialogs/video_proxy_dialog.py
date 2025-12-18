@@ -72,7 +72,7 @@ class VideoProxyDialog(QDialog):
 
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
         self.cancel_button.clicked.connect(self.request_stop)
         button_layout.addWidget(self.cancel_button)
         layout.addLayout(button_layout)

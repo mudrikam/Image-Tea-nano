@@ -348,10 +348,10 @@ class RequirementEditDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
-        ok_button = QPushButton("OK")
+        ok_button = QPushButton(qta.icon('fa6s.check'), " OK")
         ok_button.clicked.connect(self.accept)
         
-        cancel_button = QPushButton("Cancel")
+        cancel_button = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(ok_button)

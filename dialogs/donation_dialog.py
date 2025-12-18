@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 import os
 import datetime
 from config import BASE_PATH
+import qtawesome as qta
 
 def _get_donation_optout_path():
     return os.path.join(BASE_PATH, "temp", ".donation_optout")
@@ -51,7 +52,7 @@ class DonateDialog(QDialog):
         if show_not_today:
             button_layout = QHBoxLayout()
             button_layout.addStretch(1)
-            not_today_btn = QPushButton("Not Today")
+            not_today_btn = QPushButton(qta.icon('fa6s.xmark'), " Not Today")
             not_today_btn.clicked.connect(self._not_today)
             button_layout.addWidget(not_today_btn)
             layout.addLayout(button_layout)

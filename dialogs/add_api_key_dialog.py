@@ -156,12 +156,39 @@ class ModelManagerDialog(QDialog):
         for m in models:
             self.models_list.addItem(QListWidgetItem(m))
 
+    def _get_text_with_custom_buttons(self, title, label_text, text=''):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(360)
+        vbox = QVBoxLayout()
+        lbl = QLabel(label_text)
+        vbox.addWidget(lbl)
+        edit = QLineEdit()
+        edit.setText(text or '')
+        edit.selectAll()
+        edit.setMinimumWidth(240)
+        vbox.addWidget(edit)
+        hbox = QHBoxLayout()
+        hbox.addStretch()
+        btn_save = QPushButton("Save")
+        btn_save.setIcon(qta.icon('fa6s.floppy-disk'))
+        btn_save.clicked.connect(dlg.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+        btn_cancel.clicked.connect(dlg.reject)
+        hbox.addWidget(btn_save)
+        hbox.addWidget(btn_cancel)
+        vbox.addLayout(hbox)
+        dlg.setLayout(vbox)
+        result = dlg.exec()
+        return edit.text(), bool(result)
+
     def _add_model(self):
         service_item = self.service_list.currentItem()
         if not service_item:
             return
         service = service_item.text().lower()
-        name, ok = QInputDialog.getText(self, 'Add Model', 'Model name:')
+        name, ok = self._get_text_with_custom_buttons('Add Model', 'Model name:')
         if ok and name:
             name = name.strip()
             self.model_list.setdefault(service, [])
@@ -178,7 +205,7 @@ class ModelManagerDialog(QDialog):
             return
         service = service_item.text().lower()
         old = sel.text()
-        name, ok = QInputDialog.getText(self, 'Edit Model', 'Model name:', text=old)
+        name, ok = self._get_text_with_custom_buttons('Edit Model', 'Model name:', text=old)
         if ok and name:
             name = name.strip()
             idx = self.models_list.row(sel)
@@ -519,14 +546,9 @@ class AddApiKeyDialog(QDialog):
         layout.setSpacing(6)
         icon_lbl = QLabel()
         icon_size = 14
-        try:
-            icon = qta.icon(icon_name, color=self._label_icon_color)
-            pix = icon.pixmap(icon_size, icon_size)
-            icon_lbl.setPixmap(pix)
-        except Exception:
-            
-            icon_lbl.setText("")
-            pix = None
+        icon = qta.icon(icon_name, color=self._label_icon_color)
+        pix = icon.pixmap(icon_size, icon_size)
+        icon_lbl.setPixmap(pix)
 
         text_lbl = QLabel(text)
         spacing = layout.spacing() if layout.spacing() is not None else 6

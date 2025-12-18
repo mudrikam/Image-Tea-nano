@@ -173,7 +173,7 @@ class CSVImportProgressDialog(QDialog):
 		layout.addWidget(self.progress_bar)
 		
         
-		self.cancel_btn = QPushButton("Cancel")
+		self.cancel_btn = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
 		self.cancel_btn.clicked.connect(self.reject)
 		layout.addWidget(self.cancel_btn)
 		
@@ -453,49 +453,25 @@ class PromptGeneratorDialog(QDialog):
         
 		top_buttons_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-		try:
-			self.edit_config_btn = QPushButton(qta.icon('fa6s.gear'), "Edit Prompt")
-		except Exception:
-			self.edit_config_btn = QPushButton("Edit Prompt")
+		self.edit_config_btn = QPushButton(qta.icon('fa6s.gear'), " Edit Prompt")
 		self.edit_config_btn.setToolTip("Edit prompt generator configuration")
 		self.edit_config_btn.clicked.connect(self.open_prompt_config_editor)
 		top_buttons_layout.addWidget(self.edit_config_btn)
 		
         
-		try:
-			clear_icon = qta.icon('fa6s.trash')
-		except Exception:
-			clear_icon = None
-		if clear_icon:
-			self.clear_btn = QPushButton(clear_icon, "Clear All")
-		else:
-			self.clear_btn = QPushButton("Clear All")
+		self.clear_btn = QPushButton(qta.icon('fa6s.trash'), " Clear All")
 		self.clear_btn.setToolTip("Delete all generated prompts")
 		self.clear_btn.clicked.connect(self.clear_all_prompts)
 		top_buttons_layout.addWidget(self.clear_btn)
 		
         
-		try:
-			export_icon = qta.icon('fa6s.upload')
-		except Exception:
-			export_icon = None
-		if export_icon:
-			self.export_btn = QPushButton(export_icon, "Export CSV")
-		else:
-			self.export_btn = QPushButton("Export CSV")
+		self.export_btn = QPushButton(qta.icon('fa6s.upload'), " Export CSV")
 		self.export_btn.setToolTip("Export prompts to CSV file")
 		self.export_btn.clicked.connect(self.export_to_csv)
 		top_buttons_layout.addWidget(self.export_btn)
 		
         
-		try:
-			import_icon = qta.icon('fa6s.download')
-		except Exception:
-			import_icon = None
-		if import_icon:
-			self.import_btn = QPushButton(import_icon, "Import CSV")
-		else:
-			self.import_btn = QPushButton("Import CSV")
+		self.import_btn = QPushButton(qta.icon('fa6s.download'), " Import CSV")
 		self.import_btn.setToolTip("Import prompts from CSV file")
 		self.import_btn.clicked.connect(self.import_from_csv)
 		top_buttons_layout.addWidget(self.import_btn)
@@ -540,18 +516,10 @@ class PromptGeneratorDialog(QDialog):
 
 		
         
-		try:
-			gen_icon = qta.icon('fa6s.wand-magic-sparkles')
-			stop_icon = qta.icon('fa6s.stop')
-		except Exception:
-			gen_icon = None
-			stop_icon = None
-			
-		if gen_icon:
-			self.generate_btn = QPushButton(gen_icon, "Generate Prompts")
-		else:
-			self.generate_btn = QPushButton("Generate Prompts")
-			
+		gen_icon = qta.icon('fa6s.wand-magic-sparkles')
+		stop_icon = qta.icon('fa6s.stop')
+		self.generate_btn = QPushButton(gen_icon, " Generate Prompts")
+		
 		self.generate_btn.setMinimumHeight(40)
 		self.generate_btn.setMinimumWidth(150)
 		self.generate_btn.setToolTip("Generate prompts based on current options")
@@ -644,12 +612,7 @@ class PromptGeneratorDialog(QDialog):
 				
                 
 				copy_btn = QPushButton()
-				try:
-					copy_icon = qta.icon('fa6s.copy')
-					copy_btn.setIcon(copy_icon)
-				except Exception:
-					copy_btn.setText("Copy")
-				copy_btn.setFixedSize(40, 25)
+				copy_btn.setIcon(qta.icon('fa6s.copy'))
 				copy_btn.setToolTip("Copy prompt to clipboard")
 				copy_btn.clicked.connect(lambda checked, text=prompt_text, pid=prompt_row[0]: self.copy_prompt_and_update_status(text, pid))
 				self.table.setCellWidget(r, 3, copy_btn)
@@ -1041,11 +1004,8 @@ class PromptGeneratorDialog(QDialog):
         
 		menu = QMenu(self)
         
-		try:
-			copy_icon = qta.icon('fa6s.copy')
-		except Exception:
-			copy_icon = None
-		copy_action = QAction(copy_icon, "Copy Prompt" if copy_icon else "Copy Prompt", self)
+		copy_icon = qta.icon('fa6s.copy')
+		copy_action = QAction(copy_icon, " Copy Prompt", self)
 		copy_action.triggered.connect(lambda: self.copy_prompt_and_update_status(full_prompt, prompt_id))
 		copy_action.setShortcut(QKeySequence("Ctrl+C"))
 		menu.addAction(copy_action)

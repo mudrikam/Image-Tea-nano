@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 import os
 import json
 from config import BASE_PATH
+import qtawesome as qta
 
 class DisclaimerDialog(QDialog):
     def __init__(self, parent=None):
@@ -105,7 +106,7 @@ class DisclaimerDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        self.continue_btn = QPushButton("Lanjutkan")
+        self.continue_btn = QPushButton(qta.icon('fa6s.check'), " Mengerti dan Lanjutkan")
         self.continue_btn.setEnabled(False)
         btn_layout.addWidget(self.continue_btn)
         layout.addLayout(btn_layout)
@@ -131,13 +132,13 @@ class DisclaimerDialog(QDialog):
             self.mit_license_content_label.setText(self.disclaimer_explanation_id)
             self.license_title_label.setText(self.license_title_id)
             self.checkbox.setText("Saya telah membaca dan menyetujui syarat dan disclaimer di atas.")
-            self.continue_btn.setText("Lanjutkan")
+            self.continue_btn.setText("Mengerti dan Lanjutkan")
         elif lang == 'en' and self.radio_en.isChecked():
             self.disclaimer_label.setText(self.disclaimer_text_en)
             self.mit_license_content_label.setText(self.disclaimer_explanation_en)
             self.license_title_label.setText(self.license_title_en)
             self.checkbox.setText("I have read and agree to the terms and disclaimer above.")
-            self.continue_btn.setText("Continue")
+            self.continue_btn.setText("Understand and Continue")
 
     def closeEvent(self, event):
         event.accept()

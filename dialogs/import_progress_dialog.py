@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont
 import time
 import os
+import qtawesome as qta
 
 class ImportWorkerThread(QThread):
     """Thread untuk melakukan import file dengan progress reporting"""
@@ -194,7 +195,7 @@ class ImportProgressDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
-        self.cancel_button = QPushButton("Cancel Import")
+        self.cancel_button = QPushButton(qta.icon('fa6s.xmark'), " Cancel Import")
         self.cancel_button.setMinimumWidth(120)
         self.cancel_button.clicked.connect(self.cancel_import)
         button_layout.addWidget(self.cancel_button)

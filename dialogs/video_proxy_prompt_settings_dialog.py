@@ -23,10 +23,7 @@ class VideoProxyPromptSettingsDialog(QDialog):
         top = QHBoxLayout()
         top.setSpacing(4)
         ic = QLabel()
-        try:
-            ic.setPixmap(qta.icon('fa6s.video').pixmap(14, 14))
-        except Exception:
-            ic.setText('')
+        ic.setPixmap(qta.icon('fa6s.video').pixmap(14, 14))
         ic.setFixedWidth(14)
         top.addWidget(ic)
         preset_label = QLabel('Preset:')
@@ -57,10 +54,7 @@ class VideoProxyPromptSettingsDialog(QDialog):
             h = QHBoxLayout()
             h.setSpacing(4)
             ic = QLabel()
-            try:
-                ic.setPixmap(qta.icon(icon_name).pixmap(14, 14))
-            except Exception:
-                ic.setText('')
+            ic.setPixmap(qta.icon(icon_name).pixmap(14, 14))
             ic.setFixedWidth(14)
             h.addWidget(ic)
             lbl = QLabel(text)
