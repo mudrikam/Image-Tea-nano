@@ -2066,7 +2066,14 @@ class ImageTableWidget(QWidget):
     def delete_selected(self):
         selected = self.table.selectionModel().selectedRows()
         if not selected:
-            QMessageBox.information(self, "Delete", "No rows selected.")
+            mb = QMessageBox(self)
+            mb.setWindowTitle("Delete")
+            mb.setIcon(QMessageBox.Information)
+            mb.setText("No rows selected.")
+            btn_ok = QPushButton("OK")
+            btn_ok.setIcon(qta.icon('fa6s.xmark'))
+            mb.addButton(btn_ok, QMessageBox.AcceptRole)
+            mb.exec()
             return
         for idx in selected:
             filepath = self.table.item(idx.row(), 1).data(Qt.UserRole)

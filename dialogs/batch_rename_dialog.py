@@ -430,7 +430,14 @@ class BatchRenameDialog(QDialog):
                     file_rows.append(row)
             
             if not file_rows:
-                QMessageBox.information(self, "No Selection", "No rows checked for renaming.")
+                mb = QMessageBox(self)
+                mb.setWindowTitle("No Selection")
+                mb.setIcon(QMessageBox.Information)
+                mb.setText("No rows checked for renaming.")
+                btn_ok = QPushButton("OK")
+                btn_ok.setIcon(qta.icon('fa6s.xmark'))
+                mb.addButton(btn_ok, QMessageBox.AcceptRole)
+                mb.exec()
                 return
 
             files = []
@@ -518,13 +525,18 @@ class BatchRenameDialog(QDialog):
                 safe_base = sanitize_windows_filename(new_base)
                 return f"{safe_base}{ext}"
 
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Rename",
-            f"Are you sure you want to rename {len(files)} files? After renaming, you can restore the previous filename using Undo Rename if needed.",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Confirm Rename")
+        mb.setIcon(QMessageBox.Question)
+        mb.setText(f"Are you sure you want to rename {len(files)} files? After renaming, you can restore the previous filename using Undo Rename if needed.")
+        btn_yes = QPushButton("Yes")
+        btn_yes.setIcon(qta.icon('fa6s.check'))
+        btn_no = QPushButton("No")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.exec()
+        if mb.clickedButton() != btn_yes:
             return
 
         # Create progress dialog
@@ -570,7 +582,14 @@ class BatchRenameDialog(QDialog):
         if fail_count > 0:
             msg += "\nSome files could not be renamed. Check the table for details."
         
-        QMessageBox.information(self, "Batch Rename", msg)
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Batch Rename")
+        mb.setIcon(QMessageBox.Information)
+        mb.setText(msg)
+        btn_ok = QPushButton("OK")
+        btn_ok.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_ok, QMessageBox.AcceptRole)
+        mb.exec()
 
     def _cleanup_progress(self):
         self.rename_btn.setEnabled(True)
@@ -607,16 +626,28 @@ class BatchRenameDialog(QDialog):
                     files.append(filepath)
 
         if not files:
-            QMessageBox.information(self, "No Files", "No files found to undo rename.")
+            mb = QMessageBox(self)
+            mb.setWindowTitle("No Files")
+            mb.setIcon(QMessageBox.Information)
+            mb.setText("No files found to undo rename.")
+            btn_ok = QPushButton("OK")
+            btn_ok.setIcon(qta.icon('fa6s.xmark'))
+            mb.addButton(btn_ok, QMessageBox.AcceptRole)
+            mb.exec()
             return
 
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Undo Rename",
-            f"Are you sure you want to undo rename for {len(files)} files? This will restore their original filenames if possible.",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if confirm != QMessageBox.Yes:
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Confirm Undo Rename")
+        mb.setIcon(QMessageBox.Question)
+        mb.setText(f"Are you sure you want to undo rename for {len(files)} files? This will restore their original filenames if possible.")
+        btn_yes = QPushButton("Yes")
+        btn_yes.setIcon(qta.icon('fa6s.check'))
+        btn_no = QPushButton("No")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.exec()
+        if mb.clickedButton() != btn_yes:
             return
 
         self.undo_progress_dialog = QProgressDialog("Preparing to undo rename...", "Cancel", 0, len(files), self)
@@ -660,7 +691,14 @@ class BatchRenameDialog(QDialog):
         if fail_count > 0:
             msg += "\nSome files could not be restored. Check the table for details."
         
-        QMessageBox.information(self, "Undo Rename", msg)
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Undo Rename")
+        mb.setIcon(QMessageBox.Information)
+        mb.setText(msg)
+        btn_ok = QPushButton("OK")
+        btn_ok.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_ok, QMessageBox.AcceptRole)
+        mb.exec()
 
     def _cleanup_undo_progress(self):
         self.rename_btn.setEnabled(True)
