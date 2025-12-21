@@ -26,6 +26,7 @@ from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
 from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
+from dialogs.tools.action_sequencer import ActionSequencerDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -59,6 +60,7 @@ MENU_TOOLTIPS = {
     "imagen_generator": "Generate images using Google's Imagen AI",
     "batch_audio_remover": "Remove audio from multiple video files in batch",
     "envato_elements_metadata": "Generate metadata for Envato Elements mockups",
+    "action_sequencer": "Automate actions for Photoshop and Illustrator",
     
     # Help menu
     "about": "View application information and credits",
@@ -433,6 +435,19 @@ def setup_main_menu(window):
         window._envato_elements_dialog.activateWindow()
     envato_elements_action.triggered.connect(open_envato_elements)
     tools_menu.addAction(envato_elements_action)
+
+    action_sequencer_action = QAction(qta.icon('fa6s.list-check'), "Action Sequencer", window)
+    action_sequencer_action.setToolTip(MENU_TOOLTIPS["action_sequencer"])
+    action_sequencer_action.setStatusTip(MENU_TOOLTIPS["action_sequencer"])
+    def open_action_sequencer():
+        if not hasattr(window, '_action_sequencer_dialog') or not window._action_sequencer_dialog:
+            window._action_sequencer_dialog = ActionSequencerDialog(None)
+            window._action_sequencer_dialog.destroyed.connect(lambda: setattr(window, '_action_sequencer_dialog', None))
+        window._action_sequencer_dialog.show()
+        window._action_sequencer_dialog.raise_()
+        window._action_sequencer_dialog.activateWindow()
+    action_sequencer_action.triggered.connect(open_action_sequencer)
+    tools_menu.addAction(action_sequencer_action)
 
     # Add separator
     tools_menu.addSeparator()
