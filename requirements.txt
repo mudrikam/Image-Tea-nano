@@ -10,3 +10,4 @@ CairoSVG==2.8.2
 py7zr==1.0.0
 requests==2.32.5
 pynput
+PyYAML

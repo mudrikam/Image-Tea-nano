@@ -25,6 +25,7 @@ from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
 from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
+from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -57,6 +58,7 @@ MENU_TOOLTIPS = {
     "prompt_generator": "Generate AI prompts for image/video creation",
     "imagen_generator": "Generate images using Google's Imagen AI",
     "batch_audio_remover": "Remove audio from multiple video files in batch",
+    "envato_elements_metadata": "Generate metadata for Envato Elements mockups",
     
     # Help menu
     "about": "View application information and credits",
@@ -392,8 +394,12 @@ def setup_main_menu(window):
     prompt_injector_action.setStatusTip("Inject prompts/clicks using points and clipboard")
     def open_prompt_injector():
         # open as independent non-modal tool (no parent) so it's always-on-top and doesn't block main window
-        dlg = PromptInjectorDialog(None)
-        dlg.show()
+        if not hasattr(window, '_prompt_injector_dialog') or not window._prompt_injector_dialog:
+            window._prompt_injector_dialog = PromptInjectorDialog(None)
+            window._prompt_injector_dialog.destroyed.connect(lambda: setattr(window, '_prompt_injector_dialog', None))
+        window._prompt_injector_dialog.show()
+        window._prompt_injector_dialog.raise_()
+        window._prompt_injector_dialog.activateWindow()
     prompt_injector_action.triggered.connect(open_prompt_injector)
     tools_menu.addAction(prompt_injector_action)
 
@@ -414,6 +420,19 @@ def setup_main_menu(window):
         dlg.exec()
     batch_audio_remover_action.triggered.connect(open_batch_audio_remover)
     tools_menu.addAction(batch_audio_remover_action)
+
+    envato_elements_action = QAction(qta.icon('fa6s.tag'), "Envato Elements Metadata", window)
+    envato_elements_action.setToolTip(MENU_TOOLTIPS["envato_elements_metadata"])
+    envato_elements_action.setStatusTip(MENU_TOOLTIPS["envato_elements_metadata"])
+    def open_envato_elements():
+        if not hasattr(window, '_envato_elements_dialog') or not window._envato_elements_dialog:
+            window._envato_elements_dialog = EnvatoElementsMetadataDialog(None)
+            window._envato_elements_dialog.destroyed.connect(lambda: setattr(window, '_envato_elements_dialog', None))
+        window._envato_elements_dialog.show()
+        window._envato_elements_dialog.raise_()
+        window._envato_elements_dialog.activateWindow()
+    envato_elements_action.triggered.connect(open_envato_elements)
+    tools_menu.addAction(envato_elements_action)
 
     # Add separator
     tools_menu.addSeparator()

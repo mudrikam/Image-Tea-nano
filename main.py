@@ -64,6 +64,13 @@ class ImageTeaMainWindow(QMainWindow):
             stop_generate_metadata(self)
         else:
             batch_generate_metadata(self)
+    
+    def closeEvent(self, event):
+        if hasattr(self, '_envato_elements_dialog') and self._envato_elements_dialog:
+            self._envato_elements_dialog.close()
+        if hasattr(self, '_prompt_injector_dialog') and self._prompt_injector_dialog:
+            self._prompt_injector_dialog.close()
+        event.accept()
 
 if __name__ == '__main__':
     check_for_update()
