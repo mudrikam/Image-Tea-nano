@@ -22,6 +22,7 @@ from dialogs.update_notice_dialog import UpdateNoticeDialog
 from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
+from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
 
@@ -55,6 +56,7 @@ MENU_TOOLTIPS = {
     # Tools menu
     "prompt_generator": "Generate AI prompts for image/video creation",
     "imagen_generator": "Generate images using Google's Imagen AI",
+    "batch_audio_remover": "Remove audio from multiple video files in batch",
     
     # Help menu
     "about": "View application information and credits",
@@ -403,6 +405,15 @@ def setup_main_menu(window):
         dlg.exec()
     imagen_generator_action.triggered.connect(open_imagen_generator)
     tools_menu.addAction(imagen_generator_action)
+
+    batch_audio_remover_action = QAction(qta.icon('fa6s.volume-xmark'), "Batch Audio Remover", window)
+    batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])
+    batch_audio_remover_action.setStatusTip(MENU_TOOLTIPS["batch_audio_remover"])
+    def open_batch_audio_remover():
+        dlg = BatchAudioRemoverDialog(window)
+        dlg.exec()
+    batch_audio_remover_action.triggered.connect(open_batch_audio_remover)
+    tools_menu.addAction(batch_audio_remover_action)
 
     # Add separator
     tools_menu.addSeparator()

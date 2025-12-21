@@ -626,3 +626,48 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('DELETE FROM generated_prompt_status WHERE prompt_id IS NULL')
             conn.commit()
+
+    def save_batch_audio_status(self, source_path, destination_path, status, error_message=None):
+        """Save batch audio remover status to database"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO batch_audio_remover (source_path, destination_path, status, error_message)
+                VALUES (?, ?, ?, ?)
+            ''', (source_path, destination_path, status, error_message))
+            conn.commit()
+
+    def get_batch_audio_status(self, source_path):
+        """Get batch audio remover status from database"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT status, error_message FROM batch_audio_remover 
+                WHERE source_path = ? 
+                ORDER BY processed_at DESC LIMIT 1
+            ''', (source_path,))
+            row = c.fetchone()
+            if row:
+                return {'status': row[0], 'error_message': row[1]}
+        return None
+
+    def clear_batch_audio_status(self, source_path):
+        """Clear batch audio remover status for specific file"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM batch_audio_remover WHERE source_path = ?', (source_path,))
+            conn.commit()
+
+    def clear_all_batch_audio_status(self):
+        """Clear all batch audio remover status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM batch_audio_remover')
+            conn.commit()
+
+    def get_all_batch_audio_sources(self):
+        """Get all distinct source paths from batch audio remover table"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT DISTINCT source_path FROM batch_audio_remover ORDER BY processed_at DESC')
+            return [row[0] for row in c.fetchall()]
