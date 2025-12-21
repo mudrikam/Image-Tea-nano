@@ -70,6 +70,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._envato_elements_dialog.close()
         if hasattr(self, '_prompt_injector_dialog') and self._prompt_injector_dialog:
             self._prompt_injector_dialog.close()
+        if hasattr(self, '_action_sequencer_dialog') and self._action_sequencer_dialog:
+            self._action_sequencer_dialog.close()
         event.accept()
 
 if __name__ == '__main__':
