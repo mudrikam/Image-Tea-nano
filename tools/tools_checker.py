@@ -243,6 +243,56 @@ def ensure_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> 
         return False
 
 
+def install_requirements(python_exe: str | None = None) -> bool:
+    """Install all packages from requirements.txt if missing.
+    
+    Returns True if all packages are available after this call.
+    """
+    requirements_marker = os.path.join(BASE_PATH, "temp", ".requirements_verified")
+    
+    if os.path.exists(requirements_marker):
+        return True
+    
+    if python_exe is None:
+        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+        if os.path.exists(candidate):
+            python_exe = candidate
+        else:
+            python_exe = sys.executable
+    
+    if not os.path.exists(python_exe):
+        print("Error: Python executable not found; cannot install requirements.")
+        return False
+    
+    requirements_path = os.path.join(BASE_PATH, "requirements.txt")
+    if not os.path.exists(requirements_path):
+        print(f"Warning: requirements.txt not found at {requirements_path}")
+        return True
+    
+    print("Checking required packages from requirements.txt...")
+    
+    try:
+        result = subprocess.run(
+            [python_exe, "-m", "pip", "install", "-r", requirements_path, "--no-warn-script-location"],
+            capture_output=True,
+            timeout=300
+        )
+        
+        if result.returncode == 0:
+            print("All required packages verified/installed successfully.")
+            os.makedirs(os.path.dirname(requirements_marker), exist_ok=True)
+            with open(requirements_marker, 'w') as f:
+                f.write("Requirements verified")
+            return True
+        else:
+            print(f"Error installing requirements: {result.stderr.decode('utf-8', errors='ignore')}")
+            return False
+            
+    except Exception as e:
+        print(f"Error checking requirements: {e}")
+        return False
+
+
 def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53') -> bool:
     """Perform the standard tool checks and ensure PyAutoGUI is available.
 
@@ -250,7 +300,11 @@ def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '
     """
     check_folders()
     ok = ensure_pyautogui(python_exe, pyautogui_version)
-    return ok
+    if not ok:
+        return False
+    
+    ok_req = install_requirements(python_exe)
+    return ok_req
 
 
 if __name__ == "__main__":

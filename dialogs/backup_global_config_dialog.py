@@ -577,5 +577,5 @@ def configs_newer_than_latest_backup():
 		return True
 	latest_zip = max(zip_files, key=lambda f: os.path.getmtime(os.path.join(backups_dir, f)))
 	latest_mtime = os.path.getmtime(os.path.join(backups_dir, latest_zip))
-	return min(file_mtimes) > latest_mtime
+	return max(file_mtimes) > latest_mtime
 
