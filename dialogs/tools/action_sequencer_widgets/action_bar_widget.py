@@ -9,6 +9,7 @@ class ActionBarWidget(QWidget):
     select_file_requested = Signal()
     settings_requested = Signal()
     output_path_changed = Signal(str)
+    reset_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,6 +41,10 @@ class ActionBarWidget(QWidget):
         self.settings_button = QPushButton(qta.icon('fa6s.gears'), " Settings")
         self.settings_button.clicked.connect(self.on_settings_clicked)
         buttons_layout.addWidget(self.settings_button)
+        
+        self.reset_button = QPushButton(qta.icon('fa6s.rotate-left'), " Reset")
+        self.reset_button.clicked.connect(self.on_reset_clicked)
+        buttons_layout.addWidget(self.reset_button)
         
         buttons_layout.addStretch()
         
@@ -83,6 +88,9 @@ class ActionBarWidget(QWidget):
     def on_settings_clicked(self):
         self.settings_requested.emit()
     
+    def on_reset_clicked(self):
+        self.reset_requested.emit()
+    
     def on_select_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_path)
         if folder:
@@ -115,4 +123,10 @@ class ActionBarWidget(QWidget):
         """Disable all load buttons when no preset is selected"""
         self.load_db_button.setEnabled(False)
         self.select_source_button.setEnabled(False)
+        self.select_file_button.setEnabled(False)
+    
+    def enable_all_load_buttons(self):
+        """Enable all load buttons for reset"""
+        self.load_db_button.setEnabled(True)
+        self.select_source_button.setEnabled(True)
         self.select_file_button.setEnabled(False)

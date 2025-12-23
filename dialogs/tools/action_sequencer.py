@@ -19,9 +19,9 @@ from helpers.tools.action_sequencer_helpers.action_sequencer_file_watcher_helper
 
 
 class BatchWorkerThread(QThread):
-    progress_updated = Signal(int)
+    progress_updated = Signal(int)  # number of successfully detected outputs
     status_updated = Signal(str)
-    completed = Signal()
+    completed = Signal(int, int, bool)  # emit (processed_count, total_files, was_stopped)
     error_occurred = Signal(str)
     
     def __init__(self, files, preset_id, platform_name, platform_exec, output_path, config_data, db):
@@ -34,6 +34,7 @@ class BatchWorkerThread(QThread):
         self.config_data = config_data
         self.db = db
         self.should_stop = False
+        self.processed_count = 0  # count of successful output detections
     
     def run(self):
         try:
@@ -96,10 +97,12 @@ class BatchWorkerThread(QThread):
                         
                         if output_file:
                             print(f"Output detected: {output_file}")
+                            self.processed_count += 1
                         else:
                             print(f"Output not detected: {expected_filename}")
                     
-                    self.progress_updated.emit(idx + 1)
+                    # emit number of successfully processed outputs
+                    self.progress_updated.emit(self.processed_count)
                 
             else:
                 for idx, file_path in enumerate(self.files):
@@ -130,17 +133,20 @@ class BatchWorkerThread(QThread):
                         
                         if output_file:
                             print(f"Output file detected: {output_file}")
+                            self.processed_count += 1
                         else:
                             print(f"Output file not detected within timeout")
                     
-                    self.progress_updated.emit(idx + 1)
+                    # emit number of successfully processed outputs
+                    self.progress_updated.emit(self.processed_count)
                     time.sleep(0.5)
             
             jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
             jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')
             watcher.cleanup_jsx_files(jsx_illustrator_dir, jsx_photoshop_dir)
             
-            self.completed.emit()
+            # Emit completed with processed count, total files, and stopped status
+            self.completed.emit(self.processed_count, len(self.files), self.should_stop)
         except Exception as e:
             self.error_occurred.emit(str(e))
     
@@ -158,6 +164,9 @@ class ActionSequencerDialog(QDialog):
         self.loaded_files = []
         self.config = ActionSequencerConfig()
         self.batch_worker = None
+        self.is_batch_paused = False
+        self.current_platform_name = None
+        self.last_processed_index = 0
         
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -273,6 +282,8 @@ class ActionSequencerDialog(QDialog):
         
         self.status_bar_widget.run_sequences_requested.connect(self.on_run_sequences)
         self.status_bar_widget.stop_process_requested.connect(self.on_stop_process)
+        
+        self.action_bar_widget.reset_requested.connect(self.on_reset_tool)
     
     def on_platform_changed(self, platform_id):
         """Clear all loaded data when platform changes"""
@@ -440,6 +451,9 @@ class ActionSequencerDialog(QDialog):
         platform_id = selected_preset.get('platform_id')
         preset_type = selected_preset.get('type', 'Batch')
         
+        if not self.is_batch_paused:
+            self.status_bar_widget.reset_stats()
+        
         platform_data = self.db.get_platform_by_id(platform_id)
         if not platform_data:
             QMessageBox.warning(self, "Platform Not Found", "Platform data not found in database")
@@ -483,16 +497,35 @@ class ActionSequencerDialog(QDialog):
         print("Stop process requested")
         if self.batch_worker and self.batch_worker.isRunning():
             self.batch_worker.stop()
+            self.is_batch_paused = True
             self.status_bar_widget.update_status("Stopped")
-            self.status_bar_widget.end_running_mode()
+            self.status_bar_widget.set_continue_mode()
             self.status_bar_widget.set_run_button_enabled(True)
     
     def run_batch_mode(self, preset_id, platform_name, exec_path, output_path, config_data, total_steps):
-        self.status_bar_widget.start_running_mode(len(self.loaded_files), total_steps)
+        self.current_platform_name = platform_name
+        
+        # Cleanup previous worker if exists
+        if self.batch_worker and self.batch_worker.isRunning():
+            self.batch_worker.stop()
+            self.batch_worker.wait()
+        
+        # Determine which files to process
+        if self.is_batch_paused and self.last_processed_index > 0:
+            # Continue from last processed file
+            files_to_process = self.loaded_files[self.last_processed_index:]
+            print(f"Continuing from file {self.last_processed_index + 1}/{len(self.loaded_files)}")
+        else:
+            # Start from beginning
+            files_to_process = self.loaded_files
+            self.last_processed_index = 0
+            print(f"Starting batch processing of {len(files_to_process)} files")
+        
+        self.status_bar_widget.start_running_mode(len(self.loaded_files), total_steps, platform_name)
         self.status_bar_widget.set_run_button_enabled(True)
         
         self.batch_worker = BatchWorkerThread(
-            self.loaded_files,
+            files_to_process,
             preset_id,
             platform_name,
             exec_path,
@@ -559,15 +592,33 @@ class ActionSequencerDialog(QDialog):
         self.status_bar_widget.update_status("Running")
     
     def on_batch_progress(self, processed_files):
-        self.status_bar_widget.update_running_progress(processed_files)
+        # Update absolute index (last_processed_index + current progress)
+        absolute_progress = self.last_processed_index + processed_files
+        self.status_bar_widget.update_running_progress(absolute_progress)
     
     def on_batch_status(self, status):
         print(f"Batch status: {status}")
     
-    def on_batch_completed(self):
-        self.status_bar_widget.end_running_mode()
-        self.status_bar_widget.set_run_button_enabled(True)
-        QMessageBox.information(self, "Batch Completed", f"Successfully processed {len(self.loaded_files)} files")
+    def on_batch_completed(self, processed_count, total_files, was_stopped):
+        # Update last processed index (start index + processed in this run)
+        self.last_processed_index = self.last_processed_index + processed_count
+        
+        if was_stopped:
+            self.is_batch_paused = True
+            self.status_bar_widget.set_continue_mode()
+            self.status_bar_widget.set_run_button_enabled(True)
+            QMessageBox.information(self, "Batch Stopped", 
+                                  f"Batch processing stopped.\n\n"
+                                  f"Processed: {self.last_processed_index}/{len(self.loaded_files)} files\n"
+                                  f"Click 'Continue Process' to resume.")
+        else:
+            self.is_batch_paused = False
+            self.last_processed_index = 0
+            self.status_bar_widget.end_running_mode()
+            self.status_bar_widget.set_run_button_enabled(True)
+            QMessageBox.information(self, "Batch Completed", 
+                                  f"Batch processing finished.\n\n"
+                                  f"Successfully processed: {self.last_processed_index}/{len(self.loaded_files)} files")
     
     def on_batch_error(self, error_msg):
         self.status_bar_widget.update_status("Error")
@@ -582,3 +633,23 @@ class ActionSequencerDialog(QDialog):
     
     def on_output_path_changed(self, path):
         self.config.set('output_path', path)
+    
+    def on_reset_tool(self):
+        print("Reset tool requested")
+        
+        if self.batch_worker and self.batch_worker.isRunning():
+            self.batch_worker.stop()
+            self.batch_worker.wait()
+        
+        self.batch_worker = None
+        self.loaded_files = []
+        self.is_batch_paused = False
+        self.current_platform_name = None
+        self.last_processed_index = 0
+        
+        self.status_bar_widget.reset_stats()
+        self.status_bar_widget.update_files_count(0, '')
+        
+        self.action_bar_widget.enable_all_load_buttons()
+        
+        print("Tool reset to initial state")

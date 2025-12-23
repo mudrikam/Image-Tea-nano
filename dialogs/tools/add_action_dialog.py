@@ -207,54 +207,69 @@ class AddActionDialog(QDialog):
     
     def on_type_changed(self, index):
         action_type = self.type_combo.currentText()
-        
+
+        # Default: enable all editable fields
+        self.icon_input.setEnabled(True)
+        self.icon_picker_button.setEnabled(True)
+        self.color_input.setEnabled(True)
+        self.color_picker_button.setEnabled(True)
+        self.export_format_combo.setEnabled(False)
+        self.js_toggle_button.setEnabled(False)
+        self.js_toggle_button.setChecked(False)
+        self.js_editor.setVisible(False)
+        self.js_editor.setEnabled(False)
+        self.delay_input.setEnabled(False)
+        self.delay_input.setValue(0)
+
         if action_type == "Export":
+            # Export: fixed icon + color, enable export format
             self.icon_input.setText("file-export")
             self.icon_input.setEnabled(False)
             self.icon_picker_button.setEnabled(False)
-            
+
             self.selected_color = "#f44336"
             self.color_input.setText("#f44336")
             self.color_input.setEnabled(False)
             self.color_picker_button.setEnabled(False)
             self.update_color_preview()
             self.update_icon_preview()
-            
-            self.delay_input.setEnabled(False)
-            self.delay_input.setValue(0)
-            
+
             self.export_format_combo.setEnabled(True)
-            
-            self.js_toggle_button.setEnabled(False)
-            self.js_toggle_button.setChecked(False)
-            self.js_editor.setVisible(False)
-            self.js_editor.setEnabled(False)
+        elif action_type == "Delay":
+            # Delay: fixed icon 'clock' and blue color, allow delay input
+            self.icon_input.setText("clock")
+            self.icon_input.setEnabled(False)
+            self.icon_picker_button.setEnabled(False)
+
+            self.selected_color = "#03a5fc"
+            self.color_input.setText("#03a5fc")
+            self.color_input.setEnabled(False)
+            self.color_picker_button.setEnabled(False)
+            self.update_color_preview()
+            self.update_icon_preview()
+
+            self.delay_input.setEnabled(True)
+        elif action_type == "Script":
+            # Script: fixed icon 'code' and red color (same as export), enable JS editor
+            self.icon_input.setText("code")
+            self.icon_input.setEnabled(False)
+            self.icon_picker_button.setEnabled(False)
+
+            self.selected_color = "#f44336"
+            self.color_input.setText("#f44336")
+            self.color_input.setEnabled(False)
+            self.color_picker_button.setEnabled(False)
+            self.update_color_preview()
+            self.update_icon_preview()
+
+            self.delay_input.setEnabled(True)
+            self.js_toggle_button.setEnabled(True)
+            self.js_toggle_button.setChecked(True)
+            self.js_editor.setVisible(True)
+            self.js_editor.setEnabled(True)
         else:
-            self.icon_input.setEnabled(True)
-            self.icon_picker_button.setEnabled(True)
-            self.color_input.setEnabled(True)
-            self.color_picker_button.setEnabled(True)
-            self.export_format_combo.setEnabled(False)
-            
-            if action_type == "Action":
-                self.delay_input.setEnabled(False)
-                self.delay_input.setValue(0)
-                self.js_toggle_button.setEnabled(False)
-                self.js_toggle_button.setChecked(False)
-                self.js_editor.setVisible(False)
-                self.js_editor.setEnabled(False)
-            elif action_type == "Delay":
-                self.delay_input.setEnabled(True)
-                self.js_toggle_button.setEnabled(False)
-                self.js_toggle_button.setChecked(False)
-                self.js_editor.setVisible(False)
-                self.js_editor.setEnabled(False)
-            elif action_type == "Script":
-                self.delay_input.setEnabled(True)
-                self.js_toggle_button.setEnabled(True)
-                self.js_toggle_button.setChecked(True)
-                self.js_editor.setVisible(True)
-                self.js_editor.setEnabled(True)
+            # Action: default editable
+            pass
     
     def toggle_js_editor(self):
         # JS editor controlled by action type now

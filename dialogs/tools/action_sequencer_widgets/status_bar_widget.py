@@ -16,6 +16,7 @@ class StatusBarWidget(QWidget):
         self.total_files = 0
         self.processed_files = 0
         self.is_running = False
+        self.current_platform = None
         self.setup_ui()
     
     def setup_ui(self):
@@ -103,8 +104,9 @@ class StatusBarWidget(QWidget):
         self.update_status("Running")
         self.update_progress(60)
     
-    def start_running_mode(self, total_files, total_steps):
+    def start_running_mode(self, total_files, total_steps, platform_name=None):
         self.is_running = True
+        self.current_platform = platform_name
         self.total_files = total_files
         self.processed_files = 0
         self.start_time = time.time()
@@ -116,25 +118,40 @@ class StatusBarWidget(QWidget):
         self.elapsed_label.setText("Elapsed: 00:00")
         self.eta_label.setText("ETA: 00:00")
         
-        stop_icon = qta.icon('fa6s.stop')
-        self.run_button.setIcon(stop_icon)
-        self.run_button.setText(" STOP PROCESS")
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #d32f2f;
-            }
-            QPushButton:pressed {
-                background-color: #c62828;
-            }
-        """)
+        # Illustrator uses resident script - cannot stop mid-batch
+        if platform_name == 'Illustrator':
+            self.run_button.setEnabled(False)
+            self.run_button.setText(" PROCESSING...")
+            self.run_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #888;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+            """)
+        else:
+            stop_icon = qta.icon('fa6s.stop')
+            self.run_button.setIcon(stop_icon)
+            self.run_button.setText(" STOP PROCESS")
+            self.run_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #d32f2f;
+                }
+                QPushButton:pressed {
+                    background-color: #c62828;
+                }
+            """)
         
         self.update_status("Running")
         self.update_progress(0)
@@ -163,6 +180,7 @@ class StatusBarWidget(QWidget):
     
     def end_running_mode(self):
         self.is_running = False
+        self.current_platform = None
         
         run_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(run_icon)
@@ -191,8 +209,32 @@ class StatusBarWidget(QWidget):
         self.update_status("Completed")
         self.update_progress(100)
     
+    def set_continue_mode(self):
+        self.is_running = False
+        
+        continue_icon = qta.icon('fa6s.play')
+        self.run_button.setIcon(continue_icon)
+        self.run_button.setText(" CONTINUE PROCESS")
+        self.run_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
+    
     def reset_stats(self):
         self.is_running = False
+        self.current_platform = None
         self.start_time = None
         self.total_files = 0
         self.processed_files = 0
