@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-                               QListWidget, QListWidgetItem, QLineEdit, QComboBox,
+                               QListWidget, QListWidgetItem, QLineEdit, QComboBox, QCheckBox, QSpinBox,
                                QMessageBox, QFileDialog, QWidget, QTabWidget, QTableWidget,
                                QTableWidgetItem, QDialogButtonBox)
 from PySide6.QtCore import Qt, Signal
@@ -8,6 +8,7 @@ from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper import ActionSequencerConfig
 
 
 class ActionSettingsDialog(QDialog):
@@ -24,6 +25,7 @@ class ActionSettingsDialog(QDialog):
         
         self.current_platform = None
         self.db = ImageTeaDB()
+        self.config = ActionSequencerConfig()
         self.setup_ui()
         self.load_platforms()
         self.resize(600, 400)
@@ -130,6 +132,9 @@ class ActionSettingsDialog(QDialog):
         platform_tab.setLayout(platform_layout)
         self.tab_widget.addTab(platform_tab, qta.icon('fa6s.desktop'), " Platforms")
         
+        output_tab = self.create_output_settings_tab()
+        self.tab_widget.addTab(output_tab, qta.icon('fa6s.file-export'), " Output Settings")
+        
         layout.addWidget(self.tab_widget)
         
         footer_layout = QHBoxLayout()
@@ -150,6 +155,99 @@ class ActionSettingsDialog(QDialog):
         layout.addLayout(footer_layout)
         
         self.setLayout(layout)
+    
+    def create_output_settings_tab(self):
+        output_tab = QWidget()
+        output_layout = QVBoxLayout()
+        output_layout.setSpacing(8)
+        output_layout.setContentsMargins(8, 8, 8, 8)
+        
+        prefix_layout = QHBoxLayout()
+        prefix_layout.setSpacing(6)
+        prefix_icon = QLabel()
+        prefix_icon.setPixmap(qta.icon('fa6s.text-width', color='#888').pixmap(16, 16))
+        prefix_layout.addWidget(prefix_icon)
+        prefix_label = QLabel("Prefix:")
+        prefix_label.setMinimumWidth(120)
+        prefix_layout.addWidget(prefix_label)
+        self.prefix_input = QLineEdit()
+        self.prefix_input.setPlaceholderText("e.g., output_")
+        self.prefix_input.setText(self.config.get('output_prefix', ''))
+        self.prefix_input.textChanged.connect(self.on_output_config_changed)
+        prefix_layout.addWidget(self.prefix_input, 1)
+        output_layout.addLayout(prefix_layout)
+        
+        suffix_layout = QHBoxLayout()
+        suffix_layout.setSpacing(6)
+        suffix_icon = QLabel()
+        suffix_icon.setPixmap(qta.icon('fa6s.text-width', color='#888').pixmap(16, 16))
+        suffix_layout.addWidget(suffix_icon)
+        suffix_label = QLabel("Suffix:")
+        suffix_label.setMinimumWidth(120)
+        suffix_layout.addWidget(suffix_label)
+        self.suffix_input = QLineEdit()
+        self.suffix_input.setPlaceholderText("e.g., _final")
+        self.suffix_input.setText(self.config.get('output_suffix', ''))
+        self.suffix_input.textChanged.connect(self.on_output_config_changed)
+        suffix_layout.addWidget(self.suffix_input, 1)
+        output_layout.addLayout(suffix_layout)
+        
+        watch_layout = QHBoxLayout()
+        watch_layout.setSpacing(6)
+        watch_icon = QLabel()
+        watch_icon.setPixmap(qta.icon('fa6s.eye', color='#888').pixmap(16, 16))
+        watch_layout.addWidget(watch_icon)
+        self.enable_file_watch_check = QCheckBox("Enable File Watcher")
+        self.enable_file_watch_check.setChecked(self.config.get('enable_file_watcher', True))
+        self.enable_file_watch_check.toggled.connect(self.on_output_config_changed)
+        watch_layout.addWidget(self.enable_file_watch_check)
+        watch_layout.addStretch()
+        output_layout.addLayout(watch_layout)
+        
+        timeout_layout = QHBoxLayout()
+        timeout_layout.setSpacing(6)
+        timeout_icon = QLabel()
+        timeout_icon.setPixmap(qta.icon('fa6s.clock', color='#888').pixmap(16, 16))
+        timeout_layout.addWidget(timeout_icon)
+        timeout_label = QLabel("Watch Timeout (s):")
+        timeout_label.setMinimumWidth(120)
+        timeout_layout.addWidget(timeout_label)
+        self.watch_timeout_spin = QSpinBox()
+        self.watch_timeout_spin.setMinimum(5)
+        self.watch_timeout_spin.setMaximum(300)
+        self.watch_timeout_spin.setValue(self.config.get('watch_timeout', 30))
+        self.watch_timeout_spin.valueChanged.connect(self.on_output_config_changed)
+        timeout_layout.addWidget(self.watch_timeout_spin)
+        timeout_layout.addStretch()
+        output_layout.addLayout(timeout_layout)
+        
+        output_layout.addStretch()
+        
+        save_layout = QHBoxLayout()
+        save_layout.addStretch()
+        self.save_output_button = QPushButton(qta.icon('fa6s.floppy-disk'), " Save Output Settings")
+        self.save_output_button.clicked.connect(self.on_save_output_settings)
+        self.save_output_button.setEnabled(False)
+        save_layout.addWidget(self.save_output_button)
+        output_layout.addLayout(save_layout)
+        
+        output_tab.setLayout(output_layout)
+        return output_tab
+    
+    def on_output_config_changed(self):
+        self.save_output_button.setEnabled(True)
+    
+    def on_save_output_settings(self):
+        self.config.set('output_prefix', self.prefix_input.text().strip())
+        self.config.set('output_suffix', self.suffix_input.text().strip())
+        self.config.set('enable_file_watcher', self.enable_file_watch_check.isChecked())
+        self.config.set('watch_timeout', self.watch_timeout_spin.value())
+        
+        if self.config.save():
+            QMessageBox.information(self, "Success", "Output settings saved successfully")
+            self.save_output_button.setEnabled(False)
+        else:
+            QMessageBox.critical(self, "Error", "Failed to save output settings")
     
     def load_platforms(self):
         self.platform_list.clear()

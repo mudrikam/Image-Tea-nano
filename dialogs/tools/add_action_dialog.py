@@ -73,7 +73,7 @@ class AddActionDialog(QDialog):
         type_label.setMinimumWidth(70)
         type_layout.addWidget(type_label)
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["Action", "Delay", "Script"])
+        self.type_combo.addItems(["Action", "Delay", "Script", "Export"])
         self.type_combo.currentIndexChanged.connect(self.on_type_changed)
         type_layout.addWidget(self.type_combo, 1)
         layout.addLayout(type_layout)
@@ -110,10 +110,10 @@ class AddActionDialog(QDialog):
         self.icon_input.textChanged.connect(self.update_icon_preview)
         icon_row_layout.addWidget(self.icon_input, 1)
         
-        icon_picker_button = QPushButton(qta.icon('fa6s.magnifying-glass'), "")
-        icon_picker_button.setMaximumWidth(32)
-        icon_picker_button.clicked.connect(self.show_icon_picker)
-        icon_row_layout.addWidget(icon_picker_button)
+        self.icon_picker_button = QPushButton(qta.icon('fa6s.magnifying-glass'), "")
+        self.icon_picker_button.setMaximumWidth(32)
+        self.icon_picker_button.clicked.connect(self.show_icon_picker)
+        icon_row_layout.addWidget(self.icon_picker_button)
         
         layout.addLayout(icon_row_layout)
         
@@ -137,10 +137,10 @@ class AddActionDialog(QDialog):
         self.color_input.textChanged.connect(self.on_color_input_changed)
         color_layout.addWidget(self.color_input, 1)
         
-        color_picker_button = QPushButton(qta.icon('fa6s.eye-dropper'), "")
-        color_picker_button.setMaximumWidth(32)
-        color_picker_button.clicked.connect(self.pick_color)
-        color_layout.addWidget(color_picker_button)
+        self.color_picker_button = QPushButton(qta.icon('fa6s.eye-dropper'), "")
+        self.color_picker_button.setMaximumWidth(32)
+        self.color_picker_button.clicked.connect(self.pick_color)
+        color_layout.addWidget(self.color_picker_button)
         
         layout.addLayout(color_layout)
         
@@ -159,6 +159,20 @@ class AddActionDialog(QDialog):
         self.delay_input.setEnabled(False)
         delay_layout.addWidget(self.delay_input, 1)
         layout.addLayout(delay_layout)
+        
+        export_format_layout = QHBoxLayout()
+        export_format_layout.setSpacing(6)
+        export_icon_label = QLabel()
+        export_icon_label.setPixmap(qta.icon('fa6s.file-export', color='#888').pixmap(16, 16))
+        export_format_layout.addWidget(export_icon_label)
+        export_label = QLabel("Export:")
+        export_label.setMinimumWidth(70)
+        export_format_layout.addWidget(export_label)
+        self.export_format_combo = QComboBox()
+        self.export_format_combo.addItems(["PNG", "JPG", "PSD", "AI", "EPS", "PDF", "SVG", "TIFF"])
+        self.export_format_combo.setEnabled(False)
+        export_format_layout.addWidget(self.export_format_combo, 1)
+        layout.addLayout(export_format_layout)
         
         self.js_toggle_button = QPushButton(qta.icon('fa6s.code'), " JavaScript (Advanced)")
         self.js_toggle_button.setCheckable(True)
@@ -194,29 +208,53 @@ class AddActionDialog(QDialog):
     def on_type_changed(self, index):
         action_type = self.type_combo.currentText()
         
-        # Name, icon, color always enabled (identity fields)
-        # Delay enabled only for Delay and Script types
-        # JavaScript only enabled for Script type
-        
-        if action_type == "Action":
+        if action_type == "Export":
+            self.icon_input.setText("file-export")
+            self.icon_input.setEnabled(False)
+            self.icon_picker_button.setEnabled(False)
+            
+            self.selected_color = "#f44336"
+            self.color_input.setText("#f44336")
+            self.color_input.setEnabled(False)
+            self.color_picker_button.setEnabled(False)
+            self.update_color_preview()
+            self.update_icon_preview()
+            
             self.delay_input.setEnabled(False)
             self.delay_input.setValue(0)
+            
+            self.export_format_combo.setEnabled(True)
+            
             self.js_toggle_button.setEnabled(False)
             self.js_toggle_button.setChecked(False)
             self.js_editor.setVisible(False)
             self.js_editor.setEnabled(False)
-        elif action_type == "Delay":
-            self.delay_input.setEnabled(True)
-            self.js_toggle_button.setEnabled(False)
-            self.js_toggle_button.setChecked(False)
-            self.js_editor.setVisible(False)
-            self.js_editor.setEnabled(False)
-        elif action_type == "Script":
-            self.delay_input.setEnabled(True)
-            self.js_toggle_button.setEnabled(True)
-            self.js_toggle_button.setChecked(True)
-            self.js_editor.setVisible(True)
-            self.js_editor.setEnabled(True)
+        else:
+            self.icon_input.setEnabled(True)
+            self.icon_picker_button.setEnabled(True)
+            self.color_input.setEnabled(True)
+            self.color_picker_button.setEnabled(True)
+            self.export_format_combo.setEnabled(False)
+            
+            if action_type == "Action":
+                self.delay_input.setEnabled(False)
+                self.delay_input.setValue(0)
+                self.js_toggle_button.setEnabled(False)
+                self.js_toggle_button.setChecked(False)
+                self.js_editor.setVisible(False)
+                self.js_editor.setEnabled(False)
+            elif action_type == "Delay":
+                self.delay_input.setEnabled(True)
+                self.js_toggle_button.setEnabled(False)
+                self.js_toggle_button.setChecked(False)
+                self.js_editor.setVisible(False)
+                self.js_editor.setEnabled(False)
+            elif action_type == "Script":
+                self.delay_input.setEnabled(True)
+                self.js_toggle_button.setEnabled(True)
+                self.js_toggle_button.setChecked(True)
+                self.js_editor.setVisible(True)
+                self.js_editor.setEnabled(True)
     
     def toggle_js_editor(self):
         # JS editor controlled by action type now
@@ -235,6 +273,10 @@ class AddActionDialog(QDialog):
         
         delay = self.action_data.get('delay', 0)
         self.delay_input.setValue(delay)
+        
+        export_format = self.action_data.get('export_format', 'PNG')
+        if export_format:
+            self.export_format_combo.setCurrentText(export_format)
         
         js_code = self.action_data.get('javascript_code', '')
         if js_code:
@@ -304,6 +346,7 @@ class AddActionDialog(QDialog):
         action_type = self.type_combo.currentText()
         delay = self.delay_input.value()
         js_code = self.js_editor.toPlainText().strip()
+        export_format = self.export_format_combo.currentText() if action_type == "Export" else None
         
         if not name:
             QMessageBox.warning(self, "Validation Error", "Action name is required")
@@ -319,9 +362,9 @@ class AddActionDialog(QDialog):
         
         try:
             if self.action_data:
-                self.db.update_action(self.action_data['id'], name, icon, color, action_type, delay, js_code)
+                self.db.update_action(self.action_data['id'], name, icon, color, action_type, delay, js_code, export_format)
             else:
-                self.db.add_action(self.action_set_id, name, icon, color, action_type, delay, js_code)
+                self.db.add_action(self.action_set_id, name, icon, color, action_type, delay, js_code, export_format)
             
             self.action_saved.emit()
             self.accept()

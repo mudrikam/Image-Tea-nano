@@ -712,6 +712,21 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('DELETE FROM action_sequencer_platforms WHERE platforms_id = ?', (platform_id,))
             conn.commit()
+    
+    def get_platform_by_id(self, platform_id):
+        """Get a single platform by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT platforms_id, platforms_name, platforms_exec_path, platforms_note FROM action_sequencer_platforms WHERE platforms_id = ?', (platform_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'name': row[1],
+                    'exec_path': row[2],
+                    'note': row[3] if row[3] else ''
+                }
+            return None
 
     # --- Action Sequencer Action Set methods ---
     def get_action_sets_by_platform(self, platform_id):
@@ -759,6 +774,25 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('DELETE FROM action_sequencer_action_sets WHERE action_sets_id = ?', (action_set_id,))
             conn.commit()
+    
+    def get_action_set_by_id(self, action_set_id):
+        """Get action set by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT action_sets_id, action_sets_platforms_id, action_sets_name, action_sets_description
+                FROM action_sequencer_action_sets 
+                WHERE action_sets_id = ?
+            ''', (action_set_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'platform_id': row[1],
+                    'name': row[2],
+                    'description': row[3]
+                }
+            return None
 
     # --- Action Sequencer Action methods ---
     def get_actions_by_action_set(self, action_set_id):
@@ -766,7 +800,8 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('''
-                SELECT actions_id, actions_name, actions_icon, actions_color, actions_order_index
+                SELECT actions_id, actions_name, actions_icon, actions_color, actions_order_index,
+                       actions_type, actions_delay, actions_javascript_code, actions_export_format
                 FROM action_sequencer_actions 
                 WHERE actions_action_sets_id = ? 
                 ORDER BY actions_order_index
@@ -776,10 +811,14 @@ class ImageTeaDB:
                 'name': row[1],
                 'icon': row[2],
                 'color': row[3],
-                'order_index': row[4]
+                'order_index': row[4],
+                'type': row[5],
+                'delay': row[6],
+                'javascript_code': row[7],
+                'export_format': row[8]
             } for row in c.fetchall()]
 
-    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', order_index=None):
+    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, order_index=None):
         """Add a new action to an action set"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -790,19 +829,19 @@ class ImageTeaDB:
                 order_index = (max_order or 0) + 1
             
             c.execute(
-                'INSERT INTO action_sequencer_actions (actions_action_sets_id, actions_name, actions_icon, actions_color, actions_type, actions_delay, actions_javascript_code, actions_order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (action_set_id, name, icon, color, action_type, delay, javascript_code, order_index)
+                'INSERT INTO action_sequencer_actions (actions_action_sets_id, actions_name, actions_icon, actions_color, actions_type, actions_delay, actions_javascript_code, actions_export_format, actions_order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (action_set_id, name, icon, color, action_type, delay, javascript_code, export_format, order_index)
             )
             conn.commit()
             return c.lastrowid
 
-    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code=''):
+    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None):
         """Update an existing action"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
-                'UPDATE action_sequencer_actions SET actions_name = ?, actions_icon = ?, actions_color = ?, actions_type = ?, actions_delay = ?, actions_javascript_code = ? WHERE actions_id = ?',
-                (name, icon, color, action_type, delay, javascript_code, action_id)
+                'UPDATE action_sequencer_actions SET actions_name = ?, actions_icon = ?, actions_color = ?, actions_type = ?, actions_delay = ?, actions_javascript_code = ?, actions_export_format = ? WHERE actions_id = ?',
+                (name, icon, color, action_type, delay, javascript_code, export_format, action_id)
             )
             conn.commit()
 
@@ -819,7 +858,8 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('''
                 SELECT actions_id, actions_action_sets_id, actions_name, actions_icon, 
-                       actions_color, actions_order_index, actions_javascript_code
+                       actions_color, actions_order_index, actions_javascript_code,
+                       actions_type, actions_delay, actions_export_format
                 FROM action_sequencer_actions
                 WHERE actions_id = ?
             ''', (action_id,))
@@ -832,7 +872,10 @@ class ImageTeaDB:
                     'icon': row[3],
                     'color': row[4],
                     'order_index': row[5],
-                    'javascript_code': row[6]
+                    'javascript_code': row[6],
+                    'type': row[7],
+                    'delay': row[8],
+                    'export_format': row[9]
                 }
             return None
 
@@ -842,7 +885,7 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('''
-                SELECT presets_id, presets_name, presets_description, presets_type,
+                SELECT presets_id, presets_platforms_id, presets_name, presets_description, presets_type,
                        (SELECT COUNT(*) FROM action_sequencer_preset_steps WHERE preset_steps_presets_id = presets_id) as step_count
                 FROM action_sequencer_presets 
                 WHERE presets_platforms_id = ? 
@@ -850,10 +893,11 @@ class ImageTeaDB:
             ''', (platform_id,))
             return [{
                 'id': row[0],
-                'name': row[1],
-                'description': row[2],
-                'type': row[3],
-                'steps': row[4]
+                'platform_id': row[1],
+                'name': row[2],
+                'description': row[3],
+                'type': row[4],
+                'steps': row[5]
             } for row in c.fetchall()]
 
     def add_preset(self, platform_id, name, description='', preset_type=''):
@@ -883,6 +927,26 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('DELETE FROM action_sequencer_presets WHERE presets_id = ?', (preset_id,))
             conn.commit()
+    
+    def get_preset_by_id(self, preset_id):
+        """Get preset by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT presets_id, presets_platforms_id, presets_name, presets_description, presets_type
+                FROM action_sequencer_presets 
+                WHERE presets_id = ?
+            ''', (preset_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'platform_id': row[1],
+                    'name': row[2],
+                    'description': row[3],
+                    'type': row[4]
+                }
+            return None
 
     # --- Action Sequencer Preset Steps methods ---
     def get_preset_steps(self, preset_id):
@@ -969,3 +1033,147 @@ class ImageTeaDB:
                 'action_set': row[4],
                 'action_set_id': row[5]
             } for row in c.fetchall()]
+    
+    # --- Action Sequencer Status methods ---
+    def add_action_status(self, preset_id, file_id=None, source_file_path=None, status='pending', current_step=0, total_steps=0, error_message=None):
+        """Add action sequencer execution status
+        Args:
+            preset_id: ID of the preset being executed
+            file_id: Optional FK to files table (if loaded from database)
+            source_file_path: Path to source file being processed
+            status: Current status (pending, running, completed, failed)
+            current_step: Current step number being executed
+            total_steps: Total number of steps in preset
+            error_message: Error message if failed
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO action_sequencer_status 
+                (status_preset_id, status_file_id, status_source_file_path, status_name, 
+                 status_current_step, status_total_steps, status_error_message) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (preset_id, file_id, source_file_path, status, current_step, total_steps, error_message))
+            conn.commit()
+            return c.lastrowid
+    
+    def update_action_status(self, status_id, status=None, current_step=None, error_message=None, output_file_path=None):
+        """Update action sequencer execution status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            updates = []
+            params = []
+            
+            if status is not None:
+                updates.append('status_name = ?')
+                params.append(status)
+            if current_step is not None:
+                updates.append('status_current_step = ?')
+                params.append(current_step)
+            if error_message is not None:
+                updates.append('status_error_message = ?')
+                params.append(error_message)
+            if output_file_path is not None:
+                updates.append('status_output_file_path = ?')
+                params.append(output_file_path)
+            
+            if updates:
+                updates.append('status_updated_at = CURRENT_TIMESTAMP')
+                params.append(status_id)
+                query = f"UPDATE action_sequencer_status SET {', '.join(updates)} WHERE status_id = ?"
+                c.execute(query, params)
+                conn.commit()
+    
+    def get_action_status(self, status_id):
+        """Get action sequencer status by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_id = ?
+            ''', (status_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'preset_id': row[1],
+                    'file_id': row[2],
+                    'source_file_path': row[3],
+                    'status': row[4],
+                    'current_step': row[5],
+                    'total_steps': row[6],
+                    'error_message': row[7],
+                    'output_file_path': row[8],
+                    'created_at': row[9],
+                    'updated_at': row[10]
+                }
+            return None
+    
+    def get_action_statuses_by_preset(self, preset_id, limit=None):
+        """Get all action statuses for a preset"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            query = '''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_preset_id = ?
+                ORDER BY status_created_at DESC
+            '''
+            if limit:
+                query += f' LIMIT {limit}'
+            
+            c.execute(query, (preset_id,))
+            return [{
+                'id': row[0],
+                'preset_id': row[1],
+                'file_id': row[2],
+                'source_file_path': row[3],
+                'status': row[4],
+                'current_step': row[5],
+                'total_steps': row[6],
+                'error_message': row[7],
+                'output_file_path': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            } for row in c.fetchall()]
+    
+    def get_pending_action_statuses(self):
+        """Get all pending/running action statuses"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_name IN ('pending', 'running')
+                ORDER BY status_created_at ASC
+            ''')
+            return [{
+                'id': row[0],
+                'preset_id': row[1],
+                'file_id': row[2],
+                'source_file_path': row[3],
+                'status': row[4],
+                'current_step': row[5],
+                'total_steps': row[6],
+                'error_message': row[7],
+                'output_file_path': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            } for row in c.fetchall()]
+    
+    def clear_action_statuses(self, preset_id=None):
+        """Clear action statuses (all or for specific preset)"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if preset_id:
+                c.execute('DELETE FROM action_sequencer_status WHERE status_preset_id = ?', (preset_id,))
+            else:
+                c.execute('DELETE FROM action_sequencer_status')
+            conn.commit()

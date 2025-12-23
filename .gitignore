@@ -230,3 +230,4 @@ dev_github_token.json
 update_config.json
 prompt_injector_settings.json
 elements_mockup_metadata_generator_config.json
+action_sequencer_config.json

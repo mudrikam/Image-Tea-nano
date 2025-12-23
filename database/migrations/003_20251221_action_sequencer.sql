@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS action_sequencer_actions (
     actions_color TEXT,
     actions_delay INTEGER DEFAULT 0,
     actions_javascript_code TEXT,
+    actions_export_format TEXT,
     actions_created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     actions_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(actions_action_sets_id) REFERENCES action_sequencer_action_sets(action_sets_id) ON DELETE CASCADE
@@ -61,7 +62,16 @@ CREATE TABLE IF NOT EXISTS action_sequencer_actions (
 
 CREATE TABLE IF NOT EXISTS action_sequencer_status (
     status_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status_preset_id INTEGER NOT NULL,
+    status_file_id INTEGER,
+    status_source_file_path TEXT,
     status_name TEXT NOT NULL,
+    status_current_step INTEGER DEFAULT 0,
+    status_total_steps INTEGER DEFAULT 0,
+    status_error_message TEXT,
+    status_output_file_path TEXT,
     status_created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    status_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    status_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(status_preset_id) REFERENCES action_sequencer_presets(presets_id) ON DELETE CASCADE,
+    FOREIGN KEY(status_file_id) REFERENCES files(id) ON DELETE SET NULL
 );

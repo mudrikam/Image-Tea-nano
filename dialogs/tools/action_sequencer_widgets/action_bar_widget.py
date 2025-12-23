@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog
 from PySide6.QtCore import Signal
 import qtawesome as qta
 
@@ -8,15 +8,17 @@ class ActionBarWidget(QWidget):
     select_source_requested = Signal()
     select_file_requested = Signal()
     settings_requested = Signal()
+    output_path_changed = Signal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.files_count = 0
+        self.output_path = ""
         self.setup_ui()
     
     def setup_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(8)
         
         buttons_layout = QHBoxLayout()
@@ -43,6 +45,28 @@ class ActionBarWidget(QWidget):
         
         main_layout.addLayout(buttons_layout)
         
+        output_layout = QHBoxLayout()
+        output_layout.setSpacing(8)
+        
+        output_icon = QLabel()
+        output_icon.setPixmap(qta.icon('fa6s.folder', color='#888').pixmap(16, 16))
+        output_layout.addWidget(output_icon)
+        
+        output_label = QLabel("Output:")
+        output_label.setStyleSheet("font-weight: bold;")
+        output_layout.addWidget(output_label)
+        
+        self.output_path_input = QLineEdit()
+        self.output_path_input.setPlaceholderText("Select output folder...")
+        self.output_path_input.setReadOnly(True)
+        output_layout.addWidget(self.output_path_input)
+        
+        self.select_output_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        self.select_output_button.clicked.connect(self.on_select_output)
+        output_layout.addWidget(self.select_output_button)
+        
+        main_layout.addLayout(output_layout)
+        
         self.setLayout(main_layout)
     
     def on_load_from_database(self):
@@ -58,6 +82,20 @@ class ActionBarWidget(QWidget):
 
     def on_settings_clicked(self):
         self.settings_requested.emit()
+    
+    def on_select_output(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_path)
+        if folder:
+            self.output_path = folder
+            self.output_path_input.setText(folder)
+            self.output_path_changed.emit(folder)
+    
+    def set_output_path(self, path):
+        self.output_path = path
+        self.output_path_input.setText(path)
+    
+    def get_output_path(self):
+        return self.output_path
     
     def set_preset_type(self, preset_type):
         """Enable/disable buttons based on preset type.

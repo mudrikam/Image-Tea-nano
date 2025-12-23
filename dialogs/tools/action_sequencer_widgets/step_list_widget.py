@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QListWidget, QListWidgetItem, QPushButton, QMenu)
+                               QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 import qtawesome as qta
@@ -32,8 +32,9 @@ class StepListWidget(QWidget):
         self.step_list.setDragDropMode(QListWidget.InternalMove)
         self.step_list.setDefaultDropAction(Qt.MoveAction)
         self.step_list.setSelectionMode(QListWidget.SingleSelection)
+        self.step_list.setMovement(QListWidget.Snap)
+        self.step_list.setResizeMode(QListWidget.Adjust)
         self.step_list.model().rowsMoved.connect(self.on_rows_moved)
-        # Enable right-click context menu on items
         self.step_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.step_list.customContextMenuRequested.connect(self.on_step_context_menu)
         layout.addWidget(self.step_list)
@@ -64,13 +65,19 @@ class StepListWidget(QWidget):
         container_layout.setSpacing(0)
         
         widget = QWidget()
+        widget.setObjectName(f"stepItem_{step_data['id']}")
         color = step_data.get("color", "#888888")
         hex_color = color.lstrip('#')
         r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         widget.setStyleSheet(f"""
-            QWidget {{
+            QWidget#stepItem_{step_data['id']} {{
                 background-color: rgba({r}, {g}, {b}, 30);
                 border-radius: 4px;
+                border: 1px solid rgba({r}, {g}, {b}, 0); /* transparent default */
+            }}
+            QWidget#stepItem_{step_data['id']}:hover {{
+                background-color: rgba({r}, {g}, {b}, 80);
+                border: 1px solid rgba({r}, {g}, {b}, 1);
             }}
         """)
         
@@ -113,13 +120,25 @@ class StepListWidget(QWidget):
         main_layout.addLayout(content_layout)
         main_layout.addStretch()
         
-        menu_icon = qta.icon('fa6s.ellipsis-vertical')
-        menu_button = QPushButton(menu_icon, "")
-        menu_button.setMaximumWidth(30)
-        menu_button.setMaximumHeight(30)
-        menu_button.setStyleSheet("background: transparent;")
-        menu_button.clicked.connect(lambda: self.show_step_menu(step_data, menu_button))
-        main_layout.addWidget(menu_button)
+        pen_icon = qta.icon('fa6s.pen')
+        pen_button = QPushButton(pen_icon, "")
+        pen_button.setMaximumWidth(30)
+        pen_button.setMaximumHeight(30)
+        pen_button.setFlat(True)
+        pen_button.setStyleSheet("background: transparent; border: none;")
+        pen_button.setFocusPolicy(Qt.NoFocus)
+        pen_button.clicked.connect(lambda: self.step_edit_requested.emit(step_data))
+        main_layout.addWidget(pen_button)
+        
+        trash_icon = qta.icon('fa6s.trash')
+        trash_button = QPushButton(trash_icon, "")
+        trash_button.setMaximumWidth(30)
+        trash_button.setMaximumHeight(30)
+        trash_button.setFlat(True)
+        trash_button.setStyleSheet("background: transparent; border: none;")
+        trash_button.setFocusPolicy(Qt.NoFocus)
+        trash_button.clicked.connect(lambda: self.step_delete_requested.emit(step_data))
+        main_layout.addWidget(trash_button)
         
         container_layout.addWidget(widget)
         container.setLayout(container_layout)
@@ -138,11 +157,17 @@ class StepListWidget(QWidget):
 
         menu.addSeparator()
         
+        action_id = step_data.get('action_id')
+        action_detail = self.db.get_action_by_id(action_id)
+        is_export = action_detail and action_detail.get('type') == 'Export'
+        
         to_top_action = menu.addAction("To Top")
         to_top_action.setIcon(qta.icon('fa6s.angles-up'))
+        to_top_action.setEnabled(not is_export)
         
         move_up_action = menu.addAction("Move Up")
         move_up_action.setIcon(qta.icon('fa6s.arrow-up'))
+        move_up_action.setEnabled(not is_export)
 
         move_down_action = menu.addAction("Move Down")
         move_down_action.setIcon(qta.icon('fa6s.arrow-down'))
@@ -182,6 +207,12 @@ class StepListWidget(QWidget):
     
     def move_step_up(self, step_data):
         if not self.current_preset:
+            return
+        
+        action_id = step_data.get('action_id')
+        action_detail = self.db.get_action_by_id(action_id)
+        if action_detail and action_detail.get('type') == 'Export':
+            QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom and cannot be moved up")
             return
         
         current_order = step_data["order_index"]
@@ -248,6 +279,12 @@ class StepListWidget(QWidget):
         if not self.current_preset:
             return
         
+        action_id = step_data.get('action_id')
+        action_detail = self.db.get_action_by_id(action_id)
+        if action_detail and action_detail.get('type') == 'Export':
+            QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom and cannot be moved")
+            return
+        
         current_order = step_data["order_index"]
         if current_order <= 1:
             return
@@ -311,11 +348,23 @@ class StepListWidget(QWidget):
         if not self.current_preset:
             return
         
+        # Cek apakah yang digeser adalah Export action
+        moved_item = self.step_list.item(row)
+        if moved_item:
+            moved_step_data = moved_item.data(Qt.UserRole)
+            if moved_step_data:
+                action_id = moved_step_data.get('action_id')
+                action_detail = self.db.get_action_by_id(action_id)
+                if action_detail and action_detail.get('type') == 'Export':
+                    QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom")
+                    self.load_preset_steps(self.current_preset, self.current_platform_id)
+                    return
+        
         # Kumpulkan semua step dengan order baru
         step_orders = []
         for i in range(self.step_list.count()):
             item = self.step_list.item(i)
-            if item and item.flags() & Qt.ItemIsDragEnabled:  # Skip button
+            if item and item.flags() & Qt.ItemIsDragEnabled:
                 step_data = item.data(Qt.UserRole)
                 if step_data:
                     step_orders.append((step_data['id'], i + 1))
@@ -325,7 +374,6 @@ class StepListWidget(QWidget):
             try:
                 self.db.update_preset_step_order(self.current_preset['id'], step_orders)
                 print(f"Updated order for {len(step_orders)} steps")
-                # Refresh UI setelah reorder
                 self.load_preset_steps(self.current_preset, self.current_platform_id)
             except Exception as e:
                 print(f"Failed to update step order: {e}")
@@ -349,12 +397,12 @@ class StepListWidget(QWidget):
         widget.setStyleSheet("""
             QWidget {
                 background-color: rgba(100, 100, 100, 20);
-                border: 2px dashed #666;
+                border: 2px dashed rgba(150, 150, 150, 0.2);
                 border-radius: 4px;
             }
             QWidget:hover {
                 background-color: rgba(78, 158, 32, 30);
-                border: 2px dashed #4e9e20;
+                border: 2px dashed rgba(78,158,32,0.35);
             }
         """)
         widget.setCursor(Qt.PointingHandCursor)

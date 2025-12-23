@@ -8,6 +8,7 @@ from database.db_operation import ImageTeaDB
 
 class ActionListWidget(QWidget):
     action_selected = Signal(dict)
+    action_modified = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,13 +55,19 @@ class ActionListWidget(QWidget):
         container_layout.setSpacing(0)
         
         widget = QWidget()
+        widget.setObjectName(f"actionItem_{action_data['id']}")
         color = action_data.get("color", "#888888")
         hex_color = color.lstrip('#')
         r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         widget.setStyleSheet(f"""
-            QWidget {{
+            QWidget#actionItem_{action_data['id']} {{
                 background-color: rgba({r}, {g}, {b}, 30);
                 border-radius: 4px;
+                border: 1px solid rgba({r}, {g}, {b}, 0); /* transparent default */
+            }}
+            QWidget#actionItem_{action_data['id']}:hover {{
+                background-color: rgba({r}, {g}, {b}, 80);
+                border: 1px solid rgba({r}, {g}, {b}, 1);
             }}
         """)
         
@@ -103,13 +110,25 @@ class ActionListWidget(QWidget):
         main_layout.addLayout(content_layout)
         main_layout.addStretch()
         
-        menu_icon = qta.icon('fa6s.ellipsis-vertical')
-        menu_button = QPushButton(menu_icon, "")
-        menu_button.setMaximumWidth(30)
-        menu_button.setMaximumHeight(30)
-        menu_button.setStyleSheet("background: transparent;")
-        menu_button.clicked.connect(lambda: self.show_action_menu(action_data, menu_button))
-        main_layout.addWidget(menu_button)
+        pen_icon = qta.icon('fa6s.pen')
+        pen_button = QPushButton(pen_icon, "")
+        pen_button.setMaximumWidth(30)
+        pen_button.setMaximumHeight(30)
+        pen_button.setFlat(True)
+        pen_button.setStyleSheet("background: transparent; border: none;")
+        pen_button.setFocusPolicy(Qt.NoFocus)
+        pen_button.clicked.connect(lambda: self.on_edit_action(action_data))
+        main_layout.addWidget(pen_button)
+        
+        trash_icon = qta.icon('fa6s.trash')
+        trash_button = QPushButton(trash_icon, "")
+        trash_button.setMaximumWidth(30)
+        trash_button.setMaximumHeight(30)
+        trash_button.setFlat(True)
+        trash_button.setStyleSheet("background: transparent; border: none;")
+        trash_button.setFocusPolicy(Qt.NoFocus)
+        trash_button.clicked.connect(lambda: self.on_delete_action(action_data))
+        main_layout.addWidget(trash_button)
         
         container_layout.addWidget(widget)
         container.setLayout(container_layout)
@@ -155,6 +174,7 @@ class ActionListWidget(QWidget):
         from dialogs.tools.add_action_dialog import AddActionDialog
         dlg = AddActionDialog(self.current_action_set['id'], action_data, parent=self)
         dlg.action_saved.connect(lambda: self.load_actions_for_action_set(self.current_action_set))
+        dlg.action_saved.connect(self.action_modified.emit)
         dlg.exec()
     
     def on_delete_action(self, action_data):
@@ -169,6 +189,7 @@ class ActionListWidget(QWidget):
             try:
                 self.db.delete_action(action_data['id'])
                 self.load_actions_for_action_set(self.current_action_set)
+                self.action_modified.emit()
             except Exception as e:
                 QMessageBox.warning(self, 'Error', f'Failed to delete action: {e}')
     
@@ -191,12 +212,12 @@ class ActionListWidget(QWidget):
         widget.setStyleSheet("""
             QWidget {
                 background-color: rgba(100, 100, 100, 20);
-                border: 2px dashed #666;
+                border: 2px dashed rgba(150, 150, 150, 0.2);
                 border-radius: 4px;
             }
             QWidget:hover {
                 background-color: rgba(78, 158, 32, 30);
-                border: 2px dashed #4e9e20;
+                border: 2px dashed rgba(78,158,32,0.35);
             }
         """)
         widget.setCursor(Qt.PointingHandCursor)
@@ -238,4 +259,5 @@ class ActionListWidget(QWidget):
         from dialogs.tools.add_action_dialog import AddActionDialog
         dlg = AddActionDialog(self.current_action_set['id'], parent=self)
         dlg.action_saved.connect(lambda: self.load_actions_for_action_set(self.current_action_set))
+        dlg.action_saved.connect(self.action_modified.emit)
         dlg.exec()
