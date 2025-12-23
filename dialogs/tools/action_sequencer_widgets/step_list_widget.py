@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
 from PySide6.QtCore import Qt, Signal, QPoint
-from PySide6.QtGui import QFont, QDrag, QPixmap
+from PySide6.QtGui import QFont, QDrag, QPixmap, QPainter
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
 
@@ -26,7 +26,18 @@ class DraggableListWidget(QListWidget):
         drag = QDrag(self)
         mime = self.model().mimeData(self.selectedIndexes())
         drag.setMimeData(mime)
-        drag.setPixmap(pixmap)
+        try:
+            # create a semi-transparent pixmap so the item under the cursor remains visible
+            translucent = QPixmap(pixmap.size())
+            translucent.fill(Qt.transparent)
+            painter = QPainter(translucent)
+            painter.setOpacity(0.6)
+            painter.drawPixmap(0, 0, pixmap)
+            painter.end()
+            drag.setPixmap(translucent)
+        except Exception:
+            # fallback to original pixmap if anything goes wrong
+            drag.setPixmap(pixmap)
         drag.setHotSpot(QPoint(pixmap.width()//2, pixmap.height()//2))
         drag.exec(Qt.MoveAction)
 

@@ -149,28 +149,38 @@ class PhotoshopJSXGenerator:
                         jsx.append(f"    // Export: {action_detail['name']}")
                         jsx.append(self._generate_export_code(export_format, "    "))
                         jsx.append("")
+            # If a source file was opened for single-run, close it after processing
+            jsx.append("    if (sourceFiles.length > 0) {")
+            jsx.append("        doc.close(SaveOptions.DONOTSAVECHANGES);")
+            jsx.append("    }")
         else:
+            # Single-run without an explicit source files list: use the currently active document
+            jsx.append("    if (app.documents.length == 0) {")
+            jsx.append("        alert('No open document found for single-run without source. Please open or select a document.');")
+            jsx.append("    } else {")
+            jsx.append("        var doc = app.activeDocument;")
+            jsx.append("")
             for step in non_export_steps:
                 action_detail = self.db.get_action_by_id(step['action_id'])
                 if action_detail:
-                    jsx.append(f"    // Step {step['order_index']}: {step['name']}")
+                    jsx.append(f"        // Step {step['order_index']}: {step['name']}")
                     
                     action_type = action_detail.get('type', 'Action')
                     
                     if action_type == 'Action':
-                        jsx.append(f"    app.doAction('{action_detail['name']}', '{step['action_set']}');")
+                        jsx.append(f"        app.doAction('{action_detail['name']}', '{step['action_set']}');")
                     elif action_type == 'Delay':
                         delay_ms = action_detail.get('delay', 0)
                         if delay_ms > 0:
-                            jsx.append(f"    $.sleep({delay_ms});")
+                            jsx.append(f"        $.sleep({delay_ms});")
                     elif action_type == 'Script':
                         js_code = action_detail.get('javascript_code', '').strip()
                         if js_code:
                             for line in js_code.split('\n'):
-                                jsx.append(f"    {line}")
+                                jsx.append(f"        {line}")
                         delay_ms = action_detail.get('delay', 0)
                         if delay_ms > 0:
-                            jsx.append(f"    $.sleep({delay_ms});")
+                            jsx.append(f"        $.sleep({delay_ms});")
                     
                     jsx.append("")
             
@@ -179,9 +189,11 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
-                        jsx.append(f"    // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "    "))
+                        jsx.append(f"        // Export: {action_detail['name']}")
+                        jsx.append(self._generate_export_code(export_format, "        "))
                         jsx.append("")
+            # close the active document context
+            jsx.append("    }")
         
         jsx.append("} catch(e) {")
         jsx.append("    alert('Error: ' + e.message);")

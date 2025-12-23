@@ -254,8 +254,15 @@ class ActionSettingsDialog(QDialog):
         try:
             platforms = self.db.get_all_platforms()
             for platform in platforms:
-                item = QListWidgetItem(platform['name'])
+                name = platform.get('name', '')
+                note = (platform.get('note') or '').strip()
+                display = f"{name} ({note})" if note else name
+                item = QListWidgetItem(display)
                 item.setData(Qt.UserRole, platform)
+                # show exec path as tooltip for quick reference
+                exec_path = platform.get('exec_path', '')
+                if exec_path:
+                    item.setToolTip(exec_path)
                 self.platform_list.addItem(item)
         except Exception as e:
             print(f'Failed to load platforms: {e}')
