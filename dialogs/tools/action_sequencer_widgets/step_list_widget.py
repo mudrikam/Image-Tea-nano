@@ -1,9 +1,34 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtGui import QFont, QDrag, QPixmap
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+
+class DraggableListWidget(QListWidget):
+    """QListWidget subclass that creates a drag pixmap so the item follows the cursor while dragging."""
+    def startDrag(self, supportedActions):
+        item = self.currentItem()
+        if not item:
+            return
+        widget = self.itemWidget(item)
+        try:
+            if widget:
+                pixmap = widget.grab()
+            else:
+                rect = self.visualItemRect(item)
+                pixmap = QPixmap(rect.size())
+                pixmap.fill(Qt.transparent)
+        except Exception:
+            pixmap = QPixmap(200, 40)
+            pixmap.fill(Qt.lightGray)
+
+        drag = QDrag(self)
+        mime = self.model().mimeData(self.selectedIndexes())
+        drag.setMimeData(mime)
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(QPoint(pixmap.width()//2, pixmap.height()//2))
+        drag.exec(Qt.MoveAction)
 
 class StepListWidget(QWidget):
     step_selected = Signal(dict)
@@ -25,10 +50,13 @@ class StepListWidget(QWidget):
         layout.setSpacing(8)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        self.step_list = QListWidget()
+        self.step_list = DraggableListWidget()
         self.step_list.setObjectName("stepList")
         self.step_list.setAlternatingRowColors(False)
         self.step_list.setSpacing(2)
+        self.step_list.setDragEnabled(True)
+        self.step_list.setAcceptDrops(True)
+        self.step_list.setDropIndicatorShown(True)
         self.step_list.setDragDropMode(QListWidget.InternalMove)
         self.step_list.setDefaultDropAction(Qt.MoveAction)
         self.step_list.setSelectionMode(QListWidget.SingleSelection)
@@ -252,6 +280,14 @@ class StepListWidget(QWidget):
         
         if current_order >= total_steps:
             return
+
+        # Prevent moving a non-export step below Export
+        action_id = step_data.get('action_id')
+        action_detail = self.db.get_action_by_id(action_id)
+        export_order = self._get_export_order()
+        if action_detail and action_detail.get('type') != 'Export' and export_order and (current_order + 1) >= export_order:
+            QMessageBox.warning(self, "Invalid Move", "Cannot move steps below Export action. Export must stay at the bottom.")
+            return
         
         # Kumpulkan semua steps dan tukar order
         step_orders = []
@@ -321,6 +357,14 @@ class StepListWidget(QWidget):
         
         if current_order >= total_steps:
             return
+
+        # Prevent moving non-export to bottom if Export exists
+        action_id = step_data.get('action_id')
+        action_detail = self.db.get_action_by_id(action_id)
+        export_order = self._get_export_order()
+        if action_detail and action_detail.get('type') != 'Export' and export_order:
+            QMessageBox.warning(self, "Invalid Move", "Cannot move steps below Export action. Export must stay at the bottom.")
+            return
         
         # Step ini pindah ke order terakhir, sisanya geser ke atas
         step_orders = []
@@ -348,17 +392,23 @@ class StepListWidget(QWidget):
         if not self.current_preset:
             return
         
-        # Cek apakah yang digeser adalah Export action
-        moved_item = self.step_list.item(row)
-        if moved_item:
-            moved_step_data = moved_item.data(Qt.UserRole)
-            if moved_step_data:
-                action_id = moved_step_data.get('action_id')
-                action_detail = self.db.get_action_by_id(action_id)
-                if action_detail and action_detail.get('type') == 'Export':
-                    QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom")
-                    self.load_preset_steps(self.current_preset, self.current_platform_id)
-                    return
+        # After rowsMoved, the widget order is already updated. Ensure Export stays at bottom.
+        total_steps = sum(1 for i in range(self.step_list.count()) if self.step_list.item(i).flags() & Qt.ItemIsDragEnabled)
+        export_pos = None
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if item and item.flags() & Qt.ItemIsDragEnabled:
+                data = item.data(Qt.UserRole)
+                if data:
+                    action = self.db.get_action_by_id(data['action_id'])
+                    if action and action.get('type') == 'Export':
+                        export_pos = i + 1
+                        break
+        
+        if export_pos and export_pos != total_steps:
+            QMessageBox.warning(self, "Invalid Reorder", "Export action must stay at the bottom. Reordering reverted.")
+            self.load_preset_steps(self.current_preset, self.current_platform_id)
+            return
         
         # Kumpulkan semua step dengan order baru
         step_orders = []
@@ -381,6 +431,18 @@ class StepListWidget(QWidget):
     def clear_steps(self):
         self.step_list.clear()
         self.current_preset = None
+    
+    def _get_export_order(self):
+        """Return 1-based order index of Export action in current preset, or None if no Export."""
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if item and item.flags() & Qt.ItemIsDragEnabled:
+                data = item.data(Qt.UserRole)
+                if data:
+                    action = self.db.get_action_by_id(data['action_id'])
+                    if action and action.get('type') == 'Export':
+                        return data.get('order_index', i + 1)
+        return None
     
     def add_new_action_button(self):
         from .select_action_dialog import SelectActionDialog
@@ -439,7 +501,6 @@ class StepListWidget(QWidget):
     
     def show_select_action_dialog(self):
         if not self.current_preset:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "No Preset", "Please select a preset first")
             return
         
@@ -456,12 +517,39 @@ class StepListWidget(QWidget):
         print(f"Action selected from dialog: {action_data}")
         if self.current_preset:
             try:
-                print(f"Adding action {action_data.get('id')} to preset {self.current_preset['id']}")
-                self.db.add_preset_step(self.current_preset['id'], action_data['id'])
+                action_id = action_data.get('id')
+                print(f"Adding action {action_id} to preset {self.current_preset['id']}")
+
+                # Prevent adding more than one Export action per preset
+                action_detail = self.db.get_action_by_id(action_id)
+                if action_detail and action_detail.get('type') == 'Export':
+                    # scan existing steps for Export
+                    existing_steps = self.db.get_preset_steps(self.current_preset['id'])
+                    for s in existing_steps:
+                        existing_action = self.db.get_action_by_id(s['action_id'])
+                        if existing_action and existing_action.get('type') == 'Export':
+                            QMessageBox.warning(self, "Cannot Add Export", "This preset already contains an Export action. Only one Export step is allowed.")
+                            return
+
+                    # It's an Export action and no existing Export found: append (default behavior)
+                    self.db.add_preset_step(self.current_preset['id'], action_id)
+                else:
+                    # Non-export action: if an Export exists, insert before the Export step
+                    existing_steps = self.db.get_preset_steps(self.current_preset['id'])
+                    insert_pos = None
+                    for s in existing_steps:
+                        existing_action = self.db.get_action_by_id(s['action_id'])
+                        if existing_action and existing_action.get('type') == 'Export':
+                            insert_pos = s['order_index']
+                            break
+
+                    if insert_pos:
+                        self.db.add_preset_step(self.current_preset['id'], action_id, insert_at=insert_pos)
+                    else:
+                        self.db.add_preset_step(self.current_preset['id'], action_id)
                 self.action_added_to_preset.emit()
                 self.load_preset_steps(self.current_preset, self.current_platform_id)
                 print("Action added successfully")
             except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
                 print(f"Error adding action: {e}")
                 QMessageBox.warning(self, 'Error', f'Failed to add action to preset: {e}')

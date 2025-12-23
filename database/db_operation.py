@@ -973,15 +973,29 @@ class ImageTeaDB:
                 'action_set': row[6]
             } for row in c.fetchall()]
 
-    def add_preset_step(self, preset_id, action_id):
-        """Add an action to preset steps (stores reference, not copy)"""
+    def add_preset_step(self, preset_id, action_id, insert_at=None):
+        """Add an action to preset steps (stores reference, not copy).
+
+        Args:
+            preset_id: Preset id
+            action_id: Action id
+            insert_at: Optional 1-based position to insert the step. If None, appends to the end.
+        """
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            
-            c.execute('SELECT MAX(preset_steps_order_index) FROM action_sequencer_preset_steps WHERE preset_steps_presets_id = ?', (preset_id,))
-            max_order = c.fetchone()[0]
-            order_index = (max_order or 0) + 1
-            
+
+            if insert_at is None:
+                c.execute('SELECT MAX(preset_steps_order_index) FROM action_sequencer_preset_steps WHERE preset_steps_presets_id = ?', (preset_id,))
+                max_order = c.fetchone()[0]
+                order_index = (max_order or 0) + 1
+            else:
+                # Shift existing steps at or after insert_at
+                c.execute(
+                    'UPDATE action_sequencer_preset_steps SET preset_steps_order_index = preset_steps_order_index + 1 WHERE preset_steps_presets_id = ? AND preset_steps_order_index >= ?',
+                    (preset_id, insert_at)
+                )
+                order_index = insert_at
+
             c.execute(
                 '''INSERT INTO action_sequencer_preset_steps 
                    (preset_steps_presets_id, preset_steps_actions_id, preset_steps_order_index) 

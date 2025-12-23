@@ -428,7 +428,21 @@ class ActionSequencerImportExport:
                 )
                 
                 if action:
-                    self.db.add_preset_step(preset_id, action['id'])
+                    # Place non-export actions before any Export step; Export actions append to end
+                    if action.get('type') == 'Export':
+                        self.db.add_preset_step(preset_id, action['id'])
+                    else:
+                        existing_steps = self.db.get_preset_steps(preset_id)
+                        insert_pos = None
+                        for s in existing_steps:
+                            existing_action = self.db.get_action_by_id(s['action_id'])
+                            if existing_action and existing_action.get('type') == 'Export':
+                                insert_pos = s['order_index']
+                                break
+                        if insert_pos:
+                            self.db.add_preset_step(preset_id, action['id'], insert_at=insert_pos)
+                        else:
+                            self.db.add_preset_step(preset_id, action['id'])
             
             return True
         except Exception as e:
