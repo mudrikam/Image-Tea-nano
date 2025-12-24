@@ -90,8 +90,13 @@ class PresetListWidget(QWidget):
         self.remove_button.setEnabled(False)
         button_layout.addWidget(self.remove_button)
         
+        self.presets_more_button = QPushButton(qta.icon('fa6s.bars'), "")
+        self.presets_more_button.setToolTip("More")
+        self.presets_more_button.clicked.connect(lambda: self._show_presets_overflow_menu(self.presets_more_button))
+        button_layout.addWidget(self.presets_more_button)
+        
         presets_layout.addLayout(button_layout)
-        presets_tab.setLayout(presets_layout)
+        presets_tab.setLayout(presets_layout) 
         
         action_sets_tab = QWidget()
         action_sets_layout = QVBoxLayout()
@@ -131,6 +136,11 @@ class PresetListWidget(QWidget):
         self.remove_action_set_button.clicked.connect(self.on_remove_action_set_clicked)
         self.remove_action_set_button.setEnabled(False)
         action_set_button_layout.addWidget(self.remove_action_set_button)
+        
+        self.action_sets_more_button = QPushButton(qta.icon('fa6s.bars'), "")
+        self.action_sets_more_button.setToolTip("More")
+        self.action_sets_more_button.clicked.connect(lambda: self._show_action_sets_overflow_menu(self.action_sets_more_button))
+        action_set_button_layout.addWidget(self.action_sets_more_button)
         
         action_sets_layout.addLayout(action_set_button_layout)
         action_sets_tab.setLayout(action_sets_layout)
@@ -203,26 +213,31 @@ class PresetListWidget(QWidget):
         item = QListWidgetItem()
         
         widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(2)
+        # Horizontal main layout: left = expanding info, right = small menu button (vertically centered)
+        main_layout = QHBoxLayout(widget)
+        main_layout.setContentsMargins(8, 6, 8, 6)
+        main_layout.setSpacing(8)
+        
+        # Left: vertical info (title + small info row)
+        info_vbox = QVBoxLayout()
+        info_vbox.setSpacing(2)
         
         name_label = QLabel(preset_data["name"])
         name_label.setObjectName("presetNameLabel")
         name_font = QFont()
         name_font.setBold(True)
         name_label.setFont(name_font)
-        layout.addWidget(name_label)
+        info_vbox.addWidget(name_label)
         
-        info_layout = QHBoxLayout()
-        info_layout.setSpacing(8)
+        info_h = QHBoxLayout()
+        info_h.setSpacing(8)
         
         steps_label = QLabel(f"{preset_data['steps']} steps")
         steps_label.setObjectName("presetStepsLabel")
         font = steps_label.font()
         font.setPointSize(10)
         steps_label.setFont(font)
-        info_layout.addWidget(steps_label)
+        info_h.addWidget(steps_label)
         
         preset_type = preset_data.get('type', '')
         if preset_type:
@@ -239,12 +254,30 @@ class PresetListWidget(QWidget):
                     font-size: 10px;
                 }
             """)
-            info_layout.addWidget(pill)
+            info_h.addWidget(pill)
         
-        info_layout.addStretch()
-        layout.addLayout(info_layout)
+        info_h.addStretch()
+        info_vbox.addLayout(info_h)
         
-        widget.setLayout(layout)
+        main_layout.addLayout(info_vbox)
+        main_layout.addStretch()
+
+        more_icon = qta.icon('fa6s.ellipsis-vertical')
+        more_button = QPushButton(more_icon, "")
+        more_button.setMaximumWidth(30)
+        more_button.setMaximumHeight(30)
+        more_button.setFlat(True)
+        more_button.setStyleSheet("background: transparent; border: none;")
+        more_button.setFocusPolicy(Qt.NoFocus)
+        more_button.clicked.connect(lambda _, d=preset_data, b=more_button: self._show_preset_item_menu(d, b))
+        main_layout.addWidget(more_button, 0, Qt.AlignVCenter)
+
+        widget.setLayout(main_layout)
+        
+        description = preset_data.get('description', '').strip()
+        if description:
+            widget.setToolTip(description)
+            item.setToolTip(description)
         
         item.setSizeHint(widget.sizeHint())
         item.setData(Qt.UserRole, preset_data)
@@ -428,9 +461,42 @@ class PresetListWidget(QWidget):
         font = count_label.font()
         font.setPointSize(10)
         count_label.setFont(font)
-        layout.addWidget(count_label)
+
+        # Build an HBox where left is info (title + count), right is a small overflow button
+        main_layout = QHBoxLayout(widget)
+        main_layout.setContentsMargins(8, 6, 8, 6)
+        main_layout.setSpacing(8)
+
+        info_vbox = QVBoxLayout()
+        info_vbox.setSpacing(2)
+        info_vbox.addWidget(name_label)
+
+        bottom_h = QHBoxLayout()
+        bottom_h.setSpacing(8)
+        bottom_h.addWidget(count_label)
+        bottom_h.addStretch()
+        info_vbox.addLayout(bottom_h)
+
+        main_layout.addLayout(info_vbox)
+        main_layout.addStretch()
+
+        more_icon = qta.icon('fa6s.ellipsis-vertical')
+        more_button = QPushButton(more_icon, "")
+        more_button.setMaximumWidth(30)
+        more_button.setMaximumHeight(30)
+        more_button.setFlat(True)
+        more_button.setStyleSheet("background: transparent; border: none;")
+        more_button.setFocusPolicy(Qt.NoFocus)
+        more_button.clicked.connect(lambda _, d=action_set_data, b=more_button: self._show_action_set_item_menu(d, b))
+        main_layout.addWidget(more_button, 0, Qt.AlignVCenter)
+
+        widget.setLayout(main_layout)
         
-        widget.setLayout(layout)
+        # Show description as tooltip on hover when available
+        description = action_set_data.get('description', '').strip()
+        if description:
+            widget.setToolTip(description)
+            item.setToolTip(description)
         
         item.setSizeHint(widget.sizeHint())
         item.setData(Qt.UserRole, action_set_data)
@@ -544,6 +610,42 @@ class PresetListWidget(QWidget):
         
         global_pos = self.preset_list.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
+
+    def _show_presets_overflow_menu(self, button):
+        menu = QMenu(self)
+        add_action = menu.addAction("Add New Preset")
+        add_action.setIcon(qta.icon('fa6s.plus'))
+        add_action.triggered.connect(self.add_preset_requested.emit)
+        
+        menu.addSeparator()
+        
+        export_all_action = menu.addAction("Export Presets")
+        export_all_action.setIcon(qta.icon('fa6s.file-export'))
+        export_all_action.triggered.connect(self.on_export_all_presets)
+        
+        import_action = menu.addAction("Import Preset")
+        import_action.setIcon(qta.icon('fa6s.file-import'))
+        import_action.triggered.connect(self.on_import_preset)
+        
+        menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _show_preset_item_menu(self, preset_data, button):
+        menu = QMenu(self)
+        export_action = menu.addAction("Export This Preset")
+        export_action.setIcon(qta.icon('fa6s.file-export'))
+        export_action.triggered.connect(lambda: self.on_export_preset(preset_data))
+        
+        menu.addSeparator()
+        
+        edit_action = menu.addAction("Edit")
+        edit_action.setIcon(qta.icon('fa6s.pen'))
+        edit_action.triggered.connect(lambda: self.edit_preset_requested.emit(preset_data))
+        
+        remove_action = menu.addAction("Remove")
+        remove_action.setIcon(qta.icon('fa6s.trash'))
+        remove_action.triggered.connect(lambda: self.remove_preset_requested.emit(preset_data))
+        
+        menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
     
     def on_export_preset(self, preset_data):
         """Export single preset to JSON"""
@@ -652,6 +754,42 @@ class PresetListWidget(QWidget):
         
         global_pos = self.action_set_list.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
+
+    def _show_action_sets_overflow_menu(self, button):
+        menu = QMenu(self)
+        add_action = menu.addAction("Add New Action Set")
+        add_action.setIcon(qta.icon('fa6s.plus'))
+        add_action.triggered.connect(self.on_add_action_set_clicked)
+        
+        menu.addSeparator()
+        
+        export_all_action = menu.addAction("Export Action Sets")
+        export_all_action.setIcon(qta.icon('fa6s.file-export'))
+        export_all_action.triggered.connect(self.on_export_all_action_sets)
+        
+        import_action = menu.addAction("Import Action Set")
+        import_action.setIcon(qta.icon('fa6s.file-import'))
+        import_action.triggered.connect(self.on_import_action_set)
+        
+        menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _show_action_set_item_menu(self, action_set_data, button):
+        menu = QMenu(self)
+        export_action = menu.addAction("Export This Action Set")
+        export_action.setIcon(qta.icon('fa6s.file-export'))
+        export_action.triggered.connect(lambda: self.on_export_action_set(action_set_data))
+        
+        menu.addSeparator()
+        
+        edit_action = menu.addAction("Edit")
+        edit_action.setIcon(qta.icon('fa6s.pen'))
+        edit_action.triggered.connect(self.on_edit_action_set_clicked)
+        
+        remove_action = menu.addAction("Remove")
+        remove_action.setIcon(qta.icon('fa6s.trash'))
+        remove_action.triggered.connect(self.on_remove_action_set_clicked)
+        
+        menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
     
     def on_export_action_set(self, action_set_data):
         """Export single action set to JSON"""

@@ -25,7 +25,7 @@ class ActionBarWidget(QWidget):
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(8)
         
-        self.load_db_button = QPushButton(qta.icon('fa6s.database'), " Load from Database")
+        self.load_db_button = QPushButton(qta.icon('fa6s.database'), " Load Database")
         self.load_db_button.clicked.connect(self.on_load_from_database)
         buttons_layout.addWidget(self.load_db_button)
         
@@ -38,7 +38,7 @@ class ActionBarWidget(QWidget):
         self.select_file_button.setEnabled(False)
         buttons_layout.addWidget(self.select_file_button)
 
-        self.settings_button = QPushButton(qta.icon('fa6s.gears'), " Settings")
+        self.settings_button = QPushButton(qta.icon('fa6s.gear'), " Settings")
         self.settings_button.clicked.connect(self.on_settings_clicked)
         buttons_layout.addWidget(self.settings_button)
         
@@ -89,6 +89,8 @@ class ActionBarWidget(QWidget):
         self.settings_requested.emit()
     
     def on_reset_clicked(self):
+        self.set_output_path("")
+        self.output_path_changed.emit("")
         self.reset_requested.emit()
     
     def on_select_output(self):

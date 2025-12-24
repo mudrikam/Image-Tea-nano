@@ -192,7 +192,6 @@ class ActionSequencerDialog(QDialog):
         
         self.preset_list_widget = PresetListWidget()
         self.preset_list_widget.setMinimumWidth(220)
-        self.preset_list_widget.setMaximumWidth(300)
         splitter.addWidget(self.preset_list_widget)
         
         self.step_list_widget = StepListWidget()

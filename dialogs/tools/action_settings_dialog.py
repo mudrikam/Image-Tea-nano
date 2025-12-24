@@ -38,7 +38,7 @@ class ActionSettingsDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.gears', color='#27AE60')
+        dialog_icon = qta.icon('fa6s.gear')
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(32, 32))
         header_layout.addWidget(icon_label)
