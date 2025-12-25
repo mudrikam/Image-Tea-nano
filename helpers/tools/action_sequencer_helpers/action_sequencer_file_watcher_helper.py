@@ -269,25 +269,49 @@ class ActionSequencerFileWatcher:
     
     @staticmethod
     def cleanup_jsx_files(*jsx_directories):
-        """Clean up temporary JSX files after batch processing
-        
+        """Clean up temporary JSX files after batch processing.
+
         Args:
             *jsx_directories: Variable number of directory paths to clean
         """
+        preset_pattern = re.compile(r'^preset_.*\.jsx$', re.IGNORECASE)
+
         for jsx_dir in jsx_directories:
             if not jsx_dir or not os.path.exists(jsx_dir):
                 continue
-            
+
             try:
+                removed_count = 0
+                skipped = []
                 for root, dirs, files in os.walk(jsx_dir):
                     for file in files:
-                        if file.endswith('.jsx'):
-                            file_path = os.path.join(root, file)
+                        if not file.lower().endswith('.jsx'):
+                            continue
+                        if not preset_pattern.match(file):
+                            skipped.append(file)
+                            continue
+
+                        file_path = os.path.join(root, file)
+                        attempts = 0
+                        while attempts < 3:
                             try:
                                 os.remove(file_path)
                                 print(f"Cleaned up JSX file: {file}")
+                                removed_count += 1
+                                break
+                            except PermissionError:
+                                attempts += 1
+                                time.sleep(0.2)
                             except Exception as e:
                                 print(f"Failed to remove {file}: {e}")
+                                break
+
+                if removed_count > 0:
+                    print(f"Removed {removed_count} preset JSX file(s) from {jsx_dir}")
+                else:
+                    print(f"No preset JSX files removed from {jsx_dir}")
+                    if skipped:
+                        print(f"Skipped {len(skipped)} non-preset JSX files (e.g. resident files): {skipped}")
             except Exception as e:
                 print(f"Error cleaning up directory {jsx_dir}: {e}")
 

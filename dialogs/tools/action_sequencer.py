@@ -680,3 +680,15 @@ class ActionSequencerDialog(QDialog):
         self.action_bar_widget.disable_all_load_buttons()
         
         print("Tool reset to initial state")
+
+    def closeEvent(self, event):
+        """Ensure generated JSX files are cleaned up when dialog closes."""
+        try:
+            jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
+            jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')
+            ActionSequencerFileWatcher.cleanup_jsx_files(jsx_illustrator_dir, jsx_photoshop_dir)
+            print("Action Sequencer: cleaned up generated JSX files on close")
+        except Exception as e:
+            print(f"Action Sequencer: failed to cleanup JSX files on close: {e}")
+        # continue with normal close
+        super().closeEvent(event)
