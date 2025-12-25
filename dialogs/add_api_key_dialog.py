@@ -10,6 +10,7 @@ import csv
 import re
 import webbrowser
 import urllib.parse
+import base64
 
 class ApiKeyTestThread(QThread):
     result = Signal(str, str, object)
@@ -350,16 +351,30 @@ class AddApiKeyDialog(QDialog):
         self.key_edit.setPlaceholderText("Enter API Key")
         self.key_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.key_edit.setToolTip("Enter your API key here")
+        # Mask API key by default and track visibility
+        self.key_edit.setEchoMode(QLineEdit.Password)
+        self._api_key_visible = False
+
         self.paste_btn = QPushButton()
         self.paste_btn.setIcon(qta.icon('fa6s.paste'))
         self.paste_btn.setFixedWidth(32)
         self.paste_btn.setToolTip("Paste from clipboard")
         self.paste_btn.setFocusPolicy(Qt.NoFocus)
         self.paste_btn.clicked.connect(self._on_paste_clicked)
+
+        self.eye_btn = QPushButton()
+        self.eye_btn.setIcon(qta.icon('fa6s.eye-slash'))
+        self.eye_btn.setFixedWidth(32)
+        self.eye_btn.setToolTip("Warning: revealing API key may expose it to others")
+        self.eye_btn.setFocusPolicy(Qt.NoFocus)
+        self.eye_btn.clicked.connect(self._on_eye_clicked)
+
         key_layout.addWidget(_key_label_widget)
         key_layout.addWidget(self.key_edit)
         key_layout.addWidget(self.paste_btn)
+        key_layout.addWidget(self.eye_btn)
         layout.addLayout(key_layout)
+
         note_layout = QHBoxLayout()
         _note_label_widget, note_label = self._create_icon_label_widget("Note:", 'fa6s.clipboard', label_width)
         note_label.setToolTip("Optional note for this API key")
@@ -551,6 +566,40 @@ class AddApiKeyDialog(QDialog):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         self.key_edit.setText(text)
+
+    def _on_eye_clicked(self):
+        """Show/hide API key. When revealing, show an English warning dialog first."""
+        try:
+            if not getattr(self, '_api_key_visible', False):
+                mb = QMessageBox(self)
+                mb.setWindowTitle("Reveal API Key - Warning")
+                mb.setIcon(QMessageBox.Warning)
+                mb.setText(
+                    "Warning: Revealing your API key may expose it to others who can view your screen or access your system clipboard."
+                    " Do not share your API key with untrusted parties or paste it into unknown websites.\n\n"
+                    "Are you sure to reveal the API key?"
+                )
+                btn_yes = QPushButton("Reveal")
+                btn_yes.setIcon(qta.icon('fa6s.eye'))
+                btn_no = QPushButton("Cancel")
+                btn_no.setIcon(qta.icon('fa6s.xmark'))
+                mb.addButton(btn_yes, QMessageBox.AcceptRole)
+                mb.addButton(btn_no, QMessageBox.RejectRole)
+                mb.setDefaultButton(btn_no)
+                mb.exec()
+                if mb.clickedButton() != btn_yes:
+                    return
+            self._api_key_visible = not getattr(self, '_api_key_visible', False)
+            if self._api_key_visible:
+                self.key_edit.setEchoMode(QLineEdit.Normal)
+                self.eye_btn.setIcon(qta.icon('fa6s.eye'))
+            else:
+                self.key_edit.setEchoMode(QLineEdit.Password)
+                self.eye_btn.setIcon(qta.icon('fa6s.eye-slash'))
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error toggling API key visibility: {e}")
+
+
 
     def _create_icon_label_widget(self, text, icon_name, width):
         """Create a small widget with an icon on the left and text label on the right.
@@ -1266,7 +1315,11 @@ class AddApiKeyDialog(QDialog):
                             model = ""
                     if isinstance(last_tested, (tuple, list)):
                         last_tested = " ".join(str(x) for x in last_tested)
-                    writer.writerow([service, api, last_tested, note, status, model])
+                    try:
+                        api_encoded = base64.b64encode(str(api).encode('utf-8')).decode('utf-8')
+                    except Exception:
+                        api_encoded = api
+                    writer.writerow([service, api_encoded, last_tested, note, status, model])
             QMessageBox.information(self, "Export CSV", f"API Keys exported successfully to:\n{file_path}")
         except Exception as e:
             print(f"Error exporting API keys to CSV: {e}")
@@ -1295,6 +1348,10 @@ class AddApiKeyDialog(QDialog):
                     model = row.get("Model")
                     if not service or not api:
                         continue
+                    try:
+                        api = base64.b64decode(api.encode('utf-8')).decode('utf-8')
+                    except Exception:
+                        pass
                     exists = False
                     try:
                         db_rows = self.db.get_all_api_keys()

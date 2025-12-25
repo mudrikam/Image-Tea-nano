@@ -671,3 +671,523 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('SELECT DISTINCT source_path FROM batch_audio_remover ORDER BY processed_at DESC')
             return [row[0] for row in c.fetchall()]
+
+    # --- Action Sequencer Platform methods ---
+    def get_all_platforms(self):
+        """Get all platforms from action_sequencer_platforms table"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT platforms_id, platforms_name, platforms_exec_path, platforms_note FROM action_sequencer_platforms ORDER BY platforms_name')
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'exec_path': row[2],
+                'note': row[3] if row[3] else ''
+            } for row in c.fetchall()]
+
+    def add_platform(self, name, exec_path, note=''):
+        """Add a new platform to action_sequencer_platforms table"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO action_sequencer_platforms (platforms_name, platforms_exec_path, platforms_note) VALUES (?, ?, ?)',
+                (name, exec_path, note)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def update_platform(self, platform_id, name, exec_path, note=''):
+        """Update an existing platform in action_sequencer_platforms table"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE action_sequencer_platforms SET platforms_name = ?, platforms_exec_path = ?, platforms_note = ? WHERE platforms_id = ?',
+                (name, exec_path, note, platform_id)
+            )
+            conn.commit()
+
+    def delete_platform(self, platform_id):
+        """Delete a platform from action_sequencer_platforms table"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM action_sequencer_platforms WHERE platforms_id = ?', (platform_id,))
+            conn.commit()
+    
+    def get_platform_by_id(self, platform_id):
+        """Get a single platform by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT platforms_id, platforms_name, platforms_exec_path, platforms_note FROM action_sequencer_platforms WHERE platforms_id = ?', (platform_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'name': row[1],
+                    'exec_path': row[2],
+                    'note': row[3] if row[3] else ''
+                }
+            return None
+
+    # --- Action Sequencer Action Set methods ---
+    def get_action_sets_by_platform(self, platform_id):
+        """Get all action sets for a specific platform"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT action_sets_id, action_sets_name, action_sets_description,
+                       (SELECT COUNT(*) FROM action_sequencer_actions WHERE actions_action_sets_id = action_sets_id) as action_count
+                FROM action_sequencer_action_sets 
+                WHERE action_sets_platforms_id = ? 
+                ORDER BY action_sets_name
+            ''', (platform_id,))
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'action_count': row[3]
+            } for row in c.fetchall()]
+
+    def add_action_set(self, platform_id, name, description=''):
+        """Add a new action set"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO action_sequencer_action_sets (action_sets_platforms_id, action_sets_name, action_sets_description) VALUES (?, ?, ?)',
+                (platform_id, name, description)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def update_action_set(self, action_set_id, name, description=''):
+        """Update an existing action set"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE action_sequencer_action_sets SET action_sets_name = ?, action_sets_description = ? WHERE action_sets_id = ?',
+                (name, description, action_set_id)
+            )
+            conn.commit()
+
+    def delete_action_set(self, action_set_id):
+        """Delete an action set (cascade will delete all actions in the set)"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM action_sequencer_action_sets WHERE action_sets_id = ?', (action_set_id,))
+            conn.commit()
+    
+    def get_action_set_by_id(self, action_set_id):
+        """Get action set by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT action_sets_id, action_sets_platforms_id, action_sets_name, action_sets_description
+                FROM action_sequencer_action_sets 
+                WHERE action_sets_id = ?
+            ''', (action_set_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'platform_id': row[1],
+                    'name': row[2],
+                    'description': row[3]
+                }
+            return None
+
+    # --- Action Sequencer Action methods ---
+    def get_actions_by_action_set(self, action_set_id):
+        """Get all actions for a specific action set"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT actions_id, actions_name, actions_icon, actions_color, actions_order_index,
+                       actions_type, actions_delay, actions_javascript_code, actions_export_format
+                FROM action_sequencer_actions 
+                WHERE actions_action_sets_id = ? 
+                ORDER BY actions_order_index
+            ''', (action_set_id,))
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'icon': row[2],
+                'color': row[3],
+                'order_index': row[4],
+                'type': row[5],
+                'delay': row[6],
+                'javascript_code': row[7],
+                'export_format': row[8]
+            } for row in c.fetchall()]
+
+    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, order_index=None):
+        """Add a new action to an action set"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            
+            if order_index is None:
+                c.execute('SELECT MAX(actions_order_index) FROM action_sequencer_actions WHERE actions_action_sets_id = ?', (action_set_id,))
+                max_order = c.fetchone()[0]
+                order_index = (max_order or 0) + 1
+            
+            c.execute(
+                'INSERT INTO action_sequencer_actions (actions_action_sets_id, actions_name, actions_icon, actions_color, actions_type, actions_delay, actions_javascript_code, actions_export_format, actions_order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (action_set_id, name, icon, color, action_type, delay, javascript_code, export_format, order_index)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None):
+        """Update an existing action"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE action_sequencer_actions SET actions_name = ?, actions_icon = ?, actions_color = ?, actions_type = ?, actions_delay = ?, actions_javascript_code = ?, actions_export_format = ? WHERE actions_id = ?',
+                (name, icon, color, action_type, delay, javascript_code, export_format, action_id)
+            )
+            conn.commit()
+
+    def delete_action(self, action_id):
+        """Delete an action"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM action_sequencer_actions WHERE actions_id = ?', (action_id,))
+            conn.commit()
+    
+    def get_action_by_id(self, action_id):
+        """Get a single action by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT actions_id, actions_action_sets_id, actions_name, actions_icon, 
+                       actions_color, actions_order_index, actions_javascript_code,
+                       actions_type, actions_delay, actions_export_format
+                FROM action_sequencer_actions
+                WHERE actions_id = ?
+            ''', (action_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'action_set_id': row[1],
+                    'name': row[2],
+                    'icon': row[3],
+                    'color': row[4],
+                    'order_index': row[5],
+                    'javascript_code': row[6],
+                    'type': row[7],
+                    'delay': row[8],
+                    'export_format': row[9]
+                }
+            return None
+
+    # --- Action Sequencer Preset methods ---
+    def get_presets_by_platform(self, platform_id):
+        """Get all presets for a specific platform"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT presets_id, presets_platforms_id, presets_name, presets_description, presets_type,
+                       (SELECT COUNT(*) FROM action_sequencer_preset_steps WHERE preset_steps_presets_id = presets_id) as step_count
+                FROM action_sequencer_presets 
+                WHERE presets_platforms_id = ? 
+                ORDER BY presets_name
+            ''', (platform_id,))
+            return [{
+                'id': row[0],
+                'platform_id': row[1],
+                'name': row[2],
+                'description': row[3],
+                'type': row[4],
+                'steps': row[5]
+            } for row in c.fetchall()]
+
+    def add_preset(self, platform_id, name, description='', preset_type=''):
+        """Add a new preset"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO action_sequencer_presets (presets_platforms_id, presets_name, presets_description, presets_type) VALUES (?, ?, ?, ?)',
+                (platform_id, name, description, preset_type)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def update_preset(self, preset_id, name, description='', preset_type=''):
+        """Update an existing preset"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'UPDATE action_sequencer_presets SET presets_name = ?, presets_description = ?, presets_type = ? WHERE presets_id = ?',
+                (name, description, preset_type, preset_id)
+            )
+            conn.commit()
+
+    def delete_preset(self, preset_id):
+        """Delete a preset (cascade will delete all preset steps)"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM action_sequencer_presets WHERE presets_id = ?', (preset_id,))
+            conn.commit()
+    
+    def get_preset_by_id(self, preset_id):
+        """Get preset by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT presets_id, presets_platforms_id, presets_name, presets_description, presets_type
+                FROM action_sequencer_presets 
+                WHERE presets_id = ?
+            ''', (preset_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'platform_id': row[1],
+                    'name': row[2],
+                    'description': row[3],
+                    'type': row[4]
+                }
+            return None
+
+    # --- Action Sequencer Preset Steps methods ---
+    def get_preset_steps(self, preset_id):
+        """Get all steps for a specific preset (steps reference actions)"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT ps.preset_steps_id, ps.preset_steps_order_index,
+                       a.actions_name, a.actions_icon, a.actions_color, a.actions_id,
+                       ast.action_sets_name
+                FROM action_sequencer_preset_steps ps
+                INNER JOIN action_sequencer_actions a ON ps.preset_steps_actions_id = a.actions_id
+                INNER JOIN action_sequencer_action_sets ast ON a.actions_action_sets_id = ast.action_sets_id
+                WHERE ps.preset_steps_presets_id = ?
+                ORDER BY ps.preset_steps_order_index
+            ''', (preset_id,))
+            return [{
+                'id': row[0],
+                'order_index': row[1],
+                'name': row[2],
+                'icon': row[3],
+                'color': row[4],
+                'action_id': row[5],
+                'action_set': row[6]
+            } for row in c.fetchall()]
+
+    def add_preset_step(self, preset_id, action_id, insert_at=None):
+        """Add an action to preset steps (stores reference, not copy).
+
+        Args:
+            preset_id: Preset id
+            action_id: Action id
+            insert_at: Optional 1-based position to insert the step. If None, appends to the end.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+
+            if insert_at is None:
+                c.execute('SELECT MAX(preset_steps_order_index) FROM action_sequencer_preset_steps WHERE preset_steps_presets_id = ?', (preset_id,))
+                max_order = c.fetchone()[0]
+                order_index = (max_order or 0) + 1
+            else:
+                # Shift existing steps at or after insert_at
+                c.execute(
+                    'UPDATE action_sequencer_preset_steps SET preset_steps_order_index = preset_steps_order_index + 1 WHERE preset_steps_presets_id = ? AND preset_steps_order_index >= ?',
+                    (preset_id, insert_at)
+                )
+                order_index = insert_at
+
+            c.execute(
+                '''INSERT INTO action_sequencer_preset_steps 
+                   (preset_steps_presets_id, preset_steps_actions_id, preset_steps_order_index) 
+                   VALUES (?, ?, ?)''',
+                (preset_id, action_id, order_index)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def update_preset_step_order(self, preset_id, step_orders):
+        """Update order_index for multiple preset steps
+        step_orders: list of tuples (step_id, new_order_index)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            for step_id, new_order in step_orders:
+                c.execute(
+                    '''UPDATE action_sequencer_preset_steps 
+                       SET preset_steps_order_index = ? 
+                       WHERE preset_steps_id = ? AND preset_steps_presets_id = ?''',
+                    (new_order, step_id, preset_id)
+                )
+            conn.commit()
+    
+    def delete_preset_step(self, preset_step_id):
+        """Delete a preset step"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM action_sequencer_preset_steps WHERE preset_steps_id = ?', (preset_step_id,))
+            conn.commit()
+
+    def get_all_actions_for_platform(self, platform_id):
+        """Get all actions from all action sets for a specific platform"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT a.actions_id, a.actions_name, a.actions_icon, a.actions_color,
+                       ast.action_sets_name, ast.action_sets_id
+                FROM action_sequencer_actions a
+                JOIN action_sequencer_action_sets ast ON a.actions_action_sets_id = ast.action_sets_id
+                WHERE ast.action_sets_platforms_id = ?
+                ORDER BY ast.action_sets_name, a.actions_order_index
+            ''', (platform_id,))
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'icon': row[2],
+                'color': row[3],
+                'action_set': row[4],
+                'action_set_id': row[5]
+            } for row in c.fetchall()]
+    
+    # --- Action Sequencer Status methods ---
+    def add_action_status(self, preset_id, file_id=None, source_file_path=None, status='pending', current_step=0, total_steps=0, error_message=None):
+        """Add action sequencer execution status
+        Args:
+            preset_id: ID of the preset being executed
+            file_id: Optional FK to files table (if loaded from database)
+            source_file_path: Path to source file being processed
+            status: Current status (pending, running, completed, failed)
+            current_step: Current step number being executed
+            total_steps: Total number of steps in preset
+            error_message: Error message if failed
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO action_sequencer_status 
+                (status_preset_id, status_file_id, status_source_file_path, status_name, 
+                 status_current_step, status_total_steps, status_error_message) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (preset_id, file_id, source_file_path, status, current_step, total_steps, error_message))
+            conn.commit()
+            return c.lastrowid
+    
+    def update_action_status(self, status_id, status=None, current_step=None, error_message=None, output_file_path=None):
+        """Update action sequencer execution status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            updates = []
+            params = []
+            
+            if status is not None:
+                updates.append('status_name = ?')
+                params.append(status)
+            if current_step is not None:
+                updates.append('status_current_step = ?')
+                params.append(current_step)
+            if error_message is not None:
+                updates.append('status_error_message = ?')
+                params.append(error_message)
+            if output_file_path is not None:
+                updates.append('status_output_file_path = ?')
+                params.append(output_file_path)
+            
+            if updates:
+                updates.append('status_updated_at = CURRENT_TIMESTAMP')
+                params.append(status_id)
+                query = f"UPDATE action_sequencer_status SET {', '.join(updates)} WHERE status_id = ?"
+                c.execute(query, params)
+                conn.commit()
+    
+    def get_action_status(self, status_id):
+        """Get action sequencer status by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_id = ?
+            ''', (status_id,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'preset_id': row[1],
+                    'file_id': row[2],
+                    'source_file_path': row[3],
+                    'status': row[4],
+                    'current_step': row[5],
+                    'total_steps': row[6],
+                    'error_message': row[7],
+                    'output_file_path': row[8],
+                    'created_at': row[9],
+                    'updated_at': row[10]
+                }
+            return None
+    
+    def get_action_statuses_by_preset(self, preset_id, limit=None):
+        """Get all action statuses for a preset"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            query = '''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_preset_id = ?
+                ORDER BY status_created_at DESC
+            '''
+            if limit:
+                query += f' LIMIT {limit}'
+            
+            c.execute(query, (preset_id,))
+            return [{
+                'id': row[0],
+                'preset_id': row[1],
+                'file_id': row[2],
+                'source_file_path': row[3],
+                'status': row[4],
+                'current_step': row[5],
+                'total_steps': row[6],
+                'error_message': row[7],
+                'output_file_path': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            } for row in c.fetchall()]
+    
+    def get_pending_action_statuses(self):
+        """Get all pending/running action statuses"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''
+                SELECT status_id, status_preset_id, status_file_id, status_source_file_path,
+                       status_name, status_current_step, status_total_steps, status_error_message,
+                       status_output_file_path, status_created_at, status_updated_at
+                FROM action_sequencer_status
+                WHERE status_name IN ('pending', 'running')
+                ORDER BY status_created_at ASC
+            ''')
+            return [{
+                'id': row[0],
+                'preset_id': row[1],
+                'file_id': row[2],
+                'source_file_path': row[3],
+                'status': row[4],
+                'current_step': row[5],
+                'total_steps': row[6],
+                'error_message': row[7],
+                'output_file_path': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            } for row in c.fetchall()]
+    
+    def clear_action_statuses(self, preset_id=None):
+        """Clear action statuses (all or for specific preset)"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if preset_id:
+                c.execute('DELETE FROM action_sequencer_status WHERE status_preset_id = ?', (preset_id,))
+            else:
+                c.execute('DELETE FROM action_sequencer_status')
+            conn.commit()
