@@ -13,6 +13,7 @@ from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper impor
 
 class ActionSettingsDialog(QDialog):
     platforms_changed = Signal()
+    output_settings_saved = Signal(dict)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -245,6 +246,10 @@ class ActionSettingsDialog(QDialog):
         
         if self.config.save():
             QMessageBox.information(self, "Success", "Output settings saved successfully")
+            try:
+                self.output_settings_saved.emit(self.config.config)
+            except Exception:
+                pass
             self.save_output_button.setEnabled(False)
         else:
             QMessageBox.critical(self, "Error", "Failed to save output settings")

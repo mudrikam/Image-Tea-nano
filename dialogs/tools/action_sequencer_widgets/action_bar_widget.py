@@ -28,15 +28,6 @@ class ActionBarWidget(QWidget):
         self.load_db_button = QPushButton(qta.icon('fa6s.database'), " Load Database")
         self.load_db_button.clicked.connect(self.on_load_from_database)
         buttons_layout.addWidget(self.load_db_button)
-        
-        self.select_source_button = QPushButton(qta.icon('fa6s.folder-open'), " Select Source")
-        self.select_source_button.clicked.connect(self.on_select_source)
-        buttons_layout.addWidget(self.select_source_button)
-        
-        self.select_file_button = QPushButton(qta.icon('fa6s.file'), " Select File")
-        self.select_file_button.clicked.connect(self.on_select_file)
-        self.select_file_button.setEnabled(False)
-        buttons_layout.addWidget(self.select_file_button)
 
         self.settings_button = QPushButton(qta.icon('fa6s.gear'), " Settings")
         self.settings_button.clicked.connect(self.on_settings_clicked)
@@ -50,6 +41,43 @@ class ActionBarWidget(QWidget):
         
         main_layout.addLayout(buttons_layout)
         
+        source_layout = QHBoxLayout()
+        source_layout.setSpacing(8)
+        source_icon = QLabel()
+        source_icon.setPixmap(qta.icon('fa6s.folder-open', color='#888').pixmap(16, 16))
+        source_layout.addWidget(source_icon)
+        source_label = QLabel("Source:")
+        source_label.setStyleSheet("font-weight: bold;")
+        source_label.setMinimumWidth(50)
+        source_layout.addWidget(source_label)
+        self.source_path_input = QLineEdit()
+        self.source_path_input.setPlaceholderText("Select source folder...")
+        self.source_path_input.setReadOnly(True)
+        source_layout.addWidget(self.source_path_input, 1)
+        self.source_browse_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        self.source_browse_button.clicked.connect(self.on_select_source)
+        source_layout.addWidget(self.source_browse_button)
+        main_layout.addLayout(source_layout)
+
+        file_layout = QHBoxLayout()
+        file_layout.setSpacing(8)
+        file_icon = QLabel()
+        file_icon.setPixmap(qta.icon('fa6s.file', color='#888').pixmap(16, 16))
+        file_layout.addWidget(file_icon)
+        file_label = QLabel("File:")
+        file_label.setStyleSheet("font-weight: bold;")
+        file_label.setMinimumWidth(50)
+        file_layout.addWidget(file_label)
+        self.file_path_input = QLineEdit()
+        self.file_path_input.setPlaceholderText("Select file...")
+        self.file_path_input.setReadOnly(True)
+        file_layout.addWidget(self.file_path_input, 1)
+        self.file_browse_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        self.file_browse_button.setEnabled(False)
+        self.file_browse_button.clicked.connect(self.on_select_file)
+        file_layout.addWidget(self.file_browse_button)
+        main_layout.addLayout(file_layout)
+
         output_layout = QHBoxLayout()
         output_layout.setSpacing(8)
         
@@ -59,12 +87,13 @@ class ActionBarWidget(QWidget):
         
         output_label = QLabel("Output:")
         output_label.setStyleSheet("font-weight: bold;")
+        output_label.setMinimumWidth(50)
         output_layout.addWidget(output_label)
         
         self.output_path_input = QLineEdit()
         self.output_path_input.setPlaceholderText("Select output folder...")
         self.output_path_input.setReadOnly(True)
-        output_layout.addWidget(self.output_path_input)
+        output_layout.addWidget(self.output_path_input, 1)
         
         self.select_output_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
         self.select_output_button.clicked.connect(self.on_select_output)
@@ -75,7 +104,6 @@ class ActionBarWidget(QWidget):
         self.setLayout(main_layout)
     
     def on_load_from_database(self):
-        self.select_source_button.setEnabled(False)
         self.load_from_database_requested.emit()
     
     def on_select_source(self):
@@ -90,6 +118,8 @@ class ActionBarWidget(QWidget):
     
     def on_reset_clicked(self):
         self.set_output_path("")
+        self.set_source_path("")
+        self.set_file_path("")
         self.output_path_changed.emit("")
         self.reset_requested.emit()
     
@@ -107,6 +137,16 @@ class ActionBarWidget(QWidget):
     def get_output_path(self):
         return self.output_path
     
+    def set_source_path(self, path):
+        """Update the Source path display"""
+        self.source_path = path or ""
+        self.source_path_input.setText(self.source_path)
+    
+    def set_file_path(self, path):
+        """Update the File path display"""
+        self.selected_file = path or ""
+        self.file_path_input.setText(self.selected_file)
+    
     def set_preset_type(self, preset_type):
         """Enable/disable buttons based on preset type.
         - batch: enable load_db and select_source, disable select_file
@@ -114,21 +154,21 @@ class ActionBarWidget(QWidget):
         """
         if preset_type and preset_type.lower() == 'single run':
             self.load_db_button.setEnabled(False)
-            self.select_source_button.setEnabled(False)
-            self.select_file_button.setEnabled(True)
+            self.source_browse_button.setEnabled(False)
+            self.file_browse_button.setEnabled(True)
         else:
             self.load_db_button.setEnabled(True)
-            self.select_source_button.setEnabled(True)
-            self.select_file_button.setEnabled(False)
+            self.source_browse_button.setEnabled(True)
+            self.file_browse_button.setEnabled(False)
     
     def disable_all_load_buttons(self):
         """Disable all load buttons when no preset is selected"""
         self.load_db_button.setEnabled(False)
-        self.select_source_button.setEnabled(False)
-        self.select_file_button.setEnabled(False)
+        self.source_browse_button.setEnabled(False)
+        self.file_browse_button.setEnabled(False)
     
     def enable_all_load_buttons(self):
         """Enable all load buttons for reset"""
         self.load_db_button.setEnabled(True)
-        self.select_source_button.setEnabled(True)
-        self.select_file_button.setEnabled(False)
+        self.source_browse_button.setEnabled(True)
+        self.file_browse_button.setEnabled(False)

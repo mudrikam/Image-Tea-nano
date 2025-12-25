@@ -25,9 +25,9 @@ class ActionListWidget(QWidget):
         self.action_list.setObjectName("actionList")
         self.action_list.setAlternatingRowColors(False)
         self.action_list.setSpacing(2)
-        # Enable right-click context menu on action items
         self.action_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.action_list.customContextMenuRequested.connect(self.on_action_context_menu)
+        self.action_list.itemDoubleClicked.connect(self._on_action_item_double_clicked)
         layout.addWidget(self.action_list)
         
         self.setLayout(layout)
@@ -110,6 +110,17 @@ class ActionListWidget(QWidget):
         main_layout.addLayout(content_layout)
         main_layout.addStretch()
         
+        clone_icon = qta.icon('fa6s.clone')
+        clone_button = QPushButton(clone_icon, "")
+        clone_button.setMaximumWidth(30)
+        clone_button.setMaximumHeight(30)
+        clone_button.setFlat(True)
+        clone_button.setStyleSheet("background: transparent; border: none;")
+        clone_button.setFocusPolicy(Qt.NoFocus)
+        clone_button.setToolTip("Duplicate action")
+        clone_button.clicked.connect(lambda: self.on_duplicate_action(action_data))
+        main_layout.addWidget(clone_button)
+
         pen_icon = qta.icon('fa6s.pen')
         pen_button = QPushButton(pen_icon, "")
         pen_button.setMaximumWidth(30)
@@ -135,7 +146,6 @@ class ActionListWidget(QWidget):
         
         item.setSizeHint(container.sizeHint())
         item.setData(Qt.UserRole, action_data)
-        item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
         
         self.action_list.addItem(item)
         self.action_list.setItemWidget(item, container)
@@ -146,18 +156,31 @@ class ActionListWidget(QWidget):
         edit_action = menu.addAction("Edit Action")
         edit_action.setIcon(qta.icon('fa6s.pen'))
 
+        duplicate_action = menu.addAction("Duplicate Action")
+        duplicate_action.setIcon(qta.icon('fa6s.clone'))
+
         menu.addSeparator()
+
         delete_action = menu.addAction("Delete Action")
         delete_action.setIcon(qta.icon('fa6s.trash'))
+        clear_action = menu.addAction("Delete All Actions")
+        clear_action.setIcon(qta.icon('fa6s.broom'))
 
         edit_action.triggered.connect(lambda: self.on_edit_action(action_data))
+        duplicate_action.triggered.connect(lambda: self.on_duplicate_action(action_data))
         delete_action.triggered.connect(lambda: self.on_delete_action(action_data))
+        clear_action.triggered.connect(self._clear_all_actions_of_current_action_set)
 
         return menu
 
     def show_action_menu(self, action_data, button):
         menu = self._create_action_menu(action_data)
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _on_action_item_double_clicked(self, item):
+        action_data = item.data(Qt.UserRole)
+        if action_data:
+            self.on_edit_action(action_data)
 
     def on_action_context_menu(self, pos):
         item = self.action_list.itemAt(pos)
@@ -192,6 +215,53 @@ class ActionListWidget(QWidget):
                 self.action_modified.emit()
             except Exception as e:
                 QMessageBox.warning(self, 'Error', f'Failed to delete action: {e}')
+
+    def on_duplicate_action(self, action_data):
+        """Duplicate an existing action in the same action set.
+        New action name is original + '_copy'."""
+        try:
+            original = self.db.get_action_by_id(action_data['id'])
+            if not original:
+                QMessageBox.warning(self, 'Error', 'Original action not found')
+                return
+            new_name = f"{original['name']}_copy"
+            new_id = self.db.add_action(
+                self.current_action_set['id'],
+                new_name,
+                original.get('icon', ''),
+                original.get('color', '#888888'),
+                original.get('type', 'Action'),
+                original.get('delay', 0),
+                original.get('javascript_code', ''),
+                original.get('export_format')
+            )
+            if new_id:
+                self.load_actions_for_action_set(self.current_action_set)
+                self.action_modified.emit()
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to duplicate action: {e}')
+
+    def _clear_all_actions_of_current_action_set(self):
+        """Delete all actions belonging to the currently selected action set after confirmation."""
+        if not self.current_action_set:
+            QMessageBox.warning(self, "No Action Set", "Please select an action set first")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete All Actions",
+            f"Are you sure you want to delete ALL actions in action set '{self.current_action_set.get('name', '')}'? This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            actions = self.db.get_actions_by_action_set(self.current_action_set['id'])
+            for a in actions:
+                self.db.delete_action(a['id'])
+            self.load_actions_for_action_set(self.current_action_set)
+            self.action_modified.emit()
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to delete actions: {e}')
     
     def clear_actions(self):
         self.action_list.clear()

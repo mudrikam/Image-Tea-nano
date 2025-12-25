@@ -103,6 +103,8 @@ class AddActionDialog(QDialog):
         self.icon_preview = QLabel()
         self.icon_preview.setFixedSize(28, 28)
         self.icon_preview.setAlignment(Qt.AlignCenter)
+        self.icon_preview.setCursor(Qt.PointingHandCursor)
+        self.icon_preview.mousePressEvent = lambda e: self.show_icon_picker()
         icon_row_layout.addWidget(self.icon_preview)
         
         self.icon_input = QLineEdit()
@@ -128,6 +130,8 @@ class AddActionDialog(QDialog):
         
         self.color_preview = QLabel()
         self.color_preview.setFixedSize(28, 28)
+        self.color_preview.setCursor(Qt.PointingHandCursor)
+        self.color_preview.mousePressEvent = lambda e: self.pick_color()
         self.update_color_preview()
         color_layout.addWidget(self.color_preview)
         

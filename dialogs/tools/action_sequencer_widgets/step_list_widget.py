@@ -76,6 +76,7 @@ class StepListWidget(QWidget):
         self.step_list.model().rowsMoved.connect(self.on_rows_moved)
         self.step_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.step_list.customContextMenuRequested.connect(self.on_step_context_menu)
+        self.step_list.itemDoubleClicked.connect(lambda item: self.step_edit_requested.emit(item.data(Qt.UserRole)))
         layout.addWidget(self.step_list)
         
         self.setLayout(layout)
@@ -159,6 +160,17 @@ class StepListWidget(QWidget):
         main_layout.addLayout(content_layout)
         main_layout.addStretch()
         
+        clone_icon = qta.icon('fa6s.clone')
+        clone_button = QPushButton(clone_icon, "")
+        clone_button.setMaximumWidth(30)
+        clone_button.setMaximumHeight(30)
+        clone_button.setFlat(True)
+        clone_button.setStyleSheet("background: transparent; border: none;")
+        clone_button.setFocusPolicy(Qt.NoFocus)
+        clone_button.setToolTip("Duplicate step")
+        clone_button.clicked.connect(lambda: self.on_duplicate_step(step_data))
+        main_layout.addWidget(clone_button)
+
         pen_icon = qta.icon('fa6s.pen')
         pen_button = QPushButton(pen_icon, "")
         pen_button.setMaximumWidth(30)
@@ -194,6 +206,14 @@ class StepListWidget(QWidget):
         edit_action = menu.addAction("Edit Step")
         edit_action.setIcon(qta.icon('fa6s.pen'))
 
+        add_above_action = menu.addAction("Add Step Above")
+        add_above_action.setIcon(qta.icon('fa6s.plus'))
+        add_below_action = menu.addAction("Add Step Below")
+        add_below_action.setIcon(qta.icon('fa6s.plus'))
+
+        duplicate_action = menu.addAction("Duplicate Step")
+        duplicate_action.setIcon(qta.icon('fa6s.clone'))
+
         menu.addSeparator()
         
         action_id = step_data.get('action_id')
@@ -215,16 +235,23 @@ class StepListWidget(QWidget):
         to_bottom_action.setIcon(qta.icon('fa6s.angles-down'))
 
         menu.addSeparator()
+
         delete_action = menu.addAction("Delete Step")
         delete_action.setIcon(qta.icon('fa6s.trash'))
+        clear_action = menu.addAction("Clear All Steps")
+        clear_action.setIcon(qta.icon('fa6s.broom'))
 
         # connect signals
         edit_action.triggered.connect(lambda: self.step_edit_requested.emit(step_data))
+        add_above_action.triggered.connect(lambda: self.add_step_above(step_data))
+        add_below_action.triggered.connect(lambda: self.add_step_below(step_data))
         to_top_action.triggered.connect(lambda: self.move_step_to_top(step_data))
         move_up_action.triggered.connect(lambda: self.move_step_up(step_data))
         move_down_action.triggered.connect(lambda: self.move_step_down(step_data))
         to_bottom_action.triggered.connect(lambda: self.move_step_to_bottom(step_data))
+        duplicate_action.triggered.connect(lambda: self.on_duplicate_step(step_data))
         delete_action.triggered.connect(lambda: self.step_delete_requested.emit(step_data))
+        clear_action.triggered.connect(self._clear_all_steps_of_current_preset)
 
         return menu
 
@@ -397,6 +424,20 @@ class StepListWidget(QWidget):
             self.load_preset_steps(self.current_preset, self.current_platform_id)
         except Exception as e:
             print(f"Failed to move step to bottom: {e}")
+
+    def on_duplicate_step(self, step_data):
+        """Duplicate a preset step by inserting the same action immediately after the current step."""
+        if not self.current_preset:
+            QMessageBox.warning(self, "No Preset", "Please select a preset first")
+            return
+        try:
+            current_order = step_data.get('order_index', 0)
+            insert_at = current_order + 1
+            self.db.add_preset_step(self.current_preset['id'], step_data.get('action_id'), insert_at=insert_at)
+            self.load_preset_steps(self.current_preset, self.current_platform_id)
+            self.action_added_to_preset.emit()
+        except Exception as e:
+            print(f"Failed to duplicate step: {e}")
     
     def on_rows_moved(self, parent, start, end, destination, row):
         """Handle drag-drop reordering"""
@@ -523,6 +564,57 @@ class StepListWidget(QWidget):
         dialog = SelectActionDialog(self.current_platform_id, self)
         dialog.action_selected.connect(self.on_action_selected_from_dialog)
         dialog.exec()
+
+    def add_step_above(self, step_data):
+        """Open SelectActionDialog and insert chosen action above the given step."""
+        if not self.current_preset:
+            QMessageBox.warning(self, "No Preset", "Please select a preset first")
+            return
+        if not self.current_platform_id:
+            self.settings_requested.emit()
+            return
+        insert_at = step_data.get('order_index', 1)
+        from .select_action_dialog import SelectActionDialog
+        dialog = SelectActionDialog(self.current_platform_id, self)
+        dialog.action_selected.connect(lambda action: self._insert_selected_action(action, insert_at))
+        dialog.exec()
+
+    def add_step_below(self, step_data):
+        """Open SelectActionDialog and insert chosen action below the given step."""
+        if not self.current_preset:
+            QMessageBox.warning(self, "No Preset", "Please select a preset first")
+            return
+        if not self.current_platform_id:
+            self.settings_requested.emit()
+            return
+        current_order = step_data.get('order_index', 0)
+        insert_at = current_order + 1
+        from .select_action_dialog import SelectActionDialog
+        dialog = SelectActionDialog(self.current_platform_id, self)
+        dialog.action_selected.connect(lambda action: self._insert_selected_action(action, insert_at))
+        dialog.exec()
+
+    def _insert_selected_action(self, action_data, insert_at):
+        """Insert the selected action into the current preset at the 1-based insert_at position,
+        with validation for Export placement rules."""
+        try:
+            action_id = action_data.get('id')
+            action_type = action_data.get('type')
+            export_order = self._get_export_order()
+
+            if action_type == 'Export' and export_order:
+                QMessageBox.warning(self, "Cannot Add Export", "This preset already contains an Export action. Only one Export step is allowed.")
+                return
+
+            if action_type != 'Export' and export_order and insert_at >= export_order:
+                QMessageBox.warning(self, "Invalid Position", "Cannot add a non-export step after Export. Choose a position before Export.")
+                return
+
+            self.db.add_preset_step(self.current_preset['id'], action_id, insert_at=insert_at)
+            self.load_preset_steps(self.current_preset, self.current_platform_id)
+            self.action_added_to_preset.emit()
+        except Exception as e:
+            print(f"Failed to insert selected action: {e}")
     
     def on_action_selected_from_dialog(self, action_data):
         print(f"Action selected from dialog: {action_data}")
@@ -564,3 +656,25 @@ class StepListWidget(QWidget):
             except Exception as e:
                 print(f"Error adding action: {e}")
                 QMessageBox.warning(self, 'Error', f'Failed to add action to preset: {e}')
+
+    def _clear_all_steps_of_current_preset(self):
+        """Delete all steps belonging to the currently selected preset after confirmation."""
+        if not self.current_preset:
+            QMessageBox.warning(self, "No Preset", "Please select a preset first")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Clear All Steps",
+            f"Are you sure you want to delete ALL steps for preset '{self.current_preset.get('name', '')}'? This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            steps = self.db.get_preset_steps(self.current_preset['id'])
+            for s in steps:
+                self.db.delete_preset_step(s['id'])
+            self.load_preset_steps(self.current_preset, self.current_platform_id)
+            self.action_added_to_preset.emit()
+        except Exception as e:
+            print(f"Failed to clear steps: {e}")

@@ -69,6 +69,7 @@ class PresetListWidget(QWidget):
             }
         """)
         self.preset_list.currentItemChanged.connect(self.on_preset_selection_changed)
+        self.preset_list.itemDoubleClicked.connect(self.on_preset_double_clicked)
         self.preset_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.preset_list.customContextMenuRequested.connect(self.on_preset_context_menu)
         presets_layout.addWidget(self.preset_list)
@@ -116,6 +117,7 @@ class PresetListWidget(QWidget):
             }
         """)
         self.action_set_list.currentItemChanged.connect(self.on_action_set_selection_changed)
+        self.action_set_list.itemDoubleClicked.connect(self.on_action_set_double_clicked)
         self.action_set_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.action_set_list.customContextMenuRequested.connect(self.on_action_set_context_menu)
         action_sets_layout.addWidget(self.action_set_list)
@@ -344,6 +346,25 @@ class PresetListWidget(QWidget):
     def on_remove_clicked(self):
         if self.current_preset:
             self.remove_preset_requested.emit(self.current_preset)
+
+    def on_preset_double_clicked(self, item):
+        """Open edit dialog when a preset is double-clicked"""
+        if not item:
+            return
+        preset_data = item.data(Qt.UserRole)
+        if preset_data:
+            self.edit_preset_requested.emit(preset_data)
+
+    def on_action_set_double_clicked(self, item):
+        """Open edit dialog when an action set is double-clicked"""
+        if not item:
+            return
+        action_set_data = item.data(Qt.UserRole)
+        if action_set_data:
+            self.action_set_list.setCurrentItem(item)
+            self.current_action_set = action_set_data
+            self.last_selected_action_set_id = action_set_data['id']
+            self.on_edit_action_set_clicked()
     
     def load_platforms_from_db(self):
         current_platform_id = None

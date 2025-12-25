@@ -19,9 +19,9 @@ from helpers.tools.action_sequencer_helpers.action_sequencer_file_watcher_helper
 
 
 class BatchWorkerThread(QThread):
-    progress_updated = Signal(int)  # number of successfully detected outputs
+    progress_updated = Signal(int)
     status_updated = Signal(str)
-    completed = Signal(int, int, bool)  # emit (processed_count, total_files, was_stopped)
+    completed = Signal(int, int, bool)
     error_occurred = Signal(str)
     
     def __init__(self, files, preset_id, platform_name, platform_exec, output_path, config_data, db):
@@ -34,7 +34,7 @@ class BatchWorkerThread(QThread):
         self.config_data = config_data
         self.db = db
         self.should_stop = False
-        self.processed_count = 0  # count of successful output detections
+        self.processed_count = 0
     
     def run(self):
         try:
@@ -75,17 +75,22 @@ class BatchWorkerThread(QThread):
                     self.status_updated.emit(f"Waiting for output {idx + 1} / {total_files}")
                     
                     if self.config_data.get('enable_file_watcher', True):
-                        expected_filename = watcher.build_expected_filename(os.path.basename(file_path), export_format)
+                        expected_variants = watcher.build_expected_variants(os.path.basename(file_path), export_format)
+                        watcher._log(f"Illustrator expected filename variants: {expected_variants}")
                         
                         max_wait = 60
                         start_wait = time.time()
                         output_file = None
                         
                         while time.time() - start_wait < max_wait:
+                            if self.should_stop:
+                                watcher._log("Stopped while waiting for Illustrator output")
+                                break
+
                             current_files = set(watcher._get_all_files())
                             
                             for cf in current_files:
-                                if Path(cf).name == expected_filename:
+                                if Path(cf).name in expected_variants:
                                     if watcher._is_file_stable(cf, stable_duration=0.2):
                                         output_file = cf
                                         break
@@ -93,16 +98,16 @@ class BatchWorkerThread(QThread):
                             if output_file:
                                 break
                             
-                            time.sleep(0.3)
+                            watcher._log(f"Illustrator wait loop - waiting for variants: {expected_variants}; found {len(current_files)} files")
+                            time.sleep(watcher.poll_interval)
                         
                         if output_file:
                             print(f"Output detected: {output_file}")
+                            watcher._log(f"Output detected (Illustrator loop): {output_file}")
                             self.processed_count += 1
                         else:
-                            print(f"Output not detected: {expected_filename}")
-                    
-                    # emit number of successfully processed outputs
-                    self.progress_updated.emit(self.processed_count)
+                            print(f"Output not detected: {expected_variants}")
+                            watcher._log(f"Output not detected (Illustrator loop): expected={expected_variants}")
                 
             else:
                 for idx, file_path in enumerate(self.files):
@@ -128,25 +133,24 @@ class BatchWorkerThread(QThread):
                         process.wait()
                     
                     if self.config_data.get('enable_file_watcher', True):
-                        expected_filename = watcher.build_expected_filename(os.path.basename(file_path), export_format)
-                        output_file = watcher.watch_for_file(expected_filename, existing_files)
-                        
+                        expected_variants = watcher.build_expected_variants(os.path.basename(file_path), export_format)
+                        output_file = watcher.watch_for_file(expected_variants, existing_files, stop_check=lambda: self.should_stop)
+
                         if output_file:
                             print(f"Output file detected: {output_file}")
+                            watcher._log(f"Output file detected: {output_file}")
                             self.processed_count += 1
                         else:
-                            print(f"Output file not detected within timeout")
+                            print(f"Output file not detected within timeout or stopped")
+                            watcher._log(f"Output file not detected within timeout or stopped: expected={expected_variants}")
                     
-                    # emit number of successfully processed outputs
                     self.progress_updated.emit(self.processed_count)
                     time.sleep(0.5)
             
             jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
             jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')
             watcher.cleanup_jsx_files(jsx_illustrator_dir, jsx_photoshop_dir)
-            
-            # Emit completed with processed count, total files, and stopped status
-            self.completed.emit(self.processed_count, len(self.files), self.should_stop)
+            self.completed.emit(self.processed_count, len(self.files), self.should_stop) 
         except Exception as e:
             self.error_occurred.emit(str(e))
     
@@ -412,6 +416,11 @@ class ActionSequencerDialog(QDialog):
                     self.loaded_files.append(filepath)
             
             self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
+            # update ActionBar display so user sees selected source folder
+            try:
+                self.action_bar_widget.set_source_path(folder)
+            except Exception:
+                pass
             print(f"Loaded {len(self.loaded_files)} files from folder: {folder}")
     
     def on_select_file(self):
@@ -425,12 +434,27 @@ class ActionSequencerDialog(QDialog):
         if file_path:
             self.loaded_files = [file_path]
             self.status_bar_widget.update_files_count(1, 'manual')
+            # update ActionBar display so user sees selected file
+            try:
+                self.action_bar_widget.set_file_path(file_path)
+            except Exception:
+                pass
             print(f"Loaded file: {file_path}")
     
     def on_open_settings(self):
         dlg = ActionSettingsDialog(self)
         dlg.platforms_changed.connect(self.on_platforms_changed)
+        dlg.output_settings_saved.connect(self.on_output_settings_saved)
         dlg.exec()
+
+    def on_output_settings_saved(self, new_config):
+        """Apply output-related settings immediately when saved from Settings dialog"""
+        try:
+            self.config = ActionSequencerConfig()
+            self.load_output_path()
+            print(f"Applied action sequencer settings: {new_config}")
+        except Exception as e:
+            print(f"Failed to apply new settings: {e}")
     
     def on_platforms_changed(self):
         self.preset_list_widget.load_platforms_from_db()
@@ -504,18 +528,14 @@ class ActionSequencerDialog(QDialog):
     def run_batch_mode(self, preset_id, platform_name, exec_path, output_path, config_data, total_steps):
         self.current_platform_name = platform_name
         
-        # Cleanup previous worker if exists
         if self.batch_worker and self.batch_worker.isRunning():
             self.batch_worker.stop()
             self.batch_worker.wait()
         
-        # Determine which files to process
         if self.is_batch_paused and self.last_processed_index > 0:
-            # Continue from last processed file
             files_to_process = self.loaded_files[self.last_processed_index:]
             print(f"Continuing from file {self.last_processed_index + 1}/{len(self.loaded_files)}")
         else:
-            # Start from beginning
             files_to_process = self.loaded_files
             self.last_processed_index = 0
             print(f"Starting batch processing of {len(files_to_process)} files")
@@ -591,7 +611,6 @@ class ActionSequencerDialog(QDialog):
         self.status_bar_widget.update_status("Running")
     
     def on_batch_progress(self, processed_files):
-        # Update absolute index (last_processed_index + current progress)
         absolute_progress = self.last_processed_index + processed_files
         self.status_bar_widget.update_running_progress(absolute_progress)
     
@@ -599,7 +618,6 @@ class ActionSequencerDialog(QDialog):
         print(f"Batch status: {status}")
     
     def on_batch_completed(self, processed_count, total_files, was_stopped):
-        # Update last processed index (start index + processed in this run)
         self.last_processed_index = self.last_processed_index + processed_count
         
         if was_stopped:
@@ -612,12 +630,13 @@ class ActionSequencerDialog(QDialog):
                                   f"Click 'Continue Process' to resume.")
         else:
             self.is_batch_paused = False
+            processed_this_run = self.last_processed_index
             self.last_processed_index = 0
             self.status_bar_widget.end_running_mode()
             self.status_bar_widget.set_run_button_enabled(True)
             QMessageBox.information(self, "Batch Completed", 
                                   f"Batch processing finished.\n\n"
-                                  f"Successfully processed: {self.last_processed_index}/{len(self.loaded_files)} files")
+                                  f"Successfully processed: {processed_this_run}/{len(self.loaded_files)} files")
     
     def on_batch_error(self, error_msg):
         self.status_bar_widget.update_status("Error")
@@ -646,9 +665,18 @@ class ActionSequencerDialog(QDialog):
         self.current_platform_name = None
         self.last_processed_index = 0
         
+        self.status_bar_widget.end_running_mode()
         self.status_bar_widget.reset_stats()
+        self.status_bar_widget.set_run_button_enabled(True)
         self.status_bar_widget.update_files_count(0, '')
         
-        self.action_bar_widget.enable_all_load_buttons()
+        # clear displayed source / file paths in ActionBar
+        try:
+            self.action_bar_widget.set_source_path("")
+            self.action_bar_widget.set_file_path("")
+        except Exception:
+            pass
+        # keep load buttons disabled until a preset is selected (behavior: load/db/select source only for batch presets)
+        self.action_bar_widget.disable_all_load_buttons()
         
         print("Tool reset to initial state")
