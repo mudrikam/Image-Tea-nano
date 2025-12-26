@@ -194,7 +194,7 @@ class ImagenGeneratorDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Imagen Generator")
-        self.setFixedSize(900, 750)
+        self.setMinimumSize(750, 500)
         self.page_size = 20
         
         from database import db_operation
