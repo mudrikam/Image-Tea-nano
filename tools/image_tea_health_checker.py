@@ -74,10 +74,29 @@ def _download_release_zip(tag, dest_path):
     return dest_path
 
 
+def is_development():
+    """Return True if a .env file exists with DEVELOPMENT=true (case-insensitive)."""
+    env_path = os.path.join(BASE_PATH, '.env')
+    if not os.path.exists(env_path):
+        return False
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    k, v = line.split('=', 1)
+                    if k.strip().upper() == 'DEVELOPMENT' and v.strip().lower() == 'true':
+                        return True
+    except Exception:
+        pass
+    return False
+
+
 def _list_files_in_zip(zip_path):
     with zipfile.ZipFile(zip_path, 'r') as z:
         names = [n for n in z.namelist() if not n.endswith('/')]
-        # remove common top-level folder if present
         if names:
             first = names[0]
             if '/' in first:
@@ -90,6 +109,9 @@ def build_remote_cache(force_refresh=False):
     tag = _tag_from_config()
     cache_file = cache_path()
     old_cache = None
+
+    if is_development():
+        return {'tag': tag, 'fetched_at': datetime.utcnow().isoformat() + 'Z', 'files': []}
 
     if os.path.exists(cache_file) and not force_refresh:
         try:
@@ -234,6 +256,11 @@ def write_health_flag(tag):
 
 
 def run_check(repair=False, force_refresh=False, verbose=True):
+    if is_development():
+        if verbose:
+            print("Development mode detected (.env DEVELOPMENT=true) - skipping health check.")
+        return {'skipped': True}
+
     tag = _tag_from_config()
     cache = build_remote_cache(force_refresh=force_refresh)
     if verbose:
