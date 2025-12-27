@@ -219,12 +219,8 @@ database/db_backups
 backup_configs/
 
 Sign-Image-Tea.bat
-Image Tea.bat
 DesainiaStudio.pfx
 vs code.bat
-install.bat
-update.bat
-update_worker.bat
 .github/
 dev_github_token.json
 update_config.json
