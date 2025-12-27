@@ -174,7 +174,7 @@ class PromptInjectorDialog(QDialog):
 				spin.setRange(0.0, 600.0)
 				spin.setSingleStep(0.05)
 				spin.setDecimals(2)
-				spin.setValue(0.0)
+				spin.setValue(15.0)
 				spin.setSuffix(" s")
 				spin.setToolTip("Delay after refresh action at this point in seconds.")
 				spin.setFixedWidth(110)
@@ -689,7 +689,7 @@ class PromptInjectorDialog(QDialog):
 		path = self.settings_path()
 		if not os.path.exists(path):
 			default = {
-				"base_delays": [3.0, 3.0, 3.0, 3.0, 3.0],
+				"base_delays": [3.0, 3.0, 3.0, 3.0, 15.0],
 				"random_delay": 3.0,
 				"enabled_points": [True, True, True, True, True],
 				"csv_path": None,
