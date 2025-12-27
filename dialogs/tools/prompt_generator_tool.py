@@ -459,10 +459,22 @@ class PromptGeneratorDialog(QDialog):
 		top_buttons_layout.addWidget(self.edit_config_btn)
 		
         
+		self.refresh_btn = QPushButton(qta.icon('fa6s.rotate-right'), " Refresh")
+		self.refresh_btn.setToolTip("Refresh the prompts table")
+		self.refresh_btn.clicked.connect(self.refresh_table_immediately)
+		top_buttons_layout.addWidget(self.refresh_btn)
+		
+        
 		self.clear_btn = QPushButton(qta.icon('fa6s.trash'), " Clear All")
 		self.clear_btn.setToolTip("Delete all generated prompts")
 		self.clear_btn.clicked.connect(self.clear_all_prompts)
 		top_buttons_layout.addWidget(self.clear_btn)
+		
+        
+		self.clear_copied_btn = QPushButton(qta.icon('fa6s.trash-can'), " Clear Copied")
+		self.clear_copied_btn.setToolTip("Delete prompts that have been copied")
+		self.clear_copied_btn.clicked.connect(self.clear_copied_prompts)
+		top_buttons_layout.addWidget(self.clear_copied_btn)
 		
         
 		self.export_btn = QPushButton(qta.icon('fa6s.upload'), " Export CSV")
@@ -589,6 +601,7 @@ class PromptGeneratorDialog(QDialog):
 		self.page_spinner.setValue(self.current_page)
 		
         
+		self.table.clearContents()
 		self.table.setRowCount(len(self.prompt_data))
 		for r, prompt_row in enumerate(self.prompt_data):
                 
@@ -597,41 +610,32 @@ class PromptGeneratorDialog(QDialog):
 				created_at = prompt_row[3] or ""
 				status = prompt_row[4] if len(prompt_row) > 4 else 'pending'
 				
-                
 				display_prompt = prompt_text[:100] + "..." if len(prompt_text) > 100 else prompt_text
 				char_count = len(prompt_text)
 				
-                
 				item_prompt = QTableWidgetItem(display_prompt)
 				item_prompt.setData(Qt.UserRole, prompt_text)
 				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])
-				
 				self.table.setItem(r, 0, item_prompt)
 				self.table.setItem(r, 1, QTableWidgetItem(str(char_count)))
 				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))
 				
-                
 				copy_btn = QPushButton()
 				copy_btn.setIcon(qta.icon('fa6s.copy'))
 				copy_btn.setToolTip("Copy prompt to clipboard")
 				copy_btn.clicked.connect(lambda checked, text=prompt_text, pid=prompt_row[0]: self.copy_prompt_and_update_status(text, pid))
 				self.table.setCellWidget(r, 3, copy_btn)
 				
-                
 				copied_color = QColor(243, 200, 24, int(0.3 * 255))
 				if status == 'copied':
-                    
 					for col in range(4):
 						item = self.table.item(r, col)
 						if item:
 							item.setBackground(copied_color)
 						else:
-                            
 							empty_item = QTableWidgetItem("")
 							empty_item.setBackground(copied_color)
 							self.table.setItem(r, col, empty_item)
-					
-                    
 					copy_btn.setStyleSheet("""
 						QPushButton {
 							background-color: rgba(243, 200, 24, 77);
@@ -643,10 +647,11 @@ class PromptGeneratorDialog(QDialog):
 						}
 					""")
 				else:
-                    
 					copy_btn.setStyleSheet("")
-		
-		
+					for col in range(3):
+						item = self.table.item(r, col)
+						if item:
+							item.setBackground(QColor(0,0,0,0))
         
 		self.prev_btn.setEnabled(self.current_page > 1)
 		self.next_btn.setEnabled(self.current_page < total)
@@ -1217,6 +1222,41 @@ class PromptGeneratorDialog(QDialog):
 				print("All prompts cleared")
 			except Exception as e:
 				print(f"Failed to clear prompts: {e}")
+	
+	def clear_copied_prompts(self):
+		"""Clear generated prompts that have been copied after confirmation"""
+		if not self.db:
+			return
+		try:
+			copied_count = self.db.get_copied_prompts_count()
+		except Exception as e:
+			print(f"Failed to get copied prompts count: {e}")
+			copied_count = None
+		
+		if copied_count is None:
+			message = "Are you sure you want to delete prompts that have been copied?\nThis action cannot be undone."
+		elif copied_count == 0:
+			QMessageBox.information(self, "No Copied Prompts", "There are no copied prompts to clear.")
+			return
+		else:
+			message = f"Are you sure you want to delete {copied_count} copied prompt{'s' if copied_count != 1 else ''}?\nThis action cannot be undone."
+		
+		reply = QMessageBox.question(
+			self, "Clear Copied Prompts",
+			message,
+			QMessageBox.Yes | QMessageBox.No,
+			QMessageBox.No
+		)
+		
+		if reply == QMessageBox.Yes:
+			try:
+				self.db.clear_copied_prompts()
+				self.refresh_table_immediately()
+				self.table.clearSelection()
+				self.table.viewport().update()
+				print("Copied prompts cleared")
+			except Exception as e:
+				print(f"Failed to clear copied prompts: {e}")
 	
 	def export_to_csv(self):
 		"""Export all prompts to CSV file (prompts only)"""

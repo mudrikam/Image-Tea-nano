@@ -432,11 +432,31 @@ class ImageTeaDB:
         """Delete all generated prompts."""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            # Clear related status first to avoid orphans
             c.execute('DELETE FROM generated_prompt_status')
             c.execute('DELETE FROM generated_prompts')
             conn.commit()
     
+    def clear_copied_prompts(self):
+        """Delete generated prompts that have status 'copied'."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT prompt_id FROM generated_prompt_status WHERE status = 'copied'")
+            copied_prompt_ids = [row[0] for row in c.fetchall()]
+            
+            if copied_prompt_ids:
+                c.execute("DELETE FROM generated_prompt_status WHERE status = 'copied'")
+                placeholders = ','.join('?' * len(copied_prompt_ids))
+                c.execute(f"DELETE FROM generated_prompts WHERE id IN ({placeholders})", copied_prompt_ids)
+                conn.commit()
+
+    def get_copied_prompts_count(self):
+        """Return the number of prompts that currently have status 'copied'."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM generated_prompt_status WHERE status = 'copied' AND prompt_id IS NOT NULL")
+            row = c.fetchone()
+            return row[0] if row else 0
+
     def get_generated_prompts_paginated(self, page=1, page_size=20):
         """Get generated prompts with pagination support including status"""
         with sqlite3.connect(self.db_path) as conn:
