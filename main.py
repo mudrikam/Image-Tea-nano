@@ -23,6 +23,9 @@ from helpers.check_for_update_helper import check_for_update
 
 ensure_tools_ready()
 
+from tools.image_tea_health_checker import run_check
+run_check(repair=True, force_refresh=False, verbose=True)
+
 def load_app_config():
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
     with open(config_path, "r", encoding="utf-8") as f:
