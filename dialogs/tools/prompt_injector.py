@@ -95,7 +95,7 @@ class PointWidget(QWidget):
 class PromptInjectorDialog(QDialog):
 	setClipboardRequested = Signal(str)
 	automationFinished = Signal()
-	countdownUpdated = Signal(float)
+	countdownUpdated = Signal(float, int)
 	progressUpdated = Signal(int, int)
 
 	def __init__(self, parent=None):
@@ -149,37 +149,79 @@ class PromptInjectorDialog(QDialog):
 		layout.setContentsMargins(8, 8, 8, 8)
 		from PySide6.QtWidgets import QLayout
 		layout.setSizeConstraint(QLayout.SetFixedSize)
-		colors = ["red", "green", "blue", "orange"]
+		colors = ["red", "green", "blue", "orange", "magenta"]
 		self.color_map = {
 			"red": "#ff4d4d",
 			"green": "#00b050",
 			"blue": "#1e90ff",
 			"orange": "#ff8800",
+			"magenta": "#e040fb",
 		}
-		self.point_notes = [" (select all & paste)", " (click)", " (click)", " (click)"]
+		self.point_notes = [" (select all & paste)", " (click)", " (click)", " (click)", " (refresh)"]
 		self.point_enabled = []
+		self.delay_spinboxes = []
 		for i, color in enumerate(colors, start=1):
 			note = self.point_notes[i-1] if (i-1) < len(self.point_notes) else ""
 			h = QHBoxLayout()
-			chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
-			chk.setChecked(True)
-			chk.setProperty("color_name", color)
-			chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
-			chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-			chk.setToolTip("Enable/disable this point. Disabled points are skipped during automation.")
-			spin = QDoubleSpinBox()
-			spin.setRange(0.0, 600.0)
-			spin.setSingleStep(0.05)
-			spin.setDecimals(2)
-			spin.setValue(0.0)
-			spin.setSuffix(" s")
-			spin.setToolTip("Delay before the action at this point in seconds. Use decimals for fine control.")
-			h.addWidget(chk)
-			h.addWidget(spin)
-			layout.addLayout(h)
-			self.delay_spinboxes.append(spin)
-			self.point_enabled.append(chk)
-			chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
+			if color == "magenta":
+				chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
+				chk.setChecked(True)
+				chk.setProperty("color_name", color)
+				chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
+				chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+				chk.setToolTip("Enable/disable this point. Point 5 is a refresh trigger, executed every N prompts.")
+				spin = QDoubleSpinBox()
+				spin.setRange(0.0, 600.0)
+				spin.setSingleStep(0.05)
+				spin.setDecimals(2)
+				spin.setValue(0.0)
+				spin.setSuffix(" s")
+				spin.setToolTip("Delay after refresh action at this point in seconds.")
+				spin.setFixedWidth(110)
+				h.addWidget(chk)
+				h.addWidget(spin)
+				layout.addLayout(h)
+				# Spinner interval refresh rata kanan dan lebar seragam
+				h2 = QHBoxLayout()
+				lbl_every = QLabel("Trigger Point 5 Every:")
+				lbl_every.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+				self.refresh_every_spin = QDoubleSpinBox()
+				self.refresh_every_spin.setRange(1, 100000)
+				self.refresh_every_spin.setSingleStep(1)
+				self.refresh_every_spin.setDecimals(0)
+				self.refresh_every_spin.setValue(100)
+				self.refresh_every_spin.setSuffix(" prompts")
+				self.refresh_every_spin.setToolTip("Trigger refresh (Point 5) every N prompts.")
+				self.refresh_every_spin.setFixedWidth(110)
+				h2.addWidget(lbl_every)
+				h2.addStretch(1)
+				h2.addWidget(self.refresh_every_spin)
+				layout.addLayout(h2)
+				self.delay_spinboxes.append(spin)
+				self.point_enabled.append(chk)
+				chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
+				self.refresh_delay_spin = spin
+			else:
+				chk = QCheckBox(f"Point {i} ({color}){note}: X=0 Y=0")
+				chk.setChecked(True)
+				chk.setProperty("color_name", color)
+				chk.setStyleSheet(f"color: {self.color_map.get(color, color)};")
+				chk.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+				chk.setToolTip("Enable/disable this point. Disabled points are skipped during automation.")
+				spin = QDoubleSpinBox()
+				spin.setRange(0.0, 600.0)
+				spin.setSingleStep(0.05)
+				spin.setDecimals(2)
+				spin.setValue(0.0)
+				spin.setSuffix(" s")
+				spin.setToolTip("Delay before the action at this point in seconds. Use decimals for fine control.")
+				spin.setFixedWidth(110)
+				h.addWidget(chk)
+				h.addWidget(spin)
+				layout.addLayout(h)
+				self.delay_spinboxes.append(spin)
+				self.point_enabled.append(chk)
+				chk.toggled.connect(lambda state, idx=i-1: self._on_point_toggle(idx, state))
 
 		h = QHBoxLayout()
 		self.rand_lbl = QLabel("Random extra delay (s):")
@@ -190,6 +232,7 @@ class PromptInjectorDialog(QDialog):
 		self.rand_spin.setValue(0.0)
 		self.rand_spin.setSuffix(" s")
 		self.rand_spin.setToolTip("Random extra delay added to each base delay (0 disables randomness).")
+		self.rand_spin.setFixedWidth(110)
 		h.addWidget(self.rand_lbl)
 		h.addWidget(self.rand_spin)
 		layout.addLayout(h)
@@ -283,7 +326,7 @@ class PromptInjectorDialog(QDialog):
 		self.points = []
 		screen = QGuiApplication.primaryScreen().availableGeometry()
 		center = screen.center()
-		offsets = [QPoint(0, 0), QPoint(40, 0), QPoint(-40, 0), QPoint(0, 40)]
+		offsets = [QPoint(0, 0), QPoint(40, 0), QPoint(-40, 0), QPoint(0, 40), QPoint(0, -40)]
 		for idx, (color, off) in enumerate(zip(colors, offsets)):
 			hex_color = self.color_map.get(color, color)
 			p = PointWidget(hex_color, idx + 1)
@@ -357,8 +400,6 @@ class PromptInjectorDialog(QDialog):
 		coords = []
 		base_delays = []
 		for idx, p in enumerate(self.points):
-			if idx < len(self.point_enabled) and not self.point_enabled[idx].isChecked():
-				continue
 			coords.append((p.frameGeometry().center().x(), p.frameGeometry().center().y()))
 			base_delays.append(self.delay_spinboxes[idx].value())
 		random_delay = float(self.rand_spin.value())
@@ -378,8 +419,11 @@ class PromptInjectorDialog(QDialog):
 		self.btn_pause.setEnabled(True)
 		self.btn_stop.setEnabled(True)
 		self.btn_pause.setText("Pause")
+		refresh_every = int(self.refresh_every_spin.value()) if hasattr(self, 'refresh_every_spin') else 100
+		refresh_enabled = self.point_enabled[4].isChecked() if len(self.point_enabled) > 4 else False
+		refresh_delay = self.delay_spinboxes[4].value() if len(self.delay_spinboxes) > 4 else 0.0
 		self._worker_thread = threading.Thread(
-			target=self._run_sequence, args=(coords, base_delays, random_delay, paste_texts), daemon=True
+			target=self._run_sequence, args=(coords, base_delays, random_delay, paste_texts, refresh_every, refresh_enabled, refresh_delay), daemon=True
 		)
 		self._worker_thread.start()
 		self._run_start_time = time.time()
@@ -387,6 +431,10 @@ class PromptInjectorDialog(QDialog):
 		self._pause_start = None
 		self._current_done = 0
 		self._total = total
+		self._refresh_countdown = refresh_every
+		self._refresh_every = refresh_every
+		self._refresh_enabled = refresh_enabled
+		self._refresh_delay = refresh_delay
 		self._stats_timer.start()
 		self._update_stats(0, total)
 
@@ -476,14 +524,20 @@ class PromptInjectorDialog(QDialog):
 			f"<p><span style='color:{c('green')}; font-weight:bold;'>Point 2 (green){note(1)}:</span> After the second delay the cursor moves here and clicks, typically used to confirm or advance the UI element.</p>"
 			f"<p><span style='color:{c('blue')}; font-weight:bold;'>Point 3 (blue){note(2)}:</span> After the third delay the cursor moves here and clicks, often used for final actions like Submit or Next.</p>"
 			f"<p><span style='color:{c('orange')}; font-weight:bold;'>Point 4 (orange){note(3)}:</span> Optional extra action after the third point.</p>"
+			f"<p><span style='color:{c('magenta')}; font-weight:bold;'>Point 5 (magenta){note(4)}:</span> Refresh trigger. After every N prompts (see 'Trigger Point 5 Every'), the cursor moves here, clicks, and waits for the specified delay before continuing. All other points are paused during this refresh.</p>"
 			"<p><b>Reset Points:</b> Move the four markers back to their default centered positions and save them to settings.</p>"
 			"</div>"
 		)
 		QMessageBox.information(self, "Help Points and Buttons", html)
 
-	def _on_countdown_updated(self, remaining: float):
+	def _on_countdown_updated(self, remaining: float, refresh_countdown: int = 0):
+		# Only show seconds, no ms, and show refresh countdown if available
 		if remaining > 0:
-			self._set_delay_text(f"Waiting: {remaining:.2f} s")
+			s = int(round(remaining))
+			txt = f"Waiting: {s} s"
+			if refresh_countdown > 0:
+				txt += f" | Refresh After: {refresh_countdown} Prompts"
+			self._set_delay_text(txt)
 		else:
 			self._set_delay_text("")
 
@@ -621,6 +675,8 @@ class PromptInjectorDialog(QDialog):
 			pos = p.pos()
 			pts.append([int(pos.x()), int(pos.y())])
 		data["point_positions"] = pts
+		if hasattr(self, 'refresh_every_spin'):
+			data["refresh_every"] = int(self.refresh_every_spin.value())
 		path = self.settings_path()
 		try:
 			os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -633,11 +689,12 @@ class PromptInjectorDialog(QDialog):
 		path = self.settings_path()
 		if not os.path.exists(path):
 			default = {
-				"base_delays": [3.0, 3.0, 3.0, 3.0],
+				"base_delays": [3.0, 3.0, 3.0, 3.0, 3.0],
 				"random_delay": 3.0,
-				"enabled_points": [True, True, True, True],
+				"enabled_points": [True, True, True, True, True],
 				"csv_path": None,
-				"point_positions": []
+				"point_positions": [],
+				"refresh_every": 100
 			}
 			try:
 				os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -652,6 +709,8 @@ class PromptInjectorDialog(QDialog):
 			rd = default.get("random_delay")
 			if rd is not None:
 				self.rand_spin.setValue(float(rd))
+			if hasattr(self, 'refresh_every_spin'):
+				self.refresh_every_spin.setValue(default.get("refresh_every", 100))
 		try:
 			with open(path, encoding="utf-8") as fh:
 				data = json.load(fh)
@@ -670,6 +729,9 @@ class PromptInjectorDialog(QDialog):
 		rd = data.get("random_delay")
 		if rd is not None:
 			self.rand_spin.setValue(float(rd))
+		if hasattr(self, 'refresh_every_spin'):
+			val = data.get("refresh_every", 100)
+			self.refresh_every_spin.setValue(val)
 		csvp = data.get("csv_path")
 		if csvp:
 			full = os.path.join(os.path.dirname(self.settings_path()), csvp)
@@ -692,14 +754,33 @@ class PromptInjectorDialog(QDialog):
 				prefix = self.point_enabled[i].text().split(":", 1)[0]
 				self.point_enabled[i].setText(f"{prefix}: X={x + w//2} Y={y + h//2}")
 
-	def _run_sequence(self, coords, base_delays, random_delay, paste_texts):
+	def _run_sequence(self, coords, base_delays, random_delay, paste_texts, refresh_every, refresh_enabled, refresh_delay):
 		import pyautogui
+		import random
 		pyautogui.FAILSAFE = True
 		total = len(paste_texts)
 		copied_count = 0
+		refresh_countdown = refresh_every
 		for idx, text_to_paste in enumerate(paste_texts, start=1):
+			# Refresh logic: if enabled and interval tercapai, trigger point 5
+			if refresh_enabled and refresh_every > 0 and (idx > 1) and ((idx-1) % refresh_every == 0):
+				# Pause/halt all, trigger point 5 (magenta)
+				# Move mouse ke point 5, klik, tunggu refresh_delay
+				x, y = coords[4]
+				pyautogui.moveTo(x, y)
+				pyautogui.click()
+				for t in range(int(refresh_delay), 0, -1):
+					self.countdownUpdated.emit(t, refresh_every)
+					time.sleep(1)
+				if refresh_delay > 0 and refresh_delay % 1 != 0:
+					# Untuk pecahan detik
+					time.sleep(refresh_delay - int(refresh_delay))
+				refresh_countdown = refresh_every
+			# Sequence untuk points 1-4 (skip jika tidak enabled)
 			pasted = False
-			for i in range(min(4, len(coords))):
+			for i in range(4):
+				if not self.point_enabled[i].isChecked():
+					continue
 				d = float(base_delays[i]) + random.uniform(0, float(random_delay))
 				remaining = float(d)
 				step = 0.05
@@ -707,14 +788,14 @@ class PromptInjectorDialog(QDialog):
 					if self._stop_event.is_set():
 						return
 					while self._pause_event.is_set():
-						self.countdownUpdated.emit(remaining)
+						self.countdownUpdated.emit(remaining, refresh_countdown)
 						time.sleep(0.1)
 						if self._stop_event.is_set():
 							return
-					self.countdownUpdated.emit(remaining)
+					self.countdownUpdated.emit(remaining, refresh_countdown)
 					time.sleep(min(step, remaining))
 					remaining -= step
-				self.countdownUpdated.emit(0.0)
+				self.countdownUpdated.emit(0.0, refresh_countdown)
 				x, y = coords[i]
 				pyautogui.moveTo(x, y, duration=0.2)
 				pyautogui.click()
@@ -735,12 +816,12 @@ class PromptInjectorDialog(QDialog):
 				copied_count += 1
 				self._copied_count = copied_count
 				self.csv_label.setText(f"Prompt DB: {total} records (copied: {copied_count})")
-
 				try:
 					if self.db and len(self._loaded_prompt_ids) >= idx:
 						prompt_id = self._loaded_prompt_ids[idx - 1]
 						self.db.add_prompt_status(prompt_id, status='copied')
 				except Exception:
 					pass
+			refresh_countdown -= 1
 			self.progressUpdated.emit(idx, total)
 		self.automationFinished.emit()
