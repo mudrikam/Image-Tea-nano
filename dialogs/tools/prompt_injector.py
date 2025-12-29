@@ -322,6 +322,8 @@ class PromptInjectorDialog(QDialog):
 		self.setLayout(layout)
 		self.setMinimumWidth(360)
 		QTimer.singleShot(0, self.adjustSize)
+		# Allow drag-and-drop of a CSV file onto this dialog
+		self.setAcceptDrops(True)
 
 		self.points = []
 		screen = QGuiApplication.primaryScreen().availableGeometry()
@@ -641,6 +643,37 @@ class PromptInjectorDialog(QDialog):
 		self.btn_reset.setEnabled(True)
 		self.btn_reset.setToolTip("Reset Points: Move the four markers back to their default centered positions and save them to settings.")
 		self.save_settings()
+
+	def dragEnterEvent(self, event):
+		"""Accept drag enter events that contain at least one local .csv file."""
+		md = event.mimeData()
+		if md and md.hasUrls():
+			for url in md.urls():
+				if url.isLocalFile() and os.path.splitext(url.toLocalFile())[1].lower() == ".csv":
+					event.acceptProposedAction()
+					return
+		# otherwise ignore
+		event.ignore()
+
+	def dropEvent(self, event):
+		"""Handle dropped file(s). Load the first local CSV file dropped onto the dialog."""
+		urls = event.mimeData().urls()
+		if not urls:
+			return
+		path = urls[0].toLocalFile()
+		if not path or not os.path.isfile(path) or not path.lower().endswith('.csv'):
+			QMessageBox.warning(self, "Drop Error", "Please drop a valid CSV file.")
+			return
+		texts = prompt_injector_helper.load_csv_texts(path)
+		if not texts:
+			QMessageBox.warning(self, "No Data", "CSV contains no records to process.")
+			return
+		self.loaded_paste_texts = texts
+		self.loaded_from_db = False
+		self._copied_count = 0
+		self.csv_label.setText(f"CSV: {os.path.basename(path)} ({len(texts)} records)")
+		self.save_settings()
+		event.acceptProposedAction()
 
 	def _set_clipboard(self, text: str):
 		cb = QApplication.clipboard()
