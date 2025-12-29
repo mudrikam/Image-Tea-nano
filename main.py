@@ -39,8 +39,9 @@ class ImageTeaMainWindow(QMainWindow):
         super().__init__()
         config = load_app_config()
         name = config["name"]
+        tagline = config["tagline"]
         version = config["version"]
-        self.setWindowTitle(f"{name} v{version}")
+        self.setWindowTitle(f"{name} - ({tagline}) - v{version}")
         icon_path = os.path.join(BASE_PATH, "res", "image_tea.ico")
         self.setWindowIcon(QIcon(icon_path))
         from database.db_operation import ImageTeaDB

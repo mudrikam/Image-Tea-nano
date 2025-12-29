@@ -46,13 +46,11 @@ class AboutDialog(QDialog):
                     icon_label.setPixmap(pixmap)
                 else:
                     print("Failed to read any icon from .ico file")
-                    raise RuntimeError("ICO image is null")
             except Exception as e:
                 print(f"Failed to load .ico file: {e}")
-                raise
         else:
             print(f"ICO file not found: {ico_path}")
-            raise FileNotFoundError(f"ICO file not found: {ico_path}")
+
         icon_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         content_layout.addWidget(icon_label, alignment=Qt.AlignTop)
 
@@ -61,6 +59,7 @@ class AboutDialog(QDialog):
             with open(app_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             app_name = config["name"]
+            tagline = config["tagline"]
             developer = config["developer"]
             license_ = config["license"]
             version = config["version"]
@@ -78,6 +77,11 @@ class AboutDialog(QDialog):
         name_label.setAlignment(Qt.AlignLeft)
         name_label.setStyleSheet("font-size: 18px;")
         detail_layout.addWidget(name_label)
+
+        tagline_label = QLabel(f"<b>{tagline}</b>")
+        tagline_label.setAlignment(Qt.AlignLeft)
+        tagline_label.setStyleSheet("color: #4e9e20; font-size: 18px;")
+        detail_layout.addWidget(tagline_label)
 
         version_label = QLabel(f"Version: {version}")
         version_label.setAlignment(Qt.AlignLeft)
