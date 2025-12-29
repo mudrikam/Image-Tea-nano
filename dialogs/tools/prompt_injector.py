@@ -97,6 +97,8 @@ class PromptInjectorDialog(QDialog):
 	automationFinished = Signal()
 	countdownUpdated = Signal(float, int)
 	progressUpdated = Signal(int, int)
+	# Emitted when the worker starts processing a prompt: (file_idx, total_files, file_type, file_pos_in_file, file_count)
+	currentFileUpdated = Signal(int, int, str, int, int)
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -240,11 +242,11 @@ class PromptInjectorDialog(QDialog):
 			sb.valueChanged.connect(lambda v, s=sb: self.save_settings())
 		self.rand_spin.valueChanged.connect(lambda v: self.save_settings())
 
-		self.btn_load_csv = QPushButton("Load CSV")
+		self.btn_load_csv = QPushButton("Load CSV/TXT")
 		self.btn_load_csv.clicked.connect(self.on_load_csv)
 		self.btn_load_csv.setIcon(qta.icon('fa6s.file-csv'))
 		self.btn_load_csv.setIconSize(QSize(16, 16))
-		self.btn_load_csv.setToolTip("Load a CSV file containing texts to paste (one per row).")
+		self.btn_load_csv.setToolTip("Load CSV or TXT files. TXT: each non-empty line is treated as one prompt (commas preserved).")
 		self.btn_load_prompt = QPushButton("Load Prompt")
 		self.btn_load_prompt.clicked.connect(self.on_load_prompt)
 		self.btn_load_prompt.setIcon(qta.icon('fa6s.database'))
@@ -349,11 +351,16 @@ class PromptInjectorDialog(QDialog):
 		self.loaded_from_db = False
 		self._copied_count = 0
 		self._loaded_prompt_ids = []
+		# Track loaded files (path, type, count)
+		self._loaded_files = []
 
 		self.setClipboardRequested.connect(self._set_clipboard)
 		self.automationFinished.connect(self._on_automation_finished)
 		self.progressUpdated.connect(self._on_progress_updated)
 		self.countdownUpdated.connect(self._on_countdown_updated)
+		self.currentFileUpdated.connect(self._on_current_file_updated)
+		# Lock to protect the prompt queue when loading files during a running automation
+		self._queue_lock = threading.Lock()
 
 		self._stats_timer = QTimer(self)
 		self._stats_timer.setInterval(1000)
@@ -405,14 +412,15 @@ class PromptInjectorDialog(QDialog):
 			coords.append((p.frameGeometry().center().x(), p.frameGeometry().center().y()))
 			base_delays.append(self.delay_spinboxes[idx].value())
 		random_delay = float(self.rand_spin.value())
-		paste_texts = self.loaded_paste_texts
-		if not paste_texts:
+		# Start automation using the shared prompt queue so new files can be queued while running
+		with self._queue_lock:
+			current_queue = list(self.loaded_paste_texts) if self.loaded_paste_texts else []
+		if not current_queue:
 			QMessageBox.warning(self, "No Data", "No records to process (CSV/Prompt is empty)")
 			return
-		total = len(paste_texts)
-		self.progress_bar.setMaximum(total)
+		self.progress_bar.setMaximum(len(current_queue))
 		self.progress_bar.setValue(0)
-		self.progress_bar.setFormat(f"0 / {total}")
+		self.progress_bar.setFormat(f"0 / {len(current_queue)}")
 		self._stop_event = threading.Event()
 		self._pause_event = threading.Event()
 		self._clipboard_set_event = threading.Event()
@@ -424,21 +432,23 @@ class PromptInjectorDialog(QDialog):
 		refresh_every = int(self.refresh_every_spin.value()) if hasattr(self, 'refresh_every_spin') else 100
 		refresh_enabled = self.point_enabled[4].isChecked() if len(self.point_enabled) > 4 else False
 		refresh_delay = self.delay_spinboxes[4].value() if len(self.delay_spinboxes) > 4 else 0.0
+		# Initialize dynamic counters
+		self._current_done = 0
+		with self._queue_lock:
+			self._total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
 		self._worker_thread = threading.Thread(
-			target=self._run_sequence, args=(coords, base_delays, random_delay, paste_texts, refresh_every, refresh_enabled, refresh_delay), daemon=True
+			target=self._run_sequence, args=(coords, base_delays, random_delay, refresh_every, refresh_enabled, refresh_delay), daemon=True
 		)
 		self._worker_thread.start()
 		self._run_start_time = time.time()
 		self._pause_accum = 0.0
 		self._pause_start = None
-		self._current_done = 0
-		self._total = total
 		self._refresh_countdown = refresh_every
 		self._refresh_every = refresh_every
 		self._refresh_enabled = refresh_enabled
 		self._refresh_delay = refresh_delay
 		self._stats_timer.start()
-		self._update_stats(0, total)
+		self._update_stats(0, self._total)
 
 	def _set_run_mode(self, enable: bool):
 		for p in self.points:
@@ -543,6 +553,18 @@ class PromptInjectorDialog(QDialog):
 		else:
 			self._set_delay_text("")
 
+	def _on_current_file_updated(self, file_idx: int, total_files: int, file_type: str, file_pos: int, file_count: int):
+		"""Update `csv_label` to show which file and which prompt inside that file is being processed.
+
+		Example: "Loaded 235 prompts (1/3 csv: 12/80)"
+		"""
+		total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
+		if total == 0 or total_files == 0:
+			self._update_loaded_label()
+			return
+		# Keep the existing 'Loaded X prompts' info and append file progress
+		self.csv_label.setText(f"Loaded {total} prompts ({file_idx}/{total_files} {file_type}: {file_pos}/{file_count})")
+
 	def _set_delay_text(self, text: str):
 		"""Set the delay label text and collapse the label when empty to avoid layout gaps."""
 		if not text:
@@ -603,20 +625,53 @@ class PromptInjectorDialog(QDialog):
 		self.stats_speed_lbl.setText(f"Speed: {speed:.2f}/m")
 
 	def on_load_csv(self):
-		path, _ = QFileDialog.getOpenFileName(self, "Select CSV", os.path.dirname(__file__), "CSV Files (*.csv);;All Files (*)")
-		if not path:
+		# Allow selecting multiple CSV or TXT files
+		paths, _ = QFileDialog.getOpenFileNames(self, "Select CSV/TXT files", os.path.dirname(__file__), "CSV or TXT Files (*.csv *.txt);;All Files (*)")
+		if not paths:
 			return
-		texts = prompt_injector_helper.load_csv_texts(path)
-		if not texts:
-			QMessageBox.warning(self, "No Data", "CSV contains no records to process.")
+		aggregated = []
+		successful_files = 0
+		new_files = []
+		for path in paths:
+			if not path:
+				continue
+			ok, ftype, texts = self._process_file(path)
+			if ok and texts:
+				aggregated.extend(texts)
+				new_files.append({"path": path, "type": ftype, "count": len(texts)})
+				successful_files += 1
+			elif ok and not texts:
+				QMessageBox.warning(self, "No Data", f"File {os.path.basename(path)} contains no records to process.")
+			else:
+				QMessageBox.warning(self, "Load Error", f"Could not load file: {os.path.basename(path)}")
+		if not aggregated:
 			return
-		self.loaded_paste_texts = texts
+		# Append new prompts to current list so multiple file loads accumulate
+		if getattr(self, '_worker_thread', None) and getattr(self._worker_thread, 'is_alive', lambda: False)():
+			# Automation running: append under lock and update totals so worker picks them up
+			with self._queue_lock:
+				self.loaded_paste_texts = (self.loaded_paste_texts or []) + aggregated
+				self._loaded_files.extend(new_files)
+				# update total and progress bar instantly
+				self._total = len(self.loaded_paste_texts)
+				self.progress_bar.setMaximum(self._total)
+				self.progress_bar.setFormat(f"{self._current_done} / {self._total}")
+				self._update_loaded_label()
+			# keep GUI counters consistent
+			self._update_stats(getattr(self, '_current_done', 0), self._total)
+		else:
+			self.loaded_paste_texts = (self.loaded_paste_texts or []) + aggregated
+			self._loaded_files.extend(new_files)
+			self._update_loaded_label()
 		self.loaded_from_db = False
 		self._copied_count = 0
-		self.csv_label.setText(f"CSV: {os.path.basename(path)} ({len(texts)} records)")
 		self.save_settings()
 
 	def on_load_prompt(self):
+		# Loading from DB is not queued into a running automation (single-use load)
+		if getattr(self, '_worker_thread', None) and getattr(self._worker_thread, 'is_alive', lambda: False)():
+			QMessageBox.information(self, "Load Disabled", "Loading prompts from database is disabled while automation is running.")
+			return
 		if not self.db:
 			self.db = ImageTeaDB()
 		prompts = prompt_injector_helper.load_prompts_from_db(self.db)
@@ -636,6 +691,7 @@ class PromptInjectorDialog(QDialog):
 		self.loaded_from_db = False
 		self._loaded_prompt_ids = []
 		self._copied_count = 0
+		self._loaded_files = []
 		self.csv_label.setText("CSV/Prompt: (none)")
 		self.progress_bar.setMaximum(1)
 		self.progress_bar.setValue(0)
@@ -645,35 +701,89 @@ class PromptInjectorDialog(QDialog):
 		self.save_settings()
 
 	def dragEnterEvent(self, event):
-		"""Accept drag enter events that contain at least one local .csv file."""
+		"""Accept drag enter events that contain at least one local .csv or .txt file."""
 		md = event.mimeData()
 		if md and md.hasUrls():
 			for url in md.urls():
-				if url.isLocalFile() and os.path.splitext(url.toLocalFile())[1].lower() == ".csv":
+				if url.isLocalFile() and os.path.splitext(url.toLocalFile())[1].lower() in (".csv", ".txt"):
 					event.acceptProposedAction()
 					return
 		# otherwise ignore
 		event.ignore()
 
 	def dropEvent(self, event):
-		"""Handle dropped file(s). Load the first local CSV file dropped onto the dialog."""
+		"""Handle dropped file(s). Load all local CSV/TXT files dropped onto the dialog."""
 		urls = event.mimeData().urls()
 		if not urls:
 			return
-		path = urls[0].toLocalFile()
-		if not path or not os.path.isfile(path) or not path.lower().endswith('.csv'):
-			QMessageBox.warning(self, "Drop Error", "Please drop a valid CSV file.")
+		aggregated = []
+		loaded_any = False
+		new_files = []
+		for url in urls:
+			path = url.toLocalFile()
+			if not path or not os.path.isfile(path):
+				continue
+			ext = os.path.splitext(path)[1].lower()
+			if ext not in ('.csv', '.txt'):
+				continue
+			ok, ftype, texts = self._process_file(path)
+			if ok and texts:
+				aggregated.extend(texts)
+				new_files.append({"path": path, "type": ftype, "count": len(texts)})
+				loaded_any = True
+			elif ok and not texts:
+				QMessageBox.warning(self, "No Data", f"File {os.path.basename(path)} contains no records to process.")
+			else:
+				QMessageBox.warning(self, "Load Error", f"Could not load file: {os.path.basename(path)}")
+		if not loaded_any:
+			QMessageBox.warning(self, "Drop Error", "No valid CSV or TXT files were dropped.")
 			return
-		texts = prompt_injector_helper.load_csv_texts(path)
-		if not texts:
-			QMessageBox.warning(self, "No Data", "CSV contains no records to process.")
-			return
-		self.loaded_paste_texts = texts
+		# If automation is running, append under lock and update totals so the worker will pick them up
+		if getattr(self, '_worker_thread', None) and getattr(self._worker_thread, 'is_alive', lambda: False)():
+			with self._queue_lock:
+				self.loaded_paste_texts = (self.loaded_paste_texts or []) + aggregated
+				self._loaded_files.extend(new_files)
+				self._total = len(self.loaded_paste_texts)
+				self.progress_bar.setMaximum(self._total)
+				self.progress_bar.setFormat(f"{self._current_done} / {self._total}")
+				self._update_loaded_label()
+			self._update_stats(getattr(self, '_current_done', 0), self._total)
+		else:
+			self.loaded_paste_texts = (self.loaded_paste_texts or []) + aggregated
+			self._loaded_files.extend(new_files)
+			self._update_loaded_label()
 		self.loaded_from_db = False
 		self._copied_count = 0
-		self.csv_label.setText(f"CSV: {os.path.basename(path)} ({len(texts)} records)")
 		self.save_settings()
 		event.acceptProposedAction()
+
+	def _process_file(self, path):
+		"""Load a single file (csv or txt). Returns (ok:bool, type:str, texts:list).
+		ok False means unreadable; ok True with empty texts means file had no prompts.
+		"""
+		try:
+			ext = os.path.splitext(path)[1].lower()
+			if ext == '.csv':
+				texts = prompt_injector_helper.load_csv_texts(path)
+				ftype = 'csv'
+			elif ext == '.txt':
+				texts = prompt_injector_helper.load_text_texts(path)
+				ftype = 'txt'
+			else:
+				return False, None, None
+			return True, ftype, texts
+		except Exception:
+			return False, None, None
+
+	def _update_loaded_label(self):
+		total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
+		n_files = len(self._loaded_files)
+		if n_files == 0:
+			self.csv_label.setText("CSV/Prompt: (none)")
+			return
+		last_index = n_files
+		last_type = self._loaded_files[-1].get('type', '')
+		self.csv_label.setText(f"Loaded {total} prompts ({last_index}/{n_files}) ({last_type})")
 
 	def _set_clipboard(self, text: str):
 		cb = QApplication.clipboard()
@@ -710,6 +820,11 @@ class PromptInjectorDialog(QDialog):
 		data["point_positions"] = pts
 		if hasattr(self, 'refresh_every_spin'):
 			data["refresh_every"] = int(self.refresh_every_spin.value())
+		# Persist loaded files (path, type, count)
+		try:
+			data["loaded_files"] = list(self._loaded_files)
+		except Exception:
+			data["loaded_files"] = []
 		path = self.settings_path()
 		try:
 			os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -765,14 +880,34 @@ class PromptInjectorDialog(QDialog):
 		if hasattr(self, 'refresh_every_spin'):
 			val = data.get("refresh_every", 100)
 			self.refresh_every_spin.setValue(val)
-		csvp = data.get("csv_path")
-		if csvp:
-			full = os.path.join(os.path.dirname(self.settings_path()), csvp)
-			if os.path.exists(full):
-				texts = prompt_injector_helper.load_csv_texts(full)
-				if texts:
-					self.loaded_paste_texts = texts
-					self.csv_label.setText(f"CSV: {os.path.basename(full)} ({len(texts)} records)")
+		# Load previously saved files (supports multiple files)
+		loaded_files = data.get("loaded_files") or []
+		if loaded_files:
+			aggregated = []
+			self._loaded_files = []
+			for entry in loaded_files:
+				p = entry.get("path")
+				if not p or not os.path.exists(p):
+					continue
+				ok, ftype, texts = self._process_file(p)
+				if ok and texts:
+					aggregated.extend(texts)
+					self._loaded_files.append({"path": p, "type": ftype, "count": len(texts)})
+			if aggregated:
+				self.loaded_paste_texts = aggregated
+				self.loaded_from_db = False
+				self._copied_count = 0
+				self._update_loaded_label()
+		else:
+			# Backwards compatibility with older single csv_path setting
+			csvp = data.get("csv_path")
+			if csvp:
+				full = os.path.join(os.path.dirname(self.settings_path()), csvp)
+				if os.path.exists(full):
+					texts = prompt_injector_helper.load_csv_texts(full)
+					if texts:
+						self.loaded_paste_texts = texts
+						self.csv_label.setText(f"CSV: {os.path.basename(full)} ({len(texts)} records)")
 		pts = data.get('point_positions') or data.get('points')
 		if pts:
 			for i, ppos in enumerate(pts):
@@ -787,18 +922,55 @@ class PromptInjectorDialog(QDialog):
 				prefix = self.point_enabled[i].text().split(":", 1)[0]
 				self.point_enabled[i].setText(f"{prefix}: X={x + w//2} Y={y + h//2}")
 
-	def _run_sequence(self, coords, base_delays, random_delay, paste_texts, refresh_every, refresh_enabled, refresh_delay):
+	def _run_sequence(self, coords, base_delays, random_delay, refresh_every, refresh_enabled, refresh_delay):
 		import pyautogui
 		import random
 		pyautogui.FAILSAFE = True
-		total = len(paste_texts)
 		copied_count = 0
 		refresh_countdown = refresh_every
-		for idx, text_to_paste in enumerate(paste_texts, start=1):
+		# We'll iterate over the shared queue using an index so newly queued items are processed too
+		idx = 0
+		while True:
+			with self._queue_lock:
+				total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
+				files = list(self._loaded_files)
+				cumulative = []
+				running = 0
+				for f in files:
+					running += int(f.get('count', 0))
+					cumulative.append(running)
+			# Allow a short wait at the end of the queue for files dropped immediately after finishing
+			# This gives the UI a brief grace period so very quick drops are still processed
+			if idx >= total:
+				waited = 0
+				while idx >= total and not getattr(self, '_stop_event', None) and waited < 20:
+					time.sleep(0.05)
+					waited += 1
+					with self._queue_lock:
+						total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
+				if idx >= total:
+					break
+			# If there is no item at current index, we are done
+			if idx >= total:
+				break
+			# 1-based index for UI
+			ui_idx = idx + 1
+			with self._queue_lock:
+				text_to_paste = self.loaded_paste_texts[idx]
+			# Emit current-file info (if we have file meta)
+			if files and cumulative:
+				file_idx = 0
+				for i, cum in enumerate(cumulative):
+					if ui_idx <= cum:
+						file_idx = i
+						break
+				if file_idx < len(files):
+					file_pos = ui_idx - (cumulative[file_idx-1] if file_idx > 0 else 0)
+					file_count = int(files[file_idx].get('count', 0))
+					file_type = files[file_idx].get('type', '')
+					self.currentFileUpdated.emit(file_idx + 1, len(files), file_type, file_pos, file_count)
 			# Refresh logic: if enabled and interval tercapai, trigger point 5
-			if refresh_enabled and refresh_every > 0 and (idx > 1) and ((idx-1) % refresh_every == 0):
-				# Pause/halt all, trigger point 5 (magenta)
-				# Move mouse ke point 5, klik, tunggu refresh_delay
+			if refresh_enabled and refresh_every > 0 and (ui_idx > 1) and ((ui_idx-1) % refresh_every == 0):
 				x, y = coords[4]
 				pyautogui.moveTo(x, y)
 				pyautogui.click()
@@ -840,7 +1012,11 @@ class PromptInjectorDialog(QDialog):
 					self.setClipboardRequested.emit(text_to_paste)
 					ok = self._clipboard_set_event.wait(2.0)
 					if not ok or (self._last_set_clipboard is None) or (str(self._last_set_clipboard).strip() != str(text_to_paste).strip()):
-						self.progressUpdated.emit(idx, total)
+						# Recompute total for progress emit
+						with self._queue_lock:
+							current_total = len(self.loaded_paste_texts)
+						self.progressUpdated.emit(ui_idx, current_total)
+						idx += 1
 						continue
 					time.sleep(0.25)
 					pyautogui.hotkey("ctrl", "v")
@@ -848,13 +1024,20 @@ class PromptInjectorDialog(QDialog):
 			if pasted and self.loaded_from_db:
 				copied_count += 1
 				self._copied_count = copied_count
-				self.csv_label.setText(f"Prompt DB: {total} records (copied: {copied_count})")
+				self.csv_label.setText(f"Prompt DB: {len(self.loaded_paste_texts)} records (copied: {copied_count})")
 				try:
-					if self.db and len(self._loaded_prompt_ids) >= idx:
-						prompt_id = self._loaded_prompt_ids[idx - 1]
+					if self.db and len(self._loaded_prompt_ids) >= ui_idx:
+						prompt_id = self._loaded_prompt_ids[ui_idx - 1]
 						self.db.add_prompt_status(prompt_id, status='copied')
 				except Exception:
 					pass
 			refresh_countdown -= 1
-			self.progressUpdated.emit(idx, total)
+			# Update counters and emit progress with up-to-date total
+			with self._queue_lock:
+				self._current_done = ui_idx
+				self._total = len(self.loaded_paste_texts)
+				current_total = self._total
+			self.progressUpdated.emit(ui_idx, current_total)
+			idx += 1
+		# Worker done (no more items at this moment)
 		self.automationFinished.emit()

@@ -17,3 +17,24 @@ def load_prompts_from_db(db):
 		return [(row[0], row[2]) for row in prompts if row[2]]
 	except Exception:
 		return []
+
+
+def load_text_texts(path):
+	"""Load prompts from a plain text file.
+
+	Parsing rules:
+	- Each non-empty line is treated as a single prompt.
+	- Lines are stripped of surrounding whitespace; empty lines are ignored.
+	- Commas inside a line are preserved (so prompts may contain commas).
+	"""
+	texts = []
+	try:
+		with open(path, "r", encoding="utf-8") as fh:
+			lines = fh.read().splitlines()
+			for line in lines:
+				p = line.strip()
+				if p:
+					texts.append(p)
+	except Exception:
+		return []
+	return texts
