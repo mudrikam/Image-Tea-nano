@@ -347,6 +347,30 @@ class PresetListWidget(QWidget):
         if self.current_preset:
             self.remove_preset_requested.emit(self.current_preset)
 
+    def on_duplicate_preset(self, preset_data):
+        """Duplicate a preset and its steps. New preset name will be original + '_copy'."""
+        if not preset_data:
+            QMessageBox.warning(self, "No Preset Selected", "Please select a preset to duplicate.")
+            return
+        try:
+            original = self.db.get_preset_by_id(preset_data['id'])
+            if not original:
+                QMessageBox.warning(self, 'Error', 'Original preset not found')
+                return
+            new_name = f"{original['name']}_copy"
+            new_id = self.db.add_preset(original['platform_id'], new_name, original.get('description', ''), original.get('type', ''))
+            if new_id:
+                steps = self.db.get_preset_steps(original['id'])
+                for s in steps:
+                    try:
+                        self.db.add_preset_step(new_id, s['action_id'])
+                    except Exception:
+                        pass
+                self.current_preset = {'id': new_id}
+                self.load_presets_from_db()
+                QMessageBox.information(self, 'Preset Duplicated', f"Preset duplicated as '{new_name}'")
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to duplicate preset: {e}')
     def on_preset_double_clicked(self, item):
         """Open edit dialog when a preset is double-clicked"""
         if not item:
@@ -606,7 +630,11 @@ class PresetListWidget(QWidget):
                 export_action.triggered.connect(lambda: self.on_export_preset(preset_data))
                 
                 menu.addSeparator()
-                
+
+                duplicate_action = menu.addAction("Duplicate Preset")
+                duplicate_action.setIcon(qta.icon('fa6s.clone'))
+                duplicate_action.triggered.connect(lambda: self.on_duplicate_preset(preset_data))
+
                 edit_action = menu.addAction("Edit")
                 edit_action.setIcon(qta.icon('fa6s.pen'))
                 edit_action.triggered.connect(lambda: self.edit_preset_requested.emit(preset_data))
@@ -639,6 +667,10 @@ class PresetListWidget(QWidget):
         add_action.triggered.connect(self.add_preset_requested.emit)
         
         menu.addSeparator()
+
+        duplicate_selected_action = menu.addAction("Duplicate Selected Preset")
+        duplicate_selected_action.setIcon(qta.icon('fa6s.clone'))
+        duplicate_selected_action.triggered.connect(lambda: self.on_duplicate_preset(self.current_preset) if self.current_preset else QMessageBox.warning(self, "No Preset Selected", "Please select a preset to duplicate."))
         
         export_all_action = menu.addAction("Export Presets")
         export_all_action.setIcon(qta.icon('fa6s.file-export'))
@@ -657,6 +689,10 @@ class PresetListWidget(QWidget):
         export_action.triggered.connect(lambda: self.on_export_preset(preset_data))
         
         menu.addSeparator()
+
+        duplicate_action = menu.addAction("Duplicate Preset")
+        duplicate_action.setIcon(qta.icon('fa6s.clone'))
+        duplicate_action.triggered.connect(lambda: self.on_duplicate_preset(preset_data))
         
         edit_action = menu.addAction("Edit")
         edit_action.setIcon(qta.icon('fa6s.pen'))
