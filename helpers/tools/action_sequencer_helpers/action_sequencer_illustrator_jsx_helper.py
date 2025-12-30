@@ -130,6 +130,7 @@ class IllustratorJSXGenerator:
         jsx.append("        } else if (format == 'EPS') {")
         jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.eps');")
         jsx.append("            var epsOptions = new EPSSaveOptions();")
+        jsx.append("            epsOptions.compatibility = Compatibility.ILLUSTRATOR10;")
         jsx.append("            doc.saveAs(exportFile, epsOptions);")
         jsx.append("        } else if (format == 'PDF') {")
         jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.pdf');")
