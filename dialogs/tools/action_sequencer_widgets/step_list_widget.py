@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QFont, QDrag, QPixmap, QPainter
 import qtawesome as qta
+from .select_action_dialog import SelectActionDialog
 from database.db_operation import ImageTeaDB
 
 class DraggableListWidget(QListWidget):
@@ -171,6 +172,17 @@ class StepListWidget(QWidget):
         clone_button.clicked.connect(lambda: self.on_duplicate_step(step_data))
         main_layout.addWidget(clone_button)
 
+        replace_icon = qta.icon('fa6s.arrows-rotate')
+        replace_button = QPushButton(replace_icon, "")
+        replace_button.setMaximumWidth(30)
+        replace_button.setMaximumHeight(30)
+        replace_button.setFlat(True)
+        replace_button.setStyleSheet("background: transparent; border: none;")
+        replace_button.setFocusPolicy(Qt.NoFocus)
+        replace_button.setToolTip("Replace step")
+        replace_button.clicked.connect(lambda: self.on_replace_step(step_data))
+        main_layout.addWidget(replace_button)
+
         pen_icon = qta.icon('fa6s.pen')
         pen_button = QPushButton(pen_icon, "")
         pen_button.setMaximumWidth(30)
@@ -214,6 +226,9 @@ class StepListWidget(QWidget):
         duplicate_action = menu.addAction("Duplicate Step")
         duplicate_action.setIcon(qta.icon('fa6s.clone'))
 
+        replace_action = menu.addAction("Replace Step")
+        replace_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+
         menu.addSeparator()
         
         action_id = step_data.get('action_id')
@@ -250,6 +265,7 @@ class StepListWidget(QWidget):
         move_down_action.triggered.connect(lambda: self.move_step_down(step_data))
         to_bottom_action.triggered.connect(lambda: self.move_step_to_bottom(step_data))
         duplicate_action.triggered.connect(lambda: self.on_duplicate_step(step_data))
+        replace_action.triggered.connect(lambda: self.on_replace_step(step_data))
         delete_action.triggered.connect(lambda: self.step_delete_requested.emit(step_data))
         clear_action.triggered.connect(self._clear_all_steps_of_current_preset)
 
@@ -430,14 +446,49 @@ class StepListWidget(QWidget):
         if not self.current_preset:
             QMessageBox.warning(self, "No Preset", "Please select a preset first")
             return
-        try:
+        current_order = step_data.get('order_index', 0)
+        insert_at = current_order + 1
+        self.db.add_preset_step(self.current_preset['id'], step_data.get('action_id'), insert_at=insert_at)
+        self.load_preset_steps(self.current_preset, self.current_platform_id)
+        self.action_added_to_preset.emit()
+
+    def on_replace_step(self, step_data):
+        """Replace a preset step with an action selected from SelectActionDialog."""
+        if not self.current_preset:
+            QMessageBox.warning(self, "No Preset", "Please select a preset first")
+            return
+        if not self.current_platform_id:
+            self.settings_requested.emit()
+            return
+
+        # Open SelectActionDialog to choose replacement action
+        dialog = SelectActionDialog(self.current_platform_id, parent=self)
+
+        def _on_action_chosen(action_data):
+            # Validate export placement rules
+            selected_action_type = action_data.get('type')
             current_order = step_data.get('order_index', 0)
-            insert_at = current_order + 1
-            self.db.add_preset_step(self.current_preset['id'], step_data.get('action_id'), insert_at=insert_at)
+            export_order = self._get_export_order()
+
+            # If selecting Export and another Export exists elsewhere -> not allowed
+            if selected_action_type == 'Export' and export_order is not None and export_order != current_order:
+                QMessageBox.warning(self, "Cannot Replace", "This preset already contains an Export action. Only one Export step is allowed.")
+                return
+
+            # If selecting non-export and the current position would be after an Export -> not allowed
+            if selected_action_type != 'Export' and export_order is not None and current_order > export_order:
+                QMessageBox.warning(self, "Invalid Position", "Cannot place a non-export step after an Export action.")
+                return
+
+            # Perform DB update
+            self.db.update_preset_step_action(step_data['id'], action_data.get('id'))
+            # Reload and notify
             self.load_preset_steps(self.current_preset, self.current_platform_id)
             self.action_added_to_preset.emit()
-        except Exception as e:
-            print(f"Failed to duplicate step: {e}")
+            dialog.accept()
+
+        dialog.action_selected.connect(_on_action_chosen)
+        dialog.exec()
     
     def on_rows_moved(self, parent, start, end, destination, row):
         """Handle drag-drop reordering"""
@@ -497,7 +548,6 @@ class StepListWidget(QWidget):
         return None
     
     def add_new_action_button(self):
-        from .select_action_dialog import SelectActionDialog
         
         item = QListWidgetItem()
         item.setFlags(item.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsDragEnabled)
@@ -560,7 +610,6 @@ class StepListWidget(QWidget):
             self.settings_requested.emit()
             return
         
-        from .select_action_dialog import SelectActionDialog
         dialog = SelectActionDialog(self.current_platform_id, self)
         dialog.action_selected.connect(self.on_action_selected_from_dialog)
         dialog.exec()
@@ -574,7 +623,6 @@ class StepListWidget(QWidget):
             self.settings_requested.emit()
             return
         insert_at = step_data.get('order_index', 1)
-        from .select_action_dialog import SelectActionDialog
         dialog = SelectActionDialog(self.current_platform_id, self)
         dialog.action_selected.connect(lambda action: self._insert_selected_action(action, insert_at))
         dialog.exec()
@@ -589,7 +637,6 @@ class StepListWidget(QWidget):
             return
         current_order = step_data.get('order_index', 0)
         insert_at = current_order + 1
-        from .select_action_dialog import SelectActionDialog
         dialog = SelectActionDialog(self.current_platform_id, self)
         dialog.action_selected.connect(lambda action: self._insert_selected_action(action, insert_at))
         dialog.exec()

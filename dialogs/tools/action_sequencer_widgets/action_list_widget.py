@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 import qtawesome as qta
+from dialogs.tools.add_action_dialog import AddActionDialog
 from database.db_operation import ImageTeaDB
 
 
@@ -194,7 +195,6 @@ class ActionListWidget(QWidget):
         menu.exec_(global_pos)
     
     def on_edit_action(self, action_data):
-        from dialogs.tools.add_action_dialog import AddActionDialog
         dlg = AddActionDialog(self.current_action_set['id'], action_data, parent=self)
         dlg.action_saved.connect(lambda: self.load_actions_for_action_set(self.current_action_set))
         dlg.action_saved.connect(self.action_modified.emit)
@@ -268,7 +268,6 @@ class ActionListWidget(QWidget):
         self.current_action_set = None
     
     def add_new_action_button(self):
-        from dialogs.tools.add_action_dialog import AddActionDialog
         
         item = QListWidgetItem()
         item.setFlags(item.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsDragEnabled)
@@ -326,7 +325,6 @@ class ActionListWidget(QWidget):
         if not self.current_action_set:
             return
         
-        from dialogs.tools.add_action_dialog import AddActionDialog
         dlg = AddActionDialog(self.current_action_set['id'], parent=self)
         dlg.action_saved.connect(lambda: self.load_actions_for_action_set(self.current_action_set))
         dlg.action_saved.connect(self.action_modified.emit)

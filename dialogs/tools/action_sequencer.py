@@ -6,11 +6,11 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
+import subprocess
 from dialogs.tools.action_sequencer_widgets import (ActionBarWidget, PresetListWidget, 
                                                      StepListWidget, StatusBarWidget, ActionListWidget)
 from dialogs.tools.action_settings_dialog import ActionSettingsDialog
 from dialogs.tools.add_preset_dialog import AddPresetDialog
-from dialogs.tools.add_action_set_dialog import AddActionSetDialog
 from dialogs.tools.add_action_dialog import AddActionDialog
 from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper import ActionSequencerConfig
 from helpers.tools.action_sequencer_helpers.action_sequencer_photoshop_jsx_helper import PhotoshopJSXGenerator
@@ -62,7 +62,6 @@ class BatchWorkerThread(QThread):
                 jsx_path, is_resident = jsx_result
                 
                 if not is_resident and jsx_path:
-                    import subprocess
                     process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
                 
                 print(f"Illustrator batch mode: JSX command sent for {total_files} files")
@@ -128,7 +127,6 @@ class BatchWorkerThread(QThread):
                             is_single_run_with_file=False
                         )
                         
-                        import subprocess
                         process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
                         process.wait()
                     
@@ -338,7 +336,6 @@ class ActionSequencerDialog(QDialog):
             self.on_open_settings()
             return
         
-        from dialogs.tools.add_preset_dialog import AddPresetDialog
         dlg = AddPresetDialog(self.preset_list_widget.current_platform_id, parent=self)
         dlg.preset_saved.connect(self.preset_list_widget.load_presets_from_db)
         dlg.exec()
@@ -606,7 +603,6 @@ class ActionSequencerDialog(QDialog):
                 norm_jsx = os.path.normpath(jsx_path)
                 
                 print(f"Launching Illustrator with resident script...")
-                import subprocess
                 subprocess.Popen([norm_exec, norm_jsx], shell=False)
                 print("Illustrator process started")
         else:

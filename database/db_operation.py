@@ -1025,6 +1025,13 @@ class ImageTeaDB:
             conn.commit()
             return c.lastrowid
 
+    def update_preset_step_action(self, preset_step_id, new_action_id):
+        """Update the action referenced by a preset step."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE action_sequencer_preset_steps SET preset_steps_actions_id = ? WHERE preset_steps_id = ?', (new_action_id, preset_step_id))
+            conn.commit()
+
     def update_preset_step_order(self, preset_id, step_orders):
         """Update order_index for multiple preset steps
         step_orders: list of tuples (step_id, new_order_index)
