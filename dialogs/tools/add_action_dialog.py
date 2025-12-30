@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-                               QLineEdit, QMessageBox, QColorDialog, QTextEdit, QComboBox, QSpinBox)
+                               QLineEdit, QMessageBox, QColorDialog, QTextEdit, QComboBox, QSpinBox, QSizePolicy)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QColor, QFont
 from config import BASE_PATH
@@ -38,7 +38,7 @@ class AddActionDialog(QDialog):
         else:
             self.on_type_changed(0)
         
-        self.setFixedWidth(450)
+        self.setMinimumWidth(450)
         self.resize(450, 250)
     
     def setup_ui(self):
@@ -88,6 +88,7 @@ class AddActionDialog(QDialog):
         name_layout.addWidget(name_label)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g., Resize 300 DPI, Convert Smart Object")
+        self.name_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         name_layout.addWidget(self.name_input, 1)
         layout.addLayout(name_layout)
         
@@ -110,6 +111,7 @@ class AddActionDialog(QDialog):
         self.icon_input = QLineEdit()
         self.icon_input.setPlaceholderText("e.g., expand, image")
         self.icon_input.textChanged.connect(self.update_icon_preview)
+        self.icon_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         icon_row_layout.addWidget(self.icon_input, 1)
         
         self.icon_picker_button = QPushButton(qta.icon('fa6s.magnifying-glass'), "")
@@ -139,6 +141,7 @@ class AddActionDialog(QDialog):
         self.color_input.setText(self.selected_color)
         self.color_input.setPlaceholderText("#888888")
         self.color_input.textChanged.connect(self.on_color_input_changed)
+        self.color_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         color_layout.addWidget(self.color_input, 1)
         
         self.color_picker_button = QPushButton(qta.icon('fa6s.eye-dropper'), "")
@@ -175,6 +178,7 @@ class AddActionDialog(QDialog):
         self.export_format_combo = QComboBox()
         self.export_format_combo.addItems(["PNG", "JPG", "PSD", "AI", "EPS", "PDF", "SVG", "TIFF"])
         self.export_format_combo.setEnabled(False)
+        self.export_format_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         export_format_layout.addWidget(self.export_format_combo, 1)
         layout.addLayout(export_format_layout)
         
@@ -186,9 +190,10 @@ class AddActionDialog(QDialog):
         
         self.js_editor = QTextEdit()
         self.js_editor.setPlaceholderText("// Enter JavaScript code here\n// Example: app.activeDocument.flatten();")
-        self.js_editor.setMaximumHeight(120)
+        self.js_editor.setMinimumHeight(120)
+        self.js_editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.js_editor.setVisible(False)
-        layout.addWidget(self.js_editor)
+        layout.addWidget(self.js_editor, 1)
         
         layout.addStretch()
         

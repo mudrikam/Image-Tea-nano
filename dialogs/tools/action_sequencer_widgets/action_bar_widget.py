@@ -10,6 +10,7 @@ class ActionBarWidget(QWidget):
     settings_requested = Signal()
     output_path_changed = Signal(str)
     reset_requested = Signal()
+    clear_source_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,8 +33,13 @@ class ActionBarWidget(QWidget):
         self.settings_button = QPushButton(qta.icon('fa6s.gear'), " Settings")
         self.settings_button.clicked.connect(self.on_settings_clicked)
         buttons_layout.addWidget(self.settings_button)
-        
-        self.reset_button = QPushButton(qta.icon('fa6s.rotate-left'), " Reset")
+
+        self.clear_source_button = QPushButton(qta.icon('fa6s.broom'), " Clear Source")
+        self.clear_source_button.setEnabled(False)
+        self.clear_source_button.clicked.connect(self.on_clear_source_clicked)
+        buttons_layout.addWidget(self.clear_source_button)
+
+        self.reset_button = QPushButton(qta.icon('fa6s.rotate-left'), " Clear All")
         self.reset_button.clicked.connect(self.on_reset_clicked)
         buttons_layout.addWidget(self.reset_button)
         
@@ -116,6 +122,9 @@ class ActionBarWidget(QWidget):
     def on_settings_clicked(self):
         self.settings_requested.emit()
     
+    def on_clear_source_clicked(self):
+        self.clear_source_requested.emit()
+
     def on_reset_clicked(self):
         self.set_output_path("")
         self.set_source_path("")
@@ -141,11 +150,19 @@ class ActionBarWidget(QWidget):
         """Update the Source path display"""
         self.source_path = path or ""
         self.source_path_input.setText(self.source_path)
+        try:
+            self.clear_source_button.setEnabled(bool(self.source_path or getattr(self, 'selected_file', '')))
+        except Exception:
+            pass
     
     def set_file_path(self, path):
         """Update the File path display"""
         self.selected_file = path or ""
         self.file_path_input.setText(self.selected_file)
+        try:
+            self.clear_source_button.setEnabled(bool(self.source_path_input.text() or self.selected_file))
+        except Exception:
+            pass
     
     def set_preset_type(self, preset_type):
         """Enable/disable buttons based on preset type.

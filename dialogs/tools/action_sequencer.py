@@ -265,6 +265,7 @@ class ActionSequencerDialog(QDialog):
         self.action_bar_widget.select_file_requested.connect(self.on_select_file)
         self.action_bar_widget.settings_requested.connect(self.on_open_settings)
         self.action_bar_widget.output_path_changed.connect(self.on_output_path_changed)
+        self.action_bar_widget.clear_source_requested.connect(self.on_clear_source)
         
         self.preset_list_widget.preset_selected.connect(self.on_preset_selected)
         self.preset_list_widget.add_preset_requested.connect(self.on_add_preset)
@@ -398,6 +399,10 @@ class ActionSequencerDialog(QDialog):
                 self.loaded_files.append(filepath)
         
         self.status_bar_widget.update_files_count(len(self.loaded_files), 'database')
+        try:
+            self.action_bar_widget.clear_source_button.setEnabled(len(self.loaded_files) > 0)
+        except Exception:
+            pass
         print(f"Loaded {len(self.loaded_files)} files from database")
     
     def on_select_source(self):
@@ -653,7 +658,7 @@ class ActionSequencerDialog(QDialog):
         self.config.set('output_path', path)
     
     def on_reset_tool(self):
-        print("Reset tool requested")
+        print("Clear All requested")
         
         if self.batch_worker and self.batch_worker.isRunning():
             self.batch_worker.stop()
@@ -670,16 +675,29 @@ class ActionSequencerDialog(QDialog):
         self.status_bar_widget.set_run_button_enabled(True)
         self.status_bar_widget.update_files_count(0, '')
         
-        # clear displayed source / file paths in ActionBar
         try:
             self.action_bar_widget.set_source_path("")
             self.action_bar_widget.set_file_path("")
         except Exception:
             pass
-        # keep load buttons disabled until a preset is selected (behavior: load/db/select source only for batch presets)
         self.action_bar_widget.disable_all_load_buttons()
         
-        print("Tool reset to initial state")
+        print("Tool cleared to initial state")
+
+    def on_clear_source(self):
+        """Clear only the source and selected file (do not clear output or other settings)."""
+        print("Clear Source requested")
+        self.loaded_files = []
+        try:
+            self.action_bar_widget.set_source_path("")
+            self.action_bar_widget.set_file_path("")
+        except Exception:
+            pass
+        try:
+            self.status_bar_widget.update_files_count(0, '')
+        except Exception:
+            pass
+        print("Source cleared")
 
     def closeEvent(self, event):
         """Ensure generated JSX files are cleaned up when dialog closes."""
