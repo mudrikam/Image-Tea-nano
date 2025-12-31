@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 import os
+import json
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
 from helpers.tools.action_sequencer_helpers.action_sequencer_import_export_helper import ActionSequencerImportExport
@@ -158,7 +159,7 @@ class PresetListWidget(QWidget):
         self.setLayout(layout)
     
     def on_tab_changed(self, index):
-        if index == 0:  # Presets tab
+        if index == 0:
             if self.last_selected_preset_id:
                 for i in range(self.preset_list.count()):
                     item = self.preset_list.item(i)
@@ -706,7 +707,8 @@ class PresetListWidget(QWidget):
     def on_export_preset(self, preset_data):
         """Export single preset to JSON"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Image_Tea_Action_Sequencer_{preset_data['name']}_{timestamp}.json"
+        safe_name = preset_data['name'].replace(' ', '_')
+        filename = f"Image_Tea_Action_Sequencer_Preset_{safe_name}_{timestamp}.json"
         home_dir = os.path.expanduser('~')
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -762,12 +764,28 @@ class PresetListWidget(QWidget):
         )
         
         if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception as e:
+                QMessageBox.warning(self, "Import Failed", f"Failed to read JSON: {e}")
+                return
+
+            if 'file_type' not in data:
+                QMessageBox.warning(self, "Invalid File", "Missing 'file_type' field. This file is not a valid Action Sequencer export.")
+                return
+
+            if data.get('file_type') != 'preset':
+                shown_type = data.get('file_type', 'unknown').replace('_', ' ').title()
+                QMessageBox.warning(self, "Wrong File Type", f"This file is of type '{shown_type}'. Please import using the Action Sets tab.")
+                return
+
             success, message, count = self.import_export_helper.import_presets(file_path)
             if success:
                 QMessageBox.information(self, "Import Successful", message)
                 self.load_presets_from_db()
             else:
-                QMessageBox.warning(self, "Import Failed", message)
+                QMessageBox.warning(self, "Import Failed", message) 
     
     def on_action_set_context_menu(self, pos):
         """Show context menu for action set list"""
@@ -848,7 +866,8 @@ class PresetListWidget(QWidget):
     def on_export_action_set(self, action_set_data):
         """Export single action set to JSON"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Image_Tea_Action_Sequencer_{action_set_data['name']}_{timestamp}.json"
+        safe_name = action_set_data['name'].replace(' ', '_')
+        filename = f"Image_Tea_Action_Sequencer_Action_Set_{safe_name}_{timestamp}.json"
         home_dir = os.path.expanduser('~')
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -904,6 +923,22 @@ class PresetListWidget(QWidget):
         )
         
         if file_path:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception as e:
+                QMessageBox.warning(self, "Import Failed", f"Failed to read JSON: {e}")
+                return
+
+            if 'file_type' not in data:
+                QMessageBox.warning(self, "Invalid File", "Missing 'file_type' field. This file is not a valid Action Sequencer export.")
+                return
+
+            if data.get('file_type') != 'action_set':
+                shown_type = data.get('file_type', 'unknown').replace('_', ' ').title()
+                QMessageBox.warning(self, "Wrong File Type", f"This file is of type '{shown_type}'. Please import using the Presets tab.")
+                return
+
             success, message, count = self.import_export_helper.import_action_sets(file_path)
             if success:
                 QMessageBox.information(self, "Import Successful", message)

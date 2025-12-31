@@ -5,7 +5,7 @@ from database.db_operation import ImageTeaDB
 
 
 class ActionSequencerImportExport:
-    IDENTIFIER = "IMAGE_TEA_ACTION_SEQUENCER_PRESET_V1"
+    IDENTIFIER = "IMAGE_TEA_ACTION_SEQUENCER"
     
     def __init__(self):
         self.db = ImageTeaDB()
@@ -27,6 +27,7 @@ class ActionSequencerImportExport:
             
             export_data = {
                 "identifier": self.IDENTIFIER,
+                "file_type": "preset",
                 "export_date": datetime.now().isoformat(),
                 "version": "1.0",
                 "presets": [preset_data]
@@ -62,6 +63,7 @@ class ActionSequencerImportExport:
             
             export_data = {
                 "identifier": self.IDENTIFIER,
+                "file_type": "preset",
                 "export_date": datetime.now().isoformat(),
                 "version": "1.0",
                 "presets": presets_data
@@ -153,6 +155,7 @@ class ActionSequencerImportExport:
             
             export_data = {
                 "identifier": self.IDENTIFIER,
+                "file_type": "action_set",
                 "export_date": datetime.now().isoformat(),
                 "version": "1.0",
                 "action_sets": [action_set_data]
@@ -188,6 +191,7 @@ class ActionSequencerImportExport:
             
             export_data = {
                 "identifier": self.IDENTIFIER,
+                "file_type": "action_set",
                 "export_date": datetime.now().isoformat(),
                 "version": "1.0",
                 "action_sets": action_sets_data
@@ -260,6 +264,14 @@ class ActionSequencerImportExport:
             
             if data.get('identifier') != self.IDENTIFIER:
                 return False, "Invalid JSON file. This file is not from Image Tea Action Sequencer.", 0
+
+            file_type = data.get('file_type')
+            if not file_type:
+                return False, "Missing 'file_type' in JSON. Use a valid Action Sequencer export.", 0
+
+            if file_type != 'action_set':
+                shown_type = (file_type or 'unknown').replace('_', ' ').title()
+                return False, f"This file contains '{shown_type}' data. Please import it from the Action Sets tab.", 0
             
             action_sets = data.get('action_sets', [])
             if not action_sets:
@@ -346,6 +358,14 @@ class ActionSequencerImportExport:
             
             if data.get('identifier') != self.IDENTIFIER:
                 return False, "Invalid JSON file. This file is not from Image Tea Action Sequencer.", 0
+
+            file_type = data.get('file_type')
+            if not file_type:
+                return False, "Missing 'file_type' in JSON. Use a valid Action Sequencer export.", 0
+
+            if file_type != 'preset':
+                shown_type = (file_type or 'unknown').replace('_', ' ').title()
+                return False, f"This file contains '{shown_type}' data. Please import it from the Presets tab.", 0
             
             presets = data.get('presets', [])
             if not presets:
