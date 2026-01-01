@@ -146,8 +146,9 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
+                        export_setting = action_detail.get('export_setting', 100)
                         jsx.append(f"    // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "    "))
+                        jsx.append(self._generate_export_code(export_format, "    ", export_setting))
                         jsx.append("")
             # If a source file was opened for single-run, close it after processing
             jsx.append("    if (sourceFiles.length > 0) {")
@@ -189,8 +190,9 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
+                        export_setting = action_detail.get('export_setting', 100)
                         jsx.append(f"        // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "        "))
+                        jsx.append(self._generate_export_code(export_format, "        ", export_setting))
                         jsx.append("")
             # close the active document context
             jsx.append("    }")
@@ -201,7 +203,7 @@ class PhotoshopJSXGenerator:
         
         return "\n".join(jsx)
     
-    def _generate_export_code(self, export_format, indent):
+    def _generate_export_code(self, export_format, indent, export_setting=100):
         """Generate export code for Photoshop"""
         code_lines = []
         
@@ -213,8 +215,13 @@ class PhotoshopJSXGenerator:
             code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
             code_lines.append(f"{indent}doc.exportDocument(saveFile, ExportType.SAVEFORWEB, pngOptions);")
         elif export_format == 'JPG' or export_format == 'JPEG':
+            quality = int((export_setting / 100) * 12)
+            if quality < 1:
+                quality = 1
+            elif quality > 12:
+                quality = 12
             code_lines.append(f"{indent}var jpgOptions = new JPEGSaveOptions();")
-            code_lines.append(f"{indent}jpgOptions.quality = 12;")
+            code_lines.append(f"{indent}jpgOptions.quality = {quality};")
             code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.jpg';")
             code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
             code_lines.append(f"{indent}doc.saveAs(saveFile, jpgOptions, true);")
@@ -229,6 +236,21 @@ class PhotoshopJSXGenerator:
             code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.pdf';")
             code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
             code_lines.append(f"{indent}doc.saveAs(saveFile, pdfOptions, true);")
+        elif export_format == 'EPS':
+            eps_compatibility_map = {
+                0: 'Compatibility.PHOTOSHOP50',
+                1: 'Compatibility.PHOTOSHOP60',
+                2: 'Compatibility.PHOTOSHOP70',
+                3: 'Compatibility.PHOTOSHOP80'
+            }
+            compatibility = eps_compatibility_map.get(export_setting, 'Compatibility.PHOTOSHOP50')
+            code_lines.append(f"{indent}var epsOptions = new EPSSaveOptions();")
+            code_lines.append(f"{indent}epsOptions.encoding = SaveEncoding.BINARY;")
+            code_lines.append(f"{indent}epsOptions.embedColorProfile = true;")
+            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.eps';")
+            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
+            code_lines.append(f"{indent}doc.saveAs(saveFile, epsOptions, true);")
+            code_lines.append(f"{indent}doc.saveAs(saveFile, epsOptions, true);")
         elif export_format == 'TIFF':
             code_lines.append(f"{indent}var tiffOptions = new TiffSaveOptions();")
             code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.tif';")

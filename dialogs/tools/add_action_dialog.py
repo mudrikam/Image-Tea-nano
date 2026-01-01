@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-                               QLineEdit, QMessageBox, QColorDialog, QTextEdit, QComboBox, QSpinBox, QSizePolicy)
+                               QLineEdit, QMessageBox, QColorDialog, QTextEdit, QComboBox, QSpinBox, QSizePolicy, QSlider, QWidget)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QColor, QFont
 from config import BASE_PATH
@@ -179,8 +179,64 @@ class AddActionDialog(QDialog):
         self.export_format_combo.addItems(["PNG", "JPG", "PSD", "AI", "EPS", "PDF", "SVG", "TIFF"])
         self.export_format_combo.setEnabled(False)
         self.export_format_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.export_format_combo.currentTextChanged.connect(self.on_export_format_changed)
         export_format_layout.addWidget(self.export_format_combo, 1)
         layout.addLayout(export_format_layout)
+        
+        self.compression_layout = QHBoxLayout()
+        self.compression_layout.setSpacing(6)
+        self.compression_icon_label = QLabel()
+        self.compression_icon_label.setPixmap(qta.icon('fa6s.gauge', color='#888').pixmap(16, 16))
+        self.compression_layout.addWidget(self.compression_icon_label)
+        self.compression_label = QLabel("Quality:")
+        self.compression_label.setMinimumWidth(70)
+        self.compression_layout.addWidget(self.compression_label)
+        self.compression_slider = QSlider(Qt.Horizontal)
+        self.compression_slider.setRange(1, 100)
+        self.compression_slider.setValue(100)
+        self.compression_slider.setTickPosition(QSlider.TicksBelow)
+        self.compression_slider.setTickInterval(10)
+        self.compression_slider.valueChanged.connect(self.on_compression_changed)
+        self.compression_layout.addWidget(self.compression_slider, 1)
+        self.compression_value_label = QLabel("100%")
+        self.compression_value_label.setMinimumWidth(40)
+        self.compression_layout.addWidget(self.compression_value_label)
+        layout.addLayout(self.compression_layout)
+        self.compression_layout_widgets = [self.compression_icon_label, self.compression_label, self.compression_slider, self.compression_value_label]
+        for widget in self.compression_layout_widgets:
+            widget.setVisible(False)
+        
+        self.eps_version_layout = QHBoxLayout()
+        self.eps_version_layout.setSpacing(6)
+        self.eps_icon_label = QLabel()
+        self.eps_icon_label.setPixmap(qta.icon('fa6s.file-code', color='#888').pixmap(16, 16))
+        self.eps_version_layout.addWidget(self.eps_icon_label)
+        self.eps_label = QLabel("Version:")
+        self.eps_label.setMinimumWidth(70)
+        self.eps_version_layout.addWidget(self.eps_label)
+        self.eps_version_combo = QComboBox()
+        self.eps_version_combo.addItems([
+            "Illustrator 2020 EPS",
+            "Illustrator CC EPS",
+            "Illustrator CS6 EPS",
+            "Illustrator CS5 EPS",
+            "Illustrator CS4 EPS",
+            "Illustrator CS3 EPS",
+            "Illustrator CS2 EPS",
+            "Illustrator CS EPS",
+            "Illustrator 10 EPS",
+            "Illustrator 9 EPS",
+            "Illustrator 8 EPS",
+            "Illustrator 3 EPS",
+            "Japanese Illustrator 3 EPS"
+        ])
+        self.eps_version_combo.setCurrentIndex(8)
+        self.eps_version_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.eps_version_layout.addWidget(self.eps_version_combo, 1)
+        layout.addLayout(self.eps_version_layout)
+        self.eps_version_layout_widgets = [self.eps_icon_label, self.eps_label, self.eps_version_combo]
+        for widget in self.eps_version_layout_widgets:
+            widget.setVisible(False)
         
         self.js_toggle_button = QPushButton(qta.icon('fa6s.code'), " JavaScript (Advanced)")
         self.js_toggle_button.setCheckable(True)
@@ -214,6 +270,25 @@ class AddActionDialog(QDialog):
         
         self.setLayout(layout)
     
+    def on_compression_changed(self, value):
+        self.compression_value_label.setText(f"{value}%")
+    
+    def on_export_format_changed(self, format_name):
+        is_jpg = format_name == "JPG"
+        is_eps = format_name == "EPS"
+        
+        for widget in self.compression_layout_widgets:
+            widget.setVisible(is_jpg)
+        
+        for widget in self.eps_version_layout_widgets:
+            widget.setVisible(is_eps)
+        
+        self.compression_layout.setContentsMargins(0, 6 if is_jpg else 0, 0, 6 if is_jpg else 0)
+        self.eps_version_layout.setContentsMargins(0, 6 if is_eps else 0, 0, 6 if is_eps else 0)
+        
+        self.adjustSize()
+        self.resize(self.minimumSizeHint())
+    
     def on_type_changed(self, index):
         action_type = self.type_combo.currentText()
 
@@ -244,6 +319,22 @@ class AddActionDialog(QDialog):
             self.update_icon_preview()
 
             self.export_format_combo.setEnabled(True)
+            current_format = self.export_format_combo.currentText()
+            
+            is_jpg = current_format == "JPG"
+            is_eps = current_format == "EPS"
+            
+            for widget in self.compression_layout_widgets:
+                widget.setVisible(is_jpg)
+            
+            for widget in self.eps_version_layout_widgets:
+                widget.setVisible(is_eps)
+            
+            self.compression_layout.setContentsMargins(0, 6 if is_jpg else 0, 0, 6 if is_jpg else 0)
+            self.eps_version_layout.setContentsMargins(0, 6 if is_eps else 0, 0, 6 if is_eps else 0)
+            
+            self.adjustSize()
+            self.resize(self.minimumSizeHint())
         elif action_type == "Delay":
             # Delay: fixed icon 'clock' and blue color, allow delay input
             self.icon_input.setText("clock")
@@ -258,6 +349,14 @@ class AddActionDialog(QDialog):
             self.update_icon_preview()
 
             self.delay_input.setEnabled(True)
+            
+            for widget in self.compression_layout_widgets:
+                widget.setVisible(False)
+            
+            for widget in self.eps_version_layout_widgets:
+                widget.setVisible(False)
+            
+            self.adjustSize()
         elif action_type == "Script":
             # Script: fixed icon 'code' and red color (same as export), enable JS editor
             self.icon_input.setText("code")
@@ -276,9 +375,30 @@ class AddActionDialog(QDialog):
             self.js_toggle_button.setChecked(True)
             self.js_editor.setVisible(True)
             self.js_editor.setEnabled(True)
+            
+            for widget in self.compression_layout_widgets:
+                widget.setVisible(False)
+            
+            for widget in self.eps_version_layout_widgets:
+                widget.setVisible(False)
+            
+            self.compression_layout.setContentsMargins(0, 0, 0, 0)
+            self.eps_version_layout.setContentsMargins(0, 0, 0, 0)
+            
+            self.adjustSize()
         else:
             # Action: default editable
-            pass
+            for widget in self.compression_layout_widgets:
+                widget.setVisible(False)
+            
+            for widget in self.eps_version_layout_widgets:
+                widget.setVisible(False)
+            
+            self.compression_layout.setContentsMargins(0, 0, 0, 0)
+            self.eps_version_layout.setContentsMargins(0, 0, 0, 0)
+            
+            self.adjustSize()
+            self.resize(self.minimumSizeHint())
     
     def toggle_js_editor(self):
         # JS editor controlled by action type now
@@ -301,6 +421,14 @@ class AddActionDialog(QDialog):
         export_format = self.action_data.get('export_format', 'PNG')
         if export_format:
             self.export_format_combo.setCurrentText(export_format)
+        
+        export_setting = self.action_data.get('export_setting', 100)
+        if export_format == 'JPG':
+            self.compression_slider.setValue(export_setting)
+            self.compression_value_label.setText(f"{export_setting}%")
+        elif export_format == 'EPS':
+            if 0 <= export_setting < self.eps_version_combo.count():
+                self.eps_version_combo.setCurrentIndex(export_setting)
         
         js_code = self.action_data.get('javascript_code', '')
         if js_code:
@@ -371,6 +499,12 @@ class AddActionDialog(QDialog):
         delay = self.delay_input.value()
         js_code = self.js_editor.toPlainText().strip()
         export_format = self.export_format_combo.currentText() if action_type == "Export" else None
+        export_setting = 100
+        if action_type == "Export":
+            if export_format == "JPG":
+                export_setting = self.compression_slider.value()
+            elif export_format == "EPS":
+                export_setting = self.eps_version_combo.currentIndex()
         
         if not name:
             QMessageBox.warning(self, "Validation Error", "Action name is required")
@@ -386,9 +520,9 @@ class AddActionDialog(QDialog):
         
         try:
             if self.action_data:
-                self.db.update_action(self.action_data['id'], name, icon, color, action_type, delay, js_code, export_format)
+                self.db.update_action(self.action_data['id'], name, icon, color, action_type, delay, js_code, export_format, export_setting)
             else:
-                self.db.add_action(self.action_set_id, name, icon, color, action_type, delay, js_code, export_format)
+                self.db.add_action(self.action_set_id, name, icon, color, action_type, delay, js_code, export_format, export_setting)
             
             self.action_saved.emit()
             self.accept()

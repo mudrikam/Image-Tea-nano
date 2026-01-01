@@ -821,7 +821,7 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('''
                 SELECT actions_id, actions_name, actions_icon, actions_color, actions_order_index,
-                       actions_type, actions_delay, actions_javascript_code, actions_export_format
+                       actions_type, actions_delay, actions_javascript_code, actions_export_format, actions_export_setting
                 FROM action_sequencer_actions 
                 WHERE actions_action_sets_id = ? 
                 ORDER BY actions_order_index
@@ -835,10 +835,11 @@ class ImageTeaDB:
                 'type': row[5],
                 'delay': row[6],
                 'javascript_code': row[7],
-                'export_format': row[8]
+                'export_format': row[8],
+                'export_setting': row[9]
             } for row in c.fetchall()]
 
-    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, order_index=None):
+    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100, order_index=None):
         """Add a new action to an action set"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -849,19 +850,19 @@ class ImageTeaDB:
                 order_index = (max_order or 0) + 1
             
             c.execute(
-                'INSERT INTO action_sequencer_actions (actions_action_sets_id, actions_name, actions_icon, actions_color, actions_type, actions_delay, actions_javascript_code, actions_export_format, actions_order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (action_set_id, name, icon, color, action_type, delay, javascript_code, export_format, order_index)
+                'INSERT INTO action_sequencer_actions (actions_action_sets_id, actions_name, actions_icon, actions_color, actions_type, actions_delay, actions_javascript_code, actions_export_format, actions_export_setting, actions_order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (action_set_id, name, icon, color, action_type, delay, javascript_code, export_format, export_setting, order_index)
             )
             conn.commit()
             return c.lastrowid
 
-    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None):
+    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100):
         """Update an existing action"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute(
-                'UPDATE action_sequencer_actions SET actions_name = ?, actions_icon = ?, actions_color = ?, actions_type = ?, actions_delay = ?, actions_javascript_code = ?, actions_export_format = ? WHERE actions_id = ?',
-                (name, icon, color, action_type, delay, javascript_code, export_format, action_id)
+                'UPDATE action_sequencer_actions SET actions_name = ?, actions_icon = ?, actions_color = ?, actions_type = ?, actions_delay = ?, actions_javascript_code = ?, actions_export_format = ?, actions_export_setting = ? WHERE actions_id = ?',
+                (name, icon, color, action_type, delay, javascript_code, export_format, export_setting, action_id)
             )
             conn.commit()
 
@@ -879,7 +880,7 @@ class ImageTeaDB:
             c.execute('''
                 SELECT actions_id, actions_action_sets_id, actions_name, actions_icon, 
                        actions_color, actions_order_index, actions_javascript_code,
-                       actions_type, actions_delay, actions_export_format
+                       actions_type, actions_delay, actions_export_format, actions_export_setting
                 FROM action_sequencer_actions
                 WHERE actions_id = ?
             ''', (action_id,))
@@ -895,7 +896,8 @@ class ImageTeaDB:
                     'javascript_code': row[6],
                     'type': row[7],
                     'delay': row[8],
-                    'export_format': row[9]
+                    'export_format': row[9],
+                    'export_setting': row[10]
                 }
             return None
 
