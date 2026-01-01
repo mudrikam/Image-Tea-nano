@@ -6,7 +6,7 @@
 
 [![Windows](https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white&style=for-the-badge)](#) [![Linux](https://custom-icon-badges.demolab.com/badge/Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](#) [![macOS](https://img.shields.io/badge/macOS-dedede?logo=apple&logoColor=666666&style=for-the-badge)](#)
 
-Recomended API provider:
+Recomended API provider to use on Image-Tea:
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-94A3B8?logo=openrouter&logoColor=fff&style=for-the-badge)](#) [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-886FBF?logo=googlegemini&logoColor=fff&style=for-the-badge)](#) [![OpenAI](https://custom-icon-badges.demolab.com/badge/OpenAi-10a37f?logo=openai&logoColor=white&style=for-the-badge)](#)
 
 ## I'm sick of paying for something this basic. Every time I need a simple metadata generator, I hit a paywall. I'm done with it.
