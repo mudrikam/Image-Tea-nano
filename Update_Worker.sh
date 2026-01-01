@@ -173,21 +173,16 @@ echo "================================"
 echo "Update finished."
 echo "================================"
 echo ""
-read -p "Launch the application now? (Y/N): " -n 1 -r
-echo
+echo "Relaunching Image-Tea..."
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo ""
-    echo "Launching Image-Tea..."
-    if [ -f "$LAUNCHER_PATH" ]; then
-        chmod +x "$LAUNCHER_PATH"
-        exec "$LAUNCHER_PATH"
-    else
-        echo "Launcher not found at: $LAUNCHER_PATH"
-    fi
+if [ -f "$LAUNCHER_PATH" ]; then
+    chmod +x "$LAUNCHER_PATH"
+    # Self-delete before relaunching
+    rm -f "$0"
+    exec "$LAUNCHER_PATH"
 else
-    echo "Update finished. You can run the application later from Launcher.sh"
+    echo "Launcher not found at: $LAUNCHER_PATH"
+    # Self-delete
+    rm -f "$0"
+    exit 1
 fi
-
-# Self-delete
-rm -f "$0"
