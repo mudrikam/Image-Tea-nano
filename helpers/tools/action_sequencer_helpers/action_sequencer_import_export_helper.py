@@ -122,6 +122,7 @@ class ActionSequencerImportExport:
                         'delay': action.get('delay', 0),
                         'javascript_code': action.get('javascript_code', ''),
                         'export_format': action.get('export_format', ''),
+                        'export_setting': action.get('export_setting', 100),
                         'order_in_preset': step['order_index']
                     })
             
@@ -235,6 +236,7 @@ class ActionSequencerImportExport:
                     'delay': action.get('delay', 0),
                     'javascript_code': action.get('javascript_code', ''),
                     'export_format': action.get('export_format', ''),
+                    'export_setting': action.get('export_setting', 100),
                     'order_index': action.get('order_index', 0)
                 })
             
@@ -335,7 +337,8 @@ class ActionSequencerImportExport:
                     action_data.get('type', 'Action'),
                     action_data.get('delay', 0),
                     action_data.get('javascript_code', ''),
-                    action_data.get('export_format', None)
+                    action_data.get('export_format', None),
+                    action_data.get('export_setting', 100)
                 )
             
             return True
@@ -444,7 +447,8 @@ class ActionSequencerImportExport:
                     action_data.get('type', 'Action'),
                     action_data.get('delay', 0),
                     action_data.get('javascript_code', ''),
-                    action_data.get('export_format', None)
+                    action_data.get('export_format', None),
+                    action_data.get('export_setting', 100)
                 )
                 
                 if action:
@@ -505,7 +509,7 @@ class ActionSequencerImportExport:
         action_set_id = self.db.add_action_set(platform_id, action_set_name, '')
         return self.db.get_action_set_by_id(action_set_id)
     
-    def _get_or_create_action(self, action_set_id, name, icon, color, action_type, delay, javascript_code, export_format):
+    def _get_or_create_action(self, action_set_id, name, icon, color, action_type, delay, javascript_code, export_format, export_setting=100):
         """Get existing action or create if not exists
         
         Args:
@@ -517,6 +521,7 @@ class ActionSequencerImportExport:
             delay: Delay ms
             javascript_code: JS code
             export_format: Export format
+            export_setting: Export setting (compression or version)
         
         Returns:
             dict: Action data
@@ -534,7 +539,8 @@ class ActionSequencerImportExport:
             action_type,
             delay,
             javascript_code,
-            export_format
+            export_format,
+            export_setting
         )
         return self.db.get_action_by_id(action_id)
     

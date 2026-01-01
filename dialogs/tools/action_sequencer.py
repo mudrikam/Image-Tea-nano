@@ -41,13 +41,16 @@ class BatchWorkerThread(QThread):
             total_files = len(self.files)
             watcher = ActionSequencerFileWatcher(self.output_path, self.config_data)
             
+            # Get all export steps in order
             preset_steps = self.db.get_preset_steps(self.preset_id)
-            export_format = None
+            export_steps = []
             for step in preset_steps:
                 action_detail = self.db.get_action_by_id(step['action_id'])
                 if action_detail and action_detail.get('type') == 'Export':
-                    export_format = action_detail.get('export_format', 'PNG')
-                    break
+                    export_steps.append({
+                        'format': action_detail.get('export_format', 'PNG'),
+                        'order': step['order_index']
+                    })
             
             if self.platform_name == 'Illustrator':
                 generator = IllustratorJSXGenerator(self.platform_exec)
@@ -65,6 +68,7 @@ class BatchWorkerThread(QThread):
                     process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
                 
                 print(f"Illustrator batch mode: JSX command sent for {total_files} files")
+                print(f"Expecting {len(export_steps)} export(s) per file: {[e['format'] for e in export_steps]}")
                 print("Watching output folder for completion...")
                 
                 for idx, file_path in enumerate(self.files):
@@ -74,41 +78,36 @@ class BatchWorkerThread(QThread):
                     self.status_updated.emit(f"Waiting for output {idx + 1} / {total_files}")
                     
                     if self.config_data.get('enable_file_watcher', True):
-                        expected_variants = watcher.build_expected_variants(os.path.basename(file_path), export_format)
-                        watcher._log(f"Illustrator expected filename variants: {expected_variants}")
+                        # Build expected filenames for all exports
+                        expected_files = []
+                        for export_step in export_steps:
+                            expected_variants = watcher.build_expected_variants(
+                                os.path.basename(file_path), 
+                                export_step['format']
+                            )
+                            expected_files.append(expected_variants[0])  # Use first variant as primary
                         
-                        max_wait = 60
-                        start_wait = time.time()
-                        output_file = None
+                        watcher._log(f"Illustrator waiting for {len(expected_files)} files: {expected_files}")
                         
-                        while time.time() - start_wait < max_wait:
-                            if self.should_stop:
-                                watcher._log("Stopped while waiting for Illustrator output")
-                                break
-
-                            current_files = set(watcher._get_all_files())
-                            
-                            for cf in current_files:
-                                if Path(cf).name in expected_variants:
-                                    if watcher._is_file_stable(cf, stable_duration=0.2):
-                                        output_file = cf
-                                        break
-                            
-                            if output_file:
-                                break
-                            
-                            watcher._log(f"Illustrator wait loop - waiting for variants: {expected_variants}; found {len(current_files)} files")
-                            time.sleep(watcher.poll_interval)
+                        # Use watch_for_multiple_files to wait for all exports
+                        output_files = watcher.watch_for_multiple_files(
+                            expected_files,
+                            existing_files=None,
+                            stop_check=lambda: self.should_stop
+                        )
                         
-                        if output_file:
-                            print(f"Output detected: {output_file}")
-                            watcher._log(f"Output detected (Illustrator loop): {output_file}")
+                        if len(output_files) == len(expected_files):
+                            print(f"All {len(output_files)} outputs detected for {Path(file_path).name}")
+                            watcher._log(f"All outputs detected: {output_files}")
                             self.processed_count += 1
                         else:
-                            print(f"Output not detected: {expected_variants}")
-                            watcher._log(f"Output not detected (Illustrator loop): expected={expected_variants}")
+                            print(f"Only {len(output_files)}/{len(expected_files)} outputs detected for {Path(file_path).name}")
+                            watcher._log(f"Incomplete outputs: got {len(output_files)}, expected {len(expected_files)}")
+                    
+                    self.progress_updated.emit(self.processed_count)
                 
             else:
+                # Photoshop batch processing
                 for idx, file_path in enumerate(self.files):
                     if self.should_stop:
                         break
@@ -131,16 +130,29 @@ class BatchWorkerThread(QThread):
                         process.wait()
                     
                     if self.config_data.get('enable_file_watcher', True):
-                        expected_variants = watcher.build_expected_variants(os.path.basename(file_path), export_format)
-                        output_file = watcher.watch_for_file(expected_variants, existing_files, stop_check=lambda: self.should_stop)
-
-                        if output_file:
-                            print(f"Output file detected: {output_file}")
-                            watcher._log(f"Output file detected: {output_file}")
+                        # Build expected filenames for all exports
+                        expected_files = []
+                        for export_step in export_steps:
+                            expected_variants = watcher.build_expected_variants(
+                                os.path.basename(file_path), 
+                                export_step['format']
+                            )
+                            expected_files.append(expected_variants[0])  # Use first variant as primary
+                        
+                        # Use watch_for_multiple_files for all cases (single or multiple exports)
+                        output_files = watcher.watch_for_multiple_files(
+                            expected_files,
+                            existing_files,
+                            stop_check=lambda: self.should_stop
+                        )
+                        
+                        if len(output_files) == len(expected_files):
+                            print(f"All {len(output_files)} output(s) detected for {Path(file_path).name}")
+                            watcher._log(f"All outputs detected: {output_files}")
                             self.processed_count += 1
                         else:
-                            print(f"Output file not detected within timeout or stopped")
-                            watcher._log(f"Output file not detected within timeout or stopped: expected={expected_variants}")
+                            print(f"Only {len(output_files)}/{len(expected_files)} output(s) detected")
+                            watcher._log(f"Incomplete outputs: got {len(output_files)}, expected {len(expected_files)}")
                     
                     self.progress_updated.emit(self.processed_count)
                     time.sleep(0.5)
@@ -697,6 +709,16 @@ class ActionSequencerDialog(QDialog):
 
     def closeEvent(self, event):
         """Ensure generated JSX files are cleaned up when dialog closes."""
+        # Stop any running worker thread
+        if hasattr(self, 'worker_thread') and self.worker_thread and self.worker_thread.isRunning():
+            print("Stopping worker thread...")
+            self.worker_thread.should_stop = True
+            self.worker_thread.wait(3000)  # Wait up to 3 seconds
+            if self.worker_thread.isRunning():
+                print("Worker thread still running after timeout")
+            else:
+                print("Worker thread stopped")
+        
         try:
             jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
             jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')

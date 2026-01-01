@@ -17,6 +17,23 @@ class IllustratorJSXGenerator:
         self.heartbeat_file = os.path.join(self.temp_dir, 'heartbeat.txt')
         self.command_file = os.path.join(self.temp_dir, 'command.json')
         self.resident_jsx = os.path.join(self.jsx_dir, 'ImageTea_Resident.jsx')
+        
+        # EPS version mapping: index -> Compatibility constant
+        self.eps_version_map = {
+            0: 'Compatibility.ILLUSTRATOR24',
+            1: 'Compatibility.ILLUSTRATOR19',
+            2: 'Compatibility.ILLUSTRATOR16',
+            3: 'Compatibility.ILLUSTRATOR15',
+            4: 'Compatibility.ILLUSTRATOR14',
+            5: 'Compatibility.ILLUSTRATOR13',
+            6: 'Compatibility.ILLUSTRATOR12',
+            7: 'Compatibility.ILLUSTRATOR11',
+            8: 'Compatibility.ILLUSTRATOR10',
+            9: 'Compatibility.ILLUSTRATOR9',
+            10: 'Compatibility.ILLUSTRATOR8',
+            11: 'Compatibility.ILLUSTRATOR3',
+            12: 'Compatibility.JAPANESEILLUSTRATOR3'
+        }
     
     def is_resident_alive(self):
         """Check if resident script is running by checking heartbeat"""
@@ -48,6 +65,7 @@ class IllustratorJSXGenerator:
         jsx.append(f"var commandFile = File('{command_path}');")
         jsx.append("var running = true;")
         jsx.append("var config = {};")
+        jsx.append("var originalFileName = '';")
         jsx.append("")
         
         jsx.append("function updateHeartbeat() {")
@@ -66,26 +84,34 @@ class IllustratorJSXGenerator:
         jsx.append("        var isSingleRunWithFile = cmd.is_single_run_with_file || false;")
         jsx.append("        config = cmd.config || {};")
         jsx.append("        config.outputPath = cmd.output_path || '';")
-        jsx.append("        config.prefix = config.output_prefix || '';")
-        jsx.append("        config.suffix = config.output_suffix || '';")
+        jsx.append("        config.prefix = (cmd.config && cmd.config.output_prefix) || '';")
+        jsx.append("        config.suffix = (cmd.config && cmd.config.output_suffix) || '';")
         jsx.append("")
         jsx.append("        if (isBatch) {")
         jsx.append("            for (var i = 0; i < files.length; i++) {")
         jsx.append("                var doc = app.open(new File(files[i]));")
+        jsx.append("                originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("                // Sanitize filename like Illustrator does when exporting")
+        jsx.append("                originalFileName = originalFileName.replace(/\\s+/g, '-');")
         jsx.append("                executeSteps(steps);")
         jsx.append("                doc.close(SaveOptions.DONOTSAVECHANGES);")
         jsx.append("            }")
         jsx.append("        } else if (isSingleRunWithFile && files.length > 0) {")
         jsx.append("            var doc = app.open(new File(files[0]));")
+        jsx.append("            originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("            // Sanitize filename like Illustrator does when exporting")
+        jsx.append("            originalFileName = originalFileName.replace(/\\s+/g, '-');")
         jsx.append("            executeSteps(steps);")
         jsx.append("            doc.close(SaveOptions.DONOTSAVECHANGES);")
         jsx.append("        } else {")
+        jsx.append("            originalFileName = app.activeDocument.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("            // Sanitize filename like Illustrator does when exporting")
+        jsx.append("            originalFileName = originalFileName.replace(/\\s+/g, '-');")
         jsx.append("            executeSteps(steps);")
         jsx.append("        }")
         jsx.append("        ")
         jsx.append("        running = false;")
         jsx.append("    } catch(e) {")
-        jsx.append("        $.writeln('Error executing command: ' + e.message);")
         jsx.append("        running = false;")
         jsx.append("    }")
         jsx.append("}")
@@ -102,48 +128,115 @@ class IllustratorJSXGenerator:
         jsx.append("            eval(step.code);")
         jsx.append("            if (step.delay > 0) $.sleep(step.delay);")
         jsx.append("        } else if (step.type == 'Export') {")
-        jsx.append("            executeExport(step.export_format);")
+        jsx.append("            executeExport(step.export_format, step.export_setting || 100);")
         jsx.append("        }")
         jsx.append("    }")
         jsx.append("}")
         jsx.append("")
         
-        jsx.append("function executeExport(format) {")
+        jsx.append("function getUniqueFilePath(basePath) {")
+        jsx.append("    var file = new File(basePath);")
+        jsx.append("    var folder = file.parent;")
+        jsx.append("    var originalName = file.name;")
+        jsx.append("    var nameWithoutExt = originalName.replace(/\\.[^.]+$/, '');")
+        jsx.append("    var ext = originalName.match(/\\.[^.]+$/)[0];")
+        jsx.append("    ")
+        jsx.append("    // Scan folder for similar files and find max numbering")
+        jsx.append("    // Normalize name: remove all non-alphanumeric for loose matching")
+        jsx.append("    var coreNormalized = nameWithoutExt.replace(/[^a-z0-9]/gi, '').toLowerCase();")
+        jsx.append("    var maxNum = 0;")
+        jsx.append("    var baseExists = false;")
+        jsx.append("    ")
+        jsx.append("    var folderFiles = folder.getFiles();")
+        jsx.append("    for (var i = 0; i < folderFiles.length; i++) {")
+        jsx.append("        if (folderFiles[i] instanceof File) {")
+        jsx.append("            var fname = folderFiles[i].name;")
+        jsx.append("            var fext = fname.match(/\\.[^.]+$/);")
+        jsx.append("            if (!fext || fext[0].toLowerCase() != ext.toLowerCase()) continue;")
+        jsx.append("            ")
+        jsx.append("            var fbase = fname.replace(/\\.[^.]+$/, '');")
+        jsx.append("            var fbaseNormalized = fbase.replace(/[^a-z0-9]/gi, '').toLowerCase();")
+        jsx.append("            ")
+        jsx.append("            // Check if base name matches (without numbering)")
+        jsx.append("            if (fbaseNormalized == coreNormalized) {")
+        jsx.append("                baseExists = true;")
+        jsx.append("            }")
+        jsx.append("            ")
+        jsx.append("            // Check if numbered variant: ends with _###")
+        jsx.append("            var numMatch = fbase.match(/_([0-9]{3})$/);")
+        jsx.append("            if (numMatch) {")
+        jsx.append("                var fbaseWithoutNum = fbase.replace(/_[0-9]{3}$/, '');")
+        jsx.append("                var fbaseWithoutNumNormalized = fbaseWithoutNum.replace(/[^a-z0-9]/gi, '').toLowerCase();")
+        jsx.append("                if (fbaseWithoutNumNormalized == coreNormalized) {")
+        jsx.append("                    var num = parseInt(numMatch[1], 10);")
+        jsx.append("                    if (num > maxNum) maxNum = num;")
+        jsx.append("                }")
+        jsx.append("            }")
+        jsx.append("        }")
+        jsx.append("    }")
+        jsx.append("    ")
+        jsx.append("    // If base exists or numbered files exist, use next number")
+        jsx.append("    if (baseExists || maxNum > 0) {")
+        jsx.append("        var nextNum = maxNum + 1;")
+        jsx.append("        var numStr = ('000' + nextNum).slice(-3);")
+        jsx.append("        var numberedName = nameWithoutExt + '_' + numStr + ext;")
+        jsx.append("        var numberedFile = new File(folder + '/' + numberedName);")
+        jsx.append("        return numberedFile;")
+        jsx.append("    }")
+        jsx.append("    ")
+        jsx.append("    // Check if base file exists - if yes, create _001")
+        jsx.append("    if (file.exists) {")
+        jsx.append("        var numberedName = nameWithoutExt + '_001' + ext;")
+        jsx.append("        return new File(folder + '/' + numberedName);")
+        jsx.append("    }")
+        jsx.append("    ")
+        jsx.append("    return file;")
+        jsx.append("}")
+        jsx.append("")
+        
+        jsx.append("function executeExport(format, exportSetting) {")
         jsx.append("    try {")
         jsx.append("        var doc = app.activeDocument;")
-        jsx.append("        var fileName = doc.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("        var basePath;")
         jsx.append("        var exportFile;")
         jsx.append("        ")
         jsx.append("        if (format == 'PNG') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.png');")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.png';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var pngOptions = new ExportOptionsPNG24();")
         jsx.append("            pngOptions.transparency = true;")
         jsx.append("            doc.exportFile(exportFile, ExportType.PNG24, pngOptions);")
         jsx.append("        } else if (format == 'JPG' || format == 'JPEG') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.jpg');")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.jpg';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var jpgOptions = new ExportOptionsJPEG();")
-        jsx.append("            jpgOptions.qualitySetting = 100;")
+        jsx.append("            jpgOptions.qualitySetting = exportSetting || 100;")
         jsx.append("            doc.exportFile(exportFile, ExportType.JPEG, jpgOptions);")
         jsx.append("        } else if (format == 'AI') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.ai');")
-        jsx.append("            doc.saveAs(exportFile);")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.ai';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
+        jsx.append("            var aiOptions = new IllustratorSaveOptions();")
+        jsx.append("            doc.saveAs(exportFile, aiOptions);")
         jsx.append("        } else if (format == 'EPS') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.eps');")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.eps';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var epsOptions = new EPSSaveOptions();")
-        jsx.append("            epsOptions.compatibility = Compatibility.ILLUSTRATOR10;")
+        jsx.append("            epsOptions.compatibility = eval(exportSetting);")
         jsx.append("            doc.saveAs(exportFile, epsOptions);")
         jsx.append("        } else if (format == 'PDF') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.pdf');")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.pdf';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var pdfOptions = new PDFSaveOptions();")
         jsx.append("            doc.saveAs(exportFile, pdfOptions);")
         jsx.append("        } else if (format == 'SVG') {")
-        jsx.append("            exportFile = new File(config.outputPath + '/' + config.prefix + fileName + config.suffix + '.svg');")
+        jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.svg';")
+        jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var svgOptions = new ExportOptionsSVG();")
         jsx.append("            doc.exportFile(exportFile, ExportType.SVG, svgOptions);")
         jsx.append("        }")
         jsx.append("        $.sleep(500);")
         jsx.append("    } catch(e) {")
-        jsx.append("        $.writeln('Export error: ' + e.message);")
+        jsx.append("        alert('ERROR in executeExport: ' + e.toString() + '\\nLine: ' + e.line + '\\nFormat: ' + format);")
         jsx.append("    }")
         jsx.append("}")
         jsx.append("")
@@ -163,7 +256,7 @@ class IllustratorJSXGenerator:
         jsx.append("                executeCommand(cmd);")
         jsx.append("            }")
         jsx.append("        } catch(e) {")
-        jsx.append("            $.writeln('Error parsing command: ' + e.message);")
+        jsx.append("            // Silent error")
         jsx.append("        }")
         jsx.append("    }")
         jsx.append("}")
@@ -213,9 +306,25 @@ class IllustratorJSXGenerator:
                     step_data['code'] = action_detail.get('javascript_code', '')
                     step_data['delay'] = action_detail.get('delay', 0)
                 elif action_type == 'Export':
-                    step_data['export_format'] = action_detail.get('export_format', 'PNG')
+                    export_format = action_detail.get('export_format', 'PNG')
+                    export_setting = action_detail.get('export_setting', 100)
+                    
+                    # Translate EPS index to Compatibility constant in Python
+                    if export_format == 'EPS':
+                        eps_index = export_setting
+                        if eps_index not in self.eps_version_map:
+                            raise ValueError(f"Invalid EPS version index: {eps_index}. Must be 0-12.")
+                        export_setting = self.eps_version_map[eps_index]
+                        print(f"DEBUG: EPS index {eps_index} -> {export_setting}")
+                    
+                    step_data['export_format'] = export_format
+                    step_data['export_setting'] = export_setting
+                    print(f"DEBUG: Export step added - format={export_format}, setting={export_setting}")
                 
                 steps.append(step_data)
+        
+        print(f"DEBUG: Total steps built: {len(steps)}")
+        print(f"DEBUG: Export steps count: {sum(1 for s in steps if s['type'] == 'Export')}")
         
         # Build command
         command = {
@@ -249,17 +358,18 @@ class IllustratorJSXGenerator:
         Returns:
             tuple: (jsx_path, is_resident) - path to JSX and whether using resident
         """
+        # ALWAYS regenerate resident script to get latest code
+        print("Regenerating resident JSX with latest code...")
+        resident_path = self.generate_resident_jsx()
+        
         # Check if resident is alive
         if self.is_resident_alive():
             print("Resident script detected - sending command")
             self.send_command(preset_id, source_files, output_path, config, is_single_run_with_file)
             return (None, True)  # No JSX file needed, using resident
         
-        # Generate resident script if not exists or outdated
-        print("Resident script not detected - generating new resident JSX")
-        resident_path = self.generate_resident_jsx()
-        
-        # Send initial command
+        # Send initial command for new resident
+        print("Starting new resident script")
         self.send_command(preset_id, source_files, output_path, config, is_single_run_with_file)
         
         return (resident_path, False)  # Return resident JSX to launch

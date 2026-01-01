@@ -15,16 +15,16 @@ class ActionSequencerFileWatcher:
         self.stable_duration = config.get('file_stable_duration', 1)
         self.supported_extensions = ['.ai', '.psd', '.png', '.eps', '.jpg', '.jpeg', '.svg', '.pdf', '.tif', '.tiff']
         
-    def watch_for_file(self, expected_filename=None, existing_files=None, stop_check=None):
-        """Watch output folder for new file creation
+    def watch_for_multiple_files(self, expected_filenames, existing_files=None, stop_check=None):
+        """Watch output folder for multiple file creation (multiple exports)
         
         Args:
-            expected_filename: Expected output filename (optional)
+            expected_filenames: List of expected output filenames
             existing_files: Set of existing files before action (for detecting new files)
             stop_check: Optional callable returning True if watch should stop (e.g., user cancelled)
         
         Returns:
-            str: Path to detected output file, or None if timeout or stopped
+            list: List of detected output file paths, or empty list if timeout/stopped
         """
         try:
             if not os.path.isabs(self.output_path):
@@ -36,108 +36,115 @@ class ActionSequencerFileWatcher:
             msg = f"Output path does not exist: {self.output_path}"
             print(msg)
             self._log(msg)
-            return None
+            return []
         
         start_time = time.time()
         
         if existing_files is None:
             existing_files = set(self._get_all_files())
         
-        msg = f"Watching for new file in: {self.output_path}"
+        msg = f"Watching for {len(expected_filenames)} files in: {self.output_path}"
         print(msg)
         self._log(msg)
-        msg = f"Timeout: {self.timeout} seconds; Poll interval: {self.poll_interval} seconds; file stable duration: {self.stable_duration} seconds"
-        print(msg)
-        self._log(msg)
-        if expected_filename:
-            if isinstance(expected_filename, (list, tuple, set)):
-                variants = list(expected_filename)
+        self._log(f"DEBUG: Expected filenames list: {expected_filenames}")
+        
+        all_expected_variants = {}
+        for expected in expected_filenames:
+            if isinstance(expected, (list, tuple, set)):
+                variants = list(expected)
             else:
-                variants = self.build_expected_variants(expected_filename, None)
-            msg = f"Expected filename variants: {variants}"
+                variants = self.build_expected_variants(expected, None)
+            all_expected_variants[expected] = variants
+            msg = f"Expected variants for '{expected}': {variants}"
             print(msg)
             self._log(msg)
-
-            expected_set = set(variants)
-            def _norm(s):
-                return re.sub(r"[^0-9a-z]+", '', s.lower())
-            normalized_expected = {_norm(v) for v in variants} 
-
-            detected_file = None
-
-            while time.time() - start_time < self.timeout:
-                current_files = set(self._get_all_files())
-                new_files = current_files - existing_files
-                self._log(f"Scan found {len(current_files)} supported files; {len(new_files)} new files")
-
-                if new_files:
-                    new_names = [Path(n).name for n in new_files]
-                    self._log(f"New files detected: {new_names}")
-
-                    for new_file in new_files:
-                        name = Path(new_file).name
-                        if name in expected_set:
-                            detected_file = new_file
-                            self._log(f"Matched by direct filename: {name}")
+        
+        detected_files = {}
+        
+        def _norm(s):
+            return re.sub(r"[^0-9a-z]+", '', s.lower())
+        
+        # Debug: log new files yang muncul untuk troubleshooting
+        logged_new_files = set()
+        
+        while time.time() - start_time < self.timeout:
+            current_files = set(self._get_all_files())
+            new_files = current_files - existing_files
+            
+            # Debug: log new files yang belum pernah di-log
+            for new_file in new_files:
+                if new_file not in logged_new_files:
+                    name = Path(new_file).name
+                    self._log(f"DEBUG: New file detected: {name}")
+                    logged_new_files.add(new_file)
+            
+            # Track which files are still waiting
+            still_waiting = []
+            
+            for expected, variants in all_expected_variants.items():
+                if expected in detected_files:
+                    continue
+                
+                still_waiting.append(expected)
+                
+                expected_set = set(variants)
+                normalized_expected = {_norm(v) for v in variants}
+                
+                # Check both new files AND existing files (for files created before snapshot)
+                files_to_check = new_files.union(current_files)
+                
+                for file_path in files_to_check:
+                    name = Path(file_path).name
+                    norm_name = _norm(name)
+                    
+                    # Skip if already detected
+                    if file_path in detected_files.values():
+                        continue
+                    
+                    # Check if matches any variant
+                    matched = False
+                    if name in expected_set:
+                        matched = True
+                    elif name.lower() in expected_set:
+                        matched = True
+                    elif norm_name in normalized_expected:
+                        matched = True
+                    
+                    if matched:
+                        if self._is_file_stable(file_path):
+                            detected_files[expected] = file_path
+                            msg = f"Detected file {len(detected_files)}/{len(expected_filenames)}: {name}"
+                            print(msg)
+                            self._log(msg)
                             break
-                        if name.lower() in expected_set:
-                            detected_file = new_file
-                            self._log(f"Matched by case-insensitive filename: {name}")
-                            break
-                        if _norm(name) in normalized_expected:
-                            detected_file = new_file
-                            self._log(f"Matched by normalized filename: {name}")
-                            break
-
-                if not detected_file:
-                    for cf in current_files:
-                        name = Path(cf).name
-                        if name in expected_set:
-                            detected_file = cf
-                            self._log(f"Matched by direct filename (existing files): {name}")
-                            break
-                        if name.lower() in expected_set:
-                            detected_file = cf
-                            self._log(f"Matched by case-insensitive filename (existing files): {name}")
-                            break
-                        if _norm(name) in normalized_expected:
-                            detected_file = cf
-                            self._log(f"Matched by normalized filename (existing files): {name}")
-                            break
-
-                if detected_file:
-                    if self._is_file_stable(detected_file):
-                        msg = f"Found expected file: {detected_file}"
-                        print(msg)
-                        self._log(msg)
-                        return detected_file
-                    else:
-                        msg = f"File found but still being written: {Path(detected_file).name}"
-                        print(msg)
-                        self._log(msg)
-
-                if expected_filename:
-                    self._log(f"Waiting for expected filename: {variants}")
-
-                try:
-                    if stop_check and callable(stop_check) and stop_check():
-                        msg = "Watch aborted by stop request"
-                        print(msg)
-                        self._log(msg)
-                        return None
-                except Exception as e:
-                    self._log(f"stop_check callable raised: {e}")
-
-                time.sleep(self.poll_interval)
+            
+            # Log what we're still waiting for
+            if still_waiting and len(detected_files) < len(expected_filenames):
+                elapsed = time.time() - start_time
+                self._log(f"Still waiting for {len(still_waiting)} file(s) [{elapsed:.1f}s]: {still_waiting}")
+            
+            if len(detected_files) == len(expected_filenames):
+                msg = f"All {len(expected_filenames)} files detected successfully"
+                print(msg)
+                self._log(msg)
+                return list(detected_files.values())
+            
+            try:
+                if stop_check and callable(stop_check) and stop_check():
+                    msg = "Watch aborted by stop request"
+                    print(msg)
+                    self._log(msg)
+                    return list(detected_files.values())
+            except Exception as e:
+                self._log(f"stop_check callable raised: {e}")
+            
+            time.sleep(self.poll_interval)
         
         elapsed = time.time() - start_time
-        if expected_filename:
-            msg = f"File watch timeout after {elapsed:.1f} seconds while waiting for: {expected_filename}"
-        else:
-            msg = f"File watch timeout after {elapsed:.1f} seconds"
+        msg = f"Watch timeout after {elapsed:.1f}s. Found {len(detected_files)}/{len(expected_filenames)} files"
         print(msg)
         self._log(msg)
-        return None
+        return list(detected_files.values())
     
     def _is_file_stable(self, file_path, stable_duration=None):
         """Check if file size is stable (not being written)
@@ -223,6 +230,8 @@ class ActionSequencerFileWatcher:
         The exporter (Photoshop/Illustrator) may sanitize the document name when saving
         (e.g., replacing spaces/punctuation with hyphens). This helper returns the original
         expected name plus simple sanitized variants to improve detection reliability.
+        
+        Smart collision handling: checks existing files to predict next numbering (_001, _002, etc.)
 
         Returns:
             list[str]: Ordered list of candidate filenames (most-likely first)
@@ -257,15 +266,112 @@ class ActionSequencerFileWatcher:
         for lc in lower_candidates:
             candidates.append(lc)
 
+        # Smart collision detection: check existing files to predict next numbering
+        base_candidates = candidates.copy()
+        collision_variants = self._get_smart_collision_variants(base_candidates, ext)
+        
+        all_variants = candidates + collision_variants
+        
         seen = set()
         uniques = []
-        for c in candidates:
+        for c in all_variants:
             if c not in seen:
                 seen.add(c)
                 uniques.append(c)
 
-        self._log(f"Generated filename variants: {uniques}")
+        self._log(f"Generated filename variants (smart collision): {uniques}")
         return uniques
+    
+    def _get_smart_collision_variants(self, base_names, extension):
+        """Smart collision detection: check existing files and predict next numbering
+        
+        Args:
+            base_names: List of base filenames to check (without extension)
+            extension: File extension to check
+            
+        Returns:
+            list: Smart collision variants based on existing files
+        """
+        variants = []
+        
+        try:
+            # Get ALL files in output directory (not just new files from snapshot)
+            # Because JSX checks ALL files when determining collision numbering
+            existing_files = []
+            if os.path.exists(self.output_path):
+                for item in os.listdir(self.output_path):
+                    item_path = os.path.join(self.output_path, item)
+                    if os.path.isfile(item_path):
+                        existing_files.append(item)
+            
+            self._log(f"Smart collision: Scanning {len(existing_files)} existing files in output folder")
+            
+            # For each base name, find highest numbering across ALL sanitization variants
+            for base_name in base_names:
+                name_part = os.path.splitext(base_name)[0]
+                
+                # Check if base file exists (without numbering) - check all sanitization variants
+                base_exists = False
+                for existing in existing_files:
+                    existing_name = os.path.splitext(existing)[0]
+                    existing_ext = os.path.splitext(existing)[1].lower()
+                    
+                    # Match if extension matches and base name matches (case-insensitive, ignoring special chars)
+                    if existing_ext == extension.lower():
+                        # Normalize both names: remove all non-alphanumeric chars and compare
+                        normalized_existing = re.sub(r'[^a-z0-9]', '', existing_name.lower())
+                        normalized_base = re.sub(r'[^a-z0-9]', '', name_part.lower())
+                        
+                        if normalized_existing == normalized_base:
+                            base_exists = True
+                            self._log(f"Smart collision: Base file exists: {existing}")
+                            break
+                
+                # Find ALL numbered variants across different sanitization patterns
+                # Extract the "core" without special chars for loose matching
+                core_normalized = re.sub(r'[^a-z0-9]', '', name_part.lower())
+                max_num = 0
+                
+                for filename in existing_files:
+                    file_ext = os.path.splitext(filename)[1].lower()
+                    if file_ext != extension.lower():
+                        continue
+                    
+                    # Check if this file is a numbered variant of our base
+                    # Pattern: <anything>_<digits><extension>
+                    match = re.match(r'^(.+)_(\d{3})' + re.escape(extension) + r'$', filename, re.IGNORECASE)
+                    if match:
+                        file_base = match.group(1)
+                        file_num = int(match.group(2))
+                        
+                        # Normalize and compare
+                        file_base_normalized = re.sub(r'[^a-z0-9]', '', file_base.lower())
+                        
+                        if file_base_normalized == core_normalized:
+                            if file_num > max_num:
+                                max_num = file_num
+                            self._log(f"Found existing numbered file: {filename} (num={file_num})")
+                
+                # Determine next expected number
+                if base_exists or max_num > 0:
+                    # Either base exists or numbered files exist
+                    next_num = max_num + 1
+                    next_num_str = f"{'000' + str(next_num)}"[-3:]
+                    next_variant = f"{name_part}_{next_num_str}{extension}"
+                    variants.append(next_variant)
+                    self._log(f"Smart collision: Base exists={base_exists}, max_num={max_num}, expecting: {next_variant}")
+                # else: no existing files, base name already in candidates
+                
+        except Exception as e:
+            self._log(f"Error in smart collision detection: {e}")
+            import traceback
+            self._log(f"Traceback: {traceback.format_exc()}")
+            # Fallback to simple _001 variant
+            for base_name in base_names:
+                name_part = os.path.splitext(base_name)[0]
+                variants.append(f"{name_part}_001{extension}")
+        
+        return variants
     
     @staticmethod
     def cleanup_jsx_files(*jsx_directories):

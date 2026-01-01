@@ -57,6 +57,23 @@ class PhotoshopJSXGenerator:
         jsx.append("};")
         jsx.append("")
         
+        jsx.append("function getUniqueFilePath(basePath) {")
+        jsx.append("    var file = new File(basePath);")
+        jsx.append("    if (!file.exists) return file;")
+        jsx.append("    ")
+        jsx.append("    var folder = file.parent;")
+        jsx.append("    var nameWithoutExt = file.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("    var ext = file.name.match(/\\.[^.]+$/)[0];")
+        jsx.append("    ")
+        jsx.append("    for (var i = 1; i <= 999; i++) {")
+        jsx.append("        var num = ('000' + i).slice(-3);")
+        jsx.append("        var newFile = new File(folder + '/' + nameWithoutExt + '_' + num + ext);")
+        jsx.append("        if (!newFile.exists) return newFile;")
+        jsx.append("    }")
+        jsx.append("    return file;")
+        jsx.append("}")
+        jsx.append("")
+        
         if is_batch or is_single_run_with_file:
             jsx.append("// Source files")
             jsx.append("var sourceFiles = [")
@@ -74,6 +91,7 @@ class PhotoshopJSXGenerator:
         if is_batch:
             jsx.append("    for (var i = 0; i < sourceFiles.length; i++) {")
             jsx.append("        var doc = app.open(new File(sourceFiles[i]));")
+            jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("")
             
             for step in non_export_steps:
@@ -105,8 +123,11 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
+                        export_setting = action_detail.get('export_setting', 100)
                         jsx.append(f"        // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "        "))
+                        export_code = self._generate_export_code(export_format, "        ", export_setting)
+                        for line in export_code.split('\n'):
+                            jsx.append(line)
                         jsx.append("")
             
             jsx.append("        doc.close(SaveOptions.DONOTSAVECHANGES);")
@@ -114,6 +135,7 @@ class PhotoshopJSXGenerator:
         elif is_single_run_with_file:
             jsx.append("    if (sourceFiles.length > 0) {")
             jsx.append("        var doc = app.open(new File(sourceFiles[0]));")
+            jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("    }")
             jsx.append("")
             
@@ -146,8 +168,11 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
+                        export_setting = action_detail.get('export_setting', 100)
                         jsx.append(f"    // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "    "))
+                        export_code = self._generate_export_code(export_format, "    ", export_setting)
+                        for line in export_code.split('\n'):
+                            jsx.append(line)
                         jsx.append("")
             # If a source file was opened for single-run, close it after processing
             jsx.append("    if (sourceFiles.length > 0) {")
@@ -159,6 +184,7 @@ class PhotoshopJSXGenerator:
             jsx.append("        alert('No open document found for single-run without source. Please open or select a document.');")
             jsx.append("    } else {")
             jsx.append("        var doc = app.activeDocument;")
+            jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("")
             for step in non_export_steps:
                 action_detail = self.db.get_action_by_id(step['action_id'])
@@ -189,8 +215,11 @@ class PhotoshopJSXGenerator:
                     action_detail = self.db.get_action_by_id(step['action_id'])
                     if action_detail:
                         export_format = action_detail.get('export_format', 'PNG').upper()
+                        export_setting = action_detail.get('export_setting', 100)
                         jsx.append(f"        // Export: {action_detail['name']}")
-                        jsx.append(self._generate_export_code(export_format, "        "))
+                        export_code = self._generate_export_code(export_format, "        ", export_setting)
+                        for line in export_code.split('\n'):
+                            jsx.append(line)
                         jsx.append("")
             # close the active document context
             jsx.append("    }")
@@ -201,7 +230,7 @@ class PhotoshopJSXGenerator:
         
         return "\n".join(jsx)
     
-    def _generate_export_code(self, export_format, indent):
+    def _generate_export_code(self, export_format, indent, export_setting=100):
         """Generate export code for Photoshop"""
         code_lines = []
         
@@ -209,30 +238,42 @@ class PhotoshopJSXGenerator:
             code_lines.append(f"{indent}var pngOptions = new ExportOptionsSaveForWeb();")
             code_lines.append(f"{indent}pngOptions.format = SaveDocumentType.PNG;")
             code_lines.append(f"{indent}pngOptions.PNG8 = false;")
-            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.png';")
-            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.png';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
             code_lines.append(f"{indent}doc.exportDocument(saveFile, ExportType.SAVEFORWEB, pngOptions);")
         elif export_format == 'JPG' or export_format == 'JPEG':
+            quality = int((export_setting / 100) * 12)
+            if quality < 1:
+                quality = 1
+            elif quality > 12:
+                quality = 12
             code_lines.append(f"{indent}var jpgOptions = new JPEGSaveOptions();")
-            code_lines.append(f"{indent}jpgOptions.quality = 12;")
-            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.jpg';")
-            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
+            code_lines.append(f"{indent}jpgOptions.quality = {quality};")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.jpg';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
             code_lines.append(f"{indent}doc.saveAs(saveFile, jpgOptions, true);")
         elif export_format == 'PSD':
             code_lines.append(f"{indent}var psdOptions = new PhotoshopSaveOptions();")
             code_lines.append(f"{indent}psdOptions.embedColorProfile = true;")
-            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.psd';")
-            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.psd';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
             code_lines.append(f"{indent}doc.saveAs(saveFile, psdOptions, true);")
         elif export_format == 'PDF':
             code_lines.append(f"{indent}var pdfOptions = new PDFSaveOptions();")
-            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.pdf';")
-            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.pdf';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
             code_lines.append(f"{indent}doc.saveAs(saveFile, pdfOptions, true);")
+        elif export_format == 'EPS':
+            code_lines.append(f"{indent}var epsOptions = new EPSSaveOptions();")
+            code_lines.append(f"{indent}epsOptions.encoding = SaveEncoding.BINARY;")
+            code_lines.append(f"{indent}epsOptions.embedColorProfile = true;")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.eps';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
+            code_lines.append(f"{indent}doc.saveAs(saveFile, epsOptions, true);")
         elif export_format == 'TIFF':
             code_lines.append(f"{indent}var tiffOptions = new TiffSaveOptions();")
-            code_lines.append(f"{indent}var fileName = config.prefix + doc.name.replace(/\\.[^.]+$/, '') + config.suffix + '.tif';")
-            code_lines.append(f"{indent}var saveFile = new File(config.outputPath + '/' + fileName);")
-            code_lines.append(f"{indent}doc.saveAs(saveFile, tiffOptions, true);")
+            code_lines.append(f"{indent}var basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.tif';")
+            code_lines.append(f"{indent}var saveFile = getUniqueFilePath(basePath);")
+            code_lines.append(f"{indent}doc.saveAs(saveFile, tiffOptions, true);")  
         
         return "\n".join(code_lines)
