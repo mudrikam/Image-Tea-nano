@@ -1062,7 +1062,7 @@ class ImageTeaDB:
             c = conn.cursor()
             c.execute('''
                 SELECT a.actions_id, a.actions_name, a.actions_icon, a.actions_color,
-                       ast.action_sets_name, ast.action_sets_id
+                       ast.action_sets_name, ast.action_sets_id, a.actions_type, a.actions_export_format
                 FROM action_sequencer_actions a
                 JOIN action_sequencer_action_sets ast ON a.actions_action_sets_id = ast.action_sets_id
                 WHERE ast.action_sets_platforms_id = ?
@@ -1074,7 +1074,9 @@ class ImageTeaDB:
                 'icon': row[2],
                 'color': row[3],
                 'action_set': row[4],
-                'action_set_id': row[5]
+                'action_set_id': row[5],
+                'type': row[6],
+                'export_format': row[7]
             } for row in c.fetchall()]
     
     # --- Action Sequencer Status methods ---
