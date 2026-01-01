@@ -55,7 +55,7 @@ RELEASE_TAG="20250409"
 case "${OS}" in
     Linux*)
         OS_DIR="Linux"
-        INSTALL_DIR="Python/${OS_DIR}"
+        INSTALL_DIR="python/${OS_DIR}"
         PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz"
         # Set Linux-specific vars
         export XDG_RUNTIME_DIR="/run/user/$(id -u)"
@@ -65,7 +65,7 @@ case "${OS}" in
         ;;
     Darwin*)
         OS_DIR="MacOS"
-        INSTALL_DIR="Python/${OS_DIR}"
+        INSTALL_DIR="python/${OS_DIR}"
         PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
         # Set macOS-specific environment variables
         export QT_MAC_WANTS_LAYER=1
@@ -122,181 +122,163 @@ if [ "${OS}" = "Linux" ]; then
         sudo apt-get update && sudo apt-get install -y $MISSING_PACKAGES
     fi
 fi
-# If it exists, we can update the app and install requirements
-# If not, we need to set up the environment first
+
 # =====================================================================
-if [ -f "${PYTHON_PATH}" ]; then
-    echo "Python installation found. Checking requirements..."
-    # Check for requirements.txt and install if it exists
-    if [ -f "${REQUIREMENTS_FILE}" ]; then
-        echo "Installing requirements from requirements.txt..."
-        "${PYTHON_PATH}" -m pip install -r "${REQUIREMENTS_FILE}" --no-warn-script-location
-    else
-        echo "Warning: requirements.txt not found. Skipping package installation."
+#######################################################################
+# Check for required tools (ghostscript, exiftool, ffmpeg)
+#######################################################################
+echo "Checking required image processing tools..."
+
+if [ "${OS}" = "Linux" ]; then
+    MISSING_TOOLS=""
+    
+    if ! command -v gs &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
     fi
+    
+    if ! command -v exiftool &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS libimage-exiftool-perl"
+    fi
+    
+    if ! command -v ffmpeg &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
+    fi
+    
+    if [ -n "$MISSING_TOOLS" ]; then
+        echo "Installing required tools:$MISSING_TOOLS"
+        echo "You may be asked for your password."
+        sudo apt-get update && sudo apt-get install -y $MISSING_TOOLS
+    else
+        echo "All required tools are already installed."
+    fi
+elif [ "${OS}" = "Darwin" ]; then
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew not found. Installing Homebrew..."
+        echo "You may be asked for your password."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    
+    MISSING_TOOLS=""
+    
+    if ! command -v gs &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
+    fi
+    
+    if ! command -v exiftool &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS exiftool"
+    fi
+    
+    if ! command -v ffmpeg &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
+    fi
+    
+    if [ -n "$MISSING_TOOLS" ]; then
+        echo "Installing required tools via Homebrew:$MISSING_TOOLS"
+        brew install $MISSING_TOOLS
+    else
+        echo "All required tools are already installed."
+    fi
+fi
+# =====================================================================
+#######################################################################
+# Robust dependency check (folder, files, pip, requirements)
+#######################################################################
+echo ""
+echo "Checking Python environment and dependencies..."
+CHECK_FAILED=0
+VERIFY_FILE="${BASE_DIR}/temp/.is_installation_verified"
+
+# Check Python folder
+if [ -d "${BASE_DIR}/${INSTALL_DIR}" ]; then
+    echo "  [OK] python/${OS_DIR} folder found."
 else
-    echo "Python installation not found. Setting up environment..."
-    
-    # =====================================================================
-    # Define variables for setup process
-    # =====================================================================
-    PYTHON_ARCHIVE="/tmp/python-${PYTHON_VERSION}.tar.gz"
-    
-    # =====================================================================
-    # Create Python directory
-    # =====================================================================
-    echo "Creating Python directory..."
-    mkdir -p "${BASE_DIR}/${INSTALL_DIR}"
-    
-    # =====================================================================
-    # Download and extract Python standalone distribution
-    # =====================================================================
-    echo "Downloading Python standalone distribution..."
-    if command -v curl &> /dev/null; then
-        curl -L "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}" || { echo "curl download failed"; exit 1; }
-    elif command -v wget &> /dev/null; then
-        wget "${PYTHON_URL}" -O "${PYTHON_ARCHIVE}" || { echo "wget download failed"; exit 1; }
+    echo "  [MISSING] python/${OS_DIR} folder not found!"
+    CHECK_FAILED=1
+fi
+
+# Check python executable
+if [ -f "${PYTHON_PATH}" ]; then
+    echo "  [OK] python3.12 executable found."
+else
+    echo "  [MISSING] python3.12 executable not found!"
+    CHECK_FAILED=1
+fi
+
+# Check pip module (only if python exists)
+if [ "${CHECK_FAILED}" -eq 0 ]; then
+    if "${PYTHON_PATH}" -m pip --version &> /dev/null; then
+        echo "  [OK] pip module found."
     else
-        echo "Error: Neither curl nor wget is available. Cannot download Python."
-        exit 1
+        echo "  [MISSING] pip not working!"
+        CHECK_FAILED=1
     fi
-    
-    # Verify the downloaded file exists and has content
-    if [ ! -s "${PYTHON_ARCHIVE}" ]; then
-        echo "Downloaded Python archive is empty or does not exist."
-        exit 1
-    fi
-    
-    echo "Extracting Python..."
-    # Create a temporary directory for safer extraction
-    TEMP_EXTRACT_DIR="/tmp/python-extract-$$"
-    mkdir -p "${TEMP_EXTRACT_DIR}"
-    
-    # Extract with error handling and progress feedback
-    echo "Extracting to temporary location first..."
-    tar -xzf "${PYTHON_ARCHIVE}" -C "${TEMP_EXTRACT_DIR}" || {
-        echo "Extraction failed. The archive may be corrupted or incompatible."
-        echo "Technical details:"
-        file "${PYTHON_ARCHIVE}"
-        du -sh "${PYTHON_ARCHIVE}"
-        rm -rf "${TEMP_EXTRACT_DIR}"
-        exit 1
-    }
-    
-    # Move files to final location
-    echo "Moving files to installation directory..."
-    # Check if the extracted directory has a 'python' subdirectory that should be flattened
-    if [ -d "${TEMP_EXTRACT_DIR}/python" ]; then
-        echo "Extracting from nested python directory structure..."
-        cp -r "${TEMP_EXTRACT_DIR}/python"/* "${BASE_DIR}/${INSTALL_DIR}/" || {
-            echo "Failed to copy extracted files to installation directory."
-            exit 1
-        }
+fi
+
+# Check requirements.txt
+if [ -f "${REQUIREMENTS_FILE}" ]; then
+    echo "  [OK] requirements.txt found."
+else
+    echo "  [MISSING] requirements.txt not found!"
+    CHECK_FAILED=1
+fi
+
+# Check .is_installation_verified
+if [ -f "${VERIFY_FILE}" ]; then
+    echo "  [OK] .is_installation_verified found."
+else
+    echo "  [MISSING] .is_installation_verified not found!"
+    CHECK_FAILED=1
+fi
+
+# Check pip dependencies (only if pip is working)
+if [ "${CHECK_FAILED}" -eq 0 ]; then
+    if "${PYTHON_PATH}" -m pip check &> /dev/null; then
+        echo "  [OK] pip dependencies valid."
     else
-        # Copy directly if no nested structure
-        cp -r "${TEMP_EXTRACT_DIR}"/* "${BASE_DIR}/${INSTALL_DIR}/" || {
-            echo "Failed to copy extracted files to installation directory."
-            exit 1
-        }
+        echo "  [MISSING] pip dependencies not valid!"
+        CHECK_FAILED=1
     fi
-    
-    # Clean up temporary files
-    rm -rf "${TEMP_EXTRACT_DIR}"
-    rm -f "${PYTHON_ARCHIVE}"
-    
-    # Verify Python executable exists after extraction
-    if [ ! -f "${PYTHON_PATH}" ]; then
-        echo "Python executable not found after extraction. Installation failed."
-        echo "Expected path: ${PYTHON_PATH}"
-        echo "Files in installation directory:"
-        ls -la "${BASE_DIR}/${INSTALL_DIR}"
-        exit 1
-    fi
-    
-    echo "Python extraction completed successfully."
-    
-    # =====================================================================
-    # Set up pip in the Python distribution
-    # 1. Check if requirements.txt exists, create if not
-    # 2. Download and run get-pip.py to install pip
-    # 3. Install required packages from requirements.txt
-    # =====================================================================
-    echo "Setting up pip..."
-    
-    # Create requirements.txt if it doesn't exist
-    if [ ! -f "${REQUIREMENTS_FILE}" ]; then
-        echo "Creating empty requirements.txt file..."
-        touch "${REQUIREMENTS_FILE}"
-    fi
-    
-    # Download get-pip.py and install pip
-    echo "Installing pip..."
-    PIP_TEMP="/tmp/get-pip.py"
-    if command -v curl &> /dev/null; then
-        curl -L "https://bootstrap.pypa.io/get-pip.py" -o "${PIP_TEMP}" || {
-            echo "Failed to download get-pip.py"
-            exit 1
-        }
-    elif command -v wget &> /dev/null; then
-        wget "https://bootstrap.pypa.io/get-pip.py" -O "${PIP_TEMP}" || {
-            echo "Failed to download get-pip.py"
-            exit 1
-        }
-    else
-        echo "Error: Neither curl nor wget is available. Cannot download pip."
-        exit 1
-    fi
-    
-    # Install pip using the newly installed Python
-    "${PYTHON_PATH}" "${PIP_TEMP}" --no-warn-script-location
-    
-    # Remove temporary get-pip.py file
-    rm -f "${PIP_TEMP}"
-    
-    # Verify pip is installed correctly
-    if ! "${PYTHON_PATH}" -m pip --version; then
-        echo "Failed to install pip. Installation cannot continue."
-        exit 1
-    fi
-    
-    # Install required packages without mentioning pip upgrade separately
-    if [ -f "${REQUIREMENTS_FILE}" ]; then
-        echo "Installing required packages from requirements.txt..."
-        # This will automatically use the latest pip without a separate message
-        "${PYTHON_PATH}" -m pip install --upgrade pip --quiet --no-warn-script-location
-        
-        # Special handling for macOS PySide6 installation
-        if [ "${OS}" = "Darwin" ]; then
-            echo "Installing PySide6 with additional macOS dependencies..."
-            # First make sure dependencies are installed
-            "${PYTHON_PATH}" -m pip install wheel setuptools --upgrade --no-warn-script-location
-            
-            # Try installing PySide6 directly first
-            if ! "${PYTHON_PATH}" -m pip install PySide6 --no-warn-script-location; then
-                echo "Direct PySide6 installation failed, trying with extra options..."
-                # Try with alternative install approach for macOS
-                "${PYTHON_PATH}" -m pip install PySide6 --no-binary PySide6 --no-warn-script-location || {
-                    echo "PySide6 installation failed. Please install macOS command line tools with 'xcode-select --install'"
-                    echo "Then run this script again."
-                    exit 1
-                }
+fi
+
+# Robust: Check requirements.txt vs pip freeze
+if [ "${CHECK_FAILED}" -eq 0 ]; then
+    "${PYTHON_PATH}" -m pip freeze > "/tmp/pip_freeze_check.txt"
+    while IFS= read -r REQ; do
+        # Skip empty lines and comments
+        if [ -n "$REQ" ] && [ "${REQ:0:1}" != "#" ]; then
+            # Extract package name (before == or >= etc)
+            PKG_NAME=$(echo "$REQ" | sed 's/[><=~!].*//')
+            if grep -qi "^${PKG_NAME}==" "/tmp/pip_freeze_check.txt"; then
+                echo "  [OK] $REQ installed."
+            else
+                echo "  [MISSING] $REQ not installed!"
+                CHECK_FAILED=1
             fi
-            
-            # Continue with the rest of requirements
-            grep -v "PySide6" "${REQUIREMENTS_FILE}" > /tmp/other_requirements.txt
-            if [ -s /tmp/other_requirements.txt ]; then
-                "${PYTHON_PATH}" -m pip install -r /tmp/other_requirements.txt --no-warn-script-location
-            fi
-            rm /tmp/other_requirements.txt
-        else
-            # Normal installation for non-macOS systems
-            "${PYTHON_PATH}" -m pip install -r "${REQUIREMENTS_FILE}" --no-warn-script-location
         fi
+    done < "${REQUIREMENTS_FILE}"
+    rm -f "/tmp/pip_freeze_check.txt"
+fi
+
+# If any check failed, run install.sh for dependency recovery
+if [ "${CHECK_FAILED}" -eq 1 ]; then
+    echo ""
+    echo "====================================="
+    echo " Python environment not detected, incomplete, or broken."
+    echo " Running install.sh to repair dependencies..."
+    echo "====================================="
+    INSTALL_SH="${BASE_DIR}/install.sh"
+    if [ -f "${INSTALL_SH}" ]; then
+        chmod +x "${INSTALL_SH}"
+        bash "${INSTALL_SH}"
+        echo ""
+        echo "================================"
+        echo " Dependency repair complete."
+        echo " Launching Image Tea..."
+        echo "================================"
     else
-        echo "Warning: requirements.txt not found. Skipping package installation."
+        echo "ERROR: install.sh not found!"
+        exit 1
     fi
-    
-    echo "Setup complete!"
 fi
 
 # =====================================================================
@@ -306,6 +288,6 @@ echo ""
 echo "==================================================="
 echo "        Image-Tea Application Launcher             "
 echo "==================================================="
-echo "Setup complete. Running main.py..."
+echo "Dependencies verified. Running main.py..."
 echo ""
 exec "${PYTHON_PATH}" "${BASE_DIR}/main.py"

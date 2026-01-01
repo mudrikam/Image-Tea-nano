@@ -6,6 +6,7 @@ import webbrowser
 import sys
 import os
 import subprocess
+import platform
 import json
 from helpers.file_importer import import_files
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
@@ -86,14 +87,17 @@ def get_app_links():
 
 
 def run_updater(window):
-    updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
     try:
-        if sys.platform == "win32":
+        system = platform.system()
+        if system == "Windows":
+            updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
             subprocess.Popen(
                 f'powershell -Command "Start-Process -Verb runAs -FilePath \\"{updater_path}\\""',
                 shell=True
             )
         else:
+            updater_path = os.path.join(BASE_PATH, "Update.sh")
+            os.chmod(updater_path, 0o755)
             subprocess.Popen([updater_path])
     except Exception as e:
         print(f"Failed to run updater: {e}")
