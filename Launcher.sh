@@ -172,6 +172,10 @@ elif [ "${OS}" = "Darwin" ]; then
         MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
     fi
     
+    if ! brew list inih &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS inih"
+    fi
+    
     if [ -n "$MISSING_TOOLS" ]; then
         echo "Installing required tools via Homebrew:$MISSING_TOOLS"
         brew install $MISSING_TOOLS
