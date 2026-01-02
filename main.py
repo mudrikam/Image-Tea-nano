@@ -6,6 +6,7 @@ sys.path.insert(0, BASE_PATH)
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon
+import time
 import qtawesome as qta
 from ui.splash_screen_window import SplashScreen
 
@@ -104,6 +105,8 @@ if __name__ == '__main__':
     app.processEvents()
     if DisclaimerDialog.check_and_show():
         splash.show_message("Starting application...")
+        app.processEvents()
+        time.sleep(2)
         app.processEvents()
         window = ImageTeaMainWindow()
         window.resize(900, 700)
