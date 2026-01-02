@@ -89,16 +89,25 @@ def get_app_links():
 def run_updater(window):
     try:
         system = platform.system()
+        print(f"Detected OS: {system}")
+        
         if system == "Windows":
             updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
+            print(f"Running Windows updater: {updater_path}")
             subprocess.Popen(
                 f'powershell -Command "Start-Process -Verb runAs -FilePath \\"{updater_path}\\""',
                 shell=True
             )
-        else:
+        elif system in ("Linux", "Darwin"):
             updater_path = os.path.join(BASE_PATH, "Update.sh")
-            os.chmod(updater_path, 0o755)
-            subprocess.Popen([updater_path])
+            print(f"Running Unix updater: {updater_path}")
+            if os.path.exists(updater_path):
+                os.chmod(updater_path, 0o755)
+                subprocess.Popen(["/bin/bash", updater_path])
+            else:
+                print(f"Error: Update.sh not found at {updater_path}")
+        else:
+            print(f"Unsupported OS: {system}")
     except Exception as e:
         print(f"Failed to run updater: {e}")
 
