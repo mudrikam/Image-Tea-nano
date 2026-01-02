@@ -735,6 +735,33 @@ def batch_generate_metadata(window):
                 "image_path": image_path,
                 "error_message": error_message
             }
+    elif service == "groq":
+        from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            import time
+            t0 = time.perf_counter()
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+            t1 = time.perf_counter()
+            duration_ms = int((t1 - t0) * 1000)
+            gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
+            if hasattr(window, "stats_section"):
+                window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+            if error_message:
+                print(f"[Groq ERROR] {error_message}")
+            return {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "category": category,
+                "filetype": filetype,
+                "token_input": token_input,
+                "token_output": token_output,
+                "token_total": token_total,
+                "image_path": image_path,
+                "error_message": error_message
+            }
     else:
         print(f"[DEBUG] Unknown service: {service}")
         from PySide6.QtWidgets import QMessageBox
