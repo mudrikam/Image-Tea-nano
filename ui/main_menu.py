@@ -399,7 +399,6 @@ def setup_main_menu(window):
     prompt_injector_action.setToolTip("Inject prompts/clicks using points and clipboard")
     prompt_injector_action.setStatusTip("Inject prompts/clicks using points and clipboard")
     def open_prompt_injector():
-        # open as independent non-modal tool (no parent) so it's always-on-top and doesn't block main window
         if not hasattr(window, '_prompt_injector_dialog') or not window._prompt_injector_dialog:
             window._prompt_injector_dialog = PromptInjectorDialog(None)
             window._prompt_injector_dialog.destroyed.connect(lambda: setattr(window, '_prompt_injector_dialog', None))
