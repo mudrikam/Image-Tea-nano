@@ -66,6 +66,28 @@ class ApiKeyTestThread(QThread):
                     err_text = "<failed to stringify error>"
                 self.result.emit('fail', 'openai', err_text)
                 return
+        if self.service == 'groq' or self.service is None:
+            try:
+                from groq import Groq
+                client = Groq(api_key=self.api_key)
+                if not self.model:
+                    raise RuntimeError("No model selected for Groq API key test.")
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": [{"type": "text", "text": "Just say OK."}]}]
+                )
+                if response and hasattr(response, 'choices') and response.choices:
+                    self.result.emit('success', 'groq', 'OK')
+                    return
+            except Exception as e:
+                print(f"Groq API Key test error: {e}")
+                if self.service == 'groq':
+                    try:
+                        err_text = str(e)
+                    except Exception:
+                        err_text = "<failed to stringify error>"
+                    self.result.emit('fail', 'groq', err_text)
+                    return
         self.result.emit('fail', None, None)
 
 
@@ -322,6 +344,7 @@ class AddApiKeyDialog(QDialog):
         self.service_combo = QComboBox()
         self.service_combo.addItem("Gemini")
         self.service_combo.addItem("OpenAI")
+        self.service_combo.addItem("Groq")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
         service_layout.addWidget(_service_label_widget)
@@ -633,6 +656,8 @@ class AddApiKeyDialog(QDialog):
             models = self.model_list["gemini"]
         elif service == "openai":
             models = self.model_list["openai"]
+        elif service == "groq":
+            models = self.model_list["groq"]
         else:
             models = []
         for m in models:
@@ -722,7 +747,7 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
             
-            service_item = QTableWidgetItem(str(service.capitalize() if str(service).lower() in ("openai", "gemini") else str(service)))
+            service_item = QTableWidgetItem(str(service.capitalize() if str(service).lower() in ("openai", "gemini", "groq") else str(service)))
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
             
@@ -966,9 +991,14 @@ class AddApiKeyDialog(QDialog):
     def _on_key_edit_changed(self, text):
         api_key = text.strip()
         service = None
-        if re.match(r"^sk-?or-", api_key, re.IGNORECASE) or (api_key.startswith('sk-') and len(api_key) > 40):
+        ak = api_key or ''
+        lower = ak.lower()
+        # Groq keys start with 'gsk_'
+        if lower.startswith('gsk_') or lower.startswith('gsk-'):
+            service = 'groq'
+        elif re.match(r"^sk-?or-", ak, re.IGNORECASE) or (ak.startswith('sk-') and len(ak) > 40):
             service = 'openai'
-        elif len(api_key) > 30 and 'AIza' in api_key:
+        elif len(ak) > 30 and 'AIza' in ak:
             service = 'gemini'
         else:
             service = None
@@ -976,6 +1006,8 @@ class AddApiKeyDialog(QDialog):
             self.service_combo.setCurrentText("OpenAI")
         elif service == 'gemini':
             self.service_combo.setCurrentText("Gemini")
+        elif service == 'groq':
+            self.service_combo.setCurrentText("Groq")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1042,8 +1074,18 @@ class AddApiKeyDialog(QDialog):
         if not api_key:
             QMessageBox.warning(self, "Input Error", "API Key cannot be empty.")
             return
+        # Fallback detection in case _detected_service wasn't set by the live detection
         if not service:
-            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini or OpenAI.")
+            ak = api_key.strip()
+            ak_lower = ak.lower()
+            if ak_lower.startswith('gsk_') or ak_lower.startswith('gsk-'):
+                service = 'groq'
+            elif re.match(r"^sk-?or-", ak, re.IGNORECASE) or (ak.startswith('sk-') and len(ak) > 40):
+                service = 'openai'
+            elif len(ak) > 30 and 'AIza' in ak:
+                service = 'gemini'
+        if not service:
+            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, or Groq.")
             return
         if not model:
             QMessageBox.warning(self, "Input Error", "Model must be selected.")

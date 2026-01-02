@@ -188,6 +188,8 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
         elif service.lower() in ('openai', 'openrouter'):
             # Support both OpenAI and OpenRouter through the OpenAI-compatible client
             prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+        elif service.lower() == 'groq':
+            prompts, token_input, token_output, token_total = generate_prompts_with_groq(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         else:
             print(f"Unsupported service: {service}")
             return []
@@ -345,6 +347,66 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
         
     except Exception as e:
         print(f"OpenAI prompt generation error: {e}")
+        return [], 0, 0, 0
+
+
+def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+    """Generate prompts using Groq API with image analysis"""
+    if stop_flag and stop_flag.get('stop'):
+        return [], 0, 0, 0
+    try:
+        import base64
+        from groq import Groq
+
+        client = Groq(api_key=api_key)
+
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
+        image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}}
+                ]
+            }
+        ]
+
+        if stop_flag and stop_flag.get('stop'):
+            return [], 0, 0, 0
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.8
+        )
+
+        # Extract token usage
+        token_input = 0
+        token_output = 0
+        token_total = 0
+        usage = getattr(response, "usage", None)
+        if usage:
+            token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+            token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+            token_total = getattr(usage, "total_tokens", 0)
+
+        text = None
+        if hasattr(response, "choices") and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                text = choice.message.content
+        if not text:
+            text = str(response)
+
+        prompts = parse_ai_prompt_response(text, aspect_ratio)
+        return prompts, token_input, token_output, token_total
+    except Exception as e:
+        print(f"Groq prompt generation error: {e}")
         return [], 0, 0, 0
 
 def parse_ai_prompt_response(text, aspect_ratio=None):

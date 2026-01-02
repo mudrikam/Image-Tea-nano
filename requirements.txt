@@ -2,6 +2,7 @@ PySide6==6.10.0
 qtawesome==1.4.0
 openai
 google-genai
+groq
 pyexiv2==2.15.5
 pillow==12.0.0
 PyExifTool==0.5.6
