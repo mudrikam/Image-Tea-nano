@@ -107,6 +107,13 @@ if __name__ == '__main__':
         app.processEvents()
         window = ImageTeaMainWindow()
         window.resize(900, 700)
+        
+        screen = app.primaryScreen().geometry()
+        window_geometry = window.frameGeometry()
+        center_point = screen.center()
+        window_geometry.moveCenter(center_point)
+        window.move(window_geometry.topLeft())
+        
         splash.finish(window)
         window.show()
         app.processEvents()

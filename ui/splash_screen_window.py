@@ -1,6 +1,6 @@
 import os
 import json
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QApplication
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QFont
 from config import BASE_PATH
@@ -79,6 +79,12 @@ class SplashScreen(QWidget):
         info_layout.addWidget(self.status_label)
         
         self.setFixedSize(pixmap.width() // 2 + 500, pixmap.height())
+
+        screen = QApplication.primaryScreen().geometry()
+        splash_geometry = self.frameGeometry()
+        center_point = screen.center()
+        splash_geometry.moveCenter(center_point)
+        self.move(splash_geometry.topLeft())
         
     def show_message(self, message):
         self.status_label.setText(message)
