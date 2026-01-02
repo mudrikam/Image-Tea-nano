@@ -1,20 +1,10 @@
-[Desktop Entry][Desktop Entry]
-
-
-
-
-
-
-
-
-
-
-StartupNotify=trueCategories=Graphics;Photography;Utility;Terminal=falseIcon=%k/res/image_tea.icoExec=/bin/bash "%k/Launcher.sh"Comment=Image metadata and processing toolName=Image TeaType=ApplicationVersion=1.0Version=1.0
+[Desktop Entry]
 Type=Application
 Name=Image Tea
 Comment=Image metadata and processing tool
-Exec=/bin/bash "%k/Launcher.sh"
-Icon=%k/res/image_tea.ico
+Exec=/bin/bash "/home/hikam/BUILD/Image-Tea-nano/Launcher.sh"
+Icon=/home/hikam/BUILD/Image-Tea-nano/res/image_tea.ico
 Terminal=false
 Categories=Graphics;Photography;Utility;
 StartupNotify=true
+Version=1.0
