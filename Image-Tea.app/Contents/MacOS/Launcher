@@ -1,0 +1,5 @@
+#!/bin/bash
+# Wrapper to run repository Launcher.sh from the app bundle
+SCRIPT_DIR="$(cd "$(dirname "${0}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+exec /bin/bash "$REPO_ROOT/Launcher.sh" "$@"

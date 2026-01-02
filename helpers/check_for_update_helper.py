@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import platform
 from datetime import datetime, timedelta, timezone
 from config import BASE_PATH
 import subprocess
@@ -248,10 +249,13 @@ def show_update_dialog_if_available(parent=None):
         save_update_config(cfg)
     elif action == 'update':
         try:
-            updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
-            if os.name == 'nt':
+            system = platform.system()
+            if system == "Windows":
+                updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
                 subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\\"{updater_path}\\\""', shell=True)
             else:
+                updater_path = os.path.join(BASE_PATH, "Update.sh")
+                os.chmod(updater_path, 0o755)
                 subprocess.Popen([updater_path])
         except Exception as e:
             print(f"Failed to launch updater: {e}")

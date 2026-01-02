@@ -4,6 +4,7 @@ import zipfile
 import sys
 import shutil
 import subprocess
+import platform
 from config import BASE_PATH
 
 expected = [
@@ -13,6 +14,40 @@ expected = [
     "ffmpeg"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
+
+def get_embedded_python_path():
+    system = platform.system()
+    if system == "Windows":
+        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+    elif system == "Darwin":
+        candidate = os.path.join(BASE_PATH, "python", "MacOS", "bin", "python3.12")
+    else:
+        candidate = os.path.join(BASE_PATH, "python", "Linux", "bin", "python3.12")
+    
+    if os.path.exists(candidate):
+        return candidate
+    return sys.executable
+
+def check_system_tool(tool_name):
+    system = platform.system()
+    if system == "Windows":
+        return False
+    
+    tool_commands = {
+        "ghostscript": "gs",
+        "exiftool": "exiftool",
+        "ffmpeg": "ffmpeg"
+    }
+    
+    cmd = tool_commands.get(tool_name)
+    if not cmd:
+        return False
+    
+    try:
+        result = subprocess.run(["which", cmd], capture_output=True, text=True)
+        return result.returncode == 0 and result.stdout.strip()
+    except Exception:
+        return False
 
 def print_progress_bar(downloaded, total_length):
     if total_length > 0:
@@ -43,18 +78,34 @@ def download_with_progress(url, filename):
         print(f"Failed to download: {e}")
 
 def check_folders():
+    system = platform.system()
+    
     for folder in expected_full:
         if not os.path.isdir(folder):
+            tool_name = os.path.basename(folder)
+            
+            if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg"]:
+                if check_system_tool(tool_name):
+                    print(f"{tool_name} found in system PATH, skipping download.")
+                    os.makedirs(folder, exist_ok=True)
+                    continue
+            
             print(f"Missing folder: {folder}")
             os.makedirs(folder, exist_ok=True)
-            if folder.endswith("ghostscript"):
-                download_and_extract_ghostscript(folder)
-            elif folder.endswith("exiftool"):
-                download_and_extract_exiftool(folder)
-            elif folder.endswith("cairo"):
-                download_and_extract_cairo(folder)
-            elif folder.endswith("ffmpeg"):
-                download_and_extract_ffmpeg(folder)
+            
+            if system == "Windows":
+                if folder.endswith("ghostscript"):
+                    download_and_extract_ghostscript(folder)
+                elif folder.endswith("exiftool"):
+                    download_and_extract_exiftool(folder)
+                elif folder.endswith("cairo"):
+                    download_and_extract_cairo(folder)
+                elif folder.endswith("ffmpeg"):
+                    download_and_extract_ffmpeg(folder)
+            else:
+                print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
+                if folder.endswith("cairo"):
+                    print("Note: Cairo is typically included with PySide6/Qt on Linux/Mac.")
 
 def download_and_extract_ghostscript(target_folder):
     url = "https://github.com/mudrikam/ghostscript-for-image-tea/archive/refs/heads/main.zip"
@@ -172,15 +223,10 @@ def download_and_extract_ffmpeg(target_folder):
 def install_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> bool:
     """Upgrade pip/tools and install a specific PyAutoGUI version using the given python executable.
 
-    If no executable is provided, the embedded Python under BASE_PATH\\python\\Windows\\python.exe is used when present,
-    otherwise the current running interpreter is used.
+    If no executable is provided, uses embedded Python if available, otherwise current interpreter.
     """
     if python_exe is None:
-        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
-        if os.path.exists(candidate):
-            python_exe = candidate
-        else:
-            python_exe = sys.executable
+        python_exe = get_embedded_python_path()
     if not os.path.exists(python_exe):
         print("Error: Python executable not found; cannot install pyautogui.")
         return False
@@ -202,11 +248,7 @@ def is_pyautogui_installed(python_exe: str | None = None) -> tuple[bool, str]:
     otherwise return (False, error_message).
     """
     if python_exe is None:
-        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
-        if os.path.exists(candidate):
-            python_exe = candidate
-        else:
-            python_exe = sys.executable
+        python_exe = get_embedded_python_path()
     try:
         out = subprocess.check_output(
             [python_exe, "-c", "import pyautogui; print(pyautogui.__version__)"],
@@ -254,11 +296,7 @@ def install_requirements(python_exe: str | None = None) -> bool:
         return True
     
     if python_exe is None:
-        candidate = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
-        if os.path.exists(candidate):
-            python_exe = candidate
-        else:
-            python_exe = sys.executable
+        python_exe = get_embedded_python_path()
     
     if not os.path.exists(python_exe):
         print("Error: Python executable not found; cannot install requirements.")

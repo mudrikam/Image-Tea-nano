@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+import platform
 from PIL import Image
 import config
 
@@ -21,7 +22,20 @@ PILLOW_FORMATS = set()
 for ext, fmt in Image.registered_extensions().items():
     PILLOW_FORMATS.add(ext.lower())
 
-GHOSTSCRIPT_PATH = os.path.join(BASE_PATH, "tools", "ghostscript", "gswin64c.exe")
+def get_ghostscript_path():
+    system = platform.system()
+    if system == "Windows":
+        return os.path.join(BASE_PATH, "tools", "ghostscript", "gswin64c.exe")
+    else:
+        gs_system = os.popen("which gs").read().strip()
+        if gs_system:
+            return gs_system
+        bundled_path = os.path.join(BASE_PATH, "tools", "ghostscript", "gs")
+        if os.path.exists(bundled_path):
+            return bundled_path
+        return "gs"
+
+GHOSTSCRIPT_PATH = get_ghostscript_path()
 
 
 def ensure_temp_folder():
