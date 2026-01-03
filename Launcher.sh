@@ -86,12 +86,12 @@ case "${OS}" in
         MACOS_MAJOR=$(echo "${MACOS_VERSION}" | cut -d '.' -f 1)
         MACOS_MINOR=$(echo "${MACOS_VERSION}" | cut -d '.' -f 2)
         
-        # Use Python 3.8 for older macOS versions (< 10.14)
+        # Use Python 3.9 for older macOS versions (< 10.14)
         if [ "${MACOS_MAJOR}" -lt 11 ] && [ "${MACOS_MINOR}" -lt 14 ]; then
-            echo "Detected older macOS version ${MACOS_VERSION}. Using Python 3.8 for compatibility..."
-            PYTHON_VERSION="3.8.19"
+            echo "Detected older macOS version ${MACOS_VERSION}. Using Python 3.9 for compatibility..."
+            PYTHON_VERSION="3.9.20"
             RELEASE_TAG="20240726"
-            PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.8"
+            PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.9"
         fi
         
         if [ "${ARCH}" = "x86_64" ]; then
@@ -125,8 +125,8 @@ case "${OS}" in
 esac
 
 # Set Python path based on detected configuration
-if [ "${PYTHON_VERSION}" = "3.8.19" ]; then
-    PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.8"
+if [ "${PYTHON_VERSION}" = "3.9.20" ]; then
+    PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.9"
 else
     PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
 fi
