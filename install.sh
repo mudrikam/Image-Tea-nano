@@ -371,7 +371,57 @@ install_python() {
     fi
     
     echo "Python extraction completed successfully."
-    
+
+    # Quick runtime test to ensure bundled Python works on this macOS
+    echo "Testing extracted Python for runtime compatibility..."
+    TEST_ERR_FILE="/tmp/python_test_err.txt"
+    set +e
+    "${PYTHON_PATH}" -c "import sys; print(sys.version)" 2> "${TEST_ERR_FILE}"
+    PY_EXIT=$?
+    set -e
+    if [ ${PY_EXIT} -ne 0 ]; then
+        echo "Bundled Python failed to start (exit ${PY_EXIT}). Checking error output..."
+        if grep -qi "dyld: Symbol not found" "${TEST_ERR_FILE}" || grep -qi "Abort trap" "${TEST_ERR_FILE}"; then
+            echo "Detected dyld symbol error or abort — this bundled Python is incompatible with the current macOS." 
+            echo "Attempting to find an alternative Python on the system (python3, python3.12, Homebrew)..."
+            # Prefer python3.12 if available, then python3 from PATH
+            SYS_PYTHON=""
+            if command -v python3.12 &> /dev/null; then
+                SYS_PYTHON=$(command -v python3.12)
+            elif command -v python3 &> /dev/null; then
+                SYS_PYTHON=$(command -v python3)
+            fi
+            if [ -n "${SYS_PYTHON}" ]; then
+                echo "Found system Python at ${SYS_PYTHON}. Verifying..."
+                set +e
+                ${SYS_PYTHON} -c "import sys; print(sys.version)" 2> "${TEST_ERR_FILE}"
+                SYS_EXIT=$?
+                set -e
+                if [ ${SYS_EXIT} -eq 0 ]; then
+                    echo "System Python works. Will use ${SYS_PYTHON} for installing pip and requirements."
+                    PYTHON_PATH="${SYS_PYTHON}"
+                else
+                    echo "System Python found but failed to run properly. See ${TEST_ERR_FILE}" 
+                    echo "Please install Python 3.12 via python.org installer or upgrade macOS, then re-run the installer." 
+                    cat "${TEST_ERR_FILE}"
+                    exit 1
+                fi
+            else
+                echo "No usable system Python found. Please install Python 3.12 from https://www.python.org/downloads/mac-osx/ or upgrade macOS to a supported version." 
+                echo "Error details from bundled Python:"
+                cat "${TEST_ERR_FILE}"
+                exit 1
+            fi
+        else
+            echo "Bundled Python failed for an unknown reason. See details:" 
+            cat "${TEST_ERR_FILE}"
+            exit 1
+        fi
+    else
+        echo "Bundled Python appears to run normally." 
+    fi
+    rm -f "${TEST_ERR_FILE}"
+
     # =====================================================================
     # Set up pip in the Python distribution
     # =====================================================================
