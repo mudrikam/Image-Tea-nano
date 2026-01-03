@@ -80,6 +80,20 @@ case "${OS}" in
     Darwin*)
         OS_DIR="MacOS"
         INSTALL_DIR="python/${OS_DIR}"
+        
+        # Detect macOS version
+        MACOS_VERSION=$(sw_vers -productVersion)
+        MACOS_MAJOR=$(echo "${MACOS_VERSION}" | cut -d '.' -f 1)
+        MACOS_MINOR=$(echo "${MACOS_VERSION}" | cut -d '.' -f 2)
+        
+        # Use Python 3.8 for older macOS versions (< 10.14)
+        if [ "${MACOS_MAJOR}" -lt 11 ] && [ "${MACOS_MINOR}" -lt 14 ]; then
+            echo "Detected older macOS version ${MACOS_VERSION}. Using Python 3.8 for compatibility..."
+            PYTHON_VERSION="3.8.19"
+            RELEASE_TAG="20240726"
+            PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.8"
+        fi
+        
         if [ "${ARCH}" = "x86_64" ]; then
             PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
         else
@@ -110,6 +124,7 @@ case "${OS}" in
         ;;
 esac
 
+# Default Python path (may be overridden for older macOS)
 PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
 REQUIREMENTS_FILE="${BASE_DIR}/requirements.txt"
 
@@ -131,9 +146,11 @@ else
 fi
 
 # Check python executable
-if [ -f "${PYTHON_PATH}" ]; then
-    echo "  [OK] python3.12 executable found."
+if [PYTHON_VERSION_DISPLAY=$(basename "${PYTHON_PATH}")
+    echo "  [OK] ${PYTHON_VERSION_DISPLAY} executable found."
 else
+    PYTHON_VERSION_DISPLAY=$(basename "${PYTHON_PATH}")
+    echo "  [MISSING] ${PYTHON_VERSION_DISPLAY}
     echo "  [MISSING] python3.12 executable not found!"
     CHECK_FAILED=1
 fi
