@@ -227,18 +227,27 @@ if [ "${OS}" = "Linux" ]; then
     fi
 elif [ "${OS}" = "Darwin" ]; then
     if ! command -v brew &> /dev/null; then
-        echo "Homebrew not found. Installing Homebrew..."
+        echo "Homebrew not found. Attempting to install Homebrew..."
         echo "You may be asked for your password."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        echo "Note: Homebrew may not support older macOS versions. If installation fails, continuing without Homebrew..."
+        set +e
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" 2>&1 | tee /tmp/brew_install.log
+        BREW_INSTALL_EXIT=$?
+        set -e
         
-        # Re-detect Homebrew prefix after installation
-        if [ -x "/opt/homebrew/bin/brew" ]; then
-            BREW_PREFIX="/opt/homebrew"
-        elif [ -x "/usr/local/bin/brew" ]; then
-            BREW_PREFIX="/usr/local"
-        fi
-        if [ -n "${BREW_PREFIX}" ]; then
-            export PATH="${BREW_PREFIX}/bin:${BREW_PREFIX}/sbin:${PATH}"
+        if [ ${BREW_INSTALL_EXIT} -ne 0 ]; then
+            echo "Homebrew installation failed (likely due to older macOS version)."
+            echo "Continuing without Homebrew - some optional dependencies may not be available."
+        else
+            # Re-detect Homebrew prefix after installation
+            if [ -x "/opt/homebrew/bin/brew" ]; then
+                BREW_PREFIX="/opt/homebrew"
+            elif [ -x "/usr/local/bin/brew" ]; then
+                BREW_PREFIX="/usr/local"
+            fi
+            if [ -n "${BREW_PREFIX}" ]; then
+                export PATH="${BREW_PREFIX}/bin:${BREW_PREFIX}/sbin:${PATH}"
+            fi
         fi
     fi
     
@@ -277,8 +286,19 @@ elif [ "${OS}" = "Darwin" ]; then
     fi
     
     if [ -n "$MISSING_TOOLS" ]; then
-        echo "Installing required tools via Homebrew:$MISSING_TOOLS"
-        brew install $MISSING_TOOLS
+        if command -v brew &> /dev/null; then
+            echo "Installing required tools via Homebrew:$MISSING_TOOLS"
+            set +e
+            brew install $MISSING_TOOLS
+            BREW_INSTALL_EXIT=$?
+            set -e
+            if [ ${BREW_INSTALL_EXIT} -ne 0 ]; then
+                echo "Some Homebrew packages failed to install. Continuing anyway..."
+            fi
+        else
+            echo "Homebrew not available. Skipping optional tool installation."
+            echo "Note: Some features may be limited without these tools:$MISSING_TOOLS"
+        fi
     else
         echo "[OK] All required tools are installed."
     fi
@@ -454,13 +474,22 @@ install_python() {
     # Download get-pip.py and install pip
     echo "Installing pip..."
     PIP_TEMP="/tmp/get-pip.py"
+    
+    # Use appropriate pip installer based on Python version
+    if [ "${PYTHON_VERSION}" = "3.8.19" ]; then
+        PIP_URL="https://bootstrap.pypa.io/pip/3.8/get-pip.py"
+        echo "Using Python 3.8 compatible pip installer..."
+    else
+        PIP_URL="https://bootstrap.pypa.io/get-pip.py"
+    fi
+    
     if command -v curl &> /dev/null; then
-        curl -L "https://bootstrap.pypa.io/get-pip.py" -o "${PIP_TEMP}" || {
+        curl -L "${PIP_URL}" -o "${PIP_TEMP}" || {
             echo "Failed to download get-pip.py"
             exit 1
         }
     elif command -v wget &> /dev/null; then
-        wget "https://bootstrap.pypa.io/get-pip.py" -O "${PIP_TEMP}" || {
+        wget "${PIP_URL}" -O "${PIP_TEMP}" || {
             echo "Failed to download get-pip.py"
             exit 1
         }
