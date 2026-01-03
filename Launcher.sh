@@ -3,7 +3,7 @@
 # =====================================================================
 # Image-Tea Launcher Script for Unix-like Systems
 # Author: Mudrikul Hikam
-# Last Updated: Januari, 1 2026
+# Last Updated: Januari, 3 2026
 # 
 # This script performs the following tasks:
 # 1. If Python folder exists, directly runs main.py
@@ -47,29 +47,60 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_VERSION="3.12.10"
 RELEASE_TAG="20250409"
 OS="$(uname -s)"
+ARCH="$(uname -m)"
 
-# Define the Python version to be consistent with Windows script
-PYTHON_VERSION="3.12.10"
-RELEASE_TAG="20250409"
+# Normalize architecture names
+case "${ARCH}" in
+    x86_64|amd64)
+        ARCH="x86_64"
+        ;;
+    aarch64|arm64)
+        ARCH="aarch64"
+        ;;
+    *)
+        echo "Unsupported architecture: ${ARCH}"
+        exit 1
+        ;;
+esac
 
 case "${OS}" in
     Linux*)
         OS_DIR="Linux"
         INSTALL_DIR="python/${OS_DIR}"
-        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz"
-        # Set Linux-specific vars
+        if [ "${ARCH}" = "x86_64" ]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz"
+            export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH}"
+        else
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-aarch64-unknown-linux-gnu-install_only.tar.gz"
+            export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH}"
+        fi
         export XDG_RUNTIME_DIR="/run/user/$(id -u)"
         export QT_QPA_PLATFORM=xcb
-        # System libraries path
-        export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH}"
         ;;
     Darwin*)
         OS_DIR="MacOS"
         INSTALL_DIR="python/${OS_DIR}"
-        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
-        # Set macOS-specific environment variables
+        if [ "${ARCH}" = "x86_64" ]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
+        else
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-aarch64-apple-darwin-install_only.tar.gz"
+        fi
         export QT_MAC_WANTS_LAYER=1
-        # Ensure macOS frameworks path is included
+        
+        # Detect Homebrew prefix (Apple Silicon vs Intel)
+        if [ -x "/opt/homebrew/bin/brew" ]; then
+            BREW_PREFIX="/opt/homebrew"
+        elif [ -x "/usr/local/bin/brew" ]; then
+            BREW_PREFIX="/usr/local"
+        else
+            BREW_PREFIX=""
+        fi
+        
+        # Add Homebrew to PATH if not already there
+        if [ -n "${BREW_PREFIX}" ] && [[ ":$PATH:" != *":${BREW_PREFIX}/bin:"* ]]; then
+            export PATH="${BREW_PREFIX}/bin:${BREW_PREFIX}/sbin:${PATH}"
+        fi
+        
         export DYLD_FRAMEWORK_PATH="${BASE_DIR}/${INSTALL_DIR}/lib:${DYLD_FRAMEWORK_PATH}"
         export DYLD_LIBRARY_PATH="${BASE_DIR}/${INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH}"
         ;;
@@ -82,107 +113,6 @@ esac
 PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
 REQUIREMENTS_FILE="${BASE_DIR}/requirements.txt"
 
-# =====================================================================
-#######################################################################
-# Check for clang compiler (required for some Python packages)
-#######################################################################
-if ! command -v clang &> /dev/null; then
-    echo ""
-    echo "==================================================="
-    echo "  'clang' compiler is required for some dependencies."
-    echo "  It will be installed using your system package manager."
-    echo "  You may be asked for your password."
-    echo "==================================================="
-    echo "Press Enter to continue and install clang, or Ctrl+C to abort."
-    read -r
-    sudo apt-get update && sudo apt-get install -y clang
-    if ! command -v clang &> /dev/null; then
-        echo "Failed to install clang. Please install it manually and re-run this script."
-        exit 1
-    fi
-else
-    echo "clang compiler is already installed."
-fi
-
-# =====================================================================
-#######################################################################
-# Check for Qt xcb platform plugin dependencies (Linux only)
-#######################################################################
-if [ "${OS}" = "Linux" ]; then
-    MISSING_PACKAGES=""
-    for pkg in libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render0 libxcb-shm0; do
-        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
-            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
-        fi
-    done
-    if [ -n "$MISSING_PACKAGES" ]; then
-        echo "Checking Qt xcb platform plugin dependencies..."
-        echo "Installing missing Qt dependencies:$MISSING_PACKAGES"
-        echo "You may be asked for your password."
-        sudo apt-get update && sudo apt-get install -y $MISSING_PACKAGES
-    fi
-fi
-
-# =====================================================================
-#######################################################################
-# Check for required tools (ghostscript, exiftool, ffmpeg)
-#######################################################################
-echo "Checking required image processing tools..."
-
-if [ "${OS}" = "Linux" ]; then
-    MISSING_TOOLS=""
-    
-    if ! command -v gs &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
-    fi
-    
-    if ! command -v exiftool &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS libimage-exiftool-perl"
-    fi
-    
-    if ! command -v ffmpeg &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
-    fi
-    
-    if [ -n "$MISSING_TOOLS" ]; then
-        echo "Installing required tools:$MISSING_TOOLS"
-        echo "You may be asked for your password."
-        sudo apt-get update && sudo apt-get install -y $MISSING_TOOLS
-    else
-        echo "All required tools are already installed."
-    fi
-elif [ "${OS}" = "Darwin" ]; then
-    if ! command -v brew &> /dev/null; then
-        echo "Homebrew not found. Installing Homebrew..."
-        echo "You may be asked for your password."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    fi
-    
-    MISSING_TOOLS=""
-    
-    if ! command -v gs &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
-    fi
-    
-    if ! command -v exiftool &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS exiftool"
-    fi
-    
-    if ! command -v ffmpeg &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
-    fi
-    
-    if ! brew list inih &> /dev/null; then
-        MISSING_TOOLS="$MISSING_TOOLS inih"
-    fi
-    
-    if [ -n "$MISSING_TOOLS" ]; then
-        echo "Installing required tools via Homebrew:$MISSING_TOOLS"
-        brew install $MISSING_TOOLS
-    else
-        echo "All required tools are already installed."
-    fi
-fi
 # =====================================================================
 #######################################################################
 # Robust dependency check (folder, files, pip, requirements)

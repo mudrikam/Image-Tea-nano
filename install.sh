@@ -40,17 +40,55 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_VERSION="3.12.10"
 RELEASE_TAG="20250409"
 OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+# Normalize architecture names
+case "${ARCH}" in
+    x86_64|amd64)
+        ARCH="x86_64"
+        ;;
+    aarch64|arm64)
+        ARCH="aarch64"
+        ;;
+    *)
+        echo "Unsupported architecture: ${ARCH}"
+        exit 1
+        ;;
+esac
 
 case "${OS}" in
     Linux*)
         OS_DIR="Linux"
         INSTALL_DIR="python/${OS_DIR}"
-        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        if [ "${ARCH}" = "x86_64" ]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        else
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-aarch64-unknown-linux-gnu-install_only.tar.gz"
+        fi
         ;;
     Darwin*)
         OS_DIR="MacOS"
         INSTALL_DIR="python/${OS_DIR}"
-        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
+        if [ "${ARCH}" = "x86_64" ]; then
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-x86_64-apple-darwin-install_only.tar.gz"
+        else
+            PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${PYTHON_VERSION}+${RELEASE_TAG}-aarch64-apple-darwin-install_only.tar.gz"
+        fi
+        
+        # Detect Homebrew prefix and set library paths for macOS
+        if [ -x "/opt/homebrew/bin/brew" ]; then
+            BREW_PREFIX="/opt/homebrew"
+        elif [ -x "/usr/local/bin/brew" ]; then
+            BREW_PREFIX="/usr/local"
+        else
+            BREW_PREFIX=""
+        fi
+        
+        if [ -n "${BREW_PREFIX}" ]; then
+            export PATH="${BREW_PREFIX}/bin:${BREW_PREFIX}/sbin:${PATH}"
+            export DYLD_LIBRARY_PATH="${BREW_PREFIX}/lib:${DYLD_LIBRARY_PATH}"
+            export DYLD_FRAMEWORK_PATH="${BREW_PREFIX}/lib:${DYLD_FRAMEWORK_PATH}"
+        fi
         ;;
     *)
         echo "Unsupported operating system: ${OS}"
@@ -62,6 +100,180 @@ PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
 REQUIREMENTS_FILE="${BASE_DIR}/requirements.txt"
 TEMP_DIR="${BASE_DIR}/temp"
 VERIFY_FILE="${TEMP_DIR}/.is_installation_verified"
+
+# =====================================================================
+#######################################################################
+# Check for compiler (required for some Python packages)
+#######################################################################
+echo "Checking system requirements..."
+echo ""
+
+if [ "${OS}" = "Linux" ]; then
+    if ! command -v clang &> /dev/null && ! command -v gcc &> /dev/null; then
+        echo "==================================================="
+        echo "  C compiler (clang or gcc) is required."
+        echo "  Installing build-essential package..."
+        echo "  You may be asked for your password."
+        echo "==================================================="
+        sudo apt-get update && sudo apt-get install -y build-essential clang
+    else
+        echo "[OK] C compiler found."
+    fi
+elif [ "${OS}" = "Darwin" ]; then
+    if ! command -v clang &> /dev/null; then
+        echo "==================================================="
+        echo "  Xcode Command Line Tools required for macOS."
+        echo "  Installing now..."
+        echo "==================================================="
+        xcode-select --install
+        echo "Please complete the installation dialog, then re-run this script."
+        exit 0
+    else
+        echo "[OK] Xcode Command Line Tools found."
+    fi
+fi
+
+# =====================================================================
+#######################################################################
+# Check for Qt xcb platform plugin and Python package dependencies (Linux only)
+#######################################################################
+if [ "${OS}" = "Linux" ]; then
+    echo "Checking system dependencies for Qt, CairoSVG, opencv, and pynput..."
+    MISSING_PACKAGES=""
+    
+    # Qt xcb platform dependencies
+    for pkg in libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render0 libxcb-shm0; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
+        fi
+    done
+    
+    # CairoSVG dependencies
+    for pkg in libcairo2-dev libpango1.0-dev; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
+        fi
+    done
+    
+    # opencv-python dependencies
+    for pkg in libgl1-mesa-glx libglib2.0-0; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
+        fi
+    done
+    
+    # pynput dependencies
+    for pkg in python3-xlib xdotool; do
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            MISSING_PACKAGES="$MISSING_PACKAGES $pkg"
+        fi
+    done
+    
+    if [ -n "$MISSING_PACKAGES" ]; then
+        echo "Installing missing system dependencies:$MISSING_PACKAGES"
+        echo "You may be asked for your password."
+        sudo apt-get update && sudo apt-get install -y $MISSING_PACKAGES
+    else
+        echo "[OK] All system dependencies are installed."
+    fi
+fi
+
+# =====================================================================
+#######################################################################
+# Check for required tools (ghostscript, exiftool, ffmpeg)
+#######################################################################
+echo "Checking required image processing tools..."
+
+if [ "${OS}" = "Linux" ]; then
+    MISSING_TOOLS=""
+    
+    if ! command -v gs &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
+    fi
+    
+    if ! command -v exiftool &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS libimage-exiftool-perl"
+    fi
+    
+    if ! command -v ffmpeg &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
+    fi
+    
+    if [ -n "$MISSING_TOOLS" ]; then
+        echo "Installing required tools:$MISSING_TOOLS"
+        echo "You may be asked for your password."
+        sudo apt-get update && sudo apt-get install -y $MISSING_TOOLS
+    else
+        echo "[OK] All required tools are installed."
+    fi
+elif [ "${OS}" = "Darwin" ]; then
+    if ! command -v brew &> /dev/null; then
+        echo "Homebrew not found. Installing Homebrew..."
+        echo "You may be asked for your password."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        
+        # Re-detect Homebrew prefix after installation
+        if [ -x "/opt/homebrew/bin/brew" ]; then
+            BREW_PREFIX="/opt/homebrew"
+        elif [ -x "/usr/local/bin/brew" ]; then
+            BREW_PREFIX="/usr/local"
+        fi
+        if [ -n "${BREW_PREFIX}" ]; then
+            export PATH="${BREW_PREFIX}/bin:${BREW_PREFIX}/sbin:${PATH}"
+        fi
+    fi
+    
+    MISSING_TOOLS=""
+    
+    if ! command -v gs &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ghostscript"
+    fi
+    
+    if ! command -v exiftool &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS exiftool"
+    fi
+    
+    if ! command -v ffmpeg &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS ffmpeg"
+    fi
+    
+    if ! brew list inih &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS inih"
+    fi
+    
+    if ! brew list brotli &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS brotli"
+    fi
+    
+    if ! brew list exiv2 &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS exiv2"
+    fi
+    
+    if ! brew list cairo &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS cairo"
+    fi
+    
+    if ! brew list pango &> /dev/null; then
+        MISSING_TOOLS="$MISSING_TOOLS pango"
+    fi
+    
+    if [ -n "$MISSING_TOOLS" ]; then
+        echo "Installing required tools via Homebrew:$MISSING_TOOLS"
+        brew install $MISSING_TOOLS
+    else
+        echo "[OK] All required tools are installed."
+    fi
+    
+    # Update library paths with Homebrew prefix
+    if command -v brew &> /dev/null; then
+        BREW_PREFIX="$(brew --prefix)"
+        export DYLD_LIBRARY_PATH="${BREW_PREFIX}/lib:${DYLD_LIBRARY_PATH}"
+        export DYLD_FRAMEWORK_PATH="${BREW_PREFIX}/lib:${DYLD_FRAMEWORK_PATH}"
+    fi
+fi
+
+echo ""
+echo "System requirements check complete."
 
 # =====================================================================
 # Main installation loop with verification
