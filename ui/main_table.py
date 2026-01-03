@@ -354,17 +354,20 @@ class GridManager:
         image_label.setAttribute(Qt.WA_Hover, True)
         image_label.setCursor(Qt.PointingHandCursor)
         self._set_image(image_label, filepath, status)
+        
+        full_name = f"{filename}{extension}" if not filename.endswith(extension) else filename
+        
         MAX_NAME_LENGTH = 18
-        if len(filename) > MAX_NAME_LENGTH:
-            display_name = f"{filename[:MAX_NAME_LENGTH-3]}...{extension}"
+        if len(full_name) > MAX_NAME_LENGTH:
+            display_name = f"{full_name[:MAX_NAME_LENGTH-3]}..."
         else:
-            display_name = f"{filename}{extension}"
+            display_name = full_name
         text_label = QLabel(display_name)
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setWordWrap(False)
         text_label.setFixedWidth(self.image_size)
         text_label.setStyleSheet("font-size: 9pt;")
-        text_label.setToolTip(f"{filename}{extension}")
+        text_label.setToolTip(full_name)
         layout.addWidget(image_label)
         layout.addWidget(text_label)
         container.setProperty("file_info", file_info)
@@ -892,6 +895,25 @@ class ImageTableWidget(QWidget):
         self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
         self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
         
+        thumbnail_controls_layout = QHBoxLayout()
+        thumbnail_controls_layout.setContentsMargins(4, 4, 4, 4)
+        zoom_label = QLabel("Columns per Row:")
+        zoom_label.setStyleSheet("font-size: 9pt; color: #666;")
+        thumbnail_controls_layout.addWidget(zoom_label)
+        
+        self.zoom_preset_combo = QComboBox(self)
+        self.zoom_preset_combo.addItems(["2 Columns", "3 Columns", "4 Columns", "5 Columns", "6 Columns", "7 Columns", "8 Columns"])
+        self.zoom_preset_combo.setCurrentText("4 Columns")
+        self.zoom_preset_combo.setFixedWidth(120)
+        self.zoom_preset_combo.setToolTip("Select number of thumbnail columns per row (or use Ctrl+Scroll to zoom)")
+        self.zoom_preset_combo.currentTextChanged.connect(self._on_zoom_preset_changed)
+        thumbnail_controls_layout.addWidget(self.zoom_preset_combo)
+        
+        self._current_column_count = 4
+        
+        thumbnail_controls_layout.addStretch()
+        self.thumbnail_tab_layout.addLayout(thumbnail_controls_layout)
+        
         self.thumbnail_scroll = DragDropScrollArea(self.thumbnail_tab)
         self.thumbnail_scroll.setWidgetResizable(True)
         self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
@@ -993,6 +1015,11 @@ class ImageTableWidget(QWidget):
         self._thumb_resize_timer.setSingleShot(True)
         self._thumb_resize_timer.setInterval(300)
         self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
+        
+        self._resize_recalc_timer = QTimer(self)
+        self._resize_recalc_timer.setSingleShot(True)
+        self._resize_recalc_timer.setInterval(150)
+        self._resize_recalc_timer.timeout.connect(self._recalculate_thumbnail_size_from_columns)
 
                                                           
         self._pending_hover_row = None
@@ -1004,6 +1031,7 @@ class ImageTableWidget(QWidget):
         self._tooltip_timer.timeout.connect(self._show_pending_tooltip)
 
         self.refresh_table()
+        QTimer.singleShot(0, self._recalculate_thumbnail_size_from_columns)
 
     def eventFilter(self, obj, event):
         """Handle resize events to force thumbnail layout refresh and checkbox drag selection"""
@@ -1097,7 +1125,7 @@ class ImageTableWidget(QWidget):
                                   
         if obj == self.thumbnail_scroll and event.type() == QEvent.Resize:
             if self.tab_widget.currentIndex() == 1:
-                QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
+                self._resize_recalc_timer.start()
                 return True
 
                                               
@@ -1121,13 +1149,13 @@ class ImageTableWidget(QWidget):
                            
                     new_size = max(48, min(600, new_size))
 
-                                                                                         
                     self.grid_manager.set_image_size(new_size)
-                                                                       
+                    
+                    self._update_zoom_preset_dropdown(new_size)
+                    
                     self._pending_thumb_size = new_size
                     self._thumb_resize_timer.start()
 
-                                                                              
                     QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
                     return True
 
@@ -1198,6 +1226,93 @@ class ImageTableWidget(QWidget):
             self._page_cache.clear()
             self._load_page_data()
             self._update_pagination_ui()
+
+    def _on_zoom_preset_changed(self, preset_text):
+        """Handle zoom preset selection from dropdown - calculate size based on columns"""
+        column_map = {
+            "2 Columns": 2,
+            "3 Columns": 3,
+            "4 Columns": 4,
+            "5 Columns": 5,
+            "6 Columns": 6,
+            "7 Columns": 7,
+            "8 Columns": 8
+        }
+        
+        columns = column_map.get(preset_text)
+        if columns:
+            self._current_column_count = columns
+            new_size = self._calculate_thumbnail_size_from_columns(columns)
+            
+            if new_size != self.grid_manager.image_size:
+                self.grid_manager.set_image_size(new_size)
+                
+                self._pending_thumb_size = new_size
+                self._thumb_resize_timer.start()
+                
+                QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
+    
+    def _update_zoom_preset_dropdown(self, current_size):
+        """Update dropdown to match current thumbnail size (called from Ctrl+Scroll)"""
+        columns = self._calculate_columns_from_size(current_size)
+        
+        column_text_map = {
+            2: "2 Columns",
+            3: "3 Columns",
+            4: "4 Columns",
+            5: "5 Columns",
+            6: "6 Columns",
+            7: "7 Columns",
+            8: "8 Columns"
+        }
+        
+        selected_preset = column_text_map.get(columns, "4 Columns")
+        
+        if selected_preset != self.zoom_preset_combo.currentText():
+            self._current_column_count = columns
+            self.zoom_preset_combo.blockSignals(True)
+            self.zoom_preset_combo.setCurrentText(selected_preset)
+            self.zoom_preset_combo.blockSignals(False)
+    
+    def _calculate_thumbnail_size_from_columns(self, columns):
+        """Calculate thumbnail size based on desired number of columns"""
+        available_width = self.thumbnail_scroll.viewport().width()
+        
+        margin = 10
+        spacing = 10
+        
+        total_spacing = spacing * (columns - 1)
+        total_margins = margin * 2
+        
+        usable_width = available_width - total_spacing - total_margins
+        thumbnail_size = max(48, min(600, int(usable_width / columns) - 10))
+        
+        return thumbnail_size
+    
+    def _calculate_columns_from_size(self, size):
+        """Calculate approximate column count from thumbnail size"""
+        available_width = self.thumbnail_scroll.viewport().width()
+        
+        margin = 10
+        spacing = 10
+        item_width = size + 10
+        
+        usable_width = available_width - (margin * 2)
+        
+        columns = max(2, int((usable_width + spacing) / (item_width + spacing)))
+        columns = min(8, columns)
+        
+        return columns
+    
+    def _recalculate_thumbnail_size_from_columns(self):
+        """Recalculate thumbnail size based on current column count (called on window resize)"""
+        if self.tab_widget.currentIndex() != 1:
+            return
+        
+        new_size = self._calculate_thumbnail_size_from_columns(self._current_column_count)
+        if new_size != self.grid_manager.image_size:
+            self.grid_manager.set_image_size(new_size)
+            QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
 
     def _update_pagination_ui(self):
         total_pages = max(1, (self.total_count + self.page_size - 1) // self.page_size)
