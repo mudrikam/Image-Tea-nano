@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QMessageBox, QFileDialog, QLabel, QLineEdit, QInputDialog, QSizePolicy, QSpacerItem
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QWidget, QMessageBox, QFileDialog, QLabel, QLineEdit, QInputDialog, QSizePolicy, QSpacerItem, QApplication
 from PySide6.QtCore import Qt
 import os
+import sys
 import zipfile
 from datetime import datetime
 from config import BASE_PATH
@@ -8,6 +9,7 @@ import re
 import shutil
 import json
 import qtawesome as qta
+import traceback
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 
 EXCLUDED_FILES = { 'update_config.json', '__init__.py', 'backup_configs' }
@@ -548,8 +550,21 @@ class BackupGlobalConfigDialog(QDialog):
 		self.refresh_backup_list()
 
 	def restore_from_dialog(self):
-		home = os.path.expanduser('~')
-		fname, _ = QFileDialog.getOpenFileName(self, "Select Backup to Restore", home, "Zip files (*.zip);;All Files (*)")
+		# Ensure UI is responsive before opening dialog
+		QApplication.processEvents()
+		# Prefer the backups folder as the starting directory to avoid slow remote home directories
+		start_dir = self.backups_dir if os.path.exists(self.backups_dir) else os.path.expanduser('~')
+		options = QFileDialog.Options()
+		# On macOS and some Linux setups, native file dialogs may hang — use non-native dialog as a fallback
+		if sys.platform.startswith('darwin') or sys.platform.startswith('linux'):
+			options |= QFileDialog.DontUseNativeDialog
+		try:
+			fname, _ = QFileDialog.getOpenFileName(self, "Select Backup to Restore", start_dir, "Zip files (*.zip);;All Files (*)", options=options)
+		except Exception as e:
+			print(f"Error opening file dialog: {e}")
+			traceback.print_exc()
+			QMessageBox.warning(self, "Open File Error", "Failed to open file dialog. Try opening backups directly from the 'configs/backup_configs' folder.")
+			return
 		if fname:
 			self.confirm_and_restore(fname)
 
