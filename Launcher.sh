@@ -146,12 +146,12 @@ else
 fi
 
 # Check python executable
-if [PYTHON_VERSION_DISPLAY=$(basename "${PYTHON_PATH}")
+if [ -f "${PYTHON_PATH}" ]; then
+    PYTHON_VERSION_DISPLAY=$(basename "${PYTHON_PATH}")
     echo "  [OK] ${PYTHON_VERSION_DISPLAY} executable found."
 else
     PYTHON_VERSION_DISPLAY=$(basename "${PYTHON_PATH}")
-    echo "  [MISSING] ${PYTHON_VERSION_DISPLAY}
-    echo "  [MISSING] python3.12 executable not found!"
+    echo "  [MISSING] ${PYTHON_VERSION_DISPLAY} executable not found!"
     CHECK_FAILED=1
 fi
 
