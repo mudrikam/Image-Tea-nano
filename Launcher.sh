@@ -124,8 +124,12 @@ case "${OS}" in
         ;;
 esac
 
-# Default Python path (may be overridden for older macOS)
-PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
+# Set Python path based on detected configuration
+if [ "${PYTHON_VERSION}" = "3.8.19" ]; then
+    PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.8"
+else
+    PYTHON_PATH="${BASE_DIR}/${INSTALL_DIR}/bin/python3.12"
+fi
 REQUIREMENTS_FILE="${BASE_DIR}/requirements.txt"
 
 # =====================================================================
