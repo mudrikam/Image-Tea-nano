@@ -96,7 +96,6 @@ echo ============================================
 echo Update finished.
 echo ============================================
 
-REM Attempt to close any running embedded Image Tea process (pythonw) and relaunch automatically
 set "PY_PIDS="
 set "PYTHONW_ESC=%PYTHONW:\=\\%"
 for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$path='%PYTHONW_ESC%'; try { $procs = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $path } | Select-Object -ExpandProperty ProcessId; if ($procs) { $procs -join ' ' } } catch { '' }"`) do set "PY_PIDS=%%p"
@@ -114,14 +113,9 @@ if defined PY_PIDS (
 echo Relaunching application now...
 if exist "%EXE_PATH%" (
     start "" "%EXE_PATH%"
+) else if exist "%PYTHONW%" (
+    start "" "%PYTHONW%" "%MAIN_PY%"
 ) else (
-    if exist "%PYTHONW%" (
-        start "" "%PYTHONW%" "%MAIN_PY%"
-    ) else (
-        echo Could not find launcher executable or embedded python to relaunch. Please start Image Tea manually.
-    )
+    echo Could not find launcher executable or embedded python to relaunch. Please start Image Tea manually.
+    pause
 )
-
-timeout /t 1 >nul
-cmd /c del "%~f0"
-exit /b 0
