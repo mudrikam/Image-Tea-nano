@@ -113,10 +113,12 @@ if defined PY_PIDS (
 echo Relaunching application now...
 if exist "%EXE_PATH%" (
     start "" "%EXE_PATH%"
-) else if exist "%PYTHONW%" (
-    start "" "%PYTHONW%" "%MAIN_PY%"
 ) else (
-    echo Could not find launcher executable or embedded python to relaunch. Please start Image Tea manually.
+    if exist "%PYTHONW%" (
+        start "" "%PYTHONW%" "%MAIN_PY%"
+    ) else (
+        echo Could not find launcher executable or embedded python to relaunch. Please start Image Tea manually.
+    )
 )
 
 cmd /c del "%~f0" & exit
