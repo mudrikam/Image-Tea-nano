@@ -42,7 +42,7 @@ REM =====================================================================
 REM Download and extract Python embedded distribution
 REM =====================================================================
 echo Downloading Python embedded distribution...
-powershell -Command "Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%'"
+powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%'"
 
 echo Extracting Python...
 powershell -Command "Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force"
@@ -63,7 +63,7 @@ for %%F in ("%PYTHON_DIR%\python*._pth") do (
     move /y "%%F.tmp" "%%F"
 )
 
-powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%PYTHON_DIR%\get-pip.py'"
+powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%PYTHON_DIR%\get-pip.py'"
 "%PYTHON_DIR%\python.exe" "%PYTHON_DIR%\get-pip.py" --no-warn-script-location
 
 echo Upgrading pip to the latest version...

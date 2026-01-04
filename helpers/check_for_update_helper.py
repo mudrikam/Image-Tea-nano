@@ -250,12 +250,59 @@ def show_update_dialog_if_available(parent=None):
     elif action == 'update':
         try:
             system = platform.system()
+            links = get_app_config().get('links', {})
+            repo_url = links.get('repo', 'https://github.com/mudrikam/Image-Tea-nano')
             if system == "Windows":
-                updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
-                subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\\"{updater_path}\\\""', shell=True)
+                updater_exe = os.path.join(BASE_PATH, "Image Tea Updater.exe")
+                update_bat = os.path.join(BASE_PATH, "Update.bat")
+
+                # Try exe first (elevated). If missing or fails, fallback to Update.bat
+                if os.path.exists(updater_exe):
+                    try:
+                        subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\\"{updater_exe}\\\""', shell=True)
+                        return
+                    except Exception as e:
+                        print(f"Failed to launch updater exe: {e}")
+
+                if os.path.exists(update_bat):
+                    try:
+                        subprocess.Popen(["cmd", "/c", "start", "", update_bat], shell=False)
+                        return
+                    except Exception as e:
+                        print(f"Failed to launch Update.bat: {e}")
+
+                # Both methods failed — inform the user
+                msg = (
+                    "Updater executable and Update.bat were not found or could not be launched. "
+                    "It is possible that your antivirus removed the updater. "
+                    "Please check your antivirus quarantine or temporarily disable antivirus and try again. "
+                    f"You can also download the latest release manually from: {repo_url}"
+                )
+                print(msg)
+                try:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(parent, "Updater Not Available", msg)
+                except Exception:
+                    pass
             else:
-                updater_path = os.path.join(BASE_PATH, "Update.sh")
-                os.chmod(updater_path, 0o755)
-                subprocess.Popen([updater_path])
+                updater_sh = os.path.join(BASE_PATH, "Update.sh")
+                if os.path.exists(updater_sh):
+                    try:
+                        os.chmod(updater_sh, 0o755)
+                        subprocess.Popen([updater_sh])
+                        return
+                    except Exception as e:
+                        print(f"Failed to launch Update.sh: {e}")
+                msg = (
+                    "Updater script was not found or could not be launched. "
+                    "It is possible that your antivirus or system policy removed the updater. "
+                    f"Please check your system and visit {repo_url} to download manually."
+                )
+                print(msg)
+                try:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(parent, "Updater Not Available", msg)
+                except Exception:
+                    pass
         except Exception as e:
-            print(f"Failed to launch updater: {e}")
+            print(f"Failed to run updater: {e}")

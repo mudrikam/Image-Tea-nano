@@ -15,11 +15,11 @@ set "EXE_PATH=%CUR_DIR%Image Tea.exe"
 
 echo Fetching latest release tag from GitHub...
 
-for /f "usebackq delims=" %%a in (`powershell -Command "try {(Invoke-WebRequest -Uri '%RELEASES_API%').Content | ConvertFrom-Json | Select-Object -ExpandProperty tag_name} catch {''}"`) do set "TAG_NAME=%%a"
+for /f "usebackq delims=" %%a in (`powershell -Command "try {(Invoke-WebRequest -UseBasicParsing -Uri '%RELEASES_API%').Content | ConvertFrom-Json | Select-Object -ExpandProperty tag_name} catch {''}"`) do set "TAG_NAME=%%a"
 
 if "%TAG_NAME%"=="" (
-    echo Failed to fetch release tag. Using fallback version v1.0.42
-    set "TAG_NAME=v1.0.42"
+    echo Failed to fetch release tag. Using fallback version v1.0.51
+    set "TAG_NAME=v1.0.51"
 )
 
 for /f %%b in ("%TAG_NAME%") do set "TAG_NAME=%%b"
@@ -36,7 +36,7 @@ echo   Target : %ZIP_PATH%
 echo ============================================
 
 echo Downloading latest release ZIP from GitHub...
-powershell -Command "Invoke-WebRequest -Uri '%REPO_URL%' -OutFile '%ZIP_PATH%' -Headers @{'Cache-Control'='no-cache'}"
+powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%REPO_URL%' -OutFile '%ZIP_PATH%' -Headers @{'Cache-Control'='no-cache'}"
 
 if not exist "%ZIP_PATH%" (
     echo Failed to download ZIP file. Aborting update.
@@ -92,18 +92,31 @@ del /f /q "%ZIP_PATH%"
 rmdir /s /q "%EXTRACT_PATH%"
 
 echo.
-echo ================================
+echo ============================================
 echo Update finished.
-echo ================================
-echo Press Y to launch the application now, or N to close.
+echo ============================================
 
-choice /c yn /n /m "Launch the application now? (Y/N): "
-if errorlevel 2 (
-    echo Update finished. You can run the application later from Image Tea.exe
+REM Attempt to close any running embedded Image Tea process (pythonw) and relaunch automatically
+set "PY_PIDS="
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "try { $p = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '%PYTHONW%' } | Select-Object -ExpandProperty ProcessId -ErrorAction SilentlyContinue; if ($p) { ($p -join ' ') } } catch { }"`) do set "PY_PIDS=%%p"
+if defined PY_PIDS (
+    echo Found running Image Tea process(es): %PY_PIDS%
+    for %%i in (%PY_PIDS%) do (
+        echo Stopping PID %%i ...
+        taskkill /PID %%i /T /F >nul 2>nul || echo Failed to stop PID %%i
+    )
+    timeout /t 1 >nul
 ) else (
-    echo.
-    echo Launching Image Tea.exe...
+    echo No running embedded Image Tea process found.
+)
+
+echo Relaunching application now...
+if exist "%EXE_PATH%" (
     start "" "%EXE_PATH%"
+) else if exist "%PYTHONW%" (
+    start "" "%PYTHONW%" "%MAIN_PY%"
+) else (
+    echo Could not find launcher executable or embedded python to relaunch. Please start Image Tea manually.
 )
 
 cmd /c del "%~f0" & exit

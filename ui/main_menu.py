@@ -92,12 +92,42 @@ def run_updater(window):
         print(f"Detected OS: {system}")
         
         if system == "Windows":
-            updater_path = os.path.join(BASE_PATH, "Image Tea Updater.exe")
-            print(f"Running Windows updater: {updater_path}")
-            subprocess.Popen(
-                f'powershell -Command "Start-Process -Verb runAs -FilePath \\"{updater_path}\\""',
-                shell=True
+            updater_exe = os.path.join(BASE_PATH, "Image Tea Updater.exe")
+            update_bat = os.path.join(BASE_PATH, "Update.bat")
+            links = get_app_links()
+            repo_url = links.get('repo', 'https://github.com/mudrikam/Image-Tea-nano')
+
+            # Prefer the updater executable (elevated). If missing or launch fails, fallback to Update.bat
+            if os.path.exists(updater_exe):
+                try:
+                    print(f"Running Windows updater: {updater_exe}")
+                    subprocess.Popen(f'powershell -Command "Start-Process -Verb runAs -FilePath \\\"{updater_exe}\\\""', shell=True)
+                    return
+                except Exception as e:
+                    print(f"Failed to launch updater exe: {e}")
+
+            # Fallback to Update.bat
+            if os.path.exists(update_bat):
+                try:
+                    print(f"Fallback: running Update.bat: {update_bat}")
+                    subprocess.Popen(["cmd", "/c", "start", "", update_bat], shell=False)
+                    return
+                except Exception as e:
+                    print(f"Failed to launch Update.bat: {e}")
+
+            # If both methods fail, inform the user (English)
+            msg = (
+                "Updater executable and Update.bat were not found or could not be launched. "
+                "It is possible that your antivirus removed the updater. "
+                "Please check your antivirus quarantine or temporarily disable antivirus and try again. "
+                f"You can also download the latest release manually from: {repo_url}"
             )
+            print(msg)
+            try:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(window, "Updater Not Available", msg)
+            except Exception:
+                pass
         elif system in ("Linux", "Darwin"):
             updater_path = os.path.join(BASE_PATH, "Update.sh")
             print(f"Running Unix updater: {updater_path}")
