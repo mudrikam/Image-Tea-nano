@@ -15,8 +15,8 @@
 ::dAsiuh18IRvcCxnZtBJQ
 ::cRYluBh/LU+EWAnk
 ::YxY4rhs+aU+IeA==
-::cxY6rQJ7JhzQF1fEqQJhZksaHErVXA==
-::ZQ05rAF9IBncCkqN+0xwdVsFAlTMbCXtZg==
+::cxY6rQJ7JhzQF1fEqQJhZksaHErTbAs=
+::ZQ05rAF9IBncCkqN+0xwdVsFAlTMbCXrVtU=
 ::ZQ05rAF9IAHYFVzEqQIZJRpTSUS2OWr6M6UY6fz+/Yo=
 ::eg0/rx1wNQPfEVWB+kM9LVsJDC2PPWy/RoEZ6ajO/+6GtkgPNA==
 ::fBEirQZwNQPfEVWB+kM9LVsJDC2PPWy/RoEZ6ajO/+6GtkgPNA==
@@ -40,7 +40,7 @@ cd /d "%~dp0"
 set "WORKER=%~dp0Update_Worker.bat"
 
 echo Running update worker...
-start "" "%WORKER%"
+call "%WORKER%"
 
 exit /b 0
 endlocal

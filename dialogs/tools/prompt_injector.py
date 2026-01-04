@@ -24,26 +24,39 @@ class PointWidget(QWidget):
 		self._WS_EX_LAYERED = 0x00080000
 
 	def set_click_through(self, enable: bool):
-		if sys.platform != "win32":
-			raise NotImplementedError("Click-through only supported on Windows")
-		if not hasattr(self, "_GWL_EXSTYLE"):
-			self.__init_click_through_helpers()
-		import ctypes
-		user32 = ctypes.windll.user32
-		try:
-			get_ex = user32.GetWindowLongPtrW
-			set_ex = user32.SetWindowLongPtrW
-		except AttributeError:
-			get_ex = user32.GetWindowLongW
-			set_ex = user32.SetWindowLongW
-		hwnd = int(self.winId())
-		exstyle = get_ex(hwnd, self._GWL_EXSTYLE)
-		if enable:
-			new = exstyle | self._WS_EX_LAYERED | self._WS_EX_TRANSPARENT
-		else:
-			new = exstyle & ~self._WS_EX_TRANSPARENT
-		set_ex(hwnd, self._GWL_EXSTYLE, new)
 		self.setAttribute(Qt.WA_TransparentForMouseEvents, enable)
+		if sys.platform == "darwin":
+			# macOS specific flag handling
+			self.setWindowFlag(Qt.WindowTransparentForInput, enable)
+			# Refresh window state agar perubahan flag terbaca
+			if self.isVisible():
+				self.hide()
+				self.show()
+		elif sys.platform == "win32":
+			if not hasattr(self, "_GWL_EXSTYLE"):
+				self.__init_click_through_helpers()
+			import ctypes
+			user32 = ctypes.windll.user32
+			try:
+				get_ex = user32.GetWindowLongPtrW
+				set_ex = user32.SetWindowLongPtrW
+			except AttributeError:
+				get_ex = user32.GetWindowLongW
+				set_ex = user32.SetWindowLongW
+			hwnd = int(self.winId())
+			exstyle = get_ex(hwnd, self._GWL_EXSTYLE)
+			if enable:
+				new = exstyle | self._WS_EX_LAYERED | self._WS_EX_TRANSPARENT
+			else:
+				new = exstyle & ~self._WS_EX_TRANSPARENT
+			set_ex(hwnd, self._GWL_EXSTYLE, new)
+		elif sys.platform.startswith("linux"):
+			# Linux (X11/Wayland) handling
+			self.setWindowFlag(Qt.WindowTransparentForInput, enable)
+			# Refresh window state untuk X11/Wayland
+			if self.isVisible():
+				self.hide()
+				self.show()
 
 	def __init__(self, color_name: str, number: int | None = None, size: int = 32, parent=None):
 		flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -56,6 +69,10 @@ class PointWidget(QWidget):
 		self._size = size
 		self.setAttribute(Qt.WA_TranslucentBackground, True)
 		self.setFixedSize(size, size)
+		
+		# Default False agar bisa digeser mouse saat awal
+		self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+		
 		self._drag_offset = None
 
 	def paintEvent(self, event):
@@ -335,10 +352,13 @@ class PromptInjectorDialog(QDialog):
 			hex_color = self.color_map.get(color, color)
 			p = PointWidget(hex_color, idx + 1)
 			p.setParent(None)
-			p.setWindowFlag(Qt.Tool, True)
+			# Hapus Qt.Tool agar tidak hilang saat pindah tab/app di macOS
+			p.setWindowFlag(Qt.Window, True)
+			p.setWindowFlag(Qt.FramelessWindowHint, True)
 			p.setWindowFlag(Qt.WindowStaysOnTopHint, True)
 			top_left = center - QPoint(p.width() // 2, p.height() // 2) + off
 			p.move(top_left)
+			# Tampilkan dulu untuk inisialisasi, nanti di-hide kalau setting off
 			p.show()
 			p.raise_()
 			p.positionChanged.connect(self._make_updater(idx, color))
@@ -1005,8 +1025,17 @@ class PromptInjectorDialog(QDialog):
 				pyautogui.moveTo(x, y, duration=0.2)
 				pyautogui.click()
 				if i == 0:
-					time.sleep(0.06)
-					pyautogui.hotkey("ctrl", "a")
+					# Tentukan tombol modifier (Mac=Command, Win=Ctrl)
+					mod_key = 'command' if sys.platform == 'darwin' else 'ctrl'
+					
+					# Tunggu sebentar agar fokus masuk
+					time.sleep(0.5)
+					
+					# Select All
+					pyautogui.hotkey(mod_key, 'a')
+					time.sleep(0.5)
+					
+					# Set Clipboard
 					self._clipboard_set_event.clear()
 					self._last_set_clipboard = None
 					self.setClipboardRequested.emit(text_to_paste)
@@ -1018,8 +1047,10 @@ class PromptInjectorDialog(QDialog):
 						self.progressUpdated.emit(ui_idx, current_total)
 						idx += 1
 						continue
-					time.sleep(0.25)
-					pyautogui.hotkey("ctrl", "v")
+					time.sleep(0.5)
+					
+					# Paste
+					pyautogui.hotkey(mod_key, 'v')
 					pasted = True
 			if pasted and self.loaded_from_db:
 				copied_count += 1
