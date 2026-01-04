@@ -98,12 +98,13 @@ echo ============================================
 
 REM Attempt to close any running embedded Image Tea process (pythonw) and relaunch automatically
 set "PY_PIDS="
-for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "try { $p = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '%PYTHONW%' } | Select-Object -ExpandProperty ProcessId -ErrorAction SilentlyContinue; if ($p) { ($p -join ' ') } } catch { }"`) do set "PY_PIDS=%%p"
+set "PYTHONW_ESC=%PYTHONW:\=\\%"
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$path='%PYTHONW_ESC%'; try { $procs = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $path } | Select-Object -ExpandProperty ProcessId; if ($procs) { $procs -join ' ' } } catch { '' }"`) do set "PY_PIDS=%%p"
 if defined PY_PIDS (
-    echo Found running Image Tea process(es): %PY_PIDS%
+    echo Found running Image Tea process: %PY_PIDS%
     for %%i in (%PY_PIDS%) do (
         echo Stopping PID %%i ...
-        taskkill /PID %%i /T /F >nul 2>nul || echo Failed to stop PID %%i
+        taskkill /PID %%i /T /F >nul 2>nul
     )
     timeout /t 1 >nul
 ) else (
@@ -121,5 +122,6 @@ if exist "%EXE_PATH%" (
     )
 )
 
-cmd /c del "%~f0" & exit
-endlocal
+timeout /t 1 >nul
+cmd /c del "%~f0"
+exit /b 0
