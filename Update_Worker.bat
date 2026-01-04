@@ -18,8 +18,8 @@ echo Fetching latest release tag from GitHub...
 for /f "usebackq delims=" %%a in (`powershell -Command "try {(Invoke-WebRequest -UseBasicParsing -Uri '%RELEASES_API%').Content | ConvertFrom-Json | Select-Object -ExpandProperty tag_name} catch {''}"`) do set "TAG_NAME=%%a"
 
 if "%TAG_NAME%"=="" (
-    echo Failed to fetch release tag. Using fallback version v1.0.51
-    set "TAG_NAME=v1.0.51"
+    echo Failed to fetch release tag. Using fallback version v1.0.54
+    set "TAG_NAME=v1.0.54"
 )
 
 for /f %%b in ("%TAG_NAME%") do set "TAG_NAME=%%b"
