@@ -35,8 +35,13 @@
 @echo off
 setlocal
 
-
-
+REM Enforce embedded Python usage and prevent importing user-site packages
+set "PYTHONNOUSERSITE=1"
+REM Ensure embedded Python directories are used and avoid mixing with system Python
+set "PYTHONPATH="
+set "PYTHONHOME="
+REM Prepend embedded Python and Scripts to PATH to prefer the embedded environment
+set "PATH=%~dp0python\Windows;%~dp0python\Windows\Scripts;%PATH%"
 
 set "PYTHON_DIR=%~dp0python\Windows"
 set "PYTHONW=%PYTHON_DIR%\pythonw.exe"
@@ -142,7 +147,9 @@ if "%CHECK_FAILED%"=="1" (
         start "" "%PYTHONW%" "%~dp0main.py"
     ) else (
         echo ERROR: install.bat not found!
-        pause
+        echo Embedded Python missing and automatic install is unavailable.
+        echo Launcher requires embedded Python; aborting.
+        exit /b 1
     )
     exit /b 0
 )
