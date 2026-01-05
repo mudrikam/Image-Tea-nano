@@ -526,6 +526,15 @@ class ActionSequencerImportExport:
         Returns:
             dict: Action data
         """
+        if export_format == 'EPS':
+            if isinstance(export_setting, str):
+                try:
+                    export_setting = int(export_setting)
+                except (ValueError, TypeError):
+                    export_setting = 8
+            if not isinstance(export_setting, int) or export_setting < 0 or export_setting > 12:
+                export_setting = 8
+        
         actions = self.db.get_actions_by_action_set(action_set_id)
         for action in actions:
             if action['name'] == name and action['type'] == action_type:
