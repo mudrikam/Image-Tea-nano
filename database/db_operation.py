@@ -135,6 +135,19 @@ class ImageTeaDB:
                 c.executemany('DELETE FROM files_type_assign WHERE file_id=?', [(fid,) for fid in file_ids])
             c.execute('DELETE FROM files')
             conn.commit()
+    
+    def clear_files_by_status(self, status):
+        """Delete all files with specific status"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id FROM files WHERE LOWER(status) = ?', (status.lower(),))
+            file_ids = [row[0] for row in c.fetchall()]
+            if file_ids:
+                c.executemany('DELETE FROM category_mapping WHERE file_id=?', [(fid,) for fid in file_ids])
+                c.executemany('DELETE FROM files_type_assign WHERE file_id=?', [(fid,) for fid in file_ids])
+            c.execute('DELETE FROM files WHERE LOWER(status) = ?', (status.lower(),))
+            conn.commit()
+            return len(file_ids)
 
     def get_all_files(self):
         with sqlite3.connect(self.db_path) as conn:
@@ -142,37 +155,56 @@ class ImageTeaDB:
             c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files')
             return c.fetchall()
 
-    def get_files_count(self, search_text=None):
-        """Get total count of files, optionally filtered by search"""
+    def get_files_count(self, search_text=None, status_filter=None):
+        """Get total count of files, optionally filtered by search and status"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
+            conditions = []
+            params = []
+            
             if search_text and search_text.strip():
                 search_pattern = f"%{search_text.strip()}%"
-                c.execute('''SELECT COUNT(*) FROM files 
-                           WHERE filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?''',
-                         (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern))
+                conditions.append('(filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?)')
+                params.extend([search_pattern] * 5)
+            
+            if status_filter:
+                conditions.append('LOWER(status) = ?')
+                params.append(status_filter.lower())
+            
+            if conditions:
+                query = f"SELECT COUNT(*) FROM files WHERE {' AND '.join(conditions)}"
+                c.execute(query, params)
             else:
                 c.execute('SELECT COUNT(*) FROM files')
+            
             row = c.fetchone()
             return row[0] if row else 0
 
-    def get_files_paginated(self, page=1, page_size=20, search_text=None):
-        """Get files with pagination support"""
+    def get_files_paginated(self, page=1, page_size=20, search_text=None, status_filter=None):
+        """Get files with pagination support and optional status filter"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             offset = (page - 1) * page_size
             
+            conditions = []
+            params = []
+            
             if search_text and search_text.strip():
                 search_pattern = f"%{search_text.strip()}%"
-                c.execute('''SELECT id, filepath, filename, title, description, tags, status, original_filename 
-                           FROM files 
-                           WHERE filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?
-                           LIMIT ? OFFSET ?''',
-                         (search_pattern, search_pattern, search_pattern, search_pattern, search_pattern, page_size, offset))
-            else:
-                c.execute('''SELECT id, filepath, filename, title, description, tags, status, original_filename 
-                           FROM files 
-                           LIMIT ? OFFSET ?''', (page_size, offset))
+                conditions.append('(filepath LIKE ? OR filename LIKE ? OR title LIKE ? OR description LIKE ? OR tags LIKE ?)')
+                params.extend([search_pattern] * 5)
+            
+            if status_filter:
+                conditions.append('LOWER(status) = ?')
+                params.append(status_filter.lower())
+            
+            query = 'SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files'
+            if conditions:
+                query += f" WHERE {' AND '.join(conditions)}"
+            query += ' LIMIT ? OFFSET ?'
+            
+            params.extend([page_size, offset])
+            c.execute(query, params)
             return c.fetchall()
 
     def get_all_api_keys(self):

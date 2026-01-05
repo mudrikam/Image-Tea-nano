@@ -39,8 +39,10 @@ MENU_TOOLTIPS = {
     
     # Edit menu
     "delete_selected": "Remove selected files from the database",
-    "clear_all": "Remove all files from the database",
+    "clear_all": "Remove ALL files from database",
     "clear_metadata": "Remove all metadata from database (not from files)",
+    "clear_success": "Remove only files with Success status",
+    "clear_failed": "Remove only files with Failed status",
     "batch_rename": "Rename multiple files with custom patterns",
     "edit_metadata": "Edit metadata for selected file",
     
@@ -194,17 +196,31 @@ def setup_main_menu(window):
     delete_action.triggered.connect(lambda: window.table.delete_selected())
     edit_menu.addAction(delete_action)
 
-    clear_action = QAction(qta.icon('fa6s.broom'), "Clear All", window)
+    clear_action = QAction(qta.icon('fa6s.broom'), "Clear All Files", window)
     clear_action.setToolTip(MENU_TOOLTIPS["clear_all"])
     clear_action.setStatusTip(MENU_TOOLTIPS["clear_all"])
     clear_action.triggered.connect(lambda: window.table.clear_all())
     edit_menu.addAction(clear_action)
+    
+    clear_success_action = QAction(qta.icon('fa6s.broom'), "Clear Success Only", window)
+    clear_success_action.setToolTip(MENU_TOOLTIPS["clear_success"])
+    clear_success_action.setStatusTip(MENU_TOOLTIPS["clear_success"])
+    clear_success_action.triggered.connect(lambda: window.table.clear_success())
+    edit_menu.addAction(clear_success_action)
+    
+    clear_failed_action = QAction(qta.icon('fa6s.broom'), "Clear Failed Only", window)
+    clear_failed_action.setToolTip(MENU_TOOLTIPS["clear_failed"])
+    clear_failed_action.setStatusTip(MENU_TOOLTIPS["clear_failed"])
+    clear_failed_action.triggered.connect(lambda: window.table.clear_failed())
+    edit_menu.addAction(clear_failed_action)
 
     clear_metadata_action = QAction(qta.icon('fa6s.eraser'), "Clear Existing Metadata", window)
     clear_metadata_action.setToolTip(MENU_TOOLTIPS["clear_metadata"])
     clear_metadata_action.setStatusTip(MENU_TOOLTIPS["clear_metadata"])
     clear_metadata_action.triggered.connect(lambda: window.table.clear_existing_metadata())
     edit_menu.addAction(clear_metadata_action)
+    
+    edit_menu.addSeparator()
 
     batch_rename_action = QAction(qta.icon('fa6s.i-cursor'), "Batch Rename", window)
     batch_rename_action.setToolTip(MENU_TOOLTIPS["batch_rename"])

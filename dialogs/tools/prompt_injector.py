@@ -15,6 +15,10 @@ from helpers.tools import prompt_injector_helper
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 
+# Hybrid automation mode: QTimer untuk macOS, Threading untuk Windows/Linux
+USE_QTIMER_MODE = (sys.platform == "darwin")
+print(f"DEBUG: Automation mode = {'QTimer' if USE_QTIMER_MODE else 'Threading'} (Platform: {sys.platform})")
+
 class PointWidget(QWidget):
 	positionChanged = Signal(int, int)
 
@@ -381,6 +385,27 @@ class PromptInjectorDialog(QDialog):
 		self.currentFileUpdated.connect(self._on_current_file_updated)
 		# Lock to protect the prompt queue when loading files during a running automation
 		self._queue_lock = threading.Lock()
+		
+		# Hybrid Mode: Setup automation engine berdasarkan platform
+		if USE_QTIMER_MODE:
+			# macOS: Gunakan QTimer (Main Thread Safe)
+			self._automation_timer = QTimer(self)
+			self._automation_timer.timeout.connect(self._automation_tick)
+			self._automation_running = False
+			self._automation_paused = False
+			self._prompt_index = 0
+			self._state = "IDLE"
+			self._wait_start = 0
+			self._wait_dur = 0
+			self._pt_idx = 0
+			self._refr_active = False
+			self._refr_count = 0
+		else:
+			# Windows/Linux: Gunakan Threading (Lebih Performant)
+			self._worker_thread = None
+			self._stop_event = None
+			self._pause_event = None
+			self._clipboard_set_event = None
 
 		self._stats_timer = QTimer(self)
 		self._stats_timer.setInterval(1000)
@@ -441,10 +466,7 @@ class PromptInjectorDialog(QDialog):
 		self.progress_bar.setMaximum(len(current_queue))
 		self.progress_bar.setValue(0)
 		self.progress_bar.setFormat(f"0 / {len(current_queue)}")
-		self._stop_event = threading.Event()
-		self._pause_event = threading.Event()
-		self._clipboard_set_event = threading.Event()
-		self._last_set_clipboard = None
+		
 		self._set_run_mode(True)
 		self.btn_pause.setEnabled(True)
 		self.btn_stop.setEnabled(True)
@@ -456,10 +478,15 @@ class PromptInjectorDialog(QDialog):
 		self._current_done = 0
 		with self._queue_lock:
 			self._total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
-		self._worker_thread = threading.Thread(
-			target=self._run_sequence, args=(coords, base_delays, random_delay, refresh_every, refresh_enabled, refresh_delay), daemon=True
-		)
-		self._worker_thread.start()
+		
+		# Simpan config untuk automation
+		self.cfg_coords = coords
+		self.cfg_delays = base_delays
+		self.cfg_rand = random_delay
+		self.cfg_refr_enabled = refresh_enabled
+		self.cfg_refr_every = refresh_every
+		self.cfg_refr_delay = refresh_delay
+		
 		self._run_start_time = time.time()
 		self._pause_accum = 0.0
 		self._pause_start = None
@@ -469,6 +496,150 @@ class PromptInjectorDialog(QDialog):
 		self._refresh_delay = refresh_delay
 		self._stats_timer.start()
 		self._update_stats(0, self._total)
+		
+		if USE_QTIMER_MODE:
+			# macOS: QTimer Mode
+			self._prompt_index = 0
+			self._refr_count = self.cfg_refr_every
+			self._refr_active = False
+			self._pt_idx = 0
+			self._automation_running = True
+			self._automation_paused = False
+			self._state = "INIT_DELAY"
+			self._wait_start = 0
+			self._wait_dur = 0
+			self._automation_timer.start(50)  # 50ms tick rate
+		else:
+			# Windows/Linux: Threading Mode
+			self._stop_event = threading.Event()
+			self._pause_event = threading.Event()
+			self._clipboard_set_event = threading.Event()
+			self._last_set_clipboard = None
+			self._worker_thread = threading.Thread(
+				target=self._run_sequence, args=(coords, base_delays, random_delay, refresh_every, refresh_enabled, refresh_delay), daemon=True
+			)
+			self._worker_thread.start()
+
+	def _automation_tick(self):
+		"""QTimer-based automation loop (Main Thread Safe untuk macOS)"""
+		if not self._automation_running:
+			self._automation_timer.stop()
+			return
+		if self._automation_paused:
+			self._set_delay_text("Paused")
+			return
+
+		if self._prompt_index >= self._total:
+			self.automationFinished.emit()
+			return
+
+		if self._state == "INIT_DELAY":
+			if self._refr_active:
+				self._pt_idx = 4
+				delay = self.cfg_refr_delay
+			else:
+				if not self.point_enabled[self._pt_idx].isChecked():
+					self._state = "NEXT_POINT"
+					return
+				base = self.cfg_delays[self._pt_idx]
+				rnd = random.uniform(0, self.cfg_rand) if self.cfg_rand > 0 else 0
+				delay = base + rnd
+			
+			self._wait_dur = delay
+			self._wait_start = time.time()
+			self._state = "WAITING"
+
+		elif self._state == "WAITING":
+			rem = self._wait_dur - (time.time() - self._wait_start)
+			if rem <= 0:
+				self._set_delay_text("")
+				self._state = "EXECUTE"
+			else:
+				msg = f"Wait: {int(rem)+1}s"
+				if self.cfg_refr_enabled:
+					msg += f" | Refr: {self._refr_count}"
+				self._set_delay_text(msg)
+				self.countdownUpdated.emit(rem, self._refr_count)
+
+		elif self._state == "EXECUTE":
+			import pyautogui
+			pt = self.cfg_coords[self._pt_idx]
+			
+			if self._pt_idx == 0 and not self._refr_active:
+				pyautogui.moveTo(pt.x(), pt.y(), duration=0.2)
+				pyautogui.click()
+				
+				mod_key = 'command' if sys.platform == 'darwin' else 'ctrl'
+				QApplication.processEvents()
+				time.sleep(0.5)
+				
+				pyautogui.hotkey(mod_key, 'a')
+				time.sleep(0.5)
+				
+				with self._queue_lock:
+					txt = self.loaded_paste_texts[self._prompt_index]
+				QApplication.clipboard().setText(str(txt))
+				time.sleep(0.5)
+				
+				pyautogui.hotkey(mod_key, 'v')
+				
+				if self.loaded_from_db:
+					self._copied_count += 1
+					try:
+						if self.db and len(self._loaded_prompt_ids) > self._prompt_index:
+							self.db.add_prompt_status(self._loaded_prompt_ids[self._prompt_index], 'copied')
+					except:
+						pass
+			else:
+				pyautogui.moveTo(pt.x(), pt.y(), duration=0.2)
+				pyautogui.click()
+
+			self._state = "NEXT_POINT"
+
+		elif self._state == "NEXT_POINT":
+			if self._refr_active:
+				self._refr_active = False
+				self._refr_count = self.cfg_refr_every
+				self._state = "INIT_DELAY"
+				self._pt_idx = 0
+			else:
+				self._pt_idx += 1
+				if self._pt_idx >= 4:
+					self._prompt_index += 1
+					self._update_progress_qtimer()
+					self._pt_idx = 0
+					self._refr_count -= 1
+					if self.cfg_refr_enabled and self.cfg_refr_every > 0 and self._prompt_index > 0:
+						if self._refr_count <= 0:
+							self._refr_active = True
+					
+					if self._prompt_index >= self._total:
+						self.automationFinished.emit()
+						return
+				
+				self._state = "INIT_DELAY"
+
+	def _update_progress_qtimer(self):
+		"""Update progress untuk QTimer mode"""
+		self.progress_bar.setValue(self._prompt_index)
+		self.progress_bar.setFormat(f"{self._prompt_index} / {self._total}")
+		
+		with self._queue_lock:
+			self._current_done = self._prompt_index
+			current_total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
+			self._total = current_total
+		
+		self.progressUpdated.emit(self._prompt_index, current_total)
+		
+		if self._loaded_files:
+			acc = 0
+			for idx, f in enumerate(self._loaded_files):
+				count = f.get('count', 0)
+				if self._prompt_index < (acc + count):
+					local_pos = self._prompt_index - acc + 1
+					self.currentFileUpdated.emit(idx+1, len(self._loaded_files), f.get('type',''), local_pos, count)
+					break
+				acc += count
 
 	def _set_run_mode(self, enable: bool):
 		for p in self.points:
@@ -490,14 +661,23 @@ class PromptInjectorDialog(QDialog):
 		self._set_run_mode(False)
 		self.btn_pause.setEnabled(False)
 		self.btn_stop.setEnabled(False)
-		self._stop_event.set()
-		self._pause_event.clear()
+		
+		if USE_QTIMER_MODE:
+			self._automation_running = False
+			self._automation_timer.stop()
+		else:
+			if hasattr(self, '_stop_event') and self._stop_event:
+				self._stop_event.set()
+			if hasattr(self, '_pause_event') and self._pause_event:
+				self._pause_event.clear()
+			self._last_set_clipboard = None
+		
 		self._set_delay_text("")
 		self.progress_bar.setValue(self.progress_bar.maximum())
 		self.progress_bar.setFormat(f"{self.progress_bar.maximum()} / {self.progress_bar.maximum()}")
 		self._stats_timer.stop()
 		self._update_stats(self.progress_bar.maximum(), self.progress_bar.maximum())
-		self._last_set_clipboard = None
+		QMessageBox.information(self, "Done", "Sequence Completed.")
 
 	@Slot(int, int)
 	def _on_progress_updated(self, done: int, total: int):
@@ -509,31 +689,53 @@ class PromptInjectorDialog(QDialog):
 		self._update_stats(done, total)
 
 	def on_pause_toggle(self):
-		if not getattr(self, '_pause_event', None):
-			self._set_delay_text("Not running")
-			QTimer.singleShot(1000, lambda: self._set_delay_text(""))
-			return
-		if self._pause_event.is_set():
-			self._pause_event.clear()
-			if getattr(self, "_pause_start", None):
-				self._pause_accum += time.time() - self._pause_start
-				self._pause_start = None
-			self.btn_pause.setText("Pause")
+		if USE_QTIMER_MODE:
+			if not self._automation_running:
+				return
+			self._automation_paused = not self._automation_paused
+			if self._automation_paused:
+				self._pause_start = time.time()
+				self.btn_pause.setText("Resume")
+			else:
+				if getattr(self, "_pause_start", None):
+					self._pause_accum += time.time() - self._pause_start
+					self._pause_start = None
+				self.btn_pause.setText("Pause")
 		else:
-			self._pause_event.set()
-			self._pause_start = time.time()
-			self.btn_pause.setText("Resume")
+			if not getattr(self, '_pause_event', None):
+				self._set_delay_text("Not running")
+				QTimer.singleShot(1000, lambda: self._set_delay_text(""))
+				return
+			if self._pause_event.is_set():
+				self._pause_event.clear()
+				if getattr(self, "_pause_start", None):
+					self._pause_accum += time.time() - self._pause_start
+					self._pause_start = None
+				self.btn_pause.setText("Pause")
+			else:
+				self._pause_event.set()
+				self._pause_start = time.time()
+				self.btn_pause.setText("Resume")
 		self._update_stats(getattr(self, "_current_done", 0), getattr(self, "_total", 0))
 
 	def on_stop(self):
-		self._stop_event.set()
-		self._pause_event.clear()
+		if USE_QTIMER_MODE:
+			self._automation_running = False
+			self._automation_timer.stop()
+			self._automation_paused = False
+		else:
+			if hasattr(self, '_stop_event') and self._stop_event:
+				self._stop_event.set()
+			if hasattr(self, '_pause_event') and self._pause_event:
+				self._pause_event.clear()
+		
 		self._set_run_mode(False)
 		self.btn_pause.setEnabled(False)
 		self.btn_stop.setEnabled(False)
 		self.btn_pause.setText("Pause")
 		self._stats_timer.stop()
 		self._update_stats(getattr(self, "_current_done", 0), getattr(self, "_total", 0))
+		self._set_delay_text("Stopped")
 
 	def on_reset_points(self):
 		screen = QGuiApplication.primaryScreen().availableGeometry()

@@ -845,6 +845,13 @@ class ImageTableWidget(QWidget):
         self.page_size_combo.setToolTip("Items per page")
         self.page_size_combo.currentTextChanged.connect(self._on_page_size_changed)
         
+        self.sort_filter_combo = QComboBox(self)
+        self.sort_filter_combo.addItems(["All Files", "Success Only", "Failed Only", "Draft Only"])
+        self.sort_filter_combo.setCurrentText("All Files")
+        self.sort_filter_combo.setFixedWidth(120)
+        self.sort_filter_combo.setToolTip("Filter files by status")
+        self.sort_filter_combo.currentTextChanged.connect(self._on_sort_filter_changed)
+        
         search_layout.addWidget(search_icon_btn)
         search_layout.addWidget(self.search_edit)
         search_layout.addWidget(paste_btn)
@@ -855,6 +862,7 @@ class ImageTableWidget(QWidget):
         search_layout.addWidget(self.total_pages_label)
         search_layout.addWidget(self.next_btn)
         search_layout.addWidget(self.page_size_combo)
+        search_layout.addWidget(self.sort_filter_combo)
         self.layout.addLayout(search_layout)
         self.tab_widget = QTabWidget(self)
         self.layout.addWidget(self.tab_widget)
@@ -1226,6 +1234,13 @@ class ImageTableWidget(QWidget):
             self._page_cache.clear()
             self._load_page_data()
             self._update_pagination_ui()
+    
+    def _on_sort_filter_changed(self, filter_text):
+        self.current_page = 1
+        self.page_spinner.setValue(1)
+        self._page_cache.clear()
+        self._load_page_data()
+        self._update_pagination_ui()
 
     def _on_zoom_preset_changed(self, preset_text):
         """Handle zoom preset selection from dropdown - calculate size based on columns"""
@@ -1327,7 +1342,17 @@ class ImageTableWidget(QWidget):
 
     def _load_page_data(self):
         """Load data for current page"""
-        cache_key = (self.current_page, self.page_size, self.search_text)
+        filter_text = self.sort_filter_combo.currentText()
+        
+        status_filter = None
+        if filter_text == "Success Only":
+            status_filter = "success"
+        elif filter_text == "Failed Only":
+            status_filter = "failed"
+        elif filter_text == "Draft Only":
+            status_filter = "draft"
+        
+        cache_key = (self.current_page, self.page_size, self.search_text, filter_text)
         
         if cache_key in self._page_cache:
             self._current_rows = self._page_cache[cache_key]
@@ -1335,7 +1360,8 @@ class ImageTableWidget(QWidget):
             self._current_rows = list(self.db.get_files_paginated(
                 page=self.current_page, 
                 page_size=self.page_size, 
-                search_text=self.search_text if self.search_text.strip() else None
+                search_text=self.search_text if self.search_text.strip() else None,
+                status_filter=status_filter
             ))
             self._page_cache[cache_key] = self._current_rows
         
@@ -1344,7 +1370,6 @@ class ImageTableWidget(QWidget):
         
         if self.tab_widget.currentIndex() == 1:
             self.refresh_thumbnail_grid()
-                                                      
             QTimer.singleShot(50, self._force_thumbnail_layout_refresh)
         elif self.tab_widget.currentIndex() == 2:
             self._refresh_details_cards()
@@ -2233,6 +2258,40 @@ class ImageTableWidget(QWidget):
         mb.exec()
         if mb.clickedButton() == btn_yes:
             self.db.clear_all_metadata()
+            self.refresh_table()
+    
+    def clear_success(self):
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Clear Success")
+        mb.setIcon(QMessageBox.Warning)
+        mb.setText("Are you sure you want to remove all files with Success status?")
+        btn_clear = QPushButton("Clear")
+        btn_clear.setIcon(qta.icon('fa6s.broom'))
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_clear, QMessageBox.AcceptRole)
+        mb.addButton(btn_cancel, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_cancel)
+        mb.exec()
+        if mb.clickedButton() == btn_clear:
+            self.db.clear_files_by_status('success')
+            self.refresh_table()
+    
+    def clear_failed(self):
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Clear Failed")
+        mb.setIcon(QMessageBox.Warning)
+        mb.setText("Are you sure you want to remove all files with Failed status?")
+        btn_clear = QPushButton("Clear")
+        btn_clear.setIcon(qta.icon('fa6s.broom'))
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_clear, QMessageBox.AcceptRole)
+        mb.addButton(btn_cancel, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_cancel)
+        mb.exec()
+        if mb.clickedButton() == btn_clear:
+            self.db.clear_files_by_status('failed')
             self.refresh_table()
 
     def _refresh_details_cards(self):
