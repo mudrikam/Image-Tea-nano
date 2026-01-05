@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QToolBar, QStyle, QWidget, QFrame, QWidgetAction, QHBoxLayout, QVBoxLayout, QLabel, QToolButton
+from PySide6.QtWidgets import QToolBar, QStyle, QWidget, QFrame, QWidgetAction, QHBoxLayout, QVBoxLayout, QLabel, QToolButton, QMessageBox, QPushButton, QComboBox, QDialog
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt, QObject, QEvent
 import qtawesome as qta
@@ -93,6 +93,60 @@ def relaunch_app(window):
         print(f"Failed to relaunch: {e}")
     window.close()
 
+def show_clear_dialog(window):
+    """Show dialog to choose what to clear: all files, success only, or failed only"""
+    dialog = QDialog(window)
+    dialog.setWindowTitle("Clear Files")
+    
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(15, 15, 15, 15)
+    layout.setSpacing(10)
+    
+    # Icon and label
+    top_layout = QHBoxLayout()
+    icon_label = QLabel()
+    icon_label.setPixmap(qta.icon('fa6s.triangle-exclamation', color='#f0ad4e').pixmap(32, 32))
+    top_layout.addWidget(icon_label)
+    
+    text_label = QLabel("Choose what to clear from database:")
+    text_label.setWordWrap(True)
+    top_layout.addWidget(text_label, 1)
+    layout.addLayout(top_layout)
+    
+    # Combobox
+    combo = QComboBox()
+    combo.addItems(["Clear All Files", "Clear Success Only", "Clear Failed Only"])
+    combo.setCurrentIndex(0)
+    layout.addWidget(combo)
+    
+    # Buttons
+    button_layout = QHBoxLayout()
+    button_layout.addStretch()
+    
+    btn_clear = QPushButton("Clear")
+    btn_clear.setIcon(qta.icon('fa6s.broom'))
+    btn_clear.clicked.connect(dialog.accept)
+    
+    btn_cancel = QPushButton("Cancel")
+    btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+    btn_cancel.clicked.connect(dialog.reject)
+    btn_cancel.setDefault(True)
+    
+    button_layout.addWidget(btn_clear)
+    button_layout.addWidget(btn_cancel)
+    layout.addLayout(button_layout)
+    
+    result = dialog.exec()
+    
+    if result == QDialog.Accepted:
+        choice = combo.currentText()
+        if choice == "Clear All Files":
+            window.table.clear_all()
+        elif choice == "Clear Success Only":
+            window.table.clear_success()
+        elif choice == "Clear Failed Only":
+            window.table.clear_failed()
+
 def setup_main_toolbar(window: QWidget):
     toolbar = QToolBar("Main Toolbar", window)
     try:
@@ -135,8 +189,8 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.broom', icon_color),
         make_icon('fa6s.broom', icon_color_hover),
         "Clear",
-        "Clear all files from the table. \nThis does NOT delete files from disk. \nOnly clears the database entries. \nUse when you want to start fresh.",
-        lambda: window.table.clear_all(),
+        "Clear files from the database. \nChoose to clear all files, success only, or failed only. \nThis does NOT delete files from disk, only removes database entries.",
+        lambda: show_clear_dialog(window),
         window, icon_size, obj_name='toolbar_clear')
     toolbar.addAction(clear_all_action)
 

@@ -2223,21 +2223,8 @@ class ImageTableWidget(QWidget):
         self.refresh_table()
 
     def clear_all(self):
-        mb = QMessageBox(self)
-        mb.setWindowTitle("Clear All")
-        mb.setIcon(QMessageBox.Warning)
-        mb.setText("Are you sure you want to clear all files?")
-        btn_clear = QPushButton("Clear")
-        btn_clear.setIcon(qta.icon('fa6s.broom'))
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
-        mb.addButton(btn_clear, QMessageBox.AcceptRole)
-        mb.addButton(btn_cancel, QMessageBox.RejectRole)
-        mb.setDefaultButton(btn_cancel)
-        mb.exec()
-        if mb.clickedButton() == btn_clear:
-            self.db.clear_files()
-            self.refresh_table()
+        self.db.clear_files()
+        self.refresh_table()
 
     def clear_existing_metadata(self):
         """Confirm and clear all metadata entries from the database (does not touch file-embedded metadata)."""
@@ -2261,38 +2248,12 @@ class ImageTableWidget(QWidget):
             self.refresh_table()
     
     def clear_success(self):
-        mb = QMessageBox(self)
-        mb.setWindowTitle("Clear Success")
-        mb.setIcon(QMessageBox.Warning)
-        mb.setText("Are you sure you want to remove all files with Success status?")
-        btn_clear = QPushButton("Clear")
-        btn_clear.setIcon(qta.icon('fa6s.broom'))
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
-        mb.addButton(btn_clear, QMessageBox.AcceptRole)
-        mb.addButton(btn_cancel, QMessageBox.RejectRole)
-        mb.setDefaultButton(btn_cancel)
-        mb.exec()
-        if mb.clickedButton() == btn_clear:
-            self.db.clear_files_by_status('success')
-            self.refresh_table()
+        self.db.clear_files_by_status('success')
+        self.refresh_table()
     
     def clear_failed(self):
-        mb = QMessageBox(self)
-        mb.setWindowTitle("Clear Failed")
-        mb.setIcon(QMessageBox.Warning)
-        mb.setText("Are you sure you want to remove all files with Failed status?")
-        btn_clear = QPushButton("Clear")
-        btn_clear.setIcon(qta.icon('fa6s.broom'))
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
-        mb.addButton(btn_clear, QMessageBox.AcceptRole)
-        mb.addButton(btn_cancel, QMessageBox.RejectRole)
-        mb.setDefaultButton(btn_cancel)
-        mb.exec()
-        if mb.clickedButton() == btn_clear:
-            self.db.clear_files_by_status('failed')
-            self.refresh_table()
+        self.db.clear_files_by_status('failed')
+        self.refresh_table()
 
     def _refresh_details_cards(self):
                                              
