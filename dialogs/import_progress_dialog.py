@@ -95,9 +95,10 @@ class ImportProgressDialog(QDialog):
         
         self.setWindowTitle("Import Files Progress")
         self.setModal(True)
-        self.setFixedSize(550, 350)
+        self.setFixedWidth(550)
         self.setup_ui()
         self.setup_timer()
+        self.adjustSize()
         
     def setup_ui(self):
         """Setup user interface dengan vanilla PySide6 tanpa frame"""
