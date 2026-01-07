@@ -95,7 +95,10 @@ def setup_ui(self):
         "Generate Failed Only",
         "Generate Drafts Only",
         "Resume Generation From Stopped",
-        "Generate With Rolling API Keys"
+        "Generate All With Rolling API Keys",
+        "Generate Failed Only With Rolling API Keys",
+        "Generate Selected Only With Rolling API Keys",
+        "Generate Drafts Only With Rolling API Keys"
     ])
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
@@ -131,8 +134,14 @@ def setup_ui(self):
             self.gen_btn.setToolTip("Generate metadata starting from the first draft file onwards")
         elif mode == "Resume Generation From Stopped":
             self.gen_btn.setToolTip("Resume generation starting from the first stopped file onwards")
-        elif mode == "Generate With Rolling API Keys":
+        elif mode == "Generate All With Rolling API Keys":
             self.gen_btn.setToolTip("Generate metadata using all available API keys automatically when one fails")
+        elif mode == "Generate Failed Only With Rolling API Keys":
+            self.gen_btn.setToolTip("Generate only failed files using all available API keys with automatic retry")
+        elif mode == "Generate Selected Only With Rolling API Keys":
+            self.gen_btn.setToolTip("Generate only selected files using all available API keys with automatic retry")
+        elif mode == "Generate Drafts Only With Rolling API Keys":
+            self.gen_btn.setToolTip("Generate drafts onwards using all available API keys with automatic retry")
         else:
             self.gen_btn.setToolTip("Generate metadata")
 

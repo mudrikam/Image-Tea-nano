@@ -251,7 +251,7 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
             if '400' in err_str or 'bad request' in err_str.lower() or 'invalid' in err_str.lower():
                 try:
                     print("[Groq] Retrying with text-only payload (no image) to diagnose 400 error.")
-                    simpler_messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+                    simpler_messages = [{"role": "user", "content": prompt}]
                     response = client.chat.completions.create(
                         model=model,
                         messages=simpler_messages

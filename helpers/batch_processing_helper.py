@@ -1,12 +1,19 @@
 import json
 import os
-from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, QByteArray
-from PySide6.QtGui import QColor
-from config import BASE_PATH
-import threading
 import time
 import random
+import threading
+from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, QByteArray, QTimer
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QMessageBox, QApplication, QDialog
+import qtawesome as qta
+from config import BASE_PATH
 from dialogs.get_api_key_dialog import GetApiKeyDialog
+from dialogs.api_call_warning_dialog import ApiCallWarningDialog
+from dialogs.ai_helper_error_code_dialog import invoker
+from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
+from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
+from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
 
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
@@ -126,7 +133,11 @@ class BatchWorker(QThread):
             try:
                 image_path = row[1]
                 prompt = None
-                result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag)
+                # For rolling mode, pass service to metadata_func; for non-rolling, use old signature
+                if self.is_rolling_mode:
+                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag, service_override=self.service)
+                else:
+                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag)
                 with self._lock:
                     if not self._should_stop and not (stop_flag and stop_flag.get('stop')):
                         results[idx] = (idx, result)
@@ -215,8 +226,6 @@ class BatchWorker(QThread):
                     
                     # Create service-specific metadata function with timing
                     if current_service == "gemini":
-                        from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
-                        import time
                         t0 = time.perf_counter()
                         title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag)
                         t1 = time.perf_counter()
@@ -233,13 +242,27 @@ class BatchWorker(QThread):
                             "service": current_service, "model": current_model
                         }
                     elif current_service == "openai":
-                        from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
-                        import time
                         t0 = time.perf_counter()
                         title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
+                        
+                        # Update stats UI via signal
+                        self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
+                        
+                        result = {
+                            "title": title, "description": description, "tags": tags, "category": category, "filetype": filetype,
+                            "token_input": token_input, "token_output": token_output, "token_total": token_total,
+                            "image_path": image_path, "error_message": error_message,
+                            "service": current_service, "model": current_model
+                        }
+                    elif current_service == "groq":
+                        t0 = time.perf_counter()
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag)
+                        t1 = time.perf_counter()
+                        duration_ms = int((t1 - t0) * 1000)
+                        gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
                         
                         # Update stats UI via signal
                         self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
@@ -319,6 +342,9 @@ class BatchWorker(QThread):
             # Move to next API if there are still failures and more APIs available
             if remaining_files and api_attempt < max_api_attempts - 1:
                 self.current_api_index += 1
+                # Ensure index doesn't exceed bounds
+                if self.current_api_index >= len(self.api_keys_list):
+                    self.current_api_index = 0
                 next_api_detail = self.get_current_api_info_detailed()
                 print(f"[ROLLING] Switching to next API: {next_api_detail}")
                 api_info = self.api_keys_list[self.current_api_index]
@@ -379,7 +405,6 @@ def batch_generate_metadata(window):
                     })
             
             if not api_keys_list:
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(window, "Rolling APIs", "No valid API keys found in database for Rolling APIs mode.")
                 return
             
@@ -428,8 +453,8 @@ def batch_generate_metadata(window):
             mode = "draft"
         elif "stopped" in mode_text or "resume" in mode_text:
             mode = "stopped"
-        elif "rolling" in mode_text:
-            mode = "all"  # Rolling APIs processes all files
+        elif "rolling" in mode_text and "failed" not in mode_text and "selected" not in mode_text and "draft" not in mode_text:
+            mode = "all"  # Pure rolling APIs processes all files
         else:
             mode = "all"
     
@@ -442,7 +467,6 @@ def batch_generate_metadata(window):
         search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
         total_count = window.db.get_files_count(search_text)
         if total_count == 0:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Generate Metadata", "No files found to process.")
             window.table.progress_bar.setVisible(False)
             return
@@ -475,7 +499,6 @@ def batch_generate_metadata(window):
         search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
         total_count = window.db.get_files_count(search_text)
         if total_count == 0:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Generate Metadata", "No files found to process.")
             window.table.progress_bar.setVisible(False)
             return
@@ -502,7 +525,6 @@ def batch_generate_metadata(window):
         search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
         total_count = window.db.get_files_count(search_text)
         if total_count == 0:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Generate Metadata", "No files found to process.")
             window.table.progress_bar.setVisible(False)
             return
@@ -539,7 +561,6 @@ def batch_generate_metadata(window):
             
         # If no draft files found, show message
         if not first_draft_found:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Draft Only", "No draft files found to process.")
             return
     
@@ -548,7 +569,6 @@ def batch_generate_metadata(window):
         search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
         total_count = window.db.get_files_count(search_text)
         if total_count == 0:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Generate Metadata", "No files found to process.")
             window.table.progress_bar.setVisible(False)
             return
@@ -585,7 +605,6 @@ def batch_generate_metadata(window):
             
         # If no stopped files found, show message
         if not first_stopped_found:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(window, "Resume Stopped", "No stopped files found to resume from.")
             return
     
@@ -599,22 +618,18 @@ def batch_generate_metadata(window):
         
     if mode == "selected" and not rows:
         print("[DEBUG] No rows checked for Selected Only mode.")
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "No Files", "No files selected (checkbox) to process.")
         return
     elif mode == "draft" and not rows:
         print("[DEBUG] No draft files found for Draft Only mode.")
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "Draft Only", "No draft files found to process.")
         return
     elif mode == "stopped" and not rows:
         print("[DEBUG] No stopped files found for Resume Stopped mode.")
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "Resume Stopped", "No stopped files found to resume from.")
         return
     if not rows:
         print("[DEBUG] No rows to process after filtering.")
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(window, "No Files", "No files to process.")
         return
 
@@ -625,7 +640,6 @@ def batch_generate_metadata(window):
         if not os.path.isfile(file_path):
             missing_files.append(file_path)
     if missing_files:
-        from PySide6.QtWidgets import QMessageBox
         msg = "The following files were not found on disk and the process has been cancelled:\n\n"
         msg += "\n".join(missing_files)
         QMessageBox.critical(window, "File Not Found", msg)
@@ -635,8 +649,6 @@ def batch_generate_metadata(window):
     # --- WARNING DIALOG FOR > 1000 FILES ---
     if len(rows) >= 1000:
         try:
-            from dialogs.api_call_warning_dialog import ApiCallWarningDialog
-            from PySide6.QtWidgets import QDialog
             if is_rolling_mode:
                 # Custom message for rolling APIs mode
                 dialog = ApiCallWarningDialog(window, file_count=len(rows))
@@ -659,7 +671,6 @@ def batch_generate_metadata(window):
 
     # Enable error dialog buffering
     try:
-        from dialogs.ai_helper_error_code_dialog import invoker
         invoker.enable_buffering()
     except Exception as e:
         print(f"[Batch] Failed to enable error buffering: {e}")
@@ -677,16 +688,78 @@ def batch_generate_metadata(window):
         initial_text = window.table.get_progress_format_text(mode, service, api_key)
     window.table.set_progress_info(initial_text)
     
-    from PySide6.QtWidgets import QApplication
     QApplication.processEvents()
 
     stop_flag = {'stop': False}
-    if service == "gemini":
-        from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
+    
+    # For rolling mode, create a universal metadata function that can handle all services
+    if is_rolling_mode:
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            
+            # Determine which service to use (override from rolling, or initial service)
+            target_service = service_override if service_override else service
+            target_service = target_service.lower() if target_service else 'gemini'
+            
+            if target_service == "gemini":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Gemini ERROR] {error_message}")
+            elif target_service == "openai":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[OpenAI ERROR] {error_message}")
+            elif target_service == "groq":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Groq ERROR] {error_message}")
+            else:
+                print(f"[ERROR] Unknown service in rolling mode: {target_service}")
+                title = ""
+                description = ""
+                tags = ""
+                category = {}
+                filetype = ""
+                error_message = f"Unknown service: {target_service}"
+                token_input = 0
+                token_output = 0
+                token_total = 0
+            
+            return {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "category": category,
+                "filetype": filetype,
+                "token_input": token_input,
+                "token_output": token_output,
+                "token_total": token_total,
+                "image_path": image_path,
+                "error_message": error_message
+            }
+    elif service == "gemini":
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
-            import time
             t0 = time.perf_counter()
             title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
             t1 = time.perf_counter()
@@ -709,11 +782,9 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "openai":
-        from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
-            import time
             t0 = time.perf_counter()
             title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
             t1 = time.perf_counter()
@@ -736,11 +807,9 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "groq":
-        from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
-            import time
             t0 = time.perf_counter()
             title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
             t1 = time.perf_counter()
@@ -764,7 +833,6 @@ def batch_generate_metadata(window):
             }
     else:
         print(f"[DEBUG] Unknown service: {service}")
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.warning(window, "API Service", f"Unknown service: {service}")
         window.table.progress_bar.setVisible(False)
         window.table.progress_bar.setValue(0)
@@ -790,7 +858,9 @@ def batch_generate_metadata(window):
         'is_rolling_mode': is_rolling_mode,
         'api_keys_list': api_keys_list,
         'mode': mode,
-        'current_api_index': 0  # Track current API across batches
+        'current_api_index': 0,  # Track current API across batches
+        'batch_retry_count': 0,  # Track how many times batch retried with different API
+        'batch_same_api_retry': 0  # Track how many times failed files retried with same API
     }
     window.is_generating = True
     
@@ -833,7 +903,6 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
         window._gen_btn_anim.stop()
         window._gen_btn_anim = None
     if blinking:
-        from PySide6.QtCore import QTimer
 
         def set_bg_color(bg_color):
             style = _gen_btn_style_string(bg_color, text_color=None, hover_color=bg_color)
@@ -857,7 +926,6 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
         if window._gen_btn_blink_timer:
             window._gen_btn_blink_timer.stop()
             window._gen_btn_blink_timer.deleteLater()
-        from PySide6.QtCore import QTimer
         timer = QTimer(btn)
         timer.timeout.connect(blink)
         timer.start(400)
@@ -878,7 +946,6 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
 def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
     if not hasattr(window, "gen_btn"):
         return
-    import qtawesome as qta
     btn = window.gen_btn
     if is_stopping:
         btn.setText("Stopping process")
@@ -1019,7 +1086,6 @@ def _run_next_batch(window):
         window.table.set_progress_info(label_text)
         
         # Force UI update
-        from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
     
     def on_progress(cur, total):
@@ -1058,7 +1124,6 @@ def _run_next_batch(window):
             window.table.progress_bar.setMaximum(len(rows))
             window.table.progress_bar.setValue(state['current'] * get_batch_size() + cur)
             _set_gen_btn_stop_state(window, True)
-        from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
         
     def on_finished(errors):
@@ -1076,11 +1141,14 @@ def _run_next_batch(window):
             window.table.progress_bar.setMinimum(0)
             window.table.progress_bar.setMaximum(1)
             window.table.progress_bar.setVisible(True)
-            from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             _on_generation_finished(window, state['errors'], stopped=True)
             return
         cache_results = worker._results
+        
+        # Get current service and model from state for fallback
+        current_service = state.get('service', 'unknown')
+        current_model = state.get('model', 'unknown')
         
         # Process ALL results (both successful and failed)
         for idx, result in cache_results:
@@ -1095,8 +1163,8 @@ def _run_next_batch(window):
             token_total = result.get("token_total")
             category = result.get("category")
             filetype = result.get("filetype")
-            result_service = result.get("service", service)
-            result_model = result.get("model", model)
+            result_service = result.get("service", current_service)
+            result_model = result.get("model", current_model)
             error_message = result.get("error_message", "")
             
             if category is not None:
@@ -1144,6 +1212,194 @@ def _run_next_batch(window):
         if hasattr(window.table, '_emit_stats'):
             window.table._emit_stats()
         
+        # Count successes and failures in this batch
+        total_batch = len(cache_results)
+        failed_count = sum(1 for idx, result in cache_results 
+                          if isinstance(result, dict) and (not result.get("title") or result.get("error_message")))
+        success_count = total_batch - failed_count
+        
+        # Determine batch status
+        batch_completely_failed = (failed_count == total_batch and total_batch > 0)
+        batch_partially_failed = (failed_count > 0 and success_count > 0)
+        
+        # Handle rolling API retry logic
+        if is_rolling_mode and api_keys_list:
+            # Case 1: Partial failure - retry failed files only with SAME API (parsing errors)
+            if batch_partially_failed:
+                retry_count = state.get('batch_same_api_retry', 0)
+                max_same_api_retries = 2  # Retry failed files up to 2 times with same API
+                
+                if retry_count < max_same_api_retries:
+                    print(f"[ROLLING] Batch partially failed ({success_count} succeeded, {failed_count} failed). Retrying failed files with same API (attempt {retry_count + 1}/{max_same_api_retries}).")
+                    
+                    # Build list of failed files only
+                    failed_files_batch = []
+                    for idx, result in cache_results:
+                        if isinstance(result, dict) and (not result.get("title") or result.get("error_message")):
+                            # Find original row for this failed file
+                            image_path = result.get("image_path")
+                            for row in batch:
+                                if row[1] == image_path:
+                                    failed_files_batch.append(row)
+                                    break
+                    
+                    if failed_files_batch:
+                        # Update batch to only contain failed files
+                        state['batches'][state['current']] = failed_files_batch
+                        state['batch_same_api_retry'] = retry_count + 1
+                        
+                        # Update display
+                        current_service = state.get('service', '')
+                        current_api_key = state.get('api_key', '')
+                        label_text = window.table.get_progress_format_text("rolling", current_service, current_api_key)
+                        window.table.set_progress_info(f"{label_text} (Retrying {len(failed_files_batch)} failed files with same API...)")
+                        
+                        QApplication.processEvents()
+                        
+                        # Delay before retry
+                        delay_seconds = get_delay_interval()
+                        if delay_seconds > 0:
+                            if hasattr(window, 'statusbar'):
+                                window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds before retrying failed files...")
+                            def _retry_same_api_cb():
+                                state2 = getattr(window, '_batch_processing_state', {})
+                                stop_flag2 = state2.get('stop_flag')
+                                if state2.get('should_stop', False) or (stop_flag2 and stop_flag2.get('stop')):
+                                    if hasattr(window, 'statusbar'):
+                                        window.statusbar.clearMessage()
+                                    _on_generation_finished(window, state2.get('errors', []), stopped=True)
+                                    window._batch_delay_timer = None
+                                    return
+                                window._batch_delay_timer = None
+                                _run_next_batch(window)  # Retry failed files with same API
+                            timer = QTimer(window)
+                            timer.setSingleShot(True)
+                            timer.timeout.connect(_retry_same_api_cb)
+                            timer.start(int(delay_seconds * 1000))
+                            window._batch_delay_timer = timer
+                        else:
+                            if hasattr(window, 'statusbar'):
+                                window.statusbar.clearMessage()
+                            _run_next_batch(window)  # Retry failed files with same API
+                        return  # Don't proceed to next batch yet
+                else:
+                    # Max same-API retries reached, treat remaining failures as acceptable and move on
+                    print(f"[ROLLING] Max same-API retries reached. Moving to next batch. {failed_count} files still failed.")
+                    state['batch_same_api_retry'] = 0  # Reset for next batch
+            
+            # Case 2: Complete failure - roll to next API and retry entire batch
+            elif batch_completely_failed:
+                retry_count = state.get('batch_retry_count', 0)
+                max_retries = len(api_keys_list) - 1  # -1 because first API was already tried
+                
+                print(f"[ROLLING] Batch completely failed ({failed_count}/{total_batch}). Rolling to next API.")
+                
+                if retry_count < max_retries:
+                    # Try next API for the same batch
+                    state['batch_retry_count'] = retry_count + 1
+                    state['batch_same_api_retry'] = 0  # Reset same-API retry counter
+                    next_api_index = (state.get('current_api_index', 0) + 1) % len(api_keys_list)
+                    # Ensure index is within bounds
+                    if next_api_index >= len(api_keys_list):
+                        next_api_index = 0
+                    state['current_api_index'] = next_api_index
+                    
+                    next_api_info = api_keys_list[next_api_index]
+                    next_service = next_api_info.get('service', '')
+                    next_api_key = next_api_info.get('api_key', '')
+                    
+                    # Update display for retry
+                    label_text = window.table.get_progress_format_text("rolling", next_service, next_api_key)
+                    window.table.set_progress_info(f"{label_text} (Retrying batch with next API...)")
+                    
+                    QApplication.processEvents()
+                    
+                    # Delay before retry
+                    delay_seconds = get_delay_interval()
+                    if delay_seconds > 0:
+                        if hasattr(window, 'statusbar'):
+                            window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds before retrying with next API...")
+                        def _retry_cb():
+                            state2 = getattr(window, '_batch_processing_state', {})
+                            stop_flag2 = state2.get('stop_flag')
+                            if state2.get('should_stop', False) or (stop_flag2 and stop_flag2.get('stop')):
+                                if hasattr(window, 'statusbar'):
+                                    window.statusbar.clearMessage()
+                                _on_generation_finished(window, state2.get('errors', []), stopped=True)
+                                window._batch_delay_timer = None
+                                return
+                            window._batch_delay_timer = None
+                            _run_next_batch(window)  # Retry same batch with next API
+                        timer = QTimer(window)
+                        timer.setSingleShot(True)
+                        timer.timeout.connect(_retry_cb)
+                        timer.start(int(delay_seconds * 1000))
+                        window._batch_delay_timer = timer
+                    else:
+                        if hasattr(window, 'statusbar'):
+                            window.statusbar.clearMessage()
+                        _run_next_batch(window)  # Retry same batch with next API
+                    return  # Don't proceed to next batch yet
+                else:
+                    # All APIs tried and still failed - show detailed warning and stop
+                    print(f"[ROLLING] All {len(api_keys_list)} APIs failed for batch {state.get('current', 0) + 1}")
+                    
+                    # Determine last failed file from cache_results
+                    last_failed_file = None
+                    for _idx, _res in reversed(cache_results):
+                        if isinstance(_res, dict) and (_res.get('error_message') or not _res.get('title')):
+                            last_failed_file = _res.get('image_path')
+                            break
+                    if last_failed_file is None and batch:
+                        last_failed_file = batch[-1][1]
+                    last_failed_name = os.path.basename(last_failed_file) if last_failed_file else 'Unknown'
+
+                    apis_tried = len(api_keys_list)
+                    failed_batch_num = state.get('current', 0) + 1
+
+                    # Build list of tried APIs with details
+                    tried_apis_details = []
+                    for api_info in api_keys_list:
+                        api_key = api_info.get('api_key', '')
+                        service = api_info.get('service', '')
+                        model = api_info.get('model', '')
+                        note = api_info.get('note', '')
+                        
+                        # Mask API key
+                        masked_key = f"***{api_key[-5:]}" if api_key and len(api_key) >= 5 else f"***{api_key}" if api_key else "No key"
+                        
+                        # Format line with note if available
+                        if note:
+                            line = f"  • {service.upper()} - {model} ({masked_key}) - {note}"
+                        else:
+                            line = f"  • {service.upper()} - {model} ({masked_key})"
+                        tried_apis_details.append(line)
+                    
+                    apis_list_text = "\n".join(tried_apis_details)
+
+                    msg = (
+                        f"Image-Tea has tried {apis_tried} API key(s) and all attempts have failed while processing batch {failed_batch_num}.\n\n"
+                        f"Last failed file: {last_failed_name}\n\n"
+                        f"APIs tried (in order):\n{apis_list_text}\n\n"
+                        "Please check your API keys and their quota/status before continuing."
+                    )
+
+                    QMessageBox.warning(window, "All API Keys Failed", msg)
+
+                    # Mark batch files as failed and stop processing
+                    for row in batch:
+                        filepath = row[1]
+                        window.db.update_file_status(filepath, "failed")
+                    _on_generation_finished(window, state['errors'], stopped=False)
+                    return
+        
+        # Reset retry counters when moving to next batch successfully
+        
+        # Reset retry counters when moving to next batch successfully
+        if not (is_rolling_mode and (batch_partially_failed or batch_completely_failed)):
+            state['batch_retry_count'] = 0
+            state['batch_same_api_retry'] = 0
+        
         # Update progress display
         current_mode = state.get('mode', 'all')
         if is_rolling_mode:
@@ -1165,8 +1421,12 @@ def _run_next_batch(window):
         window.table.progress_bar.setMaximum(len(rows))
         window.table.progress_bar.setValue(state['current'] * get_batch_size() + len(batch))  # Update to show completed batch
         _set_gen_btn_stop_state(window, True)
-        from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
+        
+        # Move to next batch only if not retrying current batch
+        # (retry logic above would have returned early if retrying)
+        state['batch_retry_count'] = 0
+        state['batch_same_api_retry'] = 0
         state['current'] += 1
         if errors:
             state['errors'].extend(errors)
@@ -1176,7 +1436,6 @@ def _run_next_batch(window):
             if delay_seconds > 0:
                 if hasattr(window, 'statusbar'):
                     window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds delay before next batch...")
-                from PySide6.QtCore import QTimer
                 def _delayed_cb():
                     state2 = getattr(window, '_batch_processing_state', {})
                     stop_flag2 = state2.get('stop_flag')
@@ -1236,7 +1495,6 @@ def stop_generate_metadata(window):
     window.table.progress_bar.setMaximum(0)
     window.table.progress_bar.setVisible(True)
     _set_gen_btn_stop_state(window, False, is_stopping=True)
-    from PySide6.QtWidgets import QApplication
     QApplication.processEvents()
 
     # Stop running worker if present
@@ -1258,7 +1516,6 @@ def stop_generate_metadata(window):
 
     # If there is no active worker running, schedule a 3s cooldown then finalize
     if not (worker and worker.isRunning()):
-        from PySide6.QtCore import QTimer
         if hasattr(window, '_stop_cooldown_timer') and window._stop_cooldown_timer:
             try:
                 window._stop_cooldown_timer.stop()
@@ -1289,7 +1546,6 @@ def stop_generate_metadata(window):
     
     # Clear error buffer saat stop
     try:
-        from dialogs.ai_helper_error_code_dialog import invoker
         invoker.clear_buffer()
         invoker.disable_buffering()
     except Exception as e:
@@ -1315,7 +1571,6 @@ def _on_generation_finished(window, errors, stopped=False):
     
     # Disable buffering dan flush semua error yang terkumpul
     try:
-        from dialogs.ai_helper_error_code_dialog import invoker
         invoker.disable_buffering()
         invoker.flush_all()
     except Exception as e:
@@ -1368,7 +1623,6 @@ def _on_generation_finished(window, errors, stopped=False):
         total_time_ms = int((time.perf_counter() - window._gen_total_time_start) * 1000)
         window.stats_section.update_total_time(total_time_ms)
     
-    from PySide6.QtWidgets import QApplication
     QApplication.processEvents()
     window.table.refresh_table()
     update_token_stats_ui(window)
@@ -1413,7 +1667,6 @@ def cleanup_stuck_processing_files(window):
     if cleanup_count > 0:
         print(f"[CLEANUP] Cleaned up {cleanup_count} stuck processing files")
         window.table.refresh_table()
-        from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
     else:
         print("[CLEANUP] No stuck processing files found")

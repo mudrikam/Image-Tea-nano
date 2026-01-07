@@ -172,7 +172,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 5: Choose Generation Mode',
-                    'description': 'Pick a generation mode from this dropdown to control which files will be processed. "Generate All Files" processes every file in the table. "Generate Selected Only" processes only selected files (those you checked). "Generate Failed Only" retries files that previously failed. "Generate Drafts Only" processes files marked as drafts. "Resume Generation From Stopped" resumes generation starting from the first stopped file. "Generate With Rolling API Keys" uses available API keys and automatically switches when one fails.',
+                    'description': 'Pick a generation mode from this dropdown to control which files will be processed. "Generate All Files" processes every file in the table. "Generate Selected Only" processes only selected files (those you checked). "Generate Failed Only" retries files that previously failed. "Generate Drafts Only" processes files marked as drafts. "Resume Generation From Stopped" resumes generation starting from the first stopped file. "Generate All With Rolling API Keys" uses available API keys and automatically switches when one fails. There are also rolling-key variants for other filters: "Generate Failed Only With Rolling API Keys", "Generate Selected Only With Rolling API Keys", and "Generate Drafts Only With Rolling API Keys" — each applies the rolling API behavior to that specific filter.',
                     'target': 'gen_mode_combo'
                 },
                 {
@@ -269,7 +269,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Langkah 5: Pilih Mode Generasi',
-                    'description': 'Pilih mode generasi dari dropdown ini untuk menentukan file mana yang akan diproses. "Generate All Files" memproses semua file di tabel. "Generate Selected Only" hanya memproses file yang dipilih (yang kamu centang). "Generate Failed Only" mencoba kembali file yang sebelumnya gagal. "Generate Drafts Only" memproses file yang berstatus draft. "Resume Generation From Stopped" melanjutkan proses dari file yang berhenti pertama. "Generate With Rolling API Keys" menggunakan semua API key yang tersedia dan otomatis berpindah ketika salah satu gagal.',
+                    'description': 'Pilih mode generasi dari dropdown ini untuk menentukan file mana yang akan diproses. "Generate All Files" memproses semua file di tabel. "Generate Selected Only" hanya memproses file yang dipilih (yang kamu centang). "Generate Failed Only" mencoba kembali file yang sebelumnya gagal. "Generate Drafts Only" memproses file yang berstatus draft. "Resume Generation From Stopped" melanjutkan proses dari file yang berhenti pertama. "Generate All With Rolling API Keys" menggunakan semua API key yang tersedia dan otomatis berpindah ketika salah satu gagal. Terdapat juga varian rolling-key untuk filter lain: "Generate Failed Only With Rolling API Keys", "Generate Selected Only With Rolling API Keys", dan "Generate Drafts Only With Rolling API Keys" — masing-masing menerapkan perilaku rolling API pada filter tersebut.',
                     'target': 'gen_mode_combo'
                 },
                 {
