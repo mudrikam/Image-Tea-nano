@@ -172,12 +172,12 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 5: Choose Generation Mode',
-                    'description': 'Pick a generation mode from this dropdown to control which files will be processed. "Generate All Files" processes every file in the table. "Generate Selected Only" processes only selected files (those you checked). "Generate Failed Only" retries files that previously failed. "Generate Drafts Only" processes files marked as drafts. "Resume Generation From Stopped" resumes generation starting from the first stopped file. "Generate All With Rolling API Keys" uses available API keys and automatically switches when one fails. There are also rolling-key variants for other filters: "Generate Failed Only With Rolling API Keys", "Generate Selected Only With Rolling API Keys", and "Generate Drafts Only With Rolling API Keys" — each applies the rolling API behavior to that specific filter.',
+                    'description': 'Pick a generation mode from this dropdown to control which files will be processed. "All Files" processes every file in the table. "Selected Only" processes only selected files (those you checked). "Failed Only" retries files that previously failed. "Drafts Only" processes files marked as drafts. "Resume From Stopped" resumes generation starting from the first stopped file. "All (Rolling API Keys)" uses available API keys and automatically switches when one fails. There are also rolling-key variants for other filters: "Failed Only (Rolling API Keys)", "Selected Only (Rolling API Keys)", and "Drafts Only (Rolling API Keys)" — each applies the rolling API behavior to that specific filter.',
                     'target': 'gen_mode_combo'
                 },
                 {
                     'title': 'Step 6: Generate Metadata',
-                    'description': 'Click the "Generate Metadata" button to start processing. Image Tea will process files per the selected generation mode and Prompt settings, upload files (compressed or proxied as configured), call the chosen API using the selected API key, and save generated metadata back into the table. Large batches may trigger a warning. Individual file errors are recorded and can be retried with "Generate Failed Only".',
+                    'description': 'Click the "Generate Metadata" button to start processing. Image Tea will process files per the selected generation mode and Prompt settings, upload files (compressed or proxied as configured), call the chosen API using the selected API key, and save generated metadata back into the table. Large batches may trigger a warning. Individual file errors are recorded and can be retried with \"Failed Only\".',
                     'target': 'gen_btn'
                 },
                 {
@@ -269,12 +269,12 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Langkah 5: Pilih Mode Generasi',
-                    'description': 'Pilih mode generasi dari dropdown ini untuk menentukan file mana yang akan diproses. "Generate All Files" memproses semua file di tabel. "Generate Selected Only" hanya memproses file yang dipilih (yang kamu centang). "Generate Failed Only" mencoba kembali file yang sebelumnya gagal. "Generate Drafts Only" memproses file yang berstatus draft. "Resume Generation From Stopped" melanjutkan proses dari file yang berhenti pertama. "Generate All With Rolling API Keys" menggunakan semua API key yang tersedia dan otomatis berpindah ketika salah satu gagal. Terdapat juga varian rolling-key untuk filter lain: "Generate Failed Only With Rolling API Keys", "Generate Selected Only With Rolling API Keys", dan "Generate Drafts Only With Rolling API Keys" — masing-masing menerapkan perilaku rolling API pada filter tersebut.',
+                    'description': 'Pilih mode generasi dari dropdown ini untuk menentukan file mana yang akan diproses. "All Files" memproses semua file di tabel. "Selected Only" hanya memproses file yang dipilih (yang kamu centang). "Failed Only" mencoba kembali file yang sebelumnya gagal. "Drafts Only" memproses file yang berstatus draft. "Resume From Stopped" melanjutkan proses dari file yang berhenti pertama. "All (Rolling API Keys)" menggunakan semua API key yang tersedia dan otomatis berpindah ketika salah satu gagal. Terdapat juga varian rolling-key untuk filter lain: "Failed Only (Rolling API Keys)", "Selected Only (Rolling API Keys)", dan "Drafts Only (Rolling API Keys)" — masing-masing menerapkan perilaku rolling API pada filter tersebut.',
                     'target': 'gen_mode_combo'
                 },
                 {
                     'title': 'Langkah 6: Mulai Generate Metadata',
-                    'description': 'Klik tombol "Generate Metadata" untuk memulai proses. Image Tea akan memproses file sesuai mode dan pengaturan Prompt, mengupload file (terkompresi atau melalui proxy sesuai konfigurasi), memanggil layanan API yang dipilih menggunakan API key yang terpilih, dan menyimpan metadata yang dihasilkan ke tabel. Untuk batch besar akan muncul peringatan. Error pada file tertentu dicatat dan dapat dicoba lagi dengan mode "Generate Failed Only".',
+                    'description': 'Klik tombol "Generate Metadata" untuk memulai proses. Image Tea akan memproses file sesuai mode dan pengaturan Prompt, mengupload file (terkompresi atau melalui proxy sesuai konfigurasi), memanggil layanan API yang dipilih menggunakan API key yang terpilih, dan menyimpan metadata yang dihasilkan ke tabel. Untuk batch besar akan muncul peringatan. Error pada file tertentu dicatat dan dapat dicoba lagi dengan mode "Failed Only".',
                     'target': 'gen_btn'
                 },
                 {
