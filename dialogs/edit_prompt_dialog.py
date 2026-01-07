@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QMessageBox, QWidget, QGridLayout, QTabWidget, QFileDialog
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QHBoxLayout, QLabel, QMessageBox, QWidget, QGridLayout, QTabWidget, QFileDialog, QComboBox, QInputDialog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextOption, QPixmap, QPainter, QColor, QIcon
 import qtawesome as qta
@@ -90,7 +90,50 @@ class EditPromptDialog(QDialog):
         negative_layout.addWidget(self.negative_prompt_edit)
         self.tab_widget.addTab(negative_tab, _fa_icon("fa6s.xmark", (142, 68, 173), alpha_f=1.0), "Negative Prompt")
 
+        custom_tab = QWidget()
+        custom_layout = QVBoxLayout(custom_tab)
+        self.custom_prompt_label = QLabel("Custom Prompt:")
+        self.custom_prompt_edit = QTextEdit(self)
+        self.custom_prompt_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.custom_prompt_edit.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.custom_prompt_edit.setAcceptRichText(False)
+        custom_layout.addWidget(self.custom_prompt_label)
+        custom_layout.addWidget(self.custom_prompt_edit)
+        self.tab_widget.addTab(custom_tab, _fa_icon("fa6s.comment", (231, 76, 60), alpha_f=1.0), "Custom Prompt")
+
         main_layout.addWidget(self.tab_widget)
+
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Preset:"))
+        self.preset_combo = QComboBox(self)
+        self.preset_combo.currentIndexChanged.connect(self.load_selected_preset)
+        preset_layout.addWidget(self.preset_combo, 1)
+        
+        self.add_preset_btn = QPushButton()
+        self.add_preset_btn.setIcon(qta.icon("fa6s.plus"))
+        self.add_preset_btn.setToolTip("Add New Preset")
+        self.add_preset_btn.clicked.connect(self.add_preset)
+        preset_layout.addWidget(self.add_preset_btn)
+        
+        self.delete_preset_btn = QPushButton()
+        self.delete_preset_btn.setIcon(qta.icon("fa6s.trash"))
+        self.delete_preset_btn.setToolTip("Delete Preset")
+        self.delete_preset_btn.clicked.connect(self.delete_preset)
+        preset_layout.addWidget(self.delete_preset_btn)
+        
+        self.rename_preset_btn = QPushButton()
+        self.rename_preset_btn.setIcon(qta.icon("fa6s.pen-to-square"))
+        self.rename_preset_btn.setToolTip("Rename Preset")
+        self.rename_preset_btn.clicked.connect(self.rename_preset)
+        preset_layout.addWidget(self.rename_preset_btn)
+        
+        self.duplicate_preset_btn = QPushButton()
+        self.duplicate_preset_btn.setIcon(qta.icon("fa6s.copy"))
+        self.duplicate_preset_btn.setToolTip("Duplicate Preset")
+        self.duplicate_preset_btn.clicked.connect(self.duplicate_preset)
+        preset_layout.addWidget(self.duplicate_preset_btn)
+        
+        main_layout.addLayout(preset_layout)
 
         placeholder_info = QLabel(
             "Prompt Placeholders:\n"
@@ -130,41 +173,209 @@ class EditPromptDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
         self.config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
-        self.load_prompt()
+        self.load_presets()
         self.save_btn.clicked.connect(self.save_prompt)
 
-    def load_prompt(self):
+    def load_presets(self):
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            prompt_data = data["prompt"]
+                self.config_data = json.load(f)
+            
+            if "prompt_presets" not in self.config_data:
+                self.config_data["prompt_presets"] = [{
+                    "name": "Default",
+                    "title_requirements": self.config_data["prompt"].get("title_requirements", ""),
+                    "description_requirements": self.config_data["prompt"].get("description_requirements", ""),
+                    "keywords_requirements": self.config_data["prompt"].get("keywords_requirements", ""),
+                    "general_guides": self.config_data["prompt"].get("general_guides", ""),
+                    "strict_donts": self.config_data["prompt"].get("strict_donts", ""),
+                    "negative_prompt": self.config_data["prompt"].get("negative_prompt", ""),
+                    "custom_prompt": self.config_data["prompt"].get("custom_prompt", "")
+                }]
+            
+            self.preset_combo.clear()
+            for preset in self.config_data["prompt_presets"]:
+                self.preset_combo.addItem(preset["name"])
+            
+            self.load_prompt_from_main()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load presets: {e}")
+
+    def load_prompt_from_main(self):
+        try:
+            prompt_data = self.config_data["prompt"]
             self.title_req_edit.setPlainText(prompt_data.get("title_requirements", ""))
             self.desc_req_edit.setPlainText(prompt_data.get("description_requirements", ""))
             self.keywords_req_edit.setPlainText(prompt_data.get("keywords_requirements", ""))
             self.general_guides_edit.setPlainText(prompt_data.get("general_guides", ""))
             self.strict_donts_edit.setPlainText(prompt_data.get("strict_donts", ""))
             self.negative_prompt_edit.setPlainText(prompt_data.get("negative_prompt", ""))
+            self.custom_prompt_edit.setPlainText(prompt_data.get("custom_prompt", ""))
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load prompt: {e}")
 
+    def load_selected_preset(self):
+        preset_name = self.preset_combo.currentText()
+        if not preset_name:
+            return
+        
+        for preset in self.config_data.get("prompt_presets", []):
+            if preset["name"] == preset_name:
+                self.title_req_edit.setPlainText(preset.get("title_requirements", ""))
+                self.desc_req_edit.setPlainText(preset.get("description_requirements", ""))
+                self.keywords_req_edit.setPlainText(preset.get("keywords_requirements", ""))
+                self.general_guides_edit.setPlainText(preset.get("general_guides", ""))
+                self.strict_donts_edit.setPlainText(preset.get("strict_donts", ""))
+                self.negative_prompt_edit.setPlainText(preset.get("negative_prompt", ""))
+                self.custom_prompt_edit.setPlainText(preset.get("custom_prompt", ""))
+                break
+
     def save_prompt(self):
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if "prompt" not in data:
-                data["prompt"] = {}
-            data["prompt"]["title_requirements"] = self.title_req_edit.toPlainText()
-            data["prompt"]["description_requirements"] = self.desc_req_edit.toPlainText()
-            data["prompt"]["keywords_requirements"] = self.keywords_req_edit.toPlainText()
-            data["prompt"]["general_guides"] = self.general_guides_edit.toPlainText()
-            data["prompt"]["strict_donts"] = self.strict_donts_edit.toPlainText()
-            data["prompt"]["negative_prompt"] = self.negative_prompt_edit.toPlainText()
+            preset_name = self.preset_combo.currentText()
+            if not preset_name:
+                QMessageBox.warning(self, "Error", "No preset selected")
+                return
+            
+            for preset in self.config_data.get("prompt_presets", []):
+                if preset["name"] == preset_name:
+                    preset["title_requirements"] = self.title_req_edit.toPlainText()
+                    preset["description_requirements"] = self.desc_req_edit.toPlainText()
+                    preset["keywords_requirements"] = self.keywords_req_edit.toPlainText()
+                    preset["general_guides"] = self.general_guides_edit.toPlainText()
+                    preset["strict_donts"] = self.strict_donts_edit.toPlainText()
+                    preset["negative_prompt"] = self.negative_prompt_edit.toPlainText()
+                    preset["custom_prompt"] = self.custom_prompt_edit.toPlainText()
+                    break
+            
+            self.config_data["prompt"]["title_requirements"] = self.title_req_edit.toPlainText()
+            self.config_data["prompt"]["description_requirements"] = self.desc_req_edit.toPlainText()
+            self.config_data["prompt"]["keywords_requirements"] = self.keywords_req_edit.toPlainText()
+            self.config_data["prompt"]["general_guides"] = self.general_guides_edit.toPlainText()
+            self.config_data["prompt"]["strict_donts"] = self.strict_donts_edit.toPlainText()
+            self.config_data["prompt"]["negative_prompt"] = self.negative_prompt_edit.toPlainText()
+            self.config_data["prompt"]["custom_prompt"] = self.custom_prompt_edit.toPlainText()
             
             with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(self.config_data, f, indent=2, ensure_ascii=False)
             self.accept()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save prompt: {e}")
+
+    def add_preset(self):
+        text, ok = QInputDialog.getText(self, "Add Preset", "Enter preset name:")
+        if ok and text:
+            for preset in self.config_data.get("prompt_presets", []):
+                if preset["name"] == text:
+                    QMessageBox.warning(self, "Error", "Preset name already exists")
+                    return
+            
+            new_preset = {
+                "name": text,
+                "title_requirements": self.title_req_edit.toPlainText(),
+                "description_requirements": self.desc_req_edit.toPlainText(),
+                "keywords_requirements": self.keywords_req_edit.toPlainText(),
+                "general_guides": self.general_guides_edit.toPlainText(),
+                "strict_donts": self.strict_donts_edit.toPlainText(),
+                "negative_prompt": self.negative_prompt_edit.toPlainText(),
+                "custom_prompt": self.custom_prompt_edit.toPlainText()
+            }
+            self.config_data["prompt_presets"].append(new_preset)
+            
+            try:
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    json.dump(self.config_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save preset: {e}")
+                return
+            
+            self.preset_combo.addItem(text)
+            self.preset_combo.setCurrentText(text)
+            
+            self.title_req_edit.clear()
+            self.desc_req_edit.clear()
+            self.keywords_req_edit.clear()
+            self.general_guides_edit.clear()
+            self.strict_donts_edit.clear()
+            self.negative_prompt_edit.clear()
+            self.custom_prompt_edit.clear()
+
+    def delete_preset(self):
+        preset_name = self.preset_combo.currentText()
+        if preset_name == "Default":
+            QMessageBox.warning(self, "Error", "Cannot delete Default preset")
+            return
+        
+        reply = QMessageBox.question(self, "Delete Preset", 
+                                    f"Are you sure you want to delete preset '{preset_name}'?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.config_data["prompt_presets"] = [p for p in self.config_data["prompt_presets"] if p["name"] != preset_name]
+            self.preset_combo.removeItem(self.preset_combo.currentIndex())
+
+    def rename_preset(self):
+        preset_name = self.preset_combo.currentText()
+        if preset_name == "Default":
+            QMessageBox.warning(self, "Error", "Cannot rename Default preset")
+            return
+        
+        text, ok = QInputDialog.getText(self, "Rename Preset", "Enter new preset name:", text=preset_name)
+        if ok and text:
+            for preset in self.config_data.get("prompt_presets", []):
+                if preset["name"] == text:
+                    QMessageBox.warning(self, "Error", "Preset name already exists")
+                    return
+            
+            for preset in self.config_data.get("prompt_presets", []):
+                if preset["name"] == preset_name:
+                    preset["name"] = text
+                    break
+            
+            try:
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    json.dump(self.config_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to save preset: {e}")
+                return
+            
+            current_index = self.preset_combo.currentIndex()
+            self.preset_combo.setItemText(current_index, text)
+
+    def duplicate_preset(self):
+        preset_name = self.preset_combo.currentText()
+        if not preset_name:
+            return
+        
+        new_name = preset_name + "_copy"
+        counter = 1
+        while any(p["name"] == new_name for p in self.config_data.get("prompt_presets", [])):
+            new_name = f"{preset_name}_copy{counter}"
+            counter += 1
+        
+        for preset in self.config_data.get("prompt_presets", []):
+            if preset["name"] == preset_name:
+                new_preset = {
+                    "name": new_name,
+                    "title_requirements": preset.get("title_requirements", ""),
+                    "description_requirements": preset.get("description_requirements", ""),
+                    "keywords_requirements": preset.get("keywords_requirements", ""),
+                    "general_guides": preset.get("general_guides", ""),
+                    "strict_donts": preset.get("strict_donts", ""),
+                    "negative_prompt": preset.get("negative_prompt", ""),
+                    "custom_prompt": preset.get("custom_prompt", "")
+                }
+                self.config_data["prompt_presets"].append(new_preset)
+                
+                try:
+                    with open(self.config_path, "w", encoding="utf-8") as f:
+                        json.dump(self.config_data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Failed to save duplicated preset: {e}")
+                    return
+                
+                self.preset_combo.addItem(new_name)
+                self.preset_combo.setCurrentText(new_name)
+                break
 
     def export_prompt(self):
         try:
@@ -176,6 +387,7 @@ class EditPromptDialog(QDialog):
                     "general_guides": self.general_guides_edit.toPlainText(),
                     "strict_donts": self.strict_donts_edit.toPlainText(),
                     "negative_prompt": self.negative_prompt_edit.toPlainText(),
+                    "custom_prompt": self.custom_prompt_edit.toPlainText(),
                 }
             }
             default_name = f"Image_Tea_Prompt_Backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -200,13 +412,13 @@ class EditPromptDialog(QDialog):
                 QMessageBox.warning(self, "Invalid File", "Selected file does not contain a valid prompt backup.")
                 return
             prompt_data = data["prompt"]
-            # Populate editor fields — user must click Save to persist to config
             self.title_req_edit.setPlainText(prompt_data.get("title_requirements", ""))
             self.desc_req_edit.setPlainText(prompt_data.get("description_requirements", ""))
             self.keywords_req_edit.setPlainText(prompt_data.get("keywords_requirements", ""))
             self.general_guides_edit.setPlainText(prompt_data.get("general_guides", ""))
             self.strict_donts_edit.setPlainText(prompt_data.get("strict_donts", ""))
             self.negative_prompt_edit.setPlainText(prompt_data.get("negative_prompt", ""))
+            self.custom_prompt_edit.setPlainText(prompt_data.get("custom_prompt", ""))
             QMessageBox.information(self, "Imported", "Prompt values loaded into editor. Click Save to persist changes to the application configuration.")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to import prompt: {e}")
