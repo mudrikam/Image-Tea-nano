@@ -1116,7 +1116,9 @@ class AddApiKeyDialog(QDialog):
                             api_exists = True
                             break
                     else:
-                        if len(row) == 5:
+                        if len(row) == 6:
+                            s, a, n, lt, st, m = row
+                        elif len(row) == 5:
                             s, a, n, lt, st = row
                         else:
                             s, a, n, lt = row

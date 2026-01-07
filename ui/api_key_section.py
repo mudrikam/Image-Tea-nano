@@ -176,7 +176,7 @@ class ApiKeySectionWidget(QWidget):
     def _open_add_api_dialog(self):
         try:
             dlg = AddApiKeyDialog(self)
-            dlg.exec()
+            result = dlg.exec()
             self.refresh()
         except Exception as e:
             print(f"Failed to open AddApiKeyDialog: {e}")
@@ -227,7 +227,7 @@ class ApiKeySectionWidget(QWidget):
     def get_current_model(self):
         return self.selected_model_name
 
-    def set_current_api_by_details(self, api_key, service, model):
+    def set_current_api_by_details(self, api_key, service, model, skip_refresh=False):
         """Set the current API key selection by matching api_key, service, and model"""
         # Normalize service name - handle various capitalizations
         if service:
@@ -239,8 +239,6 @@ class ApiKeySectionWidget(QWidget):
         else:
             service_capitalized = ""
         
-        print(f"[API_KEY_SECTION] Setting API: {service_capitalized} / {model} / ***{api_key[-5:] if api_key and len(api_key) >= 5 else api_key}")
-        
         # First set the correct service in model combo
         service_found = False
         for i in range(self.model_combo.count()):
@@ -248,12 +246,13 @@ class ApiKeySectionWidget(QWidget):
                 self.model_combo.blockSignals(True)
                 self.model_combo.setCurrentIndex(i)
                 self.model_combo.blockSignals(False)
-                self._refresh_api_key_combo(service_capitalized)
+                if not skip_refresh:
+                    self._refresh_api_key_combo(service_capitalized)
                 service_found = True
                 break
         
         if not service_found:
-            print(f"[API_KEY_SECTION] Service '{service_capitalized}' not found in model combo")
+            print(f"Service '{service_capitalized}' not found in model combo")
             return
         
         # Then set the correct API key
@@ -266,15 +265,24 @@ class ApiKeySectionWidget(QWidget):
                 self.api_key_combo.blockSignals(False)
                 self._on_api_combo_changed(i)
                 api_found = True
-                print(f"[API_KEY_SECTION] API key matched and set successfully")
                 break
         
         if not api_found:
-            print(f"[API_KEY_SECTION] API key ***{api_key[-5:] if api_key and len(api_key) >= 5 else api_key} not found in combo")
+            print(f"API key ***{api_key[-5:] if api_key and len(api_key) >= 5 else api_key} not found in combo")
 
     def refresh(self):
+        current_api_key = self.api_key
+        current_service = self.selected_service
+        current_model = self.selected_model_name
+        
         self._populate_models()
-        if self.model_combo.count() > 0:
-            self._on_model_combo_changed(self.model_combo.currentIndex())
+        
+        if current_api_key and current_service:
+            selected_model = self.model_combo.currentText()
+            self._refresh_api_key_combo(selected_model)
+            self.set_current_api_by_details(current_api_key, current_service, current_model, skip_refresh=True)
         else:
-            self._refresh_api_key_combo(None)
+            if self.model_combo.count() > 0:
+                self._on_model_combo_changed(self.model_combo.currentIndex())
+            else:
+                self._refresh_api_key_combo(None)

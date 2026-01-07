@@ -282,7 +282,9 @@ def setup_main_menu(window):
     edit_prompt_action.setStatusTip(MENU_TOOLTIPS["edit_prompt"])
     def open_edit_prompt():
         dialog = EditPromptDialog(window)
-        dialog.exec()
+        result = dialog.exec()
+        if result == EditPromptDialog.Accepted and hasattr(window, 'prompt_section'):
+            window.prompt_section.refresh_presets()
     edit_prompt_action.triggered.connect(open_edit_prompt)
     prompt_menu.addAction(edit_prompt_action)
 
@@ -311,7 +313,9 @@ def setup_main_menu(window):
     add_api_action.setStatusTip(MENU_TOOLTIPS["add_api_key"])
     def show_api_dialog():
         dlg = AddApiKeyDialog(window)
-        dlg.exec()
+        result = dlg.exec()
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.refresh()
     add_api_action.triggered.connect(show_api_dialog)
     api_menu.addAction(add_api_action)
 

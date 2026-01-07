@@ -244,6 +244,36 @@ class PromptSectionWidget(QWidget):
         proxy_wrapper.setFixedWidth(fixed_width)
         main_layout.addWidget(proxy_wrapper)
 
+        preset_group = QVBoxLayout()
+        preset_group.setSpacing(2)
+        preset_group.setContentsMargins(0, 0, 0, 0)
+        preset_header = QHBoxLayout()
+        preset_header.setSpacing(3)
+        preset_header.setContentsMargins(0, 0, 0, 0)
+        preset_icon = QLabel()
+        preset_icon.setPixmap(qta.icon('fa6s.list', color=icon_color).pixmap(icon_size, icon_size))
+        preset_label = QLabel("Preset")
+        preset_label.setStyleSheet("color: #666; font-size: 10px;")
+        preset_header.addWidget(preset_icon)
+        preset_header.addWidget(preset_label)
+        preset_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        preset_group.addLayout(preset_header)
+        self.preset_combo = QComboBox()
+        self.preset_combo.setFixedWidth(fixed_width)
+        self.preset_combo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.preset_combo.setToolTip(
+            "Select a prompt preset to use for metadata generation.\n"
+            "Changing preset updates all prompt templates automatically\n"
+            "(Title, Description, Keywords, Guides, Don'ts, Negative, Custom).\n"
+            "Presets can be managed in the Edit Prompt dialog."
+        )
+        preset_group.addWidget(self.preset_combo)
+
+        preset_wrapper = QWidget()
+        preset_wrapper.setLayout(preset_group)
+        preset_wrapper.setFixedWidth(fixed_width)
+        main_layout.addWidget(preset_wrapper)
+
         main_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         outer_layout.addLayout(main_layout)
@@ -258,6 +288,7 @@ class PromptSectionWidget(QWidget):
         self.cache_spin.valueChanged.connect(self.save_prompt_config)
         self.delay_combo.currentTextChanged.connect(self.save_prompt_config)
         self.proxy_combo.currentTextChanged.connect(self.save_prompt_config)
+        self.preset_combo.currentTextChanged.connect(self.on_preset_changed)
         self.load_prompt_config()
 
     def load_prompt_config(self):
@@ -265,6 +296,28 @@ class PromptSectionWidget(QWidget):
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            
+            if "prompt_presets" not in data:
+                data["prompt_presets"] = [{
+                    "name": "Default",
+                    "title_requirements": data["prompt"].get("title_requirements", ""),
+                    "description_requirements": data["prompt"].get("description_requirements", ""),
+                    "keywords_requirements": data["prompt"].get("keywords_requirements", ""),
+                    "general_guides": data["prompt"].get("general_guides", ""),
+                    "strict_donts": data["prompt"].get("strict_donts", ""),
+                    "negative_prompt": data["prompt"].get("negative_prompt", ""),
+                    "custom_prompt": data["prompt"].get("custom_prompt", "")
+                }]
+            
+            self.preset_combo.clear()
+            for preset in data["prompt_presets"]:
+                self.preset_combo.addItem(preset["name"])
+            
+            current_preset = data.get("selected_preset", "Default")
+            index = self.preset_combo.findText(current_preset)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
+            
             self.min_title_spin.setValue(data["min_title_length"])
             self.max_title_spin.setValue(data["max_title_length"])
             self.max_desc_spin.setValue(data["max_description_length"])
@@ -278,6 +331,58 @@ class PromptSectionWidget(QWidget):
         except Exception as e:
             print(f"Failed to load prompt config: {e}")
         self._loading = False
+
+    def refresh_presets(self):
+        self._loading = True
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            current_text = self.preset_combo.currentText()
+            self.preset_combo.clear()
+            
+            for preset in data.get("prompt_presets", []):
+                self.preset_combo.addItem(preset["name"])
+            
+            current_preset = data.get("selected_preset", current_text)
+            index = self.preset_combo.findText(current_preset)
+            if index >= 0:
+                self.preset_combo.setCurrentIndex(index)
+            elif self.preset_combo.count() > 0:
+                self.preset_combo.setCurrentIndex(0)
+        except Exception as e:
+            print(f"Failed to refresh presets: {e}")
+        self._loading = False
+
+    def on_preset_changed(self):
+        if getattr(self, "_loading", False):
+            return
+        
+        preset_name = self.preset_combo.currentText()
+        if not preset_name:
+            return
+        
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            for preset in data.get("prompt_presets", []):
+                if preset["name"] == preset_name:
+                    data["prompt"]["title_requirements"] = preset.get("title_requirements", "")
+                    data["prompt"]["description_requirements"] = preset.get("description_requirements", "")
+                    data["prompt"]["keywords_requirements"] = preset.get("keywords_requirements", "")
+                    data["prompt"]["general_guides"] = preset.get("general_guides", "")
+                    data["prompt"]["strict_donts"] = preset.get("strict_donts", "")
+                    data["prompt"]["negative_prompt"] = preset.get("negative_prompt", "")
+                    data["prompt"]["custom_prompt"] = preset.get("custom_prompt", "")
+                    break
+            
+            data["selected_preset"] = preset_name
+            
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error changing preset: {e}")
 
     def save_prompt_config(self):
         if getattr(self, "_loading", False):

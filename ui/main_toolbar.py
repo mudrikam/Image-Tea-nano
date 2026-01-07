@@ -263,12 +263,18 @@ def setup_main_toolbar(window: QWidget):
 
     add_vertical_separator(toolbar)
 
+    def open_edit_prompt_toolbar():
+        dialog = EditPromptDialog(window)
+        result = dialog.exec()
+        if result == EditPromptDialog.Accepted and hasattr(window, 'prompt_section'):
+            window.prompt_section.refresh_presets()
+    
     edit_prompt_action = create_toolbar_button_with_label(
         make_icon('fa6s.pen-to-square', icon_color),
         make_icon('fa6s.pen-to-square', icon_color_hover),
         "Prompt",
         "Edit the system prompt for AI metadata generation models. \nCustomize how the AI generates titles, descriptions, and keywords. \nAdvanced users can tailor the prompt to their needs. \nChanges affect all subsequent metadata generations. \nThis setting is overwritten to default if you update the Image Tea application. \n\nConsider saving a backup of your custom prompt.",
-        lambda: EditPromptDialog(window).exec(),
+        open_edit_prompt_toolbar,
         window, icon_size, obj_name='toolbar_prompt')
     toolbar.addAction(edit_prompt_action)
 
@@ -281,12 +287,18 @@ def setup_main_toolbar(window: QWidget):
         window, icon_size, obj_name='toolbar_custom')
     toolbar.addAction(custom_prompt_action)
 
+    def open_add_api_dialog():
+        dlg = AddApiKeyDialog(window)
+        result = dlg.exec()
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.refresh()
+    
     add_api_action = create_toolbar_button_with_label(
         make_icon('fa6s.key', icon_color),
         make_icon('fa6s.key', icon_color_hover),
         "API Key",
         "Add or edit your API key for AI metadata generation services. \nAn API key is required to access AI models. \nMake sure to use a valid key from your AI service provider. \nKeep your API key secure and do not share it publicly.",
-        lambda: AddApiKeyDialog(window).exec(),
+        open_add_api_dialog,
         window, icon_size, obj_name='toolbar_api_key')
     toolbar.addAction(add_api_action)
 
