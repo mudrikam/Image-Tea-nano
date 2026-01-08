@@ -32,6 +32,12 @@ def get_delay_interval():
         return random.uniform(1, 5)
     return float(delay_value)
 
+def get_fresh_ai_config():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    return config
+
 def interruptible_sleep(total_seconds, stop_check):
     end_time = time.time() + total_seconds
     while time.time() < end_time:
@@ -842,6 +848,8 @@ def batch_generate_metadata(window):
     batch_size = get_batch_size()
     total_files = len(rows)
     batches = [rows[i:i+batch_size] for i in range(0, total_files, batch_size)]
+    # Note: Configuration settings (batch_size, delay, prompt params, etc.) will be refreshed from JSON
+    # at the start of each batch run in _run_next_batch(), so users can change settings on-the-fly
     window._batch_processing_state = {
         'batches': batches,
         'current': 0,
@@ -975,6 +983,28 @@ def _run_next_batch(window):
     if state['current'] >= len(state['batches']):
         _on_generation_finished(window, state['errors'])
         return
+    
+    # Refresh configuration from JSON for each batch run
+    try:
+        fresh_config = get_fresh_ai_config()
+        print(f"[BATCH {state['current'] + 1}] Loading fresh config from JSON...")
+        
+        # Update batch_size and re-split if necessary
+        new_batch_size = int(fresh_config.get('batch_size', 5))
+        old_batch_size = len(state['batches'][0]) if state['batches'] and len(state['batches']) > 0 else new_batch_size
+        
+        # If batch size changed, re-split remaining batches
+        if new_batch_size != old_batch_size:
+            print(f"[BATCH {state['current'] + 1}] Batch size changed from {old_batch_size} to {new_batch_size}, re-splitting batches...")
+            remaining_rows = []
+            for i in range(state['current'], len(state['batches'])):
+                remaining_rows.extend(state['batches'][i])
+            new_batches = [remaining_rows[i:i+new_batch_size] for i in range(0, len(remaining_rows), new_batch_size)]
+            state['batches'] = state['batches'][:state['current']] + new_batches
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to load fresh config: {e}")
+    
     batch = state['batches'][state['current']]
     
     # Get variables from state first
@@ -1256,7 +1286,7 @@ def _run_next_batch(window):
                         
                         QApplication.processEvents()
                         
-                        # Delay before retry
+                        # Delay before retry - get fresh from config
                         delay_seconds = get_delay_interval()
                         if delay_seconds > 0:
                             if hasattr(window, 'statusbar'):
@@ -1314,7 +1344,7 @@ def _run_next_batch(window):
                     
                     QApplication.processEvents()
                     
-                    # Delay before retry
+                    # Delay before retry - get fresh from config
                     delay_seconds = get_delay_interval()
                     if delay_seconds > 0:
                         if hasattr(window, 'statusbar'):
@@ -1432,6 +1462,7 @@ def _run_next_batch(window):
             state['errors'].extend(errors)
         
         if state['current'] < len(state['batches']):
+            # Get fresh delay from config before next batch
             delay_seconds = get_delay_interval()
             if delay_seconds > 0:
                 if hasattr(window, 'statusbar'):
