@@ -6,8 +6,8 @@ cd /d "%~dp0"
 set "CUR_DIR=%~dp0"
 set "RELEASES_API=https://api.github.com/repos/mudrikam/Image-Tea-nano/releases/latest"
 set "ZIP_NAME=Image-Tea-nano.zip"
-set "ZIP_PATH=%TEMP%\%ZIP_NAME%"
-set "EXTRACT_PATH=%TEMP%\Image-Tea-nano-latest"
+set "ZIP_PATH=%CUR_DIR%temp\%ZIP_NAME%"
+set "EXTRACT_PATH=%CUR_DIR%temp\Image-Tea-nano"
 set "SELF=%~nx0"
 set "PYTHONW=%CUR_DIR%python\Windows\pythonw.exe"
 set "MAIN_PY=%CUR_DIR%main.py"
@@ -67,9 +67,10 @@ echo Replacing files with latest version
 echo ============================================
 
 setlocal enabledelayedexpansion
+set "EXTRACTED_ROOT_SLASH=%EXTRACTED_ROOT%\"
 for /r "%EXTRACTED_ROOT%" %%F in (*) do (
     set "SRC=%%F"
-    set "DST=!SRC:%EXTRACTED_ROOT%=%CUR_DIR%!"
+    set "DST=!SRC:%EXTRACTED_ROOT_SLASH%=%CUR_DIR%!"
     if /I not "!DST!"=="%CUR_DIR%%SELF%" (
         if not exist "!DST!" (
             for %%G in ("!DST!") do if not exist "%%~dpG" mkdir "%%~dpG" >nul 2>nul

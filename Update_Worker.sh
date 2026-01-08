@@ -43,8 +43,8 @@ cd "$BASE_DIR"
 
 RELEASES_API="https://api.github.com/repos/mudrikam/Image-Tea-nano/releases/latest"
 ZIP_NAME="Image-Tea-nano.zip"
-ZIP_PATH="/tmp/${ZIP_NAME}"
-EXTRACT_PATH="/tmp/Image-Tea-nano-latest"
+ZIP_PATH="${BASE_DIR}/temp/${ZIP_NAME}"
+EXTRACT_PATH="${BASE_DIR}/temp/Image-Tea-nano-latest"
 SELF="$(basename "$0")"
 
 # Detect OS for launcher path
