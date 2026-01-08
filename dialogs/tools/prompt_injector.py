@@ -775,7 +775,7 @@ class PromptInjectorDialog(QDialog):
 			"<div>"
 			f"<p><span style='color:{c('red')}; font-weight:bold;'>Point 1 (red){note(0)}:</span> After the first delay the cursor moves here, clicks, does <b>Ctrl+A</b>, sets the clipboard to the current text and pastes it with <b>Ctrl+V</b>.</p>"
 			f"<p><span style='color:{c('green')}; font-weight:bold;'>Point 2 (green){note(1)}:</span> After the second delay the cursor moves here and clicks, typically used to confirm or advance the UI element.</p>"
-			f"<p><span style='color:{c('blue')}; font-weight:bold;'>Point 3 (blue){note(2)}:</span> After the third delay the cursor moves here and clicks, often used for final actions like Submit or Next.</p>"
+			f"<p><span style='color:{c('blue')}; font-weight:bold;'>Point 3 (blue){note(2)}:</span> After the third delay the cursor moves here and clicks, often used for final actions like Download.</p>"
 			f"<p><span style='color:{c('orange')}; font-weight:bold;'>Point 4 (orange){note(3)}:</span> Optional extra action after the third point.</p>"
 			f"<p><span style='color:{c('magenta')}; font-weight:bold;'>Point 5 (magenta){note(4)}:</span> Refresh trigger. After every N prompts (see 'Trigger Point 5 Every'), the cursor moves here, clicks, and waits for the specified delay before continuing. All other points are paused during this refresh.</p>"
 			"<p><b>Reset Points:</b> Move the four markers back to their default centered positions and save them to settings.</p>"
