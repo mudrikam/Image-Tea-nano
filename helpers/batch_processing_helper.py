@@ -718,7 +718,7 @@ def batch_generate_metadata(window):
                     window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
                 if error_message:
                     print(f"[Gemini ERROR] {error_message}")
-            elif target_service == "openai":
+            elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
                 title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
                 t1 = time.perf_counter()
@@ -727,7 +727,8 @@ def batch_generate_metadata(window):
                 if hasattr(window, "stats_section"):
                     window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
                 if error_message:
-                    print(f"[OpenAI ERROR] {error_message}")
+                    service_name = "OpenRouter" if target_service == "openrouter" else "OpenAI"
+                    print(f"[{service_name} ERROR] {error_message}")
             elif target_service == "groq":
                 t0 = time.perf_counter()
                 title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
@@ -787,7 +788,7 @@ def batch_generate_metadata(window):
                 "image_path": image_path,
                 "error_message": error_message
             }
-    elif service == "openai":
+    elif service == "openai" or service == "openrouter":
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
@@ -799,7 +800,8 @@ def batch_generate_metadata(window):
             if hasattr(window, "stats_section"):
                 window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
             if error_message:
-                print(f"[OpenAI ERROR] {error_message}")
+                service_name = "OpenRouter" if service == "openrouter" else "OpenAI"
+                print(f"[{service_name} ERROR] {error_message}")
             return {
                 "title": title,
                 "description": description,

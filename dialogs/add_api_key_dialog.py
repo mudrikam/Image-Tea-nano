@@ -42,29 +42,32 @@ class ApiKeyTestThread(QThread):
                         err_text = "<failed to stringify error>"
                     self.result.emit('fail', 'gemini', err_text)
                     return
-        if self.service == 'openai' or self.service is None:
+        if self.service == 'openai' or self.service == 'openrouter' or self.service is None:
             try:
                 from openai import OpenAI
-                if re.match(r"^sk-?or-", self.api_key, re.IGNORECASE):
+                if self.service == 'openrouter' or re.match(r"^sk-?or-", self.api_key, re.IGNORECASE):
                     client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1")
+                    detected_service = 'openrouter'
                 else:
                     client = OpenAI(api_key=self.api_key)
+                    detected_service = 'openai'
                 if not self.model:
-                    raise RuntimeError("No model selected for OpenAI API key test.")
+                    raise RuntimeError("No model selected for OpenAI/OpenRouter API key test.")
                 response = client.responses.create(
                     model=self.model,
                     input="Just say OK."
                 )
                 if response:
-                    self.result.emit('success', 'openai', 'OK')
+                    self.result.emit('success', detected_service, 'OK')
                     return
             except Exception as e:
-                print(f"OpenAI API Key test error: {e}")
+                print(f"OpenAI/OpenRouter API Key test error: {e}")
                 try:
                     err_text = str(e)
                 except Exception:
                     err_text = "<failed to stringify error>"
-                self.result.emit('fail', 'openai', err_text)
+                detected_service = 'openrouter' if (self.service == 'openrouter' or re.match(r"^sk-?or-", self.api_key, re.IGNORECASE)) else 'openai'
+                self.result.emit('fail', detected_service, err_text)
                 return
         if self.service == 'groq' or self.service is None:
             try:
@@ -344,6 +347,7 @@ class AddApiKeyDialog(QDialog):
         self.service_combo = QComboBox()
         self.service_combo.addItem("Gemini")
         self.service_combo.addItem("OpenAI")
+        self.service_combo.addItem("OpenRouter")
         self.service_combo.addItem("Groq")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
@@ -424,9 +428,11 @@ class AddApiKeyDialog(QDialog):
             print(f"Error fetching services for sort combo: {e}")
             services = []
         sort_items = ["All"]
+        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq'}
         for s in services:
             try:
-                sort_items.append(f"Service: {str(s).capitalize()}")
+                svc_display = display_service_map.get(str(s).lower(), str(s).capitalize())
+                sort_items.append(f"Service: {svc_display}")
             except Exception:
                 sort_items.append(f"Service: {s}")
         sort_items += [
@@ -653,11 +659,13 @@ class AddApiKeyDialog(QDialog):
         service = self.service_combo.currentText().lower()
         self.model_combo.clear()
         if service == "gemini":
-            models = self.model_list["gemini"]
+            models = self.model_list.get("gemini", [])
         elif service == "openai":
-            models = self.model_list["openai"]
+            models = self.model_list.get("openai", [])
+        elif service == "openrouter":
+            models = self.model_list.get("openrouter", [])
         elif service == "groq":
-            models = self.model_list["groq"]
+            models = self.model_list.get("groq", [])
         else:
             models = []
         for m in models:
@@ -747,7 +755,9 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
             
-            service_item = QTableWidgetItem(str(service.capitalize() if str(service).lower() in ("openai", "gemini", "groq") else str(service)))
+            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq'}
+            svc_display = display_service_map.get(str(service).lower(), str(service))
+            service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
             
@@ -983,8 +993,12 @@ class AddApiKeyDialog(QDialog):
                 self.model_combo.setCurrentIndex(0)
             if service_text.lower() == "openai":
                 self._detected_service = "openai"
+            elif service_text.lower() == "openrouter":
+                self._detected_service = "openrouter"
             elif service_text.lower() == "gemini":
                 self._detected_service = "gemini"
+            elif service_text.lower() == "groq":
+                self._detected_service = "groq"
             else:
                 self._detected_service = None
 
@@ -996,7 +1010,9 @@ class AddApiKeyDialog(QDialog):
         # Groq keys start with 'gsk_'
         if lower.startswith('gsk_') or lower.startswith('gsk-'):
             service = 'groq'
-        elif re.match(r"^sk-?or-", ak, re.IGNORECASE) or (ak.startswith('sk-') and len(ak) > 40):
+        elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
+            service = 'openrouter'
+        elif ak.startswith('sk-') and len(ak) > 40:
             service = 'openai'
         elif len(ak) > 30 and 'AIza' in ak:
             service = 'gemini'
@@ -1004,6 +1020,8 @@ class AddApiKeyDialog(QDialog):
             service = None
         if service == 'openai':
             self.service_combo.setCurrentText("OpenAI")
+        elif service == 'openrouter':
+            self.service_combo.setCurrentText("OpenRouter")
         elif service == 'gemini':
             self.service_combo.setCurrentText("Gemini")
         elif service == 'groq':
@@ -1015,8 +1033,12 @@ class AddApiKeyDialog(QDialog):
     def _on_service_combo_changed(self, idx):
         if self.service_combo.currentText() == "OpenAI":
             self._detected_service = 'openai'
+        elif self.service_combo.currentText() == "OpenRouter":
+            self._detected_service = 'openrouter'
         elif self.service_combo.currentText() == "Gemini":
             self._detected_service = 'gemini'
+        elif self.service_combo.currentText() == "Groq":
+            self._detected_service = 'groq'
         else:
             self._detected_service = None
         self._refresh_model_combo()
@@ -1080,12 +1102,14 @@ class AddApiKeyDialog(QDialog):
             ak_lower = ak.lower()
             if ak_lower.startswith('gsk_') or ak_lower.startswith('gsk-'):
                 service = 'groq'
-            elif re.match(r"^sk-?or-", ak, re.IGNORECASE) or (ak.startswith('sk-') and len(ak) > 40):
+            elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
+                service = 'openrouter'
+            elif ak.startswith('sk-') and len(ak) > 40:
                 service = 'openai'
             elif len(ak) > 30 and 'AIza' in ak:
                 service = 'gemini'
         if not service:
-            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, or Groq.")
+            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, or Groq.")
             return
         if not model:
             QMessageBox.warning(self, "Input Error", "Model must be selected.")
@@ -1280,8 +1304,12 @@ class AddApiKeyDialog(QDialog):
             self.model_combo.setCurrentIndex(0)
         if service_text.lower() == "openai":
             self._detected_service = "openai"
+        elif service_text.lower() == "openrouter":
+            self._detected_service = "openrouter"
         elif service_text.lower() == "gemini":
             self._detected_service = "gemini"
+        elif service_text.lower() == "groq":
+            self._detected_service = "groq"
         else:
             self._detected_service = None
         menu = QMenu(self)
