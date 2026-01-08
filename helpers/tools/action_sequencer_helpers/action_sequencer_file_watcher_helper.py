@@ -100,6 +100,19 @@ class ActionSequencerFileWatcher:
                     # Skip if already detected
                     if file_path in detected_files.values():
                         continue
+
+                    # If file is not newly created (not in new_files), accept only if its mtime is recent
+                    if file_path not in new_files:
+                        try:
+                            mtime = os.path.getmtime(file_path)
+                            # If file modification time is older than when watch started, skip it
+                            if mtime < start_time - 0.5:
+                                # old file, not result of this run
+                                self._log(f"Skipping existing old file (not new): {name}")
+                                continue
+                        except Exception as e:
+                            self._log(f"Error checking mtime for {file_path}: {e}")
+                            continue
                     
                     # Check if matches any variant
                     matched = False
@@ -358,7 +371,8 @@ class ActionSequencerFileWatcher:
                     next_num = max_num + 1
                     next_num_str = f"{'000' + str(next_num)}"[-3:]
                     next_variant = f"{name_part}_{next_num_str}{extension}"
-                    variants.append(next_variant)
+                    # Prioritize the predicted next numbered variant to avoid matching an old base file
+                    variants.insert(0, next_variant)
                     self._log(f"Smart collision: Base exists={base_exists}, max_num={max_num}, expecting: {next_variant}")
                 # else: no existing files, base name already in candidates
                 

@@ -232,6 +232,8 @@ class IllustratorJSXGenerator:
         jsx.append("            basePath = config.outputPath + '/' + config.prefix + originalFileName + config.suffix + '.svg';")
         jsx.append("            exportFile = getUniqueFilePath(basePath);")
         jsx.append("            var svgOptions = new ExportOptionsSVG();")
+        jsx.append("            svgOptions.embedRasterImages = false;")
+        jsx.append("            svgOptions.preserveEditability = false;")
         jsx.append("            doc.exportFile(exportFile, ExportType.SVG, svgOptions);")
         jsx.append("        }")
         jsx.append("        $.sleep(500);")
