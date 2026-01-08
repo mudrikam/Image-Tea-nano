@@ -192,6 +192,7 @@ class ActionSequencerDialog(QDialog):
         self.action_bar_widget.disable_all_load_buttons()
         self.preset_list_widget.load_platforms_from_db()
         self.load_output_path()
+        self.load_source_path()
         self.resize(700, 600)
     
     def setup_ui(self):
@@ -415,10 +416,11 @@ class ActionSequencerDialog(QDialog):
         print(f"Loaded {len(self.loaded_files)} files from database")
     
     def on_select_source(self):
+        home_dir = os.path.expanduser('~')
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Source Folder",
-            "",
+            home_dir,
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         
@@ -435,13 +437,16 @@ class ActionSequencerDialog(QDialog):
                 self.action_bar_widget.set_source_path(folder)
             except Exception:
                 pass
+            # Save source path to config
+            self.config.set('source_path', folder)
             print(f"Loaded {len(self.loaded_files)} files from folder: {folder}")
     
     def on_select_file(self):
+        home_dir = os.path.expanduser('~')
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select File",
-            "",
+            home_dir,
             "All Files (*.*)"
         )
         
@@ -453,6 +458,8 @@ class ActionSequencerDialog(QDialog):
                 self.action_bar_widget.set_file_path(file_path)
             except Exception:
                 pass
+            # Save file path to config (save as source_path)
+            self.config.set('source_path', file_path)
             print(f"Loaded file: {file_path}")
     
     def on_open_settings(self):
@@ -519,6 +526,29 @@ class ActionSequencerDialog(QDialog):
         
         try:
             if preset_type == 'Batch':
+                # Check if files are loaded OR if source path is set
+                if not self.loaded_files:
+                    # Try to get source path from action bar
+                    try:
+                        source_path = self.action_bar_widget.source_path_edit.text().strip()
+                        if source_path and os.path.exists(source_path):
+                            # Load files from source path
+                            if os.path.isdir(source_path):
+                                print(f"Auto-loading files from source path: {source_path}")
+                                self.loaded_files = []
+                                for root, dirs, files in os.walk(source_path):
+                                    for file in files:
+                                        filepath = os.path.join(root, file)
+                                        self.loaded_files.append(filepath)
+                                self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
+                            else:
+                                # Single file path
+                                self.loaded_files = [source_path]
+                                self.status_bar_widget.update_files_count(1, 'manual')
+                    except Exception as e:
+                        print(f"Error auto-loading from source path: {e}")
+                
+                # Final check: if still no files, show warning
                 if not self.loaded_files:
                     QMessageBox.warning(self, "No Files Loaded", "Please load files from database or select source folder for batch processing")
                     return
@@ -662,6 +692,18 @@ class ActionSequencerDialog(QDialog):
         if output_path:
             self.action_bar_widget.set_output_path(output_path)
     
+    def load_source_path(self):
+        source_path = self.config.get('source_path', '')
+        if source_path and os.path.exists(source_path):
+            try:
+                if os.path.isdir(source_path):
+                    self.action_bar_widget.set_source_path(source_path)
+                else:
+                    self.action_bar_widget.set_file_path(source_path)
+                print(f"Loaded saved source path: {source_path}")
+            except Exception as e:
+                print(f"Error loading source path: {e}")
+    
     def on_output_path_changed(self, path):
         self.config.set('output_path', path)
     
@@ -705,6 +747,8 @@ class ActionSequencerDialog(QDialog):
             self.status_bar_widget.update_files_count(0, '')
         except Exception:
             pass
+        # Remove source_path from config
+        self.config.set('source_path', '')
         print("Source cleared")
 
     def closeEvent(self, event):
