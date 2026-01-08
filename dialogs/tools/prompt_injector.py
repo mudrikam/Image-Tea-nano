@@ -797,14 +797,26 @@ class PromptInjectorDialog(QDialog):
 	def _on_current_file_updated(self, file_idx: int, total_files: int, file_type: str, file_pos: int, file_count: int):
 		"""Update `csv_label` to show which file and which prompt inside that file is being processed.
 
-		Example: "Loaded 235 prompts (1/3 csv: 12/80)"
+		Example: "Loaded 235 prompts (1/3 csv: 12/80 - myfile.csv)"
 		"""
 		total = len(self.loaded_paste_texts) if self.loaded_paste_texts else 0
 		if total == 0 or total_files == 0:
 			self._update_loaded_label()
 			return
-		# Keep the existing 'Loaded X prompts' info and append file progress
-		self.csv_label.setText(f"Loaded {total} prompts ({file_idx}/{total_files} {file_type}: {file_pos}/{file_count})")
+		# Get current file name (truncated to basename only)
+		file_name = ""
+		if file_idx > 0 and file_idx <= len(self._loaded_files):
+			file_path = self._loaded_files[file_idx - 1].get('path', '')
+			if file_path:
+				file_name = os.path.basename(file_path)
+				# Truncate if too long (keep first 20 and last 10 chars with ...)
+				if len(file_name) > 35:
+					file_name = file_name[:20] + "..." + file_name[-10:]
+		# Keep the existing 'Loaded X prompts' info and append file progress with filename
+		if file_name:
+			self.csv_label.setText(f"Loaded {total} prompts ({file_idx}/{total_files} {file_type}: {file_pos}/{file_count} - {file_name})")
+		else:
+			self.csv_label.setText(f"Loaded {total} prompts ({file_idx}/{total_files} {file_type}: {file_pos}/{file_count})")
 
 	def _set_delay_text(self, text: str):
 		"""Set the delay label text and collapse the label when empty to avoid layout gaps."""
@@ -1024,7 +1036,16 @@ class PromptInjectorDialog(QDialog):
 			return
 		last_index = n_files
 		last_type = self._loaded_files[-1].get('type', '')
-		self.csv_label.setText(f"Loaded {total} prompts ({last_index}/{n_files}) ({last_type})")
+		# Get last file name (truncated to basename only)
+		last_file_path = self._loaded_files[-1].get('path', '')
+		last_file_name = os.path.basename(last_file_path) if last_file_path else ''
+		# Truncate if too long (keep first 20 and last 10 chars with ...)
+		if len(last_file_name) > 35:
+			last_file_name = last_file_name[:20] + "..." + last_file_name[-10:]
+		if last_file_name:
+			self.csv_label.setText(f"Loaded {total} prompts ({last_index}/{n_files} {last_type} - {last_file_name})")
+		else:
+			self.csv_label.setText(f"Loaded {total} prompts ({last_index}/{n_files}) ({last_type})")
 
 	def _set_clipboard(self, text: str):
 		cb = QApplication.clipboard()
@@ -1049,11 +1070,8 @@ class PromptInjectorDialog(QDialog):
 		data["base_delays"] = [float(s.value()) for s in self.delay_spinboxes]
 		data["random_delay"] = float(self.rand_spin.value())
 		data["enabled_points"] = [bool(chk.isChecked()) for chk in self.point_enabled]
+		# csv_path is deprecated (kept for backwards compatibility but not used)
 		data["csv_path"] = None
-		if getattr(self, "loaded_paste_texts", None) and getattr(self, "csv_label", None):
-			text = self.csv_label.text()
-			fname = text.split(":", 1)[1].strip().split(" (")[0]
-			data["csv_path"] = fname
 		pts = []
 		for p in self.points:
 			pos = p.pos()
