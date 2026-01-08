@@ -435,6 +435,15 @@ class PromptInjectorDialog(QDialog):
 			self.save_settings()
 		return updater
 
+	def _update_coords(self):
+		"""Update coordinates used for automation with the latest positions of the points"""
+		if hasattr(self, 'cfg_coords'):
+			new_coords = []
+			for idx, p in enumerate(self.points):
+				c = p.frameGeometry().center()
+				new_coords.append((c.x(), c.y()))
+			self.cfg_coords = new_coords
+
 	def _on_point_toggle(self, idx: int, enabled: bool):
 		if idx < 0 or idx >= len(self.points):
 			return
@@ -696,11 +705,16 @@ class PromptInjectorDialog(QDialog):
 			if self._automation_paused:
 				self._pause_start = time.time()
 				self.btn_pause.setText("Resume")
+				for p in self.points:
+					p.set_click_through(False)
 			else:
 				if getattr(self, "_pause_start", None):
 					self._pause_accum += time.time() - self._pause_start
 					self._pause_start = None
 				self.btn_pause.setText("Pause")
+				for p in self.points:
+					p.set_click_through(True)
+				self._update_coords()
 		else:
 			if not getattr(self, '_pause_event', None):
 				self._set_delay_text("Not running")
@@ -712,10 +726,15 @@ class PromptInjectorDialog(QDialog):
 					self._pause_accum += time.time() - self._pause_start
 					self._pause_start = None
 				self.btn_pause.setText("Pause")
+				for p in self.points:
+					p.set_click_through(True)
+				self._update_coords()
 			else:
 				self._pause_event.set()
 				self._pause_start = time.time()
 				self.btn_pause.setText("Resume")
+				for p in self.points:
+					p.set_click_through(False)
 		self._update_stats(getattr(self, "_current_done", 0), getattr(self, "_total", 0))
 
 	def on_stop(self):
@@ -1193,7 +1212,8 @@ class PromptInjectorDialog(QDialog):
 					self.currentFileUpdated.emit(file_idx + 1, len(files), file_type, file_pos, file_count)
 			# Refresh logic: if enabled and interval tercapai, trigger point 5
 			if refresh_enabled and refresh_every > 0 and (ui_idx > 1) and ((ui_idx-1) % refresh_every == 0):
-				x, y = coords[4]
+				current_coords = self.cfg_coords
+				x, y = current_coords[4]
 				pyautogui.moveTo(x, y)
 				pyautogui.click()
 				for t in range(int(refresh_delay), 0, -1):
@@ -1223,7 +1243,8 @@ class PromptInjectorDialog(QDialog):
 					time.sleep(min(step, remaining))
 					remaining -= step
 				self.countdownUpdated.emit(0.0, refresh_countdown)
-				x, y = coords[i]
+				current_coords = self.cfg_coords
+				x, y = current_coords[i]
 				pyautogui.moveTo(x, y, duration=0.2)
 				pyautogui.click()
 				if i == 0:
