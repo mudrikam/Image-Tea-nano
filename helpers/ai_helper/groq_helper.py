@@ -5,6 +5,7 @@ import json
 import re
 import time
 import threading
+import traceback
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from PySide6.QtWidgets import QApplication
@@ -159,9 +160,10 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
         
         if is_video:
             error_message = (
-                "Groq Vision API belum mendukung input video secara langsung. "
-                "Silakan gunakan gambar atau pilih layanan Gemini untuk video."
+                "Groq Vision API does not currently support video input directly. "
+                "Please use images or select the Gemini service for video processing."
             )
+            print(f"[Groq Video Not Supported] {error_message}")
             return '', '', '', {}, '', error_message, 0, 0, 0
         
         client = Groq(api_key=api_key)
@@ -346,9 +348,9 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
             else:
                 m = re.search(r"(\b\d{3}\b)", err_str)
                 if m:
-                    code = m.group(1)
+                    code = int(m.group(1))
                 elif 'rate limit' in err_str.lower() or 'quota' in err_str.lower():
-                    code = '429'
+                    code = 429
             m = re.search(r"['\"]status['\"]\s*[:=]\s*['\"]([^'\"]+)['\"]", err_str)
             if m:
                 status = m.group(1)
@@ -357,16 +359,20 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
         try:
             if code or ('quota' in err_str.lower()) or ('rate limit' in err_str.lower()):
                 signature = str(code) if not status else f"{code}|{status}"
+                print(f"[Groq] Emitting error dialog: code={code}, signature={signature}, service=groq, file={os.path.basename(image_path)}")
                 try:
                     from dialogs.ai_helper_error_code_dialog import invoker
                     invoker.showRequested.emit(signature, err_str, os.path.basename(image_path), 'groq')
                     if signature in invoker._buffer:
                         error_code_map = invoker._buffer[signature].setdefault('error_code_map', {})
                         error_code_map[os.path.basename(image_path)] = code
-                except Exception:
-                    print("[Dialog Error] Failed to show error dialog")
+                    print(f"[Groq] Error dialog emission successful")
+                except Exception as e_dialog:
+                    print(f"[Dialog Error] Failed to show error dialog: {e_dialog}")
+                    traceback.print_exc()
         except Exception as e2:
             print(f"[Groq] Error during error-dialog notification: {e2}")
+            traceback.print_exc()
         return '', '', '', {}, '', error_message, 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)

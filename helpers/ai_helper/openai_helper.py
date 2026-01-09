@@ -3,6 +3,7 @@ import json
 import base64
 import time
 import re
+import traceback
 from openai import OpenAI
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
@@ -184,10 +185,11 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         is_openrouter = _is_openrouter_key(api_key)
         if is_video and not is_openrouter:
             error_message = (
-                "OpenAI Vision API belum mendukung input video secara langsung. "
-                "Silakan gunakan gambar atau pilih layanan Gemini untuk video. "
-                "Jika di masa depan OpenAI sudah mendukung video, fitur ini akan segera ditambahkan."
+                "OpenAI Vision API does not currently support video input directly. "
+                "Please use images or select the Gemini service for video processing. "
+                "If OpenAI adds video support in the future, this feature will be updated accordingly."
             )
+            print(f"[OpenAI Video Not Supported] {error_message}")
             return '', '', '', {}, '', error_message, 0, 0, 0
         client = create_openai_client(api_key)
         if not prompt:
@@ -434,9 +436,9 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             else:
                 m = re.search(r"(\b\d{3}\b)", err_str)
                 if m:
-                    code = m.group(1)
+                    code = int(m.group(1))
                 elif 'rate limit' in err_str.lower() or 'quota' in err_str.lower():
-                    code = '429'
+                    code = 429
             m = re.search(r"['\"]status['\"]\s*[:=]\s*['\"]([^'\"]+)['\"]", err_str)
             if m:
                 status = m.group(1)
@@ -445,17 +447,21 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         try:
             if code or ('quota' in err_str.lower()) or ('rate limit' in err_str.lower()):
                 signature = str(code) if not status else f"{code}|{status}"
+                service_name = 'openrouter' if _is_openrouter_key(api_key) else 'openai'
+                print(f"[OpenAI/OpenRouter] Emitting error dialog: code={code}, signature={signature}, service={service_name}, file={os.path.basename(image_path)}")
                 try:
                     from dialogs.ai_helper_error_code_dialog import invoker
-                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path), 'openai')
-                    # Kirim error code ke buffer untuk file ini
+                    invoker.showRequested.emit(signature, err_str, os.path.basename(image_path), service_name)
                     if signature in invoker._buffer:
                         error_code_map = invoker._buffer[signature].setdefault('error_code_map', {})
                         error_code_map[os.path.basename(image_path)] = code
-                except Exception:
-                    print("[Dialog Error] Failed to show error dialog")
+                    print(f"[OpenAI/OpenRouter] Error dialog emission successful")
+                except Exception as e_dialog:
+                    print(f"[Dialog Error] Failed to show error dialog: {e_dialog}")
+                    traceback.print_exc()
         except Exception as e2:
             print(f"[OpenAI] Error during error-dialog notification: {e2}")
+            traceback.print_exc()
         return '', '', '', {}, '', error_message, 0, 0, 0
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)

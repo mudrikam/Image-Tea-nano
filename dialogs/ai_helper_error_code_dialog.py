@@ -90,10 +90,149 @@ OPENAI_ERRORS = {
             "solution": "Retry after a brief wait or switch to a different model."
         }
     }
+
+OPENROUTER_ERRORS = {
+    "400": {
+        "status": "BAD_REQUEST",
+        "description": "The server could not understand the request due to invalid syntax.",
+        "example": "Review the request format and ensure it is correct.",
+        "solution": "Check your request parameters and format according to OpenRouter API documentation."
+    },
+    "401": {
+        "status": "UNAUTHORIZED",
+        "description": "The request was not successful because it lacks valid authentication credentials.",
+        "example": "Ensure the request includes the necessary authentication credentials and the API key is valid.",
+        "solution": "Verify your API key and ensure it is correctly configured in the request headers."
+    },
+    "402": {
+        "status": "INSUFFICIENT_CREDITS",
+        "description": "Your account or API key has insufficient credits.",
+        "example": "Add more credits and retry the request.",
+        "solution": "Check your account balance and add credits to continue using the API."
+    },
+    "403": {
+        "status": "MODERATION_FLAGGED",
+        "description": "Your chosen model requires moderation and your input was flagged.",
+        "example": "The content violated moderation policies.",
+        "solution": "Review your input content and ensure it complies with moderation guidelines."
+    },
+    "408": {
+        "status": "REQUEST_TIMEOUT",
+        "description": "Your request timed out.",
+        "example": "The request took too long to process.",
+        "solution": "Reduce the complexity of your request or try again later."
+    },
+    "429": {
+        "status": "RATE_LIMITED",
+        "description": "You are being rate limited.",
+        "example": "Too many requests sent in a short period.",
+        "solution": "Implement request throttling and respect rate limits. Wait before retrying."
+    },
+    "502": {
+        "status": "MODEL_DOWN",
+        "description": "Your chosen model is down or we received an invalid response from it.",
+        "example": "The model is temporarily unavailable or returned an error.",
+        "solution": "Try switching to another model or wait and retry later."
+    },
+    "503": {
+        "status": "NO_PROVIDER_AVAILABLE",
+        "description": "There is no available model provider that meets your routing requirements.",
+        "example": "No provider can handle your request at this time.",
+        "solution": "Adjust your routing requirements or try again later when providers are available."
+    }
+}
+
+GROQ_ERRORS = {
+    "400": {
+        "status": "BAD_REQUEST",
+        "description": "The server could not understand the request due to invalid syntax.",
+        "example": "Review the request format and ensure it is correct.",
+        "solution": "Verify your request parameters match the API specification."
+    },
+    "401": {
+        "status": "UNAUTHORIZED",
+        "description": "The request was not successful because it lacks valid authentication credentials.",
+        "example": "Ensure the request includes the necessary authentication credentials and the API key is valid.",
+        "solution": "Check your API key and ensure it's correctly configured."
+    },
+    "403": {
+        "status": "FORBIDDEN",
+        "description": "The request is not allowed due to permission restrictions.",
+        "example": "Ensure the request includes the necessary permissions to access the resource or your permissions are configured correctly.",
+        "solution": "Verify your account permissions and ensure you have access to the requested resource."
+    },
+    "404": {
+        "status": "NOT_FOUND",
+        "description": "The requested resource could not be found.",
+        "example": "Check the request URL and the existence of the resource.",
+        "solution": "Verify the endpoint URL and ensure the resource exists."
+    },
+    "413": {
+        "status": "REQUEST_ENTITY_TOO_LARGE",
+        "description": "The request body is too large.",
+        "example": "Please reduce the size of the request body.",
+        "solution": "Reduce the input size or split your request into smaller chunks."
+    },
+    "422": {
+        "status": "UNPROCESSABLE_ENTITY",
+        "description": "The request was well-formed but could not be followed due to semantic errors or model hallucinations.",
+        "example": "Verify the data provided for correctness and completeness or retry your request.",
+        "solution": "Check your request data for semantic issues and ensure all required fields are valid."
+    },
+    "424": {
+        "status": "FAILED_DEPENDENCY",
+        "description": "The request failed because the dependent request failed.",
+        "example": "This may occur when using Remote MCP in the case of authentication issues.",
+        "solution": "Check dependencies and authentication, then retry the request."
+    },
+    "429": {
+        "status": "TOO_MANY_REQUESTS",
+        "description": "Too many requests were sent in a given timeframe.",
+        "example": "Implement request throttling and respect rate limits.",
+        "solution": "Wait before sending more requests and implement exponential backoff."
+    },
+    "498": {
+        "status": "FLEX_TIER_CAPACITY_EXCEEDED",
+        "description": "Custom status code - the flex tier is at capacity and the request won't be processed.",
+        "example": "Try again later when capacity is available.",
+        "solution": "Wait and retry later, or consider upgrading to a paid tier with guaranteed capacity."
+    },
+    "499": {
+        "status": "REQUEST_CANCELLED",
+        "description": "Custom status code used in logs to signify when the request is cancelled by the caller.",
+        "example": "The request was intentionally cancelled.",
+        "solution": "This is expected if you cancelled the request. No action needed unless unintentional."
+    },
+    "500": {
+        "status": "INTERNAL_SERVER_ERROR",
+        "description": "A generic error occurred on the server.",
+        "example": "Try the request again later or contact support if the issue persists.",
+        "solution": "Retry after a brief wait. If the error persists, contact Groq support."
+    },
+    "502": {
+        "status": "BAD_GATEWAY",
+        "description": "The server received an invalid response from an upstream server.",
+        "example": "This may be a temporary issue, retrying the request might resolve it.",
+        "solution": "Wait and retry. This is usually a temporary issue with upstream services."
+    },
+    "503": {
+        "status": "SERVICE_UNAVAILABLE",
+        "description": "The server is not ready to handle the request, often due to maintenance or overload.",
+        "example": "Wait before retrying the request.",
+        "solution": "Wait a few minutes and retry. The service may be under maintenance or experiencing high load."
+    }
+}
+
 PREDEFINED_ERRORS = {}
 for k, v in GEMINI_ERRORS.items():
     PREDEFINED_ERRORS[k] = v
 for k, v in OPENAI_ERRORS.items():
+    if k not in PREDEFINED_ERRORS:
+        PREDEFINED_ERRORS[k] = v
+for k, v in OPENROUTER_ERRORS.items():
+    if k not in PREDEFINED_ERRORS:
+        PREDEFINED_ERRORS[k] = v
+for k, v in GROQ_ERRORS.items():
     if k not in PREDEFINED_ERRORS:
         PREDEFINED_ERRORS[k] = v
 
@@ -181,7 +320,17 @@ class AIHelperErrorCodeDialog(QDialog):
         provided_status = status
         entries = []
         
-        error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
+        # Select error definitions based on service
+        if self._service == 'gemini':
+            error_definitions = GEMINI_ERRORS
+        elif self._service == 'openai':
+            error_definitions = OPENAI_ERRORS
+        elif self._service == 'openrouter':
+            error_definitions = OPENROUTER_ERRORS
+        elif self._service == 'groq':
+            error_definitions = GROQ_ERRORS
+        else:
+            error_definitions = PREDEFINED_ERRORS
         
         if self._error_code_map and filenames:
             first_file = filenames[0]
@@ -532,7 +681,18 @@ Solution: {entry.get('solution', '')}"""
                     self._update_error_labels(str(file_error_code), entry)
                     print(f"[Dialog Click] Updated labels for error {file_error_code} from PREDEFINED_ERRORS")
                 else:
-                    error_definitions = GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS
+                    # Select appropriate error definitions based on service
+                    if self._service == 'gemini':
+                        error_definitions = GEMINI_ERRORS
+                    elif self._service == 'openai':
+                        error_definitions = OPENAI_ERRORS
+                    elif self._service == 'openrouter':
+                        error_definitions = OPENROUTER_ERRORS
+                    elif self._service == 'groq':
+                        error_definitions = GROQ_ERRORS
+                    else:
+                        error_definitions = PREDEFINED_ERRORS
+                    
                     entry = error_definitions.get(str(file_error_code))
                     if entry:
                         self._update_error_labels(str(file_error_code), entry)
@@ -633,7 +793,7 @@ class _DialogInvoker(QObject):
         self._buffer = {}
         self._timers = {}
         self._last_shown = {}
-        self.buffering_enabled = False
+        self.buffering_enabled = True
 
     @Slot(str, str, str, str)
     def _on_show(self, signature, message, filename, service='gemini'):

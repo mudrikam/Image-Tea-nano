@@ -652,6 +652,25 @@ def batch_generate_metadata(window):
         return
     # --- END FILE EXISTENCE CHECK ---
 
+    # --- VIDEO COMPATIBILITY CHECK ---
+    if service in ['groq', 'openai'] and not is_rolling_mode:
+        video_exts = {'.mp4', '.mpeg', '.mpg', '.mov', '.webm'}
+        video_files = [row for row in rows if os.path.splitext(row[1])[1].lower() in video_exts]
+        if video_files:
+            service_name = "Groq" if service == 'groq' else "OpenAI"
+            QMessageBox.warning(
+                window,
+                "Video Not Supported",
+                f"{service_name} Vision API does not currently support video input directly.\n\n"
+                f"Found {len(video_files)} video file(s) in your selection.\n\n"
+                "Please:\n"
+                "• Use image files only, or\n"
+                "• Select Gemini service for video processing, or\n"
+                "• Use OpenRouter with video-capable models\n\n"
+                "The process will continue but video files will be skipped."
+            )
+    # --- END VIDEO COMPATIBILITY CHECK ---
+
     # --- WARNING DIALOG FOR > 1000 FILES ---
     if len(rows) >= 1000:
         try:

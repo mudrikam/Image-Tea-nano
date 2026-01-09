@@ -370,19 +370,21 @@ class VideoProxyWorker(QThread):
                 if "time=" in line:
                     try:
                         time_str = line.split("time=")[1].split()[0]
-                        h, m, s = time_str.split(":")
-                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                        
-                        if duration > 0:
-                            progress = int((current_time / duration) * 100)
-                            self.progress_update.emit({
-                                "status": "processing",
-                                "progress": min(progress, 100),
-                                "current_time": current_time,
-                                "duration": duration
-                            })
+                        time_parts = time_str.split(":")
+                        if len(time_parts) == 3:
+                            h, m, s = time_parts
+                            current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                            
+                            if duration > 0:
+                                progress = int((current_time / duration) * 100)
+                                self.progress_update.emit({
+                                    "status": "processing",
+                                    "progress": min(progress, 100),
+                                    "current_time": current_time,
+                                    "duration": duration
+                                })
                     except Exception as e:
-                        print(f"[VideoProxy] Error parsing ffmpeg time progress for {self.video_path}: {e}")
+                        pass
 
             process.wait()
 
@@ -427,18 +429,20 @@ class VideoProxyWorker(QThread):
                         if "time=" in line:
                             try:
                                 time_str = line.split("time=")[1].split()[0]
-                                h, m, s = time_str.split(":")
-                                current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                                if duration > 0:
-                                    progress = int((current_time / duration) * 100)
-                                    self.progress_update.emit({
-                                        "status": "processing",
-                                        "progress": min(progress, 100),
-                                        "current_time": current_time,
-                                        "duration": duration
-                                    })
+                                time_parts = time_str.split(":")
+                                if len(time_parts) == 3:
+                                    h, m, s = time_parts
+                                    current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                                    if duration > 0:
+                                        progress = int((current_time / duration) * 100)
+                                        self.progress_update.emit({
+                                            "status": "processing",
+                                            "progress": min(progress, 100),
+                                            "current_time": current_time,
+                                            "duration": duration
+                                        })
                             except Exception as e:
-                                print(f"[VideoProxy] Error parsing ffmpeg time progress during retry for {self.video_path}: {e}")
+                                pass
                     process.wait()
                     if process.returncode != 0:
                         err_snippet = "".join(tail[-32:]) if tail else ""
@@ -558,20 +562,22 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
             if "time=" in line:
                 try:
                     time_str = line.split("time=")[1].split()[0]
-                    h, m, s = time_str.split(":")
-                    current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                    
-                    if duration > 0:
-                        progress = int((current_time / duration) * 100)
-                        if progress_callback:
-                            progress_callback({
-                                "status": "processing",
-                                "progress": min(progress, 100),
-                                "current_time": current_time,
-                                "duration": duration
-                            })
+                    time_parts = time_str.split(":")
+                    if len(time_parts) == 3:
+                        h, m, s = time_parts
+                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                        
+                        if duration > 0:
+                            progress = int((current_time / duration) * 100)
+                            if progress_callback:
+                                progress_callback({
+                                    "status": "processing",
+                                    "progress": min(progress, 100),
+                                    "current_time": current_time,
+                                    "duration": duration
+                                })
                 except Exception as e:
-                    print(f"[VideoProxy] Error parsing ffmpeg time progress for {video_path}: {e}")
+                    pass
         
         process.wait()
 
@@ -616,18 +622,20 @@ def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_f
                     if "time=" in line:
                         try:
                             time_str = line.split("time=")[1].split()[0]
-                            h, m, s = time_str.split(":")
-                            current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                            if duration > 0 and progress_callback:
-                                progress = int((current_time / duration) * 100)
-                                progress_callback({
-                                    "status": "processing",
-                                    "progress": min(progress, 100),
-                                    "current_time": current_time,
-                                    "duration": duration
-                                })
+                            time_parts = time_str.split(":")
+                            if len(time_parts) == 3:
+                                h, m, s = time_parts
+                                current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                                if duration > 0 and progress_callback:
+                                    progress = int((current_time / duration) * 100)
+                                    progress_callback({
+                                        "status": "processing",
+                                        "progress": min(progress, 100),
+                                        "current_time": current_time,
+                                        "duration": duration
+                                    })
                         except Exception as e:
-                            print(f"[VideoProxy] Error parsing ffmpeg time progress during retry for {video_path}: {e}")
+                            pass
                 process.wait()
                 if process.returncode != 0:
                     err_snippet = "".join(tail[-32:]) if tail else ""
