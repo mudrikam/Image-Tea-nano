@@ -14,6 +14,7 @@ from dialogs.csv_exporter_dialog import CSVExporterDialog
 from dialogs.edit_prompt_dialog import EditPromptDialog
 from dialogs.custom_prompt_dialog import CustomPromptDialog
 from dialogs.batch_rename_dialog import BatchRenameDialog
+from dialogs.metadata_writing_chunk_size_dialog import MetadataWritingChunkSizeDialog
 from dialogs.read_documentation_dialog import ReadDocumentationDialog
 from dialogs.donation_dialog import DonateDialog
 from dialogs.add_api_key_dialog import AddApiKeyDialog
@@ -50,6 +51,7 @@ MENU_TOOLTIPS = {
     "write_images": "Embed metadata into image files",
     "write_videos": "Embed metadata into video files", 
     "export_csv": "Export metadata to CSV file for external use",
+    "chunk_size": "Configure chunk size for metadata writing operations",
     
     # Prompt menu
     "edit_prompt": "Configure AI prompt templates and settings",
@@ -274,6 +276,17 @@ def setup_main_menu(window):
         dialog.exec()
     export_metadata_action.triggered.connect(show_export_dialog)
     metadata_menu.addAction(export_metadata_action)
+
+    metadata_menu.addSeparator()
+
+    chunk_size_action = QAction(qta.icon('fa6s.gears'), "Chunk Size Settings", window)
+    chunk_size_action.setToolTip(MENU_TOOLTIPS["chunk_size"])
+    chunk_size_action.setStatusTip(MENU_TOOLTIPS["chunk_size"])
+    def show_chunk_size_dialog():
+        dialog = MetadataWritingChunkSizeDialog(window)
+        dialog.exec()
+    chunk_size_action.triggered.connect(show_chunk_size_dialog)
+    metadata_menu.addAction(chunk_size_action)
 
     prompt_menu = QMenu("Prompt", menubar)
     prompt_menu.setToolTipsVisible(True)
