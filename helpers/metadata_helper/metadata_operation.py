@@ -562,17 +562,14 @@ def write_metadata_to_images(db, parent=None):
 		QCoreApplication.processEvents()
 	
 	def on_finished(success_count, failed_count, elapsed_time, errors):
-		# show close button and hide cancel
-		dialog.close_btn.setVisible(True)
-		dialog.cancel_btn.setVisible(False)
-		dialog.repaint()
-		QCoreApplication.processEvents()
-		# open result dialog
-		result_dialog = ResultDialog(parent, len(rows), success_count, failed_count, 
-									elapsed_time, errors, "Image", _get_chunk_size())
-		result_dialog.exec()
-		# when result dialog closed, close progress dialog
-		dialog.close()
+		# Close progress dialog first
+		dialog.accept()
+		# Defer ResultDialog to avoid nested event loop crash in embedded Python
+		def show_result():
+			result_dialog = ResultDialog(parent, len(rows), success_count, failed_count, 
+										elapsed_time, errors, "Image", _get_chunk_size())
+			result_dialog.exec()
+		QTimer.singleShot(100, show_result)
 	
 	thread = ImageMetadataWriterThread(db, rows)
 	thread.progress.connect(on_progress)
@@ -598,15 +595,14 @@ def write_metadata_to_videos(db, parent=None):
 		QCoreApplication.processEvents()
 	
 	def on_finished(success_count, failed_count, elapsed_time, errors):
-		# show close button and hide cancel
-		dialog.close_btn.setVisible(True)
-		dialog.cancel_btn.setVisible(False)
-		dialog.repaint()
-		QCoreApplication.processEvents()
-		result_dialog = ResultDialog(parent, len(video_rows), success_count, failed_count, 
-									elapsed_time, errors, "Video", _get_chunk_size())
-		result_dialog.exec()
-		dialog.close()
+		# Close progress dialog first
+		dialog.accept()
+		# Defer ResultDialog to avoid nested event loop crash in embedded Python
+		def show_result():
+			result_dialog = ResultDialog(parent, len(video_rows), success_count, failed_count, 
+										elapsed_time, errors, "Video", _get_chunk_size())
+			result_dialog.exec()
+		QTimer.singleShot(100, show_result)
 	
 	thread = VideoMetadataWriterThread(db, rows)
 	thread.progress.connect(on_progress)
