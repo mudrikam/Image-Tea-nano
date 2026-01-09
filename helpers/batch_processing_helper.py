@@ -1625,6 +1625,8 @@ def _on_generation_finished(window, errors, stopped=False):
     try:
         invoker.disable_buffering()
         invoker.flush_all()
+        # Re-enable buffering untuk batch berikutnya
+        invoker.enable_buffering()
     except Exception as e:
         print(f"[Batch] Failed to flush error dialogs: {e}")
     

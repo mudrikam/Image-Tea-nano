@@ -908,12 +908,7 @@ class _DialogInvoker(QObject):
             error_code_map = entry.get('error_code_map', {})
             dlg = AIHelperErrorCodeDialog(code, aggregated, parent, status=status, filenames=filenames, file_map=file_map, error_code_map=error_code_map, service=service)
             try:
-                dlg.show()
-                try:
-                    dlg.raise_()
-                    dlg.activateWindow()
-                except Exception as e:
-                    print(f"[Dialog Activate Error] {e}")
+                dlg.exec()
             except Exception as e:
                 print(f"[Dialog Show Error] {e}")
         except Exception as e:
