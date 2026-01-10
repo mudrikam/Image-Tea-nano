@@ -371,11 +371,11 @@ class StopImageTeaThread(QThread):
         
         os.makedirs(os.path.dirname(signal_file), exist_ok=True)
         
-        self.log.emit("Sending graceful shutdown signal...")
+        self.log.emit("Sending shutdown request...")
         with open(signal_file, 'w') as f:
             f.write("shutdown")
         
-        self.log.emit("Waiting for Image Tea to close gracefully...")
+        self.log.emit("Waiting for Image Tea to close cleanly...")
         
         start_time = time.time()
         check_interval = 0.5
@@ -388,7 +388,7 @@ class StopImageTeaThread(QThread):
                 self.log.emit(f"Image Tea closed successfully after {elapsed:.1f}s")
                 return
         
-        self.log.emit("Timeout waiting for graceful shutdown, forcing stop...")
+        self.log.emit("Timeout waiting for shutdown to complete, forcing stop...")
         self._force_stop()
         
         time.sleep(2)
