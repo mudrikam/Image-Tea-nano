@@ -33,6 +33,7 @@ class DonateDialog(QDialog):
     def __init__(self, parent=None, show_not_today=False):
         super().__init__(parent)
         self.setWindowTitle("Donate")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self.setMinimumWidth(350)
         layout = QVBoxLayout(self)
         label = QLabel("Scan QRIS to donate:")

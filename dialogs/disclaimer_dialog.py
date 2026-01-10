@@ -12,6 +12,7 @@ class DisclaimerDialog(QDialog):
         icon_path = os.path.join(BASE_PATH, "res", "image_tea.ico")
         self.setWindowTitle("Disclaimer")
         self.setWindowIcon(QIcon(icon_path))
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self.resize(900, 600)
 
         layout = QVBoxLayout(self)
