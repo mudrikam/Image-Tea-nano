@@ -614,10 +614,10 @@ class UpdateWorkerDialog(QDialog):
     def _show_stop_warning(self):
         msg = QMessageBox(self)
         msg.setWindowTitle("Update Warning")
-        msg.setText("Image Tea will be stopped for the update.")
+        msg.setText("Image Tea will stop running processes for the update.")
         msg.setInformativeText(
-            "Please save any ongoing work before continuing.\n\n"
-            "The application will be closed and files will be replaced with the latest version.\n"
+            "Please save any ongoing work (generations, automations, or other tasks) before continuing.\n\n"
+            "The application will be closed and running tasks will be stopped; files will then be replaced with the latest version.\n"
             "Do you want to continue?"
         )
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
