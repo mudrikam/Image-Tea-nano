@@ -28,7 +28,7 @@ sys.path.insert(0, SCRIPT_DIR)
 
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
-    QPushButton, QProgressBar, QTextEdit, QMessageBox, QFrame
+    QPushButton, QProgressBar, QTextEdit, QMessageBox, QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QIcon
@@ -584,30 +584,65 @@ class UpdateWorkerDialog(QDialog):
         layout.addWidget(self.log_text, 1)
         
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
+        button_layout.setSpacing(10)
         
-        self.start_button = QPushButton("Start Update")
+        # Primary action: Update Now (left) / Relaunch (left, shown after update)
+        self.start_button = QPushButton("Update Now")
         if HAS_QTAWESOME:
-            self.start_button.setIcon(qta.icon('fa6s.play', color='#4e9e20'))
-        self.start_button.setMinimumWidth(120)
+            self.start_button.setIcon(qta.icon('fa6s.download', color='#ffffff'))
+        self.start_button.setMinimumHeight(36)
+        self.start_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.start_button.clicked.connect(self._show_stop_warning)
-        button_layout.addWidget(self.start_button)
+        self.start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4e9e20;
+                color: white;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:disabled {
+                background-color: #9fc79b;
+                color: #eee;
+            }
+        """)
+        button_layout.addWidget(self.start_button, 1)
         
         self.relaunch_button = QPushButton("Relaunch App")
         if HAS_QTAWESOME:
-            self.relaunch_button.setIcon(qta.icon('fa6s.rotate-right', color='#4e9e20'))
-        self.relaunch_button.setMinimumWidth(120)
+            self.relaunch_button.setIcon(qta.icon('fa6s.rotate-right', color='#ffffff'))
+        self.relaunch_button.setMinimumHeight(36)
+        self.relaunch_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.relaunch_button.clicked.connect(self._relaunch_app)
         self.relaunch_button.setEnabled(False)
         self.relaunch_button.hide()
-        button_layout.addWidget(self.relaunch_button)
+        self.relaunch_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4e9e20;
+                color: white;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+        """)
+        button_layout.addWidget(self.relaunch_button, 1)
         
-        self.close_button = QPushButton("Close")
+        # Secondary action: Cancel Update / Close (right)
+        self.close_button = QPushButton("Cancel Update")
         if HAS_QTAWESOME:
-            self.close_button.setIcon(qta.icon('fa6s.xmark', color='#666'))
-        self.close_button.setMinimumWidth(100)
+            self.close_button.setIcon(qta.icon('fa6s.xmark', color='#333'))
+        self.close_button.setMinimumHeight(36)
+        self.close_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.close_button.clicked.connect(self.close)
-        button_layout.addWidget(self.close_button)
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e0e0e0;
+                color: #222;
+                border-radius: 6px;
+                padding: 6px 12px;
+            }
+        """)
+        button_layout.addWidget(self.close_button, 1)
         
         layout.addLayout(button_layout)
     
@@ -683,6 +718,7 @@ class UpdateWorkerDialog(QDialog):
     
     def _on_update_success(self):
         self.close_button.setEnabled(True)
+        self.close_button.setText("Close")
         self.relaunch_button.setEnabled(True)
         self.relaunch_button.show()
         self.start_button.hide()
@@ -696,6 +732,7 @@ class UpdateWorkerDialog(QDialog):
     
     def _on_update_error(self, error):
         self.close_button.setEnabled(True)
+        self.close_button.setText("Close")
         self.start_button.setEnabled(True)
         self.status_label.setText("Update failed!")
         self._append_log(f"ERROR: {error}")
