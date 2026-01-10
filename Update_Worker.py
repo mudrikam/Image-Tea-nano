@@ -699,7 +699,8 @@ class UpdateWorkerDialog(QDialog):
             self._append_log("Warning: Could not confirm Image Tea was stopped")
             self.status_label.setText("Warning: Could not confirm Image Tea was stopped")
         
-        # Allow user to manually start the update or cancel
+        self.start_button.disconnect()
+        self.start_button.clicked.connect(self._start_update)
         self.start_button.setEnabled(True)
         self.close_button.setEnabled(True)
     
