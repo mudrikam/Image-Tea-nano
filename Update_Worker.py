@@ -398,39 +398,22 @@ class StopImageTeaThread(QThread):
             self.log.emit("Warning: Image Tea may still be running")
     
     def _is_image_tea_running(self):
-        system = platform.system()
-        
-        if system == "Windows":
-            pythonw_path = os.path.join(self.base_path, "python", "Windows", "pythonw.exe")
-            if os.path.exists(pythonw_path):
-                try:
-                    result = subprocess.run(
-                        ['tasklist', '/FI', 'IMAGENAME eq pythonw.exe'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    return 'pythonw.exe' in result.stdout
-                except Exception:
-                    return False
-        else:
-            try:
-                result = subprocess.run(
-                    ['pgrep', '-f', 'main.py'],
-                    capture_output=True, text=True, timeout=5
-                )
-                return result.returncode == 0
-            except Exception:
-                return False
-        
-        return False
+        lock_file = os.path.join(self.base_path, "temp", "image_tea.lock")
+        return os.path.exists(lock_file)
     
     def _force_stop(self):
         system = platform.system()
         
         if system == "Windows":
             try:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+                
                 subprocess.run(
                     'taskkill /F /IM pythonw.exe',
-                    shell=True, check=False, capture_output=True, timeout=10
+                    shell=True, check=False, capture_output=True, timeout=10,
+                    startupinfo=startupinfo, creationflags=subprocess.CREATE_NO_WINDOW
                 )
             except Exception as e:
                 self.log.emit(f"Force stop failed: {e}")

@@ -43,6 +43,11 @@ class ImageTeaMainWindow(QMainWindow):
 
         update_token_stats_ui(self)
         
+        self.lock_file = os.path.join(BASE_PATH, "temp", "image_tea.lock")
+        os.makedirs(os.path.dirname(self.lock_file), exist_ok=True)
+        with open(self.lock_file, 'w') as f:
+            f.write(str(os.getpid()))
+        
         self.shutdown_timer = QTimer(self)
         self.shutdown_timer.timeout.connect(self._check_shutdown_signal)
         self.shutdown_timer.start(500)
@@ -74,6 +79,13 @@ class ImageTeaMainWindow(QMainWindow):
             self._prompt_injector_dialog.close()
         if hasattr(self, '_action_sequencer_dialog') and self._action_sequencer_dialog:
             self._action_sequencer_dialog.close()
+        
+        if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
+            try:
+                os.remove(self.lock_file)
+            except Exception:
+                pass
+        
         event.accept()
 
 if __name__ == '__main__':
