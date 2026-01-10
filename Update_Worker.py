@@ -587,7 +587,6 @@ class UpdateWorkerDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
         
-        # Primary action: Update Now (left) / Relaunch (left, shown after update)
         self.start_button = QPushButton("Update Now")
         if HAS_QTAWESOME:
             self.start_button.setIcon(qta.icon('fa6s.download', color='#ffffff'))
@@ -640,7 +639,6 @@ class UpdateWorkerDialog(QDialog):
         """)
         button_layout.addWidget(self.relaunch_button, 1)
         
-        # Secondary action: Cancel Update / Close (right)
         self.close_button = QPushButton("Cancel Update")
         if HAS_QTAWESOME:
             self.close_button.setIcon(qta.icon('fa6s.xmark', color='#333'))
@@ -666,12 +664,10 @@ class UpdateWorkerDialog(QDialog):
         layout.addLayout(button_layout)
     
     def _show_stop_warning(self):
-        # Kalau app sudah stopped, langsung start update
         if self.image_tea_stopped:
             self._start_update()
             return
         
-        # Show warning modal dialog
         msg = QMessageBox(self)
         msg.setWindowTitle("Update Warning")
         msg.setText("Image Tea will stop running processes for the update.")
@@ -688,10 +684,8 @@ class UpdateWorkerDialog(QDialog):
         result = msg.exec()
         
         if result == QMessageBox.Yes:
-            # Stop app, TIDAK auto update
             self._stop_image_tea()
         else:
-            # Close updater
             self.close()
     
     def _stop_image_tea(self):
@@ -704,7 +698,6 @@ class UpdateWorkerDialog(QDialog):
         self.stop_thread.start()
     
     def _on_stop_finished(self, success):
-        # Set flag bahwa app sudah stopped
         self.image_tea_stopped = True
         
         if success:
@@ -712,9 +705,8 @@ class UpdateWorkerDialog(QDialog):
         else:
             self._append_log("Warning: Could not confirm Image Tea was stopped")
         
-        # Update status, tidak ada enable/disable
-        self.status_label.setText("Ready to update - Click 'Update Now' to continue or 'Cancel Update' to exit")
-        self._append_log("=== Waiting for user to click 'Update Now' ===")
+        self.status_label.setText("Please click 'Update Now' to start the update.")
+        self._append_log("Please click 'Update Now' to start the update.")
     
     def _start_update(self):
         self.status_label.setText("Starting update...")
