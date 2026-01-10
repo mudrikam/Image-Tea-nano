@@ -795,6 +795,18 @@ class PromptGeneratorDialog(QDialog):
         
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.start(1000)
+		# Ensure there are reference images in the database before generating prompts
+		total_files = self.db.get_files_count() if hasattr(self.db, "get_files_count") else 0
+		if total_files == 0:
+			QMessageBox.information(
+				self,
+				"No reference images",
+				"No reference images were found in Image-Tea.\n"
+				"To generate prompts you must add reference images (images or videos) to Image-Tea.\n"
+				"You can drag and drop images or videos into the main Image-Tea table, or use Import → Files to add them.\n"
+				"Please import or add images or videos to your library and try again."
+			)
+			return
 		print("Starting prompt generation...")
 		
         

@@ -719,6 +719,18 @@ class ImagenGeneratorDialog(QDialog):
             QMessageBox.warning(self, "API Key Required", 
                               "Please select an API key before starting generation.")
             return
+
+        # Ensure there are generated prompts available from the Prompt Generator
+        total_prompts = self.db.get_generated_prompts_count() if self.db and hasattr(self.db, 'get_generated_prompts_count') else 0
+        if total_prompts == 0:
+            QMessageBox.warning(
+                self,
+                "No prompts available",
+                "No prompts were found. To generate images you must first generate prompts using the Prompt Generator tool, "
+                "or import your own prompts in CSV format.\n"
+                "Open Tools → Prompt Generator to generate prompts, or use your own CSV to add prompts, then return here and run generation."
+            )
+            return
         
         generation_config = {
             'model': self.model_combo.currentText(),
