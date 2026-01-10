@@ -457,7 +457,7 @@ class UpdateWorkerDialog(QDialog):
             icon_container_layout = QHBoxLayout(icon_container)
             icon_container_layout.setContentsMargins(0, 0, 0, 0)
             icon_label = QLabel()
-            icon_label.setPixmap(qta.icon('fa6s.cloud-arrow-down', color='#4e9e20').pixmap(56, 56))
+            icon_label.setPixmap(qta.icon('fa6s.download', color='#4e9e20').pixmap(56, 56))
             icon_label.setAlignment(Qt.AlignCenter)
             icon_container_layout.addWidget(icon_label)
             header_layout.addWidget(icon_container, alignment=Qt.AlignTop)
