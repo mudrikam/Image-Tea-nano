@@ -717,7 +717,7 @@ class UpdateWorkerDialog(QDialog):
         msg.setWindowTitle("Update Warning")
         msg.setText("Image Tea will stop running processes for the update.")
         msg.setInformativeText(
-            "Please save any ongoing work (generations, automations, or other tasks) before continuing.\n\n"
+            "Please terminate any ongoing work (generations, automations, or other tasks) before continuing.\n\n"
             "The application will be closed and running tasks will be stopped.\n"
             "Do you want to continue?"
         )
