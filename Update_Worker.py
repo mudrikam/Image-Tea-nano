@@ -468,6 +468,7 @@ class UpdateWorkerDialog(QDialog):
         self.update_thread = None
         self.stop_thread = None
         self.image_tea_stopped = False
+        self._pending_logs = []
         
         self._setup_ui()
         
@@ -621,6 +622,12 @@ class UpdateWorkerDialog(QDialog):
             }
         """)
         layout.addWidget(self.log_text, 1)
+        if hasattr(self, '_pending_logs') and self._pending_logs:
+            for pending in self._pending_logs:
+                self.log_text.append(pending)
+            self._pending_logs.clear()
+            scrollbar = self.log_text.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
         
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
@@ -777,9 +784,15 @@ class UpdateWorkerDialog(QDialog):
     
     def _append_log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.append(f"[{timestamp}] {message}")
-        scrollbar = self.log_text.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        formatted = f"[{timestamp}] {message}"
+        if hasattr(self, 'log_text') and self.log_text is not None:
+            self.log_text.append(formatted)
+            scrollbar = self.log_text.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            if not hasattr(self, '_pending_logs'):
+                self._pending_logs = []
+            self._pending_logs.append(formatted)
     
     def _on_update_success(self):
         self.close_button.setEnabled(True)
