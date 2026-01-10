@@ -437,6 +437,7 @@ class UpdateWorkerDialog(QDialog):
         self.auto_start = auto_start
         self.update_thread = None
         self.stop_thread = None
+        self.image_tea_stopped = False
         
         self._setup_ui()
         
@@ -665,12 +666,18 @@ class UpdateWorkerDialog(QDialog):
         layout.addLayout(button_layout)
     
     def _show_stop_warning(self):
+        # Kalau app sudah stopped, langsung start update
+        if self.image_tea_stopped:
+            self._start_update()
+            return
+        
+        # Show warning modal dialog
         msg = QMessageBox(self)
         msg.setWindowTitle("Update Warning")
         msg.setText("Image Tea will stop running processes for the update.")
         msg.setInformativeText(
             "Please save any ongoing work (generations, automations, or other tasks) before continuing.\n\n"
-            "The application will be closed and running tasks will be stopped; files will then be replaced with the latest version.\n"
+            "The application will be closed and running tasks will be stopped.\n"
             "Do you want to continue?"
         )
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
@@ -678,11 +685,16 @@ class UpdateWorkerDialog(QDialog):
         if HAS_QTAWESOME:
             msg.setIconPixmap(qta.icon('fa6s.triangle-exclamation', color='#f0ad4e').pixmap(64, 64))
         
-        if msg.exec() == QMessageBox.Yes:
-            self._stop_and_update()
+        result = msg.exec()
+        
+        if result == QMessageBox.Yes:
+            # Stop app, TIDAK auto update
+            self._stop_image_tea()
+        else:
+            # Close updater
+            self.close()
     
-    def _stop_and_update(self):
-        self.start_button.setEnabled(False)
+    def _stop_image_tea(self):
         self.status_label.setText("Stopping Image Tea...")
         self._append_log("Stopping Image Tea application...")
         
@@ -692,21 +704,21 @@ class UpdateWorkerDialog(QDialog):
         self.stop_thread.start()
     
     def _on_stop_finished(self, success):
+        # Set flag bahwa app sudah stopped
+        self.image_tea_stopped = True
+        
         if success:
             self._append_log("Image Tea stopped successfully")
-            self.status_label.setText("Ready to update")
         else:
             self._append_log("Warning: Could not confirm Image Tea was stopped")
-            self.status_label.setText("Warning: Could not confirm Image Tea was stopped")
         
-        self.start_button.disconnect()
-        self.start_button.clicked.connect(self._start_update)
-        self.start_button.setEnabled(True)
-        self.close_button.setEnabled(True)
+        # Update status, tidak ada enable/disable
+        self.status_label.setText("Ready to update - Click 'Update Now' to continue or 'Cancel Update' to exit")
+        self._append_log("=== Waiting for user to click 'Update Now' ===")
     
     def _start_update(self):
-        self.start_button.setEnabled(False)
-        self.close_button.setEnabled(False)
+        self.status_label.setText("Starting update...")
+        self._append_log("Starting update process...")
         
         self.update_thread = UpdateWorkerThread(self)
         self.update_thread.progress.connect(self._update_progress)
