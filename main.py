@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import BASE_PATH
 sys.path.insert(0, BASE_PATH)
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon
 import time
 import qtawesome as qta
@@ -42,6 +42,15 @@ class ImageTeaMainWindow(QMainWindow):
             self.gen_btn.clicked.connect(self._on_gen_btn_clicked)
 
         update_token_stats_ui(self)
+        
+        self.lock_file = os.path.join(BASE_PATH, "temp", "image_tea.lock")
+        os.makedirs(os.path.dirname(self.lock_file), exist_ok=True)
+        with open(self.lock_file, 'w') as f:
+            f.write(str(os.getpid()))
+        
+        self.shutdown_timer = QTimer(self)
+        self.shutdown_timer.timeout.connect(self._check_shutdown_signal)
+        self.shutdown_timer.start(500)
 
     def _show_ai_unsupported_dialog_slot(self, message):
         dialog = AIUnsuportedDialog(message, parent=self)
@@ -53,6 +62,16 @@ class ImageTeaMainWindow(QMainWindow):
         else:
             batch_generate_metadata(self)
     
+    def _check_shutdown_signal(self):
+        signal_file = os.path.join(BASE_PATH, "temp", "shutdown.signal")
+        if os.path.exists(signal_file):
+            try:
+                os.remove(signal_file)
+            except Exception:
+                pass
+            self.shutdown_timer.stop()
+            self.close()
+    
     def closeEvent(self, event):
         if hasattr(self, '_envato_elements_dialog') and self._envato_elements_dialog:
             self._envato_elements_dialog.close()
@@ -60,6 +79,13 @@ class ImageTeaMainWindow(QMainWindow):
             self._prompt_injector_dialog.close()
         if hasattr(self, '_action_sequencer_dialog') and self._action_sequencer_dialog:
             self._action_sequencer_dialog.close()
+        
+        if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
+            try:
+                os.remove(self.lock_file)
+            except Exception:
+                pass
+        
         event.accept()
 
 if __name__ == '__main__':
