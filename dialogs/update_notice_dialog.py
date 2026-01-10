@@ -263,6 +263,28 @@ class UpdateNoticeDialog(QDialog):
         self._auto_close_timer.stop()
         self.result_action = "update"
         self.accept()
+        
+        import sys
+        import subprocess
+        import platform
+        
+        update_worker_py = os.path.join(BASE_PATH, "Update_Worker.py")
+        
+        if os.path.exists(update_worker_py):
+            system = platform.system()
+            
+            if system == "Windows":
+                pythonw_path = os.path.join(BASE_PATH, "python", "Windows", "pythonw.exe")
+                python_path = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+                
+                if os.path.exists(pythonw_path):
+                    subprocess.Popen([pythonw_path, update_worker_py, "--auto"], shell=False)
+                elif os.path.exists(python_path):
+                    subprocess.Popen([python_path, update_worker_py, "--auto"], shell=False)
+                else:
+                    subprocess.Popen([sys.executable, update_worker_py, "--auto"], shell=False)
+            else:
+                subprocess.Popen([sys.executable, update_worker_py, "--auto"], shell=False)
 
     def _on_later(self):
         self._update_countdown_timer.stop()

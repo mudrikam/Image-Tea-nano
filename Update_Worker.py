@@ -20,13 +20,13 @@ import subprocess
 import tempfile
 import zipfile
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
     QPushButton, QProgressBar, QTextEdit, QMessageBox, QFrame
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
@@ -91,11 +91,14 @@ class UpdateWorkerThread(QThread):
     log = Signal(str)
     finished_success = Signal()
     finished_error = Signal(str)
+    update_info = Signal(str, str, str)
+    time_info = Signal(str, str, str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.base_path = SCRIPT_DIR
         self.temp_dir = os.path.join(self.base_path, "temp")
+        self.start_time = None
         
     def run(self):
         try:
@@ -104,6 +107,7 @@ class UpdateWorkerThread(QThread):
             self.finished_error.emit(str(e))
     
     def _do_update(self):
+        self.start_time = datetime.now()
         self.status.emit("Initializing update...")
         self.progress.emit(0)
         self.log.emit("Starting Image Tea update process...")
@@ -119,8 +123,14 @@ class UpdateWorkerThread(QThread):
         tag = self._fetch_latest_tag(owner, repo)
         self.log.emit(f"Latest release tag: {tag}")
         
+        current_version = get_current_version()
+        self.update_info.emit(current_version, tag, owner)
+        
+        self._update_time_info(5)
+        
         self.status.emit("Downloading update package...")
         self.progress.emit(10)
+        self._update_time_info(10)
         
         zip_path = os.path.join(self.temp_dir, ZIP_NAME)
         self._download_release(owner, repo, tag, zip_path)
@@ -128,6 +138,7 @@ class UpdateWorkerThread(QThread):
         
         self.status.emit("Extracting update package...")
         self.progress.emit(50)
+        self._update_time_info(50)
         
         extract_path = os.path.join(self.temp_dir, "Image-Tea-nano-extracted")
         if os.path.exists(extract_path):
@@ -138,6 +149,7 @@ class UpdateWorkerThread(QThread):
         
         self.status.emit("Replacing files...")
         self.progress.emit(60)
+        self._update_time_info(60)
         
         extracted_root = self._find_extracted_root(extract_path)
         if not extracted_root:
@@ -150,6 +162,7 @@ class UpdateWorkerThread(QThread):
         
         self.status.emit("Cleaning up...")
         self.progress.emit(90)
+        self._update_time_info(90)
         
         try:
             os.remove(zip_path)
@@ -165,16 +178,38 @@ class UpdateWorkerThread(QThread):
         
         self.status.emit("Verifying Update_Worker.py...")
         self.progress.emit(95)
+        self._update_time_info(95)
         
         self._verify_self_update(owner, repo, tag)
         
         self.status.emit("Update completed successfully!")
         self.progress.emit(100)
+        self._update_time_info(100)
         self.log.emit("=" * 50)
         self.log.emit("Update finished successfully!")
         self.log.emit("=" * 50)
         
         self.finished_success.emit()
+    
+    def _update_time_info(self, progress):
+        if not self.start_time:
+            return
+        
+        elapsed = datetime.now() - self.start_time
+        elapsed_str = str(elapsed).split('.')[0]
+        
+        if progress > 0:
+            total_estimated = elapsed.total_seconds() * (100 / progress)
+            remaining_seconds = total_estimated - elapsed.total_seconds()
+            remaining = timedelta(seconds=int(remaining_seconds))
+            remaining_str = str(remaining).split('.')[0]
+            eta = self.start_time + timedelta(seconds=total_estimated)
+            eta_str = eta.strftime("%H:%M:%S")
+        else:
+            remaining_str = "Calculating..."
+            eta_str = "Calculating..."
+        
+        self.time_info.emit(elapsed_str, remaining_str, eta_str)
     
     def _fetch_latest_tag(self, owner, repo):
         if not HAS_REQUESTS:
@@ -339,17 +374,15 @@ class StopImageTeaThread(QThread):
     
     def _stop_windows(self):
         pythonw_path = os.path.join(self.base_path, "python", "Windows", "pythonw.exe")
-        exe_path = os.path.join(self.base_path, "Image Tea.exe")
         
-        for target in [pythonw_path, exe_path]:
-            if os.path.exists(target):
-                target_escaped = target.replace('\\', '\\\\')
-                cmd = f"powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -eq '{target_escaped}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}\""
-                try:
-                    subprocess.run(cmd, shell=True, capture_output=True, timeout=10)
-                    self.log.emit(f"Stopped processes for: {os.path.basename(target)}")
-                except Exception as e:
-                    self.log.emit(f"Failed to stop {os.path.basename(target)}: {e}")
+        if os.path.exists(pythonw_path):
+            target_escaped = pythonw_path.replace('\\', '\\\\')
+            cmd = f"powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -eq '{target_escaped}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}\""
+            try:
+                subprocess.run(cmd, shell=True, capture_output=True, timeout=10)
+                self.log.emit(f"Stopped processes for: {os.path.basename(pythonw_path)}")
+            except Exception as e:
+                self.log.emit(f"Failed to stop {os.path.basename(pythonw_path)}: {e}")
     
     def _stop_unix(self):
         try:
@@ -366,6 +399,9 @@ class UpdateWorkerDialog(QDialog):
         self.setMinimumSize(600, 450)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         
+        if HAS_QTAWESOME:
+            self.setWindowIcon(qta.icon('fa6s.mug-hot', color='#4e9e20'))
+        
         self.auto_start = auto_start
         self.update_thread = None
         self.stop_thread = None
@@ -381,13 +417,21 @@ class UpdateWorkerDialog(QDialog):
         layout.setSpacing(15)
         
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(15)
         
         if HAS_QTAWESOME:
+            icon_container = QWidget()
+            icon_container.setFixedSize(64, 64)
+            icon_container_layout = QHBoxLayout(icon_container)
+            icon_container_layout.setContentsMargins(0, 0, 0, 0)
             icon_label = QLabel()
-            icon_label.setPixmap(qta.icon('fa6s.cloud-arrow-down', color='#4e9e20').pixmap(48, 48))
-            header_layout.addWidget(icon_label)
+            icon_label.setPixmap(qta.icon('fa6s.cloud-arrow-down', color='#4e9e20').pixmap(56, 56))
+            icon_label.setAlignment(Qt.AlignCenter)
+            icon_container_layout.addWidget(icon_label)
+            header_layout.addWidget(icon_container, alignment=Qt.AlignTop)
         
         title_layout = QVBoxLayout()
+        title_layout.setSpacing(2)
         title_label = QLabel("Image Tea Updater")
         title_font = QFont()
         title_font.setPointSize(16)
@@ -395,18 +439,77 @@ class UpdateWorkerDialog(QDialog):
         title_label.setFont(title_font)
         title_layout.addWidget(title_label)
         
-        version_label = QLabel(f"Current version: {get_current_version()}")
-        version_label.setStyleSheet("color: #666;")
-        title_layout.addWidget(version_label)
+        try:
+            config = load_app_config()
+            developer = config.get("developer", "Unknown")
+        except Exception:
+            developer = "Desainia Studio"
         
-        header_layout.addLayout(title_layout)
-        header_layout.addStretch()
+        developer_label = QLabel(f"Developer: {developer}")
+        developer_label.setStyleSheet("color: #666; font-size: 10pt;")
+        title_layout.addWidget(developer_label)
+        
+        header_layout.addLayout(title_layout, 1)
         layout.addLayout(header_layout)
         
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator)
+        
+        info_grid = QVBoxLayout()
+        info_grid.setSpacing(8)
+        
+        current_version_layout = QHBoxLayout()
+        current_version_layout.addWidget(QLabel("<b>Current Version:</b>"))
+        self.current_version_label = QLabel(get_current_version())
+        self.current_version_label.setStyleSheet("color: #666;")
+        current_version_layout.addWidget(self.current_version_label)
+        current_version_layout.addStretch()
+        info_grid.addLayout(current_version_layout)
+        
+        update_version_layout = QHBoxLayout()
+        update_version_layout.addWidget(QLabel("<b>Update Version:</b>"))
+        self.update_version_label = QLabel("Fetching...")
+        self.update_version_label.setStyleSheet("color: #4e9e20; font-weight: bold;")
+        update_version_layout.addWidget(self.update_version_label)
+        update_version_layout.addStretch()
+        info_grid.addLayout(update_version_layout)
+        
+        time_grid = QVBoxLayout()
+        time_grid.setSpacing(5)
+        
+        elapsed_layout = QHBoxLayout()
+        elapsed_layout.addWidget(QLabel("Elapsed:"))
+        self.elapsed_label = QLabel("00:00:00")
+        self.elapsed_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
+        elapsed_layout.addWidget(self.elapsed_label)
+        elapsed_layout.addStretch()
+        time_grid.addLayout(elapsed_layout)
+        
+        remaining_layout = QHBoxLayout()
+        remaining_layout.addWidget(QLabel("Remaining:"))
+        self.remaining_label = QLabel("00:00:00")
+        self.remaining_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
+        remaining_layout.addWidget(self.remaining_label)
+        remaining_layout.addStretch()
+        time_grid.addLayout(remaining_layout)
+        
+        eta_layout = QHBoxLayout()
+        eta_layout.addWidget(QLabel("ETA:"))
+        self.eta_label = QLabel("00:00:00")
+        self.eta_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
+        eta_layout.addWidget(self.eta_label)
+        eta_layout.addStretch()
+        time_grid.addLayout(eta_layout)
+        
+        info_grid.addLayout(time_grid)
+        layout.addLayout(info_grid)
+        
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.HLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator2)
         
         self.status_label = QLabel("Ready to update")
         self.status_label.setStyleSheet("font-weight: bold; font-size: 12px;")
@@ -519,6 +622,8 @@ class UpdateWorkerDialog(QDialog):
         self.update_thread.progress.connect(self._update_progress)
         self.update_thread.status.connect(self._update_status)
         self.update_thread.log.connect(self._append_log)
+        self.update_thread.update_info.connect(self._update_version_info)
+        self.update_thread.time_info.connect(self._update_time_info)
         self.update_thread.finished_success.connect(self._on_update_success)
         self.update_thread.finished_error.connect(self._on_update_error)
         self.update_thread.start()
@@ -528,6 +633,15 @@ class UpdateWorkerDialog(QDialog):
     
     def _update_status(self, status):
         self.status_label.setText(status)
+    
+    def _update_version_info(self, current, update, developer):
+        self.current_version_label.setText(current)
+        self.update_version_label.setText(update)
+    
+    def _update_time_info(self, elapsed, remaining, eta):
+        self.elapsed_label.setText(elapsed)
+        self.remaining_label.setText(remaining)
+        self.eta_label.setText(eta)
     
     def _append_log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -565,22 +679,24 @@ class UpdateWorkerDialog(QDialog):
         system = platform.system()
         
         if system == "Windows":
-            exe_path = os.path.join(SCRIPT_DIR, "Image Tea.exe")
-            pythonw_path = os.path.join(SCRIPT_DIR, "python", "Windows", "pythonw.exe")
-            main_py = os.path.join(SCRIPT_DIR, "main.py")
+            launcher_bat = os.path.join(SCRIPT_DIR, "Launcher.bat")
             
-            if os.path.exists(exe_path):
-                subprocess.Popen([exe_path], shell=False)
-            elif os.path.exists(pythonw_path) and os.path.exists(main_py):
-                subprocess.Popen([pythonw_path, main_py], shell=False)
+            if os.path.exists(launcher_bat):
+                subprocess.Popen([launcher_bat], shell=False)
             else:
-                QMessageBox.warning(
-                    self,
-                    "Cannot Relaunch",
-                    "Could not find the application launcher.\n"
-                    "Please start Image Tea manually."
-                )
-                return
+                pythonw_path = os.path.join(SCRIPT_DIR, "python", "Windows", "pythonw.exe")
+                main_py = os.path.join(SCRIPT_DIR, "main.py")
+                
+                if os.path.exists(pythonw_path) and os.path.exists(main_py):
+                    subprocess.Popen([pythonw_path, main_py], shell=False)
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Cannot Relaunch",
+                        "Could not find the application launcher.\n"
+                        "Please start Image Tea manually."
+                    )
+                    return
         else:
             launcher_path = os.path.join(SCRIPT_DIR, "Launcher.sh")
             if os.path.exists(launcher_path):
