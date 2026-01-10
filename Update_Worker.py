@@ -375,21 +375,102 @@ class StopImageTeaThread(QThread):
     def _stop_windows(self):
         pythonw_path = os.path.join(self.base_path, "python", "Windows", "pythonw.exe")
         
-        if os.path.exists(pythonw_path):
-            target_escaped = pythonw_path.replace('\\', '\\\\')
-            cmd = f"powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -eq '{target_escaped}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}\""
-            try:
-                subprocess.run(cmd, shell=True, capture_output=True, timeout=10)
-                self.log.emit(f"Stopped processes for: {os.path.basename(pythonw_path)}")
-            except Exception as e:
-                self.log.emit(f"Failed to stop {os.path.basename(pythonw_path)}: {e}")
+        if not os.path.exists(pythonw_path):
+            self.log.emit("pythonw.exe not found, skipping process termination")
+            return
+        
+        target_escaped = pythonw_path.replace('\\', '\\\\')
+        
+        # Check if any processes are running
+        check_cmd = f"powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -eq '{target_escaped}' }} | Select-Object -ExpandProperty ProcessId\""
+        try:
+            result = subprocess.run(check_cmd, shell=True, capture_output=True, timeout=10, text=True)
+            pids = [pid.strip() for pid in result.stdout.strip().split('\n') if pid.strip()]
+            
+            if not pids:
+                self.log.emit("No Image Tea processes found running")
+                return
+            
+            self.log.emit(f"Found {len(pids)} Image Tea process(es): {', '.join(pids)}")
+            
+            # Kill processes
+            kill_cmd = f"powershell -NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object {{ $_.ExecutablePath -eq '{target_escaped}' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}\""
+            subprocess.run(kill_cmd, shell=True, capture_output=True, timeout=10)
+            
+            # Wait a bit for processes to terminate
+            import time
+            time.sleep(1)
+            
+            # Verify processes are stopped
+            verify_result = subprocess.run(check_cmd, shell=True, capture_output=True, timeout=10, text=True)
+            remaining_pids = [pid.strip() for pid in verify_result.stdout.strip().split('\n') if pid.strip()]
+            
+            if remaining_pids:
+                self.log.emit(f"WARNING: {len(remaining_pids)} process(es) still running: {', '.join(remaining_pids)}")
+                self.log.emit("Attempting force kill...")
+                for pid in remaining_pids:
+                    try:
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+                time.sleep(0.5)
+                
+                # Final verification
+                final_check = subprocess.run(check_cmd, shell=True, capture_output=True, timeout=10, text=True)
+                final_pids = [pid.strip() for pid in final_check.stdout.strip().split('\n') if pid.strip()]
+                
+                if final_pids:
+                    self.log.emit(f"FAILED: Could not stop {len(final_pids)} process(es)")
+                else:
+                    self.log.emit("All Image Tea processes stopped successfully")
+            else:
+                self.log.emit("All Image Tea processes stopped successfully")
+                
+        except Exception as e:
+            self.log.emit(f"Error while stopping processes: {e}")
     
     def _stop_unix(self):
         try:
+            # Check if any main.py processes are running
+            check_result = subprocess.run(["pgrep", "-f", "main.py"], capture_output=True, timeout=10, text=True)
+            pids = [pid.strip() for pid in check_result.stdout.strip().split('\n') if pid.strip()]
+            
+            if not pids:
+                self.log.emit("No Image Tea processes found running")
+                return
+            
+            self.log.emit(f"Found {len(pids)} Image Tea process(es): {', '.join(pids)}")
+            
+            # Kill processes
             subprocess.run(["pkill", "-f", "main.py"], capture_output=True, timeout=10)
-            self.log.emit("Stopped main.py processes")
+            
+            # Wait a bit
+            import time
+            time.sleep(1)
+            
+            # Verify
+            verify_result = subprocess.run(["pgrep", "-f", "main.py"], capture_output=True, timeout=10, text=True)
+            remaining_pids = [pid.strip() for pid in verify_result.stdout.strip().split('\n') if pid.strip()]
+            
+            if remaining_pids:
+                self.log.emit(f"WARNING: {len(remaining_pids)} process(es) still running")
+                self.log.emit("Attempting SIGKILL...")
+                subprocess.run(["pkill", "-9", "-f", "main.py"], capture_output=True, timeout=10)
+                time.sleep(0.5)
+                
+                # Final check
+                final_check = subprocess.run(["pgrep", "-f", "main.py"], capture_output=True, timeout=10, text=True)
+                final_pids = [pid.strip() for pid in final_check.stdout.strip().split('\n') if pid.strip()]
+                
+                if final_pids:
+                    self.log.emit(f"FAILED: Could not stop {len(final_pids)} process(es)")
+                else:
+                    self.log.emit("All Image Tea processes stopped successfully")
+            else:
+                self.log.emit("All Image Tea processes stopped successfully")
+                
         except Exception as e:
-            self.log.emit(f"Failed to stop processes: {e}")
+            self.log.emit(f"Error while stopping processes: {e}")
 
 
 class UpdateWorkerDialog(QDialog):
