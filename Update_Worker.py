@@ -601,6 +601,12 @@ class UpdateWorkerDialog(QDialog):
                 padding: 6px 12px;
                 font-weight: bold;
             }
+            QPushButton:hover {
+                background-color: #3d8e1a;
+            }
+            QPushButton:pressed {
+                background-color: #2f6b13;
+            }
             QPushButton:disabled {
                 background-color: #9fc79b;
                 color: #eee;
@@ -624,6 +630,12 @@ class UpdateWorkerDialog(QDialog):
                 padding: 6px 12px;
                 font-weight: bold;
             }
+            QPushButton:hover {
+                background-color: #3d8e1a;
+            }
+            QPushButton:pressed {
+                background-color: #2f6b13;
+            }
         """)
         button_layout.addWidget(self.relaunch_button, 1)
         
@@ -640,6 +652,12 @@ class UpdateWorkerDialog(QDialog):
                 color: #222;
                 border-radius: 6px;
                 padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #d6d6d6;
+            }
+            QPushButton:pressed {
+                background-color: #cfcfcf;
             }
         """)
         button_layout.addWidget(self.close_button, 1)
@@ -676,10 +694,14 @@ class UpdateWorkerDialog(QDialog):
     def _on_stop_finished(self, success):
         if success:
             self._append_log("Image Tea stopped successfully")
+            self.status_label.setText("Ready to update")
         else:
             self._append_log("Warning: Could not confirm Image Tea was stopped")
+            self.status_label.setText("Warning: Could not confirm Image Tea was stopped")
         
-        QTimer.singleShot(1000, self._start_update)
+        # Allow user to manually start the update or cancel
+        self.start_button.setEnabled(True)
+        self.close_button.setEnabled(True)
     
     def _start_update(self):
         self.start_button.setEnabled(False)
