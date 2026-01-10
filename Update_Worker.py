@@ -86,6 +86,47 @@ def get_current_version():
     return version
 
 
+def get_cached_remote_tag():
+    """Return cached remote tag from configs/update_config.json, or None if not available."""
+    try:
+        update_cfg = os.path.join(SCRIPT_DIR, "configs", "update_config.json")
+        if os.path.exists(update_cfg):
+            with open(update_cfg, "r", encoding="utf-8") as f:
+                uc = json.load(f)
+            tag_remote = uc.get("tag_remote")
+            if tag_remote:
+                tag = str(tag_remote)
+                if not tag.startswith("v"):
+                    tag = "v" + tag
+                return tag
+    except Exception:
+        pass
+    return None
+
+
+def get_latest_tag(owner, repo):
+    """Return the latest release tag. Prefer cached tag; fall back to GitHub API and then fallback config."""
+    cached = get_cached_remote_tag()
+    if cached:
+        return cached
+
+    if not HAS_REQUESTS:
+        return get_fallback_version()
+
+    try:
+        api_url = RELEASES_API_TEMPLATE.format(owner=owner, repo=repo)
+        resp = requests.get(api_url, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        tag = data.get("tag_name", "")
+        if tag:
+            return tag
+    except Exception:
+        pass
+
+    return get_fallback_version()
+
+
 class UpdateWorkerThread(QThread):
     progress = Signal(int)
     status = Signal(str)
@@ -213,25 +254,14 @@ class UpdateWorkerThread(QThread):
         self.time_info.emit(elapsed_str, remaining_str, eta_str)
     
     def _fetch_latest_tag(self, owner, repo):
-        if not HAS_REQUESTS:
-            self.log.emit("requests library not available, using fallback version")
-            return get_fallback_version()
-        
         try:
-            api_url = RELEASES_API_TEMPLATE.format(owner=owner, repo=repo)
-            self.log.emit(f"Fetching from: {api_url}")
-            resp = requests.get(api_url, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            tag = data.get("tag_name", "")
-            if tag:
-                return tag
+            tag = get_latest_tag(owner, repo)
+            self.log.emit(f"Latest tag resolved: {tag}")
+            return tag
         except Exception as e:
-            self.log.emit(f"Failed to fetch latest tag: {e}")
-        
-        fallback = get_fallback_version()
-        self.log.emit(f"Using fallback version: {fallback}")
-        return fallback
+            self.log.emit(f"Failed to resolve latest tag: {e}")
+            fallback = get_fallback_version()
+            return fallback
     
     def _download_release(self, owner, repo, tag, dest_path):
         if not HAS_REQUESTS:
@@ -508,6 +538,14 @@ class UpdateWorkerDialog(QDialog):
         update_version_layout.addWidget(self.update_version_label)
         update_version_layout.addStretch()
         info_grid.addLayout(update_version_layout)
+        # Try reading cached remote tag from configs/update_config.json and display it
+        try:
+            tag = get_cached_remote_tag()
+            if tag:
+                self.update_version_label.setText(tag)
+                self._append_log(f"Using cached remote tag: {tag}")
+        except Exception as e:
+            self._append_log(f"Could not read cached update tag: {e}")
         
         time_grid = QVBoxLayout()
         time_grid.setSpacing(5)
