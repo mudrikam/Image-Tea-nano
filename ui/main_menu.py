@@ -108,7 +108,7 @@ def run_updater(window):
             print(msg)
             try:
                 from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(window, "Updater Not Available", msg)
+                QMessageBox.warning(window, "Update Not Available", msg)
             except Exception:
                 pass
             return
@@ -129,7 +129,7 @@ def run_updater(window):
             subprocess.Popen([sys.executable, update_worker_py, "--auto"], shell=False)
             
     except Exception as e:
-        print(f"Failed to run updater: {e}")
+        print(f"Failed to start update process: {e}")
 
 def setup_main_menu(window):
     links = get_app_links()

@@ -216,4 +216,4 @@ class MainStatusBar(QStatusBar):
             from ui.main_menu import run_updater
             run_updater(self.parent())
         except Exception as e:
-            print(f"Failed to run updater from statusbar: {e}")
+            print(f"Failed to start update process from statusbar: {e}")

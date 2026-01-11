@@ -318,7 +318,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.download', icon_color),
         make_icon('fa6s.download', icon_color_hover),
         "Update",
-        "Check for updates and run the updater if a new version is available. \nMake sure you have an active internet connection. \nPlease save your work before updating, as the application will restart. \nSome settings may be reset to default after an update. \nIt's recommended to back up your configuration files periodically. \n\nUpdates bring new features, improvements, and bug fixes.",
+        "Check for updates and apply updates if a new version is available. \nMake sure you have an active internet connection. \nPlease save your work before updating, as the application will restart. \nSome settings may be reset to default after an update. \nIt's recommended to back up your configuration files periodically. \n\nUpdates bring new features, improvements, and bug fixes.",
         lambda: run_updater(window),
         window, icon_size, obj_name='toolbar_update')
     toolbar.addAction(update_now_action)
