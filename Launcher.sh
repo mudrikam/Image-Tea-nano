@@ -200,7 +200,8 @@ if [ "${CHECK_FAILED}" -eq 0 ]; then
     "${PYTHON_PATH}" -m pip freeze > "/tmp/pip_freeze_check.txt"
     while IFS= read -r REQ; do
         # Skip empty lines and comments
-        if [ -n "$REQ" ] && [ "${REQ:0:1}" != "#" ]; then
+        FIRST_CHAR=$(echo "$REQ" | cut -c1)
+        if [ -n "$REQ" ] && [ "$FIRST_CHAR" != "#" ]; then
             # Extract package name (before == or >= etc)
             PKG_NAME=$(echo "$REQ" | sed 's/[><=~!].*//')
             if grep -qi "^${PKG_NAME}==" "/tmp/pip_freeze_check.txt"; then
