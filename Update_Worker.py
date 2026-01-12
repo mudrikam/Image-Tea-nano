@@ -236,7 +236,6 @@ class UpdateWorkerThread(QThread):
     def _update_time_info(self, progress):
         if not self.start_time:
             return
-        
         elapsed = datetime.now() - self.start_time
         elapsed_str = str(elapsed).split('.')[0]
         
@@ -524,21 +523,19 @@ class UpdateWorkerDialog(QDialog):
         info_grid = QVBoxLayout()
         info_grid.setSpacing(8)
         
-        current_version_layout = QHBoxLayout()
-        current_version_layout.addWidget(QLabel("<b>Current Version:</b>"))
+        version_line_layout = QHBoxLayout()
+        version_line_layout.setSpacing(10)
+        version_line_layout.addWidget(QLabel("<b>Current:</b>"))
         self.current_version_label = QLabel(get_current_version())
-        self.current_version_label.setStyleSheet("color: #666;")
-        current_version_layout.addWidget(self.current_version_label)
-        current_version_layout.addStretch()
-        info_grid.addLayout(current_version_layout)
-        
-        update_version_layout = QHBoxLayout()
-        update_version_layout.addWidget(QLabel("<b>Update Version:</b>"))
+        self.current_version_label.setStyleSheet("color: #666; font-weight: bold; font-size: 11pt;")
+        version_line_layout.addWidget(self.current_version_label)
+        version_line_layout.addSpacing(20)
+        version_line_layout.addWidget(QLabel("<b>Update:</b>"))
         self.update_version_label = QLabel("Fetching...")
-        self.update_version_label.setStyleSheet("color: #4e9e20; font-weight: bold;")
-        update_version_layout.addWidget(self.update_version_label)
-        update_version_layout.addStretch()
-        info_grid.addLayout(update_version_layout)
+        self.update_version_label.setStyleSheet("color: #4e9e20; font-weight: bold; font-size: 11pt;")
+        version_line_layout.addWidget(self.update_version_label)
+        version_line_layout.addStretch()
+        info_grid.addLayout(version_line_layout)
         # Try reading cached remote tag from configs/update_config.json and display it
         try:
             tag = get_cached_remote_tag()
@@ -548,34 +545,13 @@ class UpdateWorkerDialog(QDialog):
         except Exception as e:
             self._append_log(f"Could not read cached update tag: {e}")
         
-        time_grid = QVBoxLayout()
-        time_grid.setSpacing(5)
-        
-        elapsed_layout = QHBoxLayout()
-        elapsed_layout.addWidget(QLabel("Elapsed:"))
-        self.elapsed_label = QLabel("00:00:00")
-        self.elapsed_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
-        elapsed_layout.addWidget(self.elapsed_label)
-        elapsed_layout.addStretch()
-        time_grid.addLayout(elapsed_layout)
-        
-        remaining_layout = QHBoxLayout()
-        remaining_layout.addWidget(QLabel("Remaining:"))
-        self.remaining_label = QLabel("00:00:00")
-        self.remaining_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
-        remaining_layout.addWidget(self.remaining_label)
-        remaining_layout.addStretch()
-        time_grid.addLayout(remaining_layout)
-        
-        eta_layout = QHBoxLayout()
-        eta_layout.addWidget(QLabel("ETA:"))
-        self.eta_label = QLabel("00:00:00")
-        self.eta_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace;")
-        eta_layout.addWidget(self.eta_label)
-        eta_layout.addStretch()
-        time_grid.addLayout(eta_layout)
-        
-        info_grid.addLayout(time_grid)
+        time_line_layout = QHBoxLayout()
+        time_line_layout.setSpacing(10)
+        self.time_info_label = QLabel("Elapsed: 00:00:00   Remaining: 00:00:00   ETA: 00:00:00")
+        self.time_info_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace; font-size: 10pt; color: #666;")
+        time_line_layout.addWidget(self.time_info_label)
+        time_line_layout.addStretch()
+        info_grid.addLayout(time_line_layout)
         layout.addLayout(info_grid)
         
         separator2 = QFrame()
@@ -778,9 +754,10 @@ class UpdateWorkerDialog(QDialog):
         self.update_version_label.setText(update)
     
     def _update_time_info(self, elapsed, remaining, eta):
-        self.elapsed_label.setText(elapsed)
-        self.remaining_label.setText(remaining)
-        self.eta_label.setText(eta)
+        try:
+            self.time_info_label.setText(f"Elapsed: {elapsed}   Remaining: {remaining}   ETA: {eta}")
+        except Exception:
+            pass
     
     def _append_log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
