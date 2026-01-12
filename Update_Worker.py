@@ -778,12 +778,23 @@ class UpdateWorkerDialog(QDialog):
         self.relaunch_button.show()
         self.start_button.hide()
         
-        QMessageBox.information(
+        # Offer immediate relaunch with Yes/No choice. If the user declines, close the dialog and
+        # leave the relaunch button available in the updater for manual relaunch.
+        reply = QMessageBox.question(
             self,
             "Update Complete",
-            "Image Tea has been updated successfully!\n\n"
-            "Click 'Relaunch App' to start the updated application."
+            "Image Tea has been updated successfully!\n\nDo you want to relaunch the application now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
         )
+        if reply == QMessageBox.Yes:
+            # Relaunch now
+            self._relaunch_app()
+            return
+        else:
+            # User chose Not to relaunch now; close updater dialog and let them relaunch later
+            self.close()
+            return
     
     def _on_update_error(self, error):
         self.close_button.setEnabled(True)
