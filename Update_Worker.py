@@ -536,7 +536,6 @@ class UpdateWorkerDialog(QDialog):
         version_line_layout.addWidget(self.update_version_label)
         version_line_layout.addStretch()
         info_grid.addLayout(version_line_layout)
-        # Try reading cached remote tag from configs/update_config.json and display it
         try:
             tag = get_cached_remote_tag()
             if tag:
@@ -778,8 +777,6 @@ class UpdateWorkerDialog(QDialog):
         self.relaunch_button.show()
         self.start_button.hide()
         
-        # Offer immediate relaunch with Yes/No choice. If the user declines, close the dialog and
-        # leave the relaunch button available in the updater for manual relaunch.
         reply = QMessageBox.question(
             self,
             "Update Complete",
@@ -788,13 +785,10 @@ class UpdateWorkerDialog(QDialog):
             QMessageBox.Yes
         )
         if reply == QMessageBox.Yes:
-            # Relaunch now
             self._relaunch_app()
             return
         else:
-            # User chose Not to relaunch now; just dismiss this question and keep updater open
-            self._append_log("User chose to relaunch later")
-            # Ensure relaunch button is visible and enabled for manual relaunch
+            self._append_log("You can relaunch Image Tea later using the 'Relaunch App' button.")
             self.relaunch_button.setEnabled(True)
             self.relaunch_button.show()
             return
