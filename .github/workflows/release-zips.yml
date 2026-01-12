@@ -32,55 +32,15 @@ jobs:
           zip -r ../Image_Tea_MacOS.zip . -x "*.git*"
           cd ..
       
-      - name: Upload Image-Tea-nano.zip
-        uses: actions/upload-release-asset@v1
+      - name: Upload ZIP files to Release
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Image-Tea-nano.zip
-          asset_name: ${{ github.event.release.tag_name }}-Image-Tea-nano.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Image_Tea_Portable.zip
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Image_Tea_Portable.zip
-          asset_name: ${{ github.event.release.tag_name }}-Image_Tea_Portable.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Image_Tea_Windows.zip
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Image_Tea_Windows.zip
-          asset_name: ${{ github.event.release.tag_name }}-Image_Tea_Windows.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Image_Tea_Linux.zip
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Image_Tea_Linux.zip
-          asset_name: ${{ github.event.release.tag_name }}-Image_Tea_Linux.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Image_Tea_MacOS.zip
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Image_Tea_MacOS.zip
-          asset_name: ${{ github.event.release.tag_name }}-Image_Tea_MacOS.zip
-          asset_content_type: application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            Image-Tea-nano.zip
+            Image_Tea_Portable.zip
+            Image_Tea_Windows.zip
+            Image_Tea_Linux.zip
+            Image_Tea_MacOS.zip
 
       - name: Cleanup temporary files
         run: |
