@@ -792,8 +792,11 @@ class UpdateWorkerDialog(QDialog):
             self._relaunch_app()
             return
         else:
-            # User chose Not to relaunch now; close updater dialog and let them relaunch later
-            self.close()
+            # User chose Not to relaunch now; just dismiss this question and keep updater open
+            self._append_log("User chose to relaunch later")
+            # Ensure relaunch button is visible and enabled for manual relaunch
+            self.relaunch_button.setEnabled(True)
+            self.relaunch_button.show()
             return
     
     def _on_update_error(self, error):
