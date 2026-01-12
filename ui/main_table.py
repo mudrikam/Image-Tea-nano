@@ -1376,9 +1376,14 @@ class ImageTableWidget(QWidget):
 
     def _populate_table_with_rows(self, rows):
         """Populate table with given rows"""
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        
         self.table.setRowCount(0)
         
         if not rows:
+            self.table.blockSignals(False)
+            self.table.setUpdatesEnabled(True)
             self.table.setVisible(False)
             self.table_no_data_overlay.setVisible(True)
             return
@@ -1386,9 +1391,9 @@ class ImageTableWidget(QWidget):
             self.table.setVisible(True)
             self.table_no_data_overlay.setVisible(False)
         
-        for row in rows:
-            row_idx = self.table.rowCount()
-            self.table.insertRow(row_idx)
+        self.table.setRowCount(len(rows))
+        
+        for row_idx, row in enumerate(rows):
             checkbox_item = QTableWidgetItem()
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             checkbox_item.setCheckState(Qt.Unchecked)
@@ -1430,6 +1435,9 @@ class ImageTableWidget(QWidget):
                 item = self.table.item(row_idx, col)
                 if item:
                     item.setToolTip(tooltip)
+        
+        self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
 
     def _on_tab_changed(self, idx):
         if self.tab_widget.tabText(idx) == "Thumbnail":
