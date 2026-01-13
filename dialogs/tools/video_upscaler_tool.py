@@ -672,7 +672,7 @@ class VideoUpscalerDialog(QDialog):
 
             # Only update output_dir if it's explicitly set (non-empty)
             if self.output_dir:
-                cfg['output_dir'] = self.output_dir
+                cfg['output_dir'] = self.output_dir.replace('\\', '/')
 
             # Write atomically to avoid truncation
             tmp = CONFIG_FILE.with_suffix('.tmp')

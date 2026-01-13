@@ -81,6 +81,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._action_sequencer_dialog.close()
         if hasattr(self, '_video_upscaler_dialog') and self._video_upscaler_dialog:
             self._video_upscaler_dialog.close()
+        if hasattr(self, '_image_upscaler_dialog') and self._image_upscaler_dialog:
+            self._image_upscaler_dialog.close()
         
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:
