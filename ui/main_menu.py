@@ -29,6 +29,7 @@ from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsD
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
 from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
 from dialogs.tools.action_sequencer import ActionSequencerDialog
+from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -66,6 +67,7 @@ MENU_TOOLTIPS = {
     "batch_audio_remover": "Remove audio from multiple video files in batch",
     "envato_elements_metadata": "Generate metadata for Envato Elements mockups",
     "action_sequencer": "Automate actions for Photoshop and Illustrator",
+    "video_upscaler": "Upscale videos using RealESRGAN AI",
     
     # Help menu
     "about": "View application information and credits",
@@ -509,6 +511,19 @@ def setup_main_menu(window):
         window._action_sequencer_dialog.activateWindow()
     action_sequencer_action.triggered.connect(open_action_sequencer)
     tools_menu.addAction(action_sequencer_action)
+
+    video_upscaler_action = QAction(qta.icon('fa6s.video'), "Video Upscaler", window)
+    video_upscaler_action.setToolTip(MENU_TOOLTIPS["video_upscaler"])
+    video_upscaler_action.setStatusTip(MENU_TOOLTIPS["video_upscaler"])
+    def open_video_upscaler():
+        if not hasattr(window, '_video_upscaler_dialog') or not window._video_upscaler_dialog:
+            window._video_upscaler_dialog = VideoUpscalerDialog(None)
+            window._video_upscaler_dialog.destroyed.connect(lambda: setattr(window, '_video_upscaler_dialog', None))
+        window._video_upscaler_dialog.show()
+        window._video_upscaler_dialog.raise_()
+        window._video_upscaler_dialog.activateWindow()
+    video_upscaler_action.triggered.connect(open_video_upscaler)
+    tools_menu.addAction(video_upscaler_action)
 
     # Add separator
     tools_menu.addSeparator()
