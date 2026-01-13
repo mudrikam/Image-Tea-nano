@@ -106,11 +106,26 @@ class ImageUpscaleWorker(QThread):
             processed = 0
             
             model_to_use = self.model
-            if not model_to_use.endswith(f"-x{self.scale}"):
+            # If the selected model already contains an explicit scale (e.g., x2/x3/x4) use it.
+            if re.search(r"x([234])", model_to_use, re.IGNORECASE):
+                self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
+            else:
+                # try suffix candidate first
                 candidate = f"{model_to_use}-x{self.scale}"
                 if (self.models_dir / f"{candidate}.param").exists():
                     self.log_signal.emit(f"   🔧 Using model {candidate} for scale {self.scale}x")
                     model_to_use = candidate
+                else:
+                    # try to find any model file containing the base name and scale anywhere
+                    found = None
+                    for p in self.models_dir.glob("*.param"):
+                        stem = p.stem
+                        if model_to_use in stem and f"x{self.scale}" in stem:
+                            found = stem
+                            break
+                    if found:
+                        self.log_signal.emit(f"   🔧 Using model {found} for scale {self.scale}x")
+                        model_to_use = found
             
             for batch_idx in range(num_batches):
                 if self._stop_requested:
@@ -578,7 +593,7 @@ class ImageUpscalerDialog(QDialog):
             self.log_viewer.append("")
     
     def _on_model_changed(self, model_name: str):
-        m = re.search(r"-x([234])$", model_name)
+        m = re.search(r"x([234])", model_name, re.IGNORECASE)
         if m:
             s = m.group(1)
             self.scale_combo.setCurrentText(s)
@@ -764,7 +779,7 @@ class ImageUpscalerDialog(QDialog):
     
     def _is_scale_locked(self):
         model_name = self.model_combo.currentText()
-        return bool(re.search(r"-x([234])$", model_name))
+        return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
     
     def append_log(self, message: str):
         self.log_viewer.append(message)
