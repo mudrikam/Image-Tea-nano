@@ -12,7 +12,7 @@ from typing import Optional, List
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
     QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
-    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QCheckBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
@@ -86,7 +86,7 @@ class UpscaleWorker(QThread):
     video_completed_signal = Signal(str, bool)
 
     def __init__(self, video_paths: List[str], model: str, scale: int, batch_size: int = 10, 
-                 encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None):
+                 encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None, remove_audio: bool = False):
         super().__init__()
         self.video_paths = video_paths
         self.model = model
@@ -95,6 +95,7 @@ class UpscaleWorker(QThread):
         self.encoder = encoder
         self.hwaccel = hwaccel
         self.output_dir = output_dir
+        self.remove_audio = remove_audio
         self._stop_requested = False
         
         self.ffmpeg_bin = get_ffmpeg_path()
@@ -188,6 +189,10 @@ class UpscaleWorker(QThread):
             self.log_signal.emit(f"🎬 PHASE 1/3: EXTRACTING FRAMES")
             self.log_signal.emit(f"   📥 Input: {video_path}")
             self.log_signal.emit(f"   ⚙️ Decoder: {self.hwaccel}")
+            if self.remove_audio:
+                self.log_signal.emit(f"   🔇 Audio will be removed from output")
+            else:
+                self.log_signal.emit(f"   🔊 Audio will be preserved in output")
             
             if not self.ffmpeg_bin.exists():
                 raise RuntimeError(f"FFmpeg not found at: {self.ffmpeg_bin}")
@@ -421,12 +426,23 @@ class UpscaleWorker(QThread):
                 "-framerate", str(fps),
                 "-start_number", "1",
                 "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
-                "-i", video_path,
-                "-map", "0:v:0",
-                "-map", "1:a:0?",
-                "-c:a", "copy",
-                "-c:v", video_codec,
             ]
+            
+            if not self.remove_audio:
+                merge_cmd.extend([
+                    "-i", video_path,
+                    "-map", "0:v:0",
+                    "-map", "1:a:0?",
+                    "-c:a", "copy",
+                ])
+            else:
+                merge_cmd.extend([
+                    "-map", "0:v:0",
+                ])
+            
+            merge_cmd.extend([
+                "-c:v", video_codec,
+            ])
             
             if video_codec == "h264_nvenc":
                 merge_cmd.extend(["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0"])
@@ -614,6 +630,8 @@ class VideoUpscalerDialog(QDialog):
         self._last_dir = os.path.expanduser("~")
         # flag to avoid saving/clearing output_dir during initialization
         self._config_loaded = False
+        # track whether the last processed video had an error - used to decide whether to auto-clear logs
+        self._last_video_had_error = False
         
         self._remaining_sec = 0.0
         self._remaining_frames = 0
@@ -666,6 +684,9 @@ class VideoUpscalerDialog(QDialog):
                     decoder = config.get('decoder', '')
                     if decoder and self.decoder_combo.findText(decoder) >= 0:
                         self.decoder_combo.setCurrentText(decoder)
+                    
+                    remove_audio = config.get('remove_audio', False)
+                    self.remove_audio_checkbox.setChecked(bool(remove_audio))
         except Exception:
             pass
         finally:
@@ -689,6 +710,7 @@ class VideoUpscalerDialog(QDialog):
             cfg['batch'] = self.batch_combo.currentText()
             cfg['encoder'] = self.encoder_combo.currentText()
             cfg['decoder'] = self.decoder_combo.currentText()
+            cfg['remove_audio'] = self.remove_audio_checkbox.isChecked()
 
             # Only update output_dir if it's explicitly set (non-empty)
             if self.output_dir:
@@ -737,57 +759,48 @@ class VideoUpscalerDialog(QDialog):
         
         toolbar_layout.addStretch()
         
-        toolbar_layout.addWidget(QLabel("Output:"))
-        self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("Default: temp/video_upscaler/results")
-        self.output_edit.setMinimumWidth(200)
-        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
-        self.output_edit.editingFinished.connect(self._save_config)
-        toolbar_layout.addWidget(self.output_edit)
-        
-        self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
-        self.btn_browse_output.setToolTip("Browse output folder")
-        self.btn_browse_output.clicked.connect(self.browse_output)
-        toolbar_layout.addWidget(self.btn_browse_output)
-        
-        self.btn_paste_output = QPushButton(qta.icon('fa6s.paste'), "")
-        self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
-        self.btn_paste_output.clicked.connect(self.paste_output)
-        toolbar_layout.addWidget(self.btn_paste_output)
-
-        self.btn_clear_output = QPushButton(qta.icon('fa6s.eraser'), "")
-        self.btn_clear_output.setToolTip("Clear output folder path")
-        self.btn_clear_output.clicked.connect(self.clear_output)
-        toolbar_layout.addWidget(self.btn_clear_output)
-        
         main_layout.addLayout(toolbar_layout)
         
-        settings_layout = QHBoxLayout()
-        settings_layout.setSpacing(8)
+        # First row settings
+        settings_layout_row1 = QHBoxLayout()
+        settings_layout_row1.setSpacing(8)
         
-        settings_layout.addWidget(QLabel("Model:"))
+        settings_layout_row1.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(180)
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         self.model_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout.addWidget(self.model_combo)
+        settings_layout_row1.addWidget(self.model_combo)
         
-        settings_layout.addWidget(QLabel("Scale:"))
+        settings_layout_row1.addWidget(QLabel("Scale:"))
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(["2", "3", "4"])
         self.scale_combo.setCurrentText("2")
         self.scale_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout.addWidget(self.scale_combo)
+        settings_layout_row1.addWidget(self.scale_combo)
         
-        settings_layout.addWidget(QLabel("Batch:"))
+        settings_layout_row1.addWidget(QLabel("Batch:"))
         self.batch_combo = QComboBox()
         self.batch_combo.addItems(["5", "10", "20", "30", "50", "100"])
         self.batch_combo.setCurrentText("10")
         self.batch_combo.setToolTip("Frames per batch (higher = faster but more VRAM)")
         self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout.addWidget(self.batch_combo)
+        settings_layout_row1.addWidget(self.batch_combo)
         
-        settings_layout.addWidget(QLabel("Encoder:"))
+        self.remove_audio_checkbox = QCheckBox("Remove Audio")
+        self.remove_audio_checkbox.setToolTip("Remove audio track from output video")
+        self.remove_audio_checkbox.stateChanged.connect(lambda: self._save_config())
+        settings_layout_row1.addWidget(self.remove_audio_checkbox)
+        
+        settings_layout_row1.addStretch()
+        
+        main_layout.addLayout(settings_layout_row1)
+        
+        # Second row settings
+        settings_layout_row2 = QHBoxLayout()
+        settings_layout_row2.setSpacing(8)
+        
+        settings_layout_row2.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems([
             "CPU (x264)",
@@ -799,9 +812,9 @@ class VideoUpscalerDialog(QDialog):
         self.encoder_combo.setCurrentText("GPU - NVIDIA (NVENC H.264)")
         self.encoder_combo.setToolTip("Video encoder for merging")
         self.encoder_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout.addWidget(self.encoder_combo)
+        settings_layout_row2.addWidget(self.encoder_combo)
         
-        settings_layout.addWidget(QLabel("Decoder:"))
+        settings_layout_row2.addWidget(QLabel("Decoder:"))
         self.decoder_combo = QComboBox()
         self.decoder_combo.addItems([
             "Auto (Recommended)",
@@ -813,11 +826,11 @@ class VideoUpscalerDialog(QDialog):
         self.decoder_combo.setCurrentText("Auto (Recommended)")
         self.decoder_combo.setToolTip("Hardware acceleration for extraction")
         self.decoder_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout.addWidget(self.decoder_combo)
+        settings_layout_row2.addWidget(self.decoder_combo)
         
-        settings_layout.addStretch()
+        settings_layout_row2.addStretch()
         
-        main_layout.addLayout(settings_layout)
+        main_layout.addLayout(settings_layout_row2)
         
         splitter = QSplitter(Qt.Horizontal)
         
@@ -852,6 +865,43 @@ class VideoUpscalerDialog(QDialog):
         splitter.setSizes([300, 600])
         
         main_layout.addWidget(splitter, 1)
+        
+        # Output layout - full width above stats
+        output_layout = QHBoxLayout()
+        output_layout.setSpacing(8)
+        
+        output_layout.addWidget(QLabel("Output:"))
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Default: temp/video_upscaler/results")
+        # Make output path entry expand full width
+        self.output_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.output_edit.setMinimumWidth(0)
+        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
+        self.output_edit.editingFinished.connect(self._save_config)
+        # Give the QLineEdit stretch so it takes remaining space
+        output_layout.addWidget(self.output_edit, 1)
+        
+        self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
+        self.btn_browse_output.setToolTip("Browse output folder")
+        self.btn_browse_output.clicked.connect(self.browse_output)
+        output_layout.addWidget(self.btn_browse_output)
+        
+        self.btn_paste_output = QPushButton(qta.icon('fa6s.paste'), "")
+        self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
+        self.btn_paste_output.clicked.connect(self.paste_output)
+        output_layout.addWidget(self.btn_paste_output)
+
+        self.btn_open_output = QPushButton(qta.icon('fa6s.folder-open'), "")
+        self.btn_open_output.setToolTip("Open output folder in file explorer")
+        self.btn_open_output.clicked.connect(self.open_output_folder)
+        output_layout.addWidget(self.btn_open_output)
+
+        self.btn_clear_output = QPushButton(qta.icon('fa6s.broom'), "")
+        self.btn_clear_output.setToolTip("Clear output folder path")
+        self.btn_clear_output.clicked.connect(self.clear_output)
+        output_layout.addWidget(self.btn_clear_output)
+        
+        main_layout.addLayout(output_layout)
         
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(16)
@@ -1051,6 +1101,25 @@ class VideoUpscalerDialog(QDialog):
             self.output_dir = text
             self._save_config()
 
+    def open_output_folder(self):
+        path = self.output_edit.text().strip()
+        if not path:
+            self.log_viewer.append("⚠️ No output path specified")
+            return
+        p = Path(path)
+        if not p.exists():
+            self.log_viewer.append("⚠️ Output folder does not exist")
+            return
+        try:
+            if os.name == 'nt':
+                os.startfile(str(p))
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(p)])
+            else:
+                subprocess.Popen(['xdg-open', str(p)])
+        except Exception as e:
+            self.log_viewer.append(f"⚠️ Failed to open folder: {e}")
+
     def clear_output(self):
         # Clear output path and persist (only overwrite when non-empty is preserved in _save_config)
         self.output_edit.clear()
@@ -1088,10 +1157,11 @@ class VideoUpscalerDialog(QDialog):
         batch_size = int(self.batch_combo.currentText())
         encoder = self.encoder_combo.currentText()
         hwaccel = self.decoder_combo.currentText()
+        remove_audio = self.remove_audio_checkbox.isChecked()
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
         
         self.worker = UpscaleWorker(
-            self.video_files, model, scale, batch_size, encoder, hwaccel, output_dir
+            self.video_files, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
@@ -1113,8 +1183,11 @@ class VideoUpscalerDialog(QDialog):
         self.batch_combo.setEnabled(not running)
         self.encoder_combo.setEnabled(not running)
         self.decoder_combo.setEnabled(not running)
+        self.remove_audio_checkbox.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         self.btn_browse_output.setEnabled(not running)
+        self.btn_paste_output.setEnabled(not running)
+        self.btn_open_output.setEnabled(not running)
         self.btn_clear_output.setEnabled(not running)
         
         if running:
@@ -1163,6 +1236,17 @@ class VideoUpscalerDialog(QDialog):
         return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
     
     def append_log(self, message: str):
+        # Auto-clear log when starting a new video, but only if the previous video did not error
+        try:
+            m = re.search(r'Processing video (\d+)/(\d+)', message)
+            if m:
+                idx = int(m.group(1))
+                # clear logs only for videos after the first and only if the previous video had no error
+                if idx > 1 and not getattr(self, '_last_video_had_error', False):
+                    self.log_viewer.clear()
+        except Exception:
+            pass
+
         self.log_viewer.append(message)
         self.log_viewer.verticalScrollBar().setValue(
             self.log_viewer.verticalScrollBar().maximum()
@@ -1206,6 +1290,8 @@ class VideoUpscalerDialog(QDialog):
             self._rem_timer.stop()
     
     def on_video_completed(self, video_path: str, success: bool):
+        # remember whether this video had an error so we don't auto-clear useful error logs
+        self._last_video_had_error = not success
         for i in range(self.video_list.count()):
             item = self.video_list.item(i)
             if item.data(Qt.UserRole) == video_path:

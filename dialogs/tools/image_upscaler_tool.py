@@ -388,29 +388,6 @@ class ImageUpscalerDialog(QDialog):
         
         toolbar_layout.addStretch()
         
-        toolbar_layout.addWidget(QLabel("Output:"))
-        self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("Default: temp/image_upscaler/results")
-        self.output_edit.setMinimumWidth(200)
-        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
-        self.output_edit.editingFinished.connect(self._save_config)
-        toolbar_layout.addWidget(self.output_edit)
-        
-        self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
-        self.btn_browse_output.setToolTip("Browse output folder")
-        self.btn_browse_output.clicked.connect(self.browse_output)
-        toolbar_layout.addWidget(self.btn_browse_output)
-        
-        self.btn_paste_output = QPushButton(qta.icon('fa6s.paste'), "")
-        self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
-        self.btn_paste_output.clicked.connect(self.paste_output)
-        toolbar_layout.addWidget(self.btn_paste_output)
-
-        self.btn_clear_output = QPushButton(qta.icon('fa6s.eraser'), "")
-        self.btn_clear_output.setToolTip("Clear output folder path")
-        self.btn_clear_output.clicked.connect(self.clear_output)
-        toolbar_layout.addWidget(self.btn_clear_output)
-        
         main_layout.addLayout(toolbar_layout)
         
         settings_layout = QHBoxLayout()
@@ -483,6 +460,43 @@ class ImageUpscalerDialog(QDialog):
         splitter.setSizes([300, 600])
         
         main_layout.addWidget(splitter, 1)
+        
+        # Output layout - full width above stats
+        output_layout = QHBoxLayout()
+        output_layout.setSpacing(8)
+        
+        output_layout.addWidget(QLabel("Output:"))
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Default: temp/image_upscaler/results")
+        # Make output path entry expand full width
+        self.output_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.output_edit.setMinimumWidth(0)
+        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
+        self.output_edit.editingFinished.connect(self._save_config)
+        # Give the QLineEdit stretch so it takes remaining space
+        output_layout.addWidget(self.output_edit, 1)
+        
+        self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
+        self.btn_browse_output.setToolTip("Browse output folder")
+        self.btn_browse_output.clicked.connect(self.browse_output)
+        output_layout.addWidget(self.btn_browse_output)
+        
+        self.btn_paste_output = QPushButton(qta.icon('fa6s.paste'), "")
+        self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
+        self.btn_paste_output.clicked.connect(self.paste_output)
+        output_layout.addWidget(self.btn_paste_output)
+
+        self.btn_open_output = QPushButton(qta.icon('fa6s.folder-open'), "")
+        self.btn_open_output.setToolTip("Open output folder in file explorer")
+        self.btn_open_output.clicked.connect(self.open_output_folder)
+        output_layout.addWidget(self.btn_open_output)
+
+        self.btn_clear_output = QPushButton(qta.icon('fa6s.broom'), "")
+        self.btn_clear_output.setToolTip("Clear output folder path")
+        self.btn_clear_output.clicked.connect(self.clear_output)
+        output_layout.addWidget(self.btn_clear_output)
+        
+        main_layout.addLayout(output_layout)
         
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(16)
@@ -675,6 +689,25 @@ class ImageUpscalerDialog(QDialog):
             self.output_dir = text
             self._save_config()
 
+    def open_output_folder(self):
+        path = self.output_edit.text().strip()
+        if not path:
+            self.log_viewer.append("⚠️ No output path specified")
+            return
+        p = Path(path)
+        if not p.exists():
+            self.log_viewer.append("⚠️ Output folder does not exist")
+            return
+        try:
+            if os.name == 'nt':
+                os.startfile(str(p))
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(p)])
+            else:
+                subprocess.Popen(['xdg-open', str(p)])
+        except Exception as e:
+            self.log_viewer.append(f"⚠️ Failed to open folder: {e}")
+
     def clear_output(self):
         self.output_edit.clear()
         self.output_dir = None
@@ -734,6 +767,8 @@ class ImageUpscalerDialog(QDialog):
         self.format_combo.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         self.btn_browse_output.setEnabled(not running)
+        self.btn_paste_output.setEnabled(not running)
+        self.btn_open_output.setEnabled(not running)
         self.btn_clear_output.setEnabled(not running)
         
         if running:
@@ -782,7 +817,17 @@ class ImageUpscalerDialog(QDialog):
         return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
     
     def append_log(self, message: str):
+        # Append and keep log size bounded to last 200 lines to avoid huge logs
         self.log_viewer.append(message)
+        try:
+            text = self.log_viewer.toPlainText()
+            lines = text.splitlines()
+            if len(lines) > 200:
+                # keep only the last 200 lines
+                new_text = "\n".join(lines[-200:])
+                self.log_viewer.setPlainText(new_text)
+        except Exception:
+            pass
         self.log_viewer.verticalScrollBar().setValue(
             self.log_viewer.verticalScrollBar().maximum()
         )

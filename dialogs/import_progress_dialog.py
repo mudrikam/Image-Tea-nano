@@ -106,30 +106,50 @@ class ImportProgressDialog(QDialog):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(25, 25, 25, 25)
         
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(8)
+        title_icon = QLabel()
+        title_icon.setPixmap(qta.icon('fa6s.database').pixmap(22, 22))
+        header_layout.addWidget(title_icon)
         title_label = QLabel("Importing Files to Database")
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_layout.addLayout(header_layout)
         
+        current_file_title_layout = QHBoxLayout()
+        current_file_title_layout.setSpacing(6)
+        current_file_icon = QLabel()
+        current_file_icon.setPixmap(qta.icon('fa6s.file-lines').pixmap(14, 14))
+        current_file_title_layout.addWidget(current_file_icon)
         current_file_title = QLabel("Current File:")
         current_file_title_font = QFont()
         current_file_title_font.setBold(True)
         current_file_title.setFont(current_file_title_font)
-        main_layout.addWidget(current_file_title)
+        current_file_title_layout.addWidget(current_file_title)
+        current_file_title_layout.addStretch()
+        main_layout.addLayout(current_file_title_layout)
         
         self.current_file_label = QLabel("Preparing to import files...")
         self.current_file_label.setWordWrap(True)
         self.current_file_label.setMargin(5)
         main_layout.addWidget(self.current_file_label)
         
+        progress_title_layout = QHBoxLayout()
+        progress_title_layout.setSpacing(6)
+        progress_icon = QLabel()
+        progress_icon.setPixmap(qta.icon('fa6s.chart-line').pixmap(14, 14))
+        progress_title_layout.addWidget(progress_icon)
         progress_title = QLabel("Progress:")
         progress_title_font = QFont()
         progress_title_font.setBold(True)
         progress_title.setFont(progress_title_font)
-        main_layout.addWidget(progress_title)
+        progress_title_layout.addWidget(progress_title)
+        progress_title_layout.addStretch()
+        main_layout.addLayout(progress_title_layout)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
@@ -139,11 +159,18 @@ class ImportProgressDialog(QDialog):
         self.progress_bar.setMinimumHeight(25)
         main_layout.addWidget(self.progress_bar)
         
+        stats_title_layout = QHBoxLayout()
+        stats_title_layout.setSpacing(6)
+        stats_icon = QLabel()
+        stats_icon.setPixmap(qta.icon('fa6s.table').pixmap(14, 14))
+        stats_title_layout.addWidget(stats_icon)
         stats_title = QLabel("Statistics:")
         stats_title_font = QFont()
         stats_title_font.setBold(True)
         stats_title.setFont(stats_title_font)
-        main_layout.addWidget(stats_title)
+        stats_title_layout.addWidget(stats_title)
+        stats_title_layout.addStretch()
+        main_layout.addLayout(stats_title_layout)
         
         stats_layout = QGridLayout()
         stats_layout.setHorizontalSpacing(20)
@@ -222,13 +249,12 @@ class ImportProgressDialog(QDialog):
         self.worker_thread.start()
         
     def on_file_started(self, filename, current_index, total_files):
-        """Handler ketika file mulai diproses"""
         self.current_file_name = filename
         self.current_file_label.setText(f"Processing: {filename}")
         self.status_label.setText("Processing...")
+        self.adjustSize()
         
     def on_file_completed(self, success):
-        """Handler ketika file selesai diproses"""
         self.processed_files += 1
         if success:
             self.imported_files += 1
@@ -242,9 +268,9 @@ class ImportProgressDialog(QDialog):
         self.failed_files_label.setText(str(self.failed_files))
         
         self.update_time_calculations()
+        self.adjustSize()
         
     def on_import_finished(self, total_imported):
-        """Handler ketika import selesai"""
         self.timer.stop()
         
         self.current_file_label.setText(f"Import completed successfully!")
@@ -256,12 +282,14 @@ class ImportProgressDialog(QDialog):
             summary += f", {self.failed_files} files failed"
         summary += "."
         self.current_file_label.setText(summary)
-        
+        self.adjustSize()
         QTimer.singleShot(2000, self.accept)
         
     def on_error_occurred(self, filename, error_message):
-        """Handler ketika terjadi error"""
         print(f"[IMPORT ERROR] {filename}: {error_message}")
+        self.current_file_label.setText(f"Error importing {filename}: {error_message}")
+        self.status_label.setText("Error")
+        self.adjustSize()
         
     def update_elapsed_time(self):
         """Update elapsed time setiap detik"""
