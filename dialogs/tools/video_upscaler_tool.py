@@ -1,0 +1,1236 @@
+import sys
+import os
+import subprocess
+import shutil
+import time
+import re
+import platform
+import json
+from pathlib import Path
+from typing import Optional, List
+
+from PySide6.QtWidgets import (
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
+    QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication
+)
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
+from PIL import Image
+from PySide6.QtGui import QIcon, QFont
+import qtawesome as qta
+
+from config import BASE_PATH
+from database.db_operation import ImageTeaDB
+
+
+def get_ffmpeg_path():
+    system = platform.system()
+    if system == "Windows":
+        return Path(BASE_PATH) / "tools" / "ffmpeg" / "ffmpeg.exe"
+    else:
+        result = subprocess.run(["which", "ffmpeg"], capture_output=True, text=True, check=True)
+        return Path(result.stdout.strip())
+
+
+def get_ffprobe_path():
+    system = platform.system()
+    if system == "Windows":
+        return Path(BASE_PATH) / "tools" / "ffmpeg" / "ffprobe.exe"
+    else:
+        result = subprocess.run(["which", "ffprobe"], capture_output=True, text=True, check=True)
+        return Path(result.stdout.strip())
+
+
+def get_realesrgan_path():
+    system = platform.system()
+    if system == "Windows":
+        return Path(BASE_PATH) / "tools" / "realesrgan" / "realesrgan-ncnn-vulkan.exe"
+    else:
+        result = subprocess.run(["which", "realesrgan-ncnn-vulkan"], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+        return Path("/usr/bin/realesrgan-ncnn-vulkan")
+
+
+def get_models_dir():
+    system = platform.system()
+    if system == "Windows":
+        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
+    else:
+        home = Path.home()
+        possible_paths = [
+            Path("/usr/share/realesrgan-ncnn-vulkan/models"),
+            home / ".local" / "share" / "realesrgan-ncnn-vulkan" / "models",
+            Path(BASE_PATH) / "tools" / "realesrgan" / "models"
+        ]
+        for p in possible_paths:
+            if p.exists():
+                return p
+        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
+
+
+TEMP_DIR = Path(BASE_PATH) / "temp" / "video_upscaler"
+TMP_FRAMES_DIR = TEMP_DIR / "tmp_frames"
+OUT_FRAMES_DIR = TEMP_DIR / "out_frames"
+BATCH_INPUT_DIR = TEMP_DIR / "batch_input"
+BATCH_OUTPUT_DIR = TEMP_DIR / "batch_output"
+RESULTS_DIR = TEMP_DIR / "results"
+CONFIG_FILE = Path(BASE_PATH) / "configs" / "video_upscale_config.json"
+
+
+class UpscaleWorker(QThread):
+    log_signal = Signal(str)
+    progress_signal = Signal(int)
+    stats_signal = Signal(int, int, float, int, float)
+    finished_signal = Signal(bool, str)
+    video_completed_signal = Signal(str, bool)
+
+    def __init__(self, video_paths: List[str], model: str, scale: int, batch_size: int = 10, 
+                 encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None):
+        super().__init__()
+        self.video_paths = video_paths
+        self.model = model
+        self.scale = scale
+        self.batch_size = batch_size
+        self.encoder = encoder
+        self.hwaccel = hwaccel
+        self.output_dir = output_dir
+        self._stop_requested = False
+        
+        self.ffmpeg_bin = get_ffmpeg_path()
+        self.ffprobe_bin = get_ffprobe_path()
+        self.realesrgan_bin = get_realesrgan_path()
+        self.models_dir = get_models_dir()
+
+    def stop(self):
+        self._stop_requested = True
+
+    def run(self):
+        try:
+            total_videos = len(self.video_paths)
+            overall_success = True
+            succeeded = 0
+            for idx, video_path in enumerate(self.video_paths):
+                if self._stop_requested:
+                    self.finished_signal.emit(False, "⚠️ Process stopped by user")
+                    return
+
+                self.log_signal.emit(f"")
+                self.log_signal.emit(f"{'='*60}")
+                self.log_signal.emit(f"📹 Processing video {idx+1}/{total_videos}: {Path(video_path).name}")
+                self.log_signal.emit(f"{'='*60}")
+
+                success = self._upscale_video(video_path)
+                self.video_completed_signal.emit(video_path, success)
+                if success:
+                    succeeded += 1
+                else:
+                    overall_success = False
+
+                if self._stop_requested:
+                    self.finished_signal.emit(False, "⚠️ Process stopped by user")
+                    return
+
+            if self._stop_requested:
+                self.finished_signal.emit(False, "⚠️ Process stopped by user")
+            else:
+                if overall_success:
+                    self.finished_signal.emit(True, f"✅ All {total_videos} videos upscaled successfully!")
+                elif succeeded == 0:
+                    self.finished_signal.emit(False, "❌ All videos failed; see logs for details")
+                else:
+                    self.finished_signal.emit(False, f"⚠️ Completed {succeeded}/{total_videos} videos; some failed. See logs.")
+        except Exception as e:
+            self.finished_signal.emit(False, f"❌ Error: {str(e)}")
+
+    def _upscale_video(self, video_path: str) -> bool:
+        try:
+            TMP_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+            OUT_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+            BATCH_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+            BATCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+            
+            self.progress_signal.emit(0)
+            
+            self.log_signal.emit("🔍 Detecting video framerate...")
+            
+            if not self.ffprobe_bin.exists():
+                raise RuntimeError(f"FFprobe not found at: {self.ffprobe_bin}")
+            
+            ffprobe_cmd = [
+                str(self.ffprobe_bin),
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=r_frame_rate",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path
+            ]
+            result = subprocess.run(ffprobe_cmd, capture_output=True, text=True, check=True)
+            fps_str = result.stdout.strip()
+            if '/' in fps_str:
+                num, den = fps_str.split('/')
+                fps = float(num) / float(den)
+            else:
+                fps = float(fps_str)
+            self.log_signal.emit(f"   Detected FPS: {fps:.2f}")
+            
+            self.log_signal.emit("🧹 Cleaning old frames...")
+            for f in TMP_FRAMES_DIR.glob("*"):
+                f.unlink()
+            for f in OUT_FRAMES_DIR.glob("*"):
+                f.unlink()
+            
+            if self._stop_requested:
+                return False
+            
+            self.log_signal.emit(f"")
+            self.log_signal.emit(f"🎬 PHASE 1/3: EXTRACTING FRAMES")
+            self.log_signal.emit(f"   📥 Input: {video_path}")
+            self.log_signal.emit(f"   ⚙️ Decoder: {self.hwaccel}")
+            
+            if not self.ffmpeg_bin.exists():
+                raise RuntimeError(f"FFmpeg not found at: {self.ffmpeg_bin}")
+            
+            total_frames_cmd = [
+                str(self.ffprobe_bin),
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-count_packets",
+                "-show_entries", "stream=nb_read_packets",
+                "-of", "csv=p=0",
+                video_path
+            ]
+            result = subprocess.run(total_frames_cmd, capture_output=True, text=True, check=True)
+            total_frames = int(result.stdout.strip())
+            self.log_signal.emit(f"   📐 Total frames to extract: {total_frames}")
+            
+            extract_cmd = [str(self.ffmpeg_bin)]
+            
+            hwaccel_map = {
+                "CPU Only": None,
+                "Auto (Recommended)": "auto",
+                "NVIDIA CUDA": "cuda",
+                "Intel Quick Sync": "qsv",
+                "DirectX 11": "d3d11va",
+            }
+            hwaccel_method = hwaccel_map.get(self.hwaccel, "auto")
+            
+            if hwaccel_method:
+                extract_cmd.extend(["-hwaccel", hwaccel_method])
+                self.log_signal.emit(f"   ⚡ Using hardware acceleration: {hwaccel_method}")
+            else:
+                self.log_signal.emit(f"   🧠 Using CPU-only decoding")
+            
+            extract_cmd.extend([
+                "-i", video_path,
+                "-vsync", "0",
+                "-frames:v", "-1",
+                str(TMP_FRAMES_DIR / "frame%08d.png")
+            ])
+            
+            proc = subprocess.Popen(
+                extract_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            for line in proc.stderr:
+                if self._stop_requested:
+                    proc.terminate()
+                    return False
+                if "frame=" in line:
+                    match = re.search(r"frame=\s*(\d+)", line)
+                    if match:
+                        extracted_frames = int(match.group(1))
+                        if total_frames > 0:
+                            progress = int((extracted_frames / total_frames) * 100)
+                            self.progress_signal.emit(min(100, progress))
+            
+            proc.wait()
+            
+            if proc.returncode != 0:
+                self.log_signal.emit("❌ FFmpeg extraction failed")
+                return False
+            
+            frame_count = len(list(TMP_FRAMES_DIR.glob("*.png")))
+            self.progress_signal.emit(100)
+            self.log_signal.emit(f"✅ PHASE 1 COMPLETE: Extracted {frame_count} frames")
+            
+            if self._stop_requested:
+                return False
+            
+            self.progress_signal.emit(0)
+            self.stats_signal.emit(0, frame_count, 0.0, frame_count, 0.0)
+            
+            self.log_signal.emit(f"")
+            self.log_signal.emit(f"🚀 PHASE 2/3: UPSCALING FRAMES")
+            self.log_signal.emit(f"   🧩 Model: {self.model} | Scale: {self.scale}x | Batch: {self.batch_size}")
+            
+            for f in OUT_FRAMES_DIR.glob("*"):
+                f.unlink()
+            
+            model_to_use = self.model
+            # If the selected model already contains an explicit scale (e.g., x2/x3/x4) use it.
+            if re.search(r"x([234])", model_to_use, re.IGNORECASE):
+                self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
+            else:
+                # try suffix candidate first
+                candidate = f"{model_to_use}-x{self.scale}"
+                if (self.models_dir / f"{candidate}.param").exists():
+                    self.log_signal.emit(f"   Using model {candidate} for scale {self.scale}x")
+                    model_to_use = candidate
+                else:
+                    # try to find any model file containing the base name and scale anywhere
+                    found = None
+                    for p in self.models_dir.glob("*.param"):
+                        stem = p.stem
+                        if model_to_use in stem and f"x{self.scale}" in stem:
+                            found = stem
+                            break
+                    if found:
+                        self.log_signal.emit(f"   Using model {found} for scale {self.scale}x")
+                        model_to_use = found
+            
+            start_time = time.time()
+            processed = 0
+            frame_files = sorted(TMP_FRAMES_DIR.glob("*.png"))
+            total_frames = len(frame_files)
+            
+            num_batches = (total_frames + self.batch_size - 1) // self.batch_size
+            self.log_signal.emit(f"   🔁 Processing {num_batches} batches")
+            
+            for batch_idx in range(num_batches):
+                if self._stop_requested:
+                    return False
+                
+                start_idx = batch_idx * self.batch_size
+                end_idx = min(start_idx + self.batch_size, total_frames)
+                batch_frames = frame_files[start_idx:end_idx]
+                batch_num = batch_idx + 1
+                batch_frame_count = len(batch_frames)
+                
+                if batch_frames:
+                    first_frame = Image.open(batch_frames[0])
+                    input_width, input_height = first_frame.size
+                    output_width = input_width * self.scale
+                    output_height = input_height * self.scale
+                    self.log_signal.emit(f"   📦 Batch {batch_num}/{num_batches}: Processing frames {start_idx+1}-{end_idx} ({batch_frame_count} frames)")
+                    self.log_signal.emit(f"      📐 Input: {input_width}x{input_height} → Output: {output_width}x{output_height}")
+                
+                for f in BATCH_INPUT_DIR.glob("*"):
+                    f.unlink()
+                for f in BATCH_OUTPUT_DIR.glob("*"):
+                    f.unlink()
+                
+                for frame_file in batch_frames:
+                    shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
+                
+                cmd = [
+                    str(self.realesrgan_bin),
+                    "-i", str(BATCH_INPUT_DIR),
+                    "-o", str(BATCH_OUTPUT_DIR),
+                    "-m", str(self.models_dir),
+                    "-n", model_to_use,
+                    "-s", str(self.scale),
+                    "-t", "0",
+                    "-f", "png",
+                ]
+                
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                       text=True, cwd=str(self.realesrgan_bin.parent))
+                
+                for line in proc.stdout:
+                    if self._stop_requested:
+                        proc.terminate()
+                        return False
+                    ll = line.strip()
+                    if not ll:
+                        continue
+                    low = ll.lower()
+                    if 'fail' in low or 'error' in low:
+                        self.log_signal.emit(f"   ❗ ERROR: {ll}")
+                
+                proc.wait()
+                if proc.returncode != 0:
+                    self.log_signal.emit(f"❌ RealESRGAN failed on batch {batch_num}")
+                    return False
+                
+                for frame_file in batch_frames:
+                    out_file = BATCH_OUTPUT_DIR / frame_file.name
+                    if out_file.exists():
+                        shutil.copy2(out_file, OUT_FRAMES_DIR / frame_file.name)
+                
+                processed = end_idx
+                elapsed = time.time() - start_time
+                remaining = max(0, frame_count - processed)
+                eta = 0.0
+                if processed > 0:
+                    rate = elapsed / processed
+                    eta = rate * remaining
+                    progress_pct = int((processed / frame_count) * 100)
+                    self.progress_signal.emit(min(100, progress_pct))
+                
+                self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
+            
+            if self._stop_requested:
+                return False
+            
+            self.log_signal.emit("🔧 Renaming output frames...")
+            output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
+            for idx, frame_file in enumerate(output_frames, start=1):
+                new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
+                if frame_file != new_name:
+                    frame_file.rename(new_name)
+            
+            self.progress_signal.emit(100)
+            elapsed = time.time() - start_time
+            self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
+            
+            if self._stop_requested:
+                return False
+            
+            self.progress_signal.emit(0)
+            self.log_signal.emit(f"")
+            self.log_signal.emit(f"🎞️ PHASE 3/3: MERGING TO VIDEO")
+            
+            merge_frames = sorted(OUT_FRAMES_DIR.glob("frame*.png"))
+            total_merge_frames = len(merge_frames)
+            self.log_signal.emit(f"   🔗 Merging {total_merge_frames} frames at {fps:.2f} FPS")
+            
+            video_name = Path(video_path).stem
+            if self.output_dir:
+                output_path = Path(self.output_dir) / f"{video_name}_upscaled_{self.scale}x.mp4"
+            else:
+                output_path = RESULTS_DIR / f"{video_name}_upscaled_{self.scale}x.mp4"
+            
+            encoder_map = {
+                "CPU (x264)": "libx264",
+                "GPU - NVIDIA (NVENC H.264)": "h264_nvenc",
+                "GPU - NVIDIA (NVENC HEVC) - High Res": "hevc_nvenc",
+                "GPU - AMD (AMF)": "h264_amf",
+                "GPU - Intel (QSV)": "h264_qsv",
+            }
+            video_codec = encoder_map.get(self.encoder, "libx264")
+            
+            self.log_signal.emit(f"   🎛️ Using encoder: {self.encoder} ({video_codec})")
+            
+            merge_cmd = [
+                str(self.ffmpeg_bin),
+                "-framerate", str(fps),
+                "-start_number", "1",
+                "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
+                "-i", video_path,
+                "-map", "0:v:0",
+                "-map", "1:a:0?",
+                "-c:a", "copy",
+                "-c:v", video_codec,
+            ]
+            
+            if video_codec == "h264_nvenc":
+                merge_cmd.extend(["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0"])
+            elif video_codec == "hevc_nvenc":
+                merge_cmd.extend(["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0"])
+            elif video_codec == "h264_amf":
+                merge_cmd.extend(["-quality", "quality", "-rc", "vbr_latency", "-qp_i", "19", "-qp_p", "19"])
+            elif video_codec == "h264_qsv":
+                merge_cmd.extend(["-preset", "veryslow", "-global_quality", "19"])
+            else:
+                merge_cmd.extend(["-preset", "medium", "-crf", "18"])
+            
+            merge_cmd.extend([
+                "-r", str(fps),
+                "-pix_fmt", "yuv420p",
+                "-y",
+                str(output_path)
+            ])
+            
+            self.log_signal.emit(f"   ⏺️ Encoding video...")
+            
+            proc = subprocess.Popen(
+                merge_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            for line in proc.stderr:
+                if self._stop_requested:
+                    proc.terminate()
+                    return False
+                if "frame=" in line:
+                    match = re.search(r"frame=\s*(\d+)", line)
+                    if match:
+                        merged_frames = int(match.group(1))
+                        if total_merge_frames > 0:
+                            progress = int((merged_frames / total_merge_frames) * 100)
+                            self.progress_signal.emit(min(100, progress))
+            
+            proc.wait()
+            
+            if proc.returncode != 0:
+                self.log_signal.emit(f"⚠️ FFmpeg merge failed with {video_codec}")
+                
+                if video_codec == "h264_nvenc":
+                    self.log_signal.emit(f"🔄 Retrying with HEVC encoder (supports higher resolutions)...")
+                    
+                    video_codec = "hevc_nvenc"
+                    merge_cmd = [
+                        str(self.ffmpeg_bin),
+                        "-framerate", str(fps),
+                        "-start_number", "1",
+                        "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
+                        "-i", video_path,
+                        "-map", "0:v:0",
+                        "-map", "1:a:0?",
+                        "-c:a", "copy",
+                        "-c:v", video_codec,
+                        "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0",
+                        "-r", str(fps),
+                        "-pix_fmt", "yuv420p",
+                        "-y",
+                        str(output_path)
+                    ]
+                    
+                    self.log_signal.emit(f"   🎛️ Using fallback encoder: hevc_nvenc")
+                    self.log_signal.emit(f"   ⏺️ Re-encoding video...")
+                    
+                    proc = subprocess.Popen(
+                        merge_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    
+                    for line in proc.stderr:
+                        if self._stop_requested:
+                            proc.terminate()
+                            return False
+                        if "frame=" in line:
+                            match = re.search(r"frame=\s*(\d+)", line)
+                            if match:
+                                merged_frames = int(match.group(1))
+                                if total_merge_frames > 0:
+                                    progress = int((merged_frames / total_merge_frames) * 100)
+                                    self.progress_signal.emit(min(100, progress))
+                    
+                    proc.wait()
+                    
+                    if proc.returncode != 0:
+                        self.log_signal.emit(f"❌ FFmpeg merge failed even with HEVC fallback")
+                        return False
+                    
+                    self.log_signal.emit(f"✅ Successfully encoded with HEVC fallback")
+                else:
+                    return False
+            
+            self.progress_signal.emit(100)
+            
+            self.log_signal.emit("🔍 Verifying output file...")
+            if not output_path.exists():
+                self.log_signal.emit(f"❌ Output file not created: {output_path}")
+                return False
+            
+            max_wait = 10
+            for i in range(max_wait):
+                if self._stop_requested:
+                    return False
+                time.sleep(0.5)
+                try:
+                    size = output_path.stat().st_size
+                    if size > 0:
+                        time.sleep(0.5)
+                        new_size = output_path.stat().st_size
+                        if size == new_size:
+                            size_mb = size / (1024 * 1024)
+                            self.log_signal.emit(f"   📦 Output file size: {size_mb:.2f} MB")
+                            break
+                except Exception:
+                    pass
+            else:
+                self.log_signal.emit(f"⚠️ Warning: Could not verify output file stability")
+            
+            self.log_signal.emit(f"✅ PHASE 3 COMPLETE: {output_path}")
+            
+            self.log_signal.emit("🧹 Cleaning up temporary frames...")
+            time.sleep(1.0)
+            
+            for attempt in range(3):
+                failed_files = []
+                
+                for f in TMP_FRAMES_DIR.glob("*"):
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        failed_files.append(str(f))
+                
+                for f in OUT_FRAMES_DIR.glob("*"):
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        failed_files.append(str(f))
+                
+                for f in BATCH_INPUT_DIR.glob("*"):
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        failed_files.append(str(f))
+                
+                for f in BATCH_OUTPUT_DIR.glob("*"):
+                    try:
+                        f.unlink()
+                    except Exception as e:
+                        failed_files.append(str(f))
+                
+                if not failed_files:
+                    break
+                
+                if attempt < 2:
+                    self.log_signal.emit(f"   ⚠️ {len(failed_files)} files locked, retrying cleanup...")
+                    time.sleep(2.0)
+                else:
+                    self.log_signal.emit(f"   ⚠️ Warning: Could not delete {len(failed_files)} files (they may be locked)")
+            
+            return True
+            
+        except Exception as e:
+            self.log_signal.emit(f"❌ Error: {str(e)}")
+            return False
+
+
+class VideoUpscalerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Video Upscaler (RealESRGAN)")
+        self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
+        
+        self.db = ImageTeaDB()
+        self.worker: Optional[UpscaleWorker] = None
+        self.video_files: List[str] = []
+        self.output_dir: Optional[str] = None
+        # remember last dir for dialogs (default to user home)
+        self._last_dir = os.path.expanduser("~")
+        # flag to avoid saving/clearing output_dir during initialization
+        self._config_loaded = False
+        
+        self._remaining_sec = 0.0
+        self._remaining_frames = 0
+        self._elapsed = 0.0
+        self._processed = 0
+        self._total = 0
+        
+        icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        
+        self.setup_ui()
+        self.apply_styles()
+        self.populate_models()
+        self.check_binaries()
+        
+        self._rem_timer = QTimer(self)
+        self._rem_timer.setInterval(1000)
+        self._rem_timer.timeout.connect(self._countdown_tick)
+        
+        self.resize(900, 600)
+        self._load_config()
+    
+    def _load_config(self):
+        try:
+            if CONFIG_FILE.exists():
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    output_dir = config.get('output_dir', '')
+                    if output_dir:
+                        self.output_edit.setText(output_dir)
+                        self.output_dir = output_dir
+                    
+                    model = config.get('model', '')
+                    if model and self.model_combo.findText(model) >= 0:
+                        self.model_combo.setCurrentText(model)
+                    
+                    scale = config.get('scale', '')
+                    if scale and self.scale_combo.findText(str(scale)) >= 0:
+                        self.scale_combo.setCurrentText(str(scale))
+                    
+                    batch = config.get('batch', '')
+                    if batch and self.batch_combo.findText(str(batch)) >= 0:
+                        self.batch_combo.setCurrentText(str(batch))
+                    
+                    encoder = config.get('encoder', '')
+                    if encoder and self.encoder_combo.findText(encoder) >= 0:
+                        self.encoder_combo.setCurrentText(encoder)
+                    
+                    decoder = config.get('decoder', '')
+                    if decoder and self.decoder_combo.findText(decoder) >= 0:
+                        self.decoder_combo.setCurrentText(decoder)
+        except Exception:
+            pass
+        finally:
+            # mark config loaded so subsequent saves that clear output_dir are considered user intent
+            self._config_loaded = True
+    
+    def _save_config(self):
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            cfg = {}
+            if CONFIG_FILE.exists():
+                try:
+                    with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                        cfg = json.load(f)
+                except Exception:
+                    cfg = {}
+
+            # Always update combo settings
+            cfg['model'] = self.model_combo.currentText()
+            cfg['scale'] = self.scale_combo.currentText()
+            cfg['batch'] = self.batch_combo.currentText()
+            cfg['encoder'] = self.encoder_combo.currentText()
+            cfg['decoder'] = self.decoder_combo.currentText()
+
+            # Only update output_dir if it's explicitly set (non-empty)
+            if self.output_dir:
+                cfg['output_dir'] = self.output_dir.replace('\\', '/')
+            elif getattr(self, '_config_loaded', False):
+                # If config already loaded and output_dir now None, assume user cleared it and remove key
+                if 'output_dir' in cfg:
+                    cfg.pop('output_dir', None)
+            # else: during initial loading/early saves, do not remove existing output_dir
+
+            # Write atomically to avoid truncation
+            tmp = CONFIG_FILE.with_suffix('.tmp')
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, indent=2)
+            tmp.replace(CONFIG_FILE)
+        except Exception:
+            pass
+    
+    def setup_ui(self):
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setSpacing(8)
+        
+        self.btn_load_db = QPushButton(qta.icon('fa6s.database'), " Load Database")
+        self.btn_load_db.setToolTip("Load video files from the Image-Tea database")
+        self.btn_load_db.clicked.connect(self.load_from_database)
+        toolbar_layout.addWidget(self.btn_load_db)
+        
+        self.btn_load_folder = QPushButton(qta.icon('fa6s.folder-open'), " Load Folder")
+        self.btn_load_folder.setToolTip("Load all video files from a folder")
+        self.btn_load_folder.clicked.connect(self.load_from_folder)
+        toolbar_layout.addWidget(self.btn_load_folder)
+        
+        self.btn_load_file = QPushButton(qta.icon('fa6s.file-video'), " Load File")
+        self.btn_load_file.setToolTip("Load a single video file")
+        self.btn_load_file.clicked.connect(self.load_single_file)
+        toolbar_layout.addWidget(self.btn_load_file)
+        
+        self.btn_clear = QPushButton(qta.icon('fa6s.trash'), " Clear")
+        self.btn_clear.setToolTip("Clear the video list")
+        self.btn_clear.clicked.connect(self.clear_videos)
+        toolbar_layout.addWidget(self.btn_clear)
+        
+        toolbar_layout.addStretch()
+        
+        toolbar_layout.addWidget(QLabel("Output:"))
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Default: temp/video_upscaler/results")
+        self.output_edit.setMinimumWidth(200)
+        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
+        self.output_edit.editingFinished.connect(self._save_config)
+        toolbar_layout.addWidget(self.output_edit)
+        
+        self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
+        self.btn_browse_output.setToolTip("Browse output folder")
+        self.btn_browse_output.clicked.connect(self.browse_output)
+        toolbar_layout.addWidget(self.btn_browse_output)
+        
+        self.btn_paste_output = QPushButton(qta.icon('fa6s.paste'), "")
+        self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
+        self.btn_paste_output.clicked.connect(self.paste_output)
+        toolbar_layout.addWidget(self.btn_paste_output)
+
+        self.btn_clear_output = QPushButton(qta.icon('fa6s.eraser'), "")
+        self.btn_clear_output.setToolTip("Clear output folder path")
+        self.btn_clear_output.clicked.connect(self.clear_output)
+        toolbar_layout.addWidget(self.btn_clear_output)
+        
+        main_layout.addLayout(toolbar_layout)
+        
+        settings_layout = QHBoxLayout()
+        settings_layout.setSpacing(8)
+        
+        settings_layout.addWidget(QLabel("Model:"))
+        self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(180)
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        self.model_combo.currentTextChanged.connect(lambda: self._save_config())
+        settings_layout.addWidget(self.model_combo)
+        
+        settings_layout.addWidget(QLabel("Scale:"))
+        self.scale_combo = QComboBox()
+        self.scale_combo.addItems(["2", "3", "4"])
+        self.scale_combo.setCurrentText("2")
+        self.scale_combo.currentTextChanged.connect(lambda: self._save_config())
+        settings_layout.addWidget(self.scale_combo)
+        
+        settings_layout.addWidget(QLabel("Batch:"))
+        self.batch_combo = QComboBox()
+        self.batch_combo.addItems(["5", "10", "20", "30", "50", "100"])
+        self.batch_combo.setCurrentText("10")
+        self.batch_combo.setToolTip("Frames per batch (higher = faster but more VRAM)")
+        self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
+        settings_layout.addWidget(self.batch_combo)
+        
+        settings_layout.addWidget(QLabel("Encoder:"))
+        self.encoder_combo = QComboBox()
+        self.encoder_combo.addItems([
+            "CPU (x264)",
+            "GPU - NVIDIA (NVENC H.264)",
+            "GPU - NVIDIA (NVENC HEVC) - High Res",
+            "GPU - AMD (AMF)",
+            "GPU - Intel (QSV)"
+        ])
+        self.encoder_combo.setCurrentText("GPU - NVIDIA (NVENC H.264)")
+        self.encoder_combo.setToolTip("Video encoder for merging")
+        self.encoder_combo.currentTextChanged.connect(lambda: self._save_config())
+        settings_layout.addWidget(self.encoder_combo)
+        
+        settings_layout.addWidget(QLabel("Decoder:"))
+        self.decoder_combo = QComboBox()
+        self.decoder_combo.addItems([
+            "Auto (Recommended)",
+            "NVIDIA CUDA",
+            "Intel Quick Sync",
+            "DirectX 11",
+            "CPU Only"
+        ])
+        self.decoder_combo.setCurrentText("Auto (Recommended)")
+        self.decoder_combo.setToolTip("Hardware acceleration for extraction")
+        self.decoder_combo.currentTextChanged.connect(lambda: self._save_config())
+        settings_layout.addWidget(self.decoder_combo)
+        
+        settings_layout.addStretch()
+        
+        main_layout.addLayout(settings_layout)
+        
+        splitter = QSplitter(Qt.Horizontal)
+        
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+        
+        left_layout.addWidget(QLabel("Loaded Videos:"))
+        self.video_list = QListWidget()
+        self.video_list.setMinimumWidth(300)
+        left_layout.addWidget(self.video_list)
+        
+        left_widget.setLayout(left_layout)
+        splitter.addWidget(left_widget)
+        
+        right_widget = QWidget()
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
+        
+        right_layout.addWidget(QLabel("Process Logs:"))
+        self.log_viewer = QTextEdit()
+        self.log_viewer.setReadOnly(True)
+        right_layout.addWidget(self.log_viewer)
+        
+        right_widget.setLayout(right_layout)
+        splitter.addWidget(right_widget)
+        
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 600])
+        
+        main_layout.addWidget(splitter, 1)
+        
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(16)
+        
+        self.files_label = QLabel("Files: 0")
+        self.files_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.files_label)
+        
+        self.elapsed_label = QLabel("Elapsed: 00:00:00")
+        self.elapsed_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.elapsed_label)
+        
+        self.eta_label = QLabel("ETA: --:--:--")
+        self.eta_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.eta_label)
+        
+        self.frames_label = QLabel("Frames: 0/0")
+        self.frames_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.frames_label)
+        
+        self.remaining_label = QLabel("Remaining: 0")
+        self.remaining_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.remaining_label)
+        
+        self.status_label = QLabel("Status: Idle")
+        self.status_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.status_label)
+        
+        stats_layout.addStretch()
+        
+        main_layout.addLayout(stats_layout)
+        
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(16)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setMaximumHeight(30)
+        self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        bottom_layout.addWidget(self.progress_bar)
+        
+        self.run_button = QPushButton(qta.icon('fa6s.play'), " RUN UPSCALE")
+        self.run_button.setMinimumHeight(40)
+        self.run_button.setMinimumWidth(180)
+        self.run_button.clicked.connect(self.run_process)
+        self.run_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4e9e20;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #3d7307;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
+        bottom_layout.addWidget(self.run_button)
+        
+        main_layout.addLayout(bottom_layout)
+        
+        self.setLayout(main_layout)
+    
+    def apply_styles(self):
+        pass
+    
+    def populate_models(self):
+        self.model_combo.clear()
+        models_dir = get_models_dir()
+        models = []
+        if models_dir.exists() and models_dir.is_dir():
+            models = sorted([p.stem for p in models_dir.glob("*.param")])
+        if models:
+            self.model_combo.addItems(models)
+            self.log_viewer.append(f"✅ Found {len(models)} model(s) in {models_dir}")
+        else:
+            defaults = ["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"]
+            self.model_combo.addItems(defaults)
+            self.log_viewer.append(f"⚠️ No model files found in {models_dir}; using defaults")
+        
+        if self.model_combo.count() > 0:
+            self._on_model_changed(self.model_combo.currentText())
+    
+    def check_binaries(self):
+        missing = []
+        ffmpeg = get_ffmpeg_path()
+        realesrgan = get_realesrgan_path()
+        models_dir = get_models_dir()
+        
+        if not ffmpeg.exists():
+            missing.append(f"FFmpeg not found at: {ffmpeg}")
+        if not realesrgan.exists():
+            missing.append(f"RealESRGAN not found at: {realesrgan}")
+        
+        model_files = list(models_dir.glob("*.param")) if models_dir.exists() else []
+        if not model_files:
+            missing.append(f"Models not found at: {models_dir}")
+        
+        if missing:
+            self.log_viewer.append("⚠️ WARNING - Missing binaries:")
+            for msg in missing:
+                self.log_viewer.append(f"   {msg}")
+            self.log_viewer.append("")
+        else:
+            self.log_viewer.append("✅ All binaries found")
+            self.log_viewer.append(f"   FFmpeg: {ffmpeg}")
+            self.log_viewer.append(f"   RealESRGAN: {realesrgan}")
+            self.log_viewer.append("")
+    
+    def _on_model_changed(self, model_name: str):
+        m = re.search(r"x([234])", model_name, re.IGNORECASE)
+        if m:
+            s = m.group(1)
+            self.scale_combo.setCurrentText(s)
+            self.scale_combo.setEnabled(False)
+            self.log_viewer.append(f"🔒 Scale auto-set to {s}x from model {model_name}")
+        else:
+            self.scale_combo.setEnabled(True)
+    
+    def load_from_database(self):
+        videos = self.db.get_all_files()
+        video_extensions = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.wmv', '.flv')
+        video_files = [f[1] for f in videos if f[1].lower().endswith(video_extensions)]
+        
+        if not video_files:
+            QMessageBox.information(self, "No Videos", "No video files found in the database.")
+            return
+        
+        self.video_files = video_files
+        self._update_video_list()
+        self.log_viewer.append(f"📂 Loaded {len(video_files)} videos from database")
+    
+    def load_from_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Video Folder", self._last_dir)
+        if not folder:
+            return
+        self._last_dir = folder
+        video_extensions = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.wmv', '.flv')
+        folder_path = Path(folder)
+        video_files = [str(f) for f in folder_path.glob("*") if f.suffix.lower() in video_extensions]
+        
+        if not video_files:
+            QMessageBox.information(self, "No Videos", "No video files found in the selected folder.")
+            return
+        
+        self.video_files = video_files
+        self._update_video_list()
+        self.log_viewer.append(f"📂 Loaded {len(video_files)} videos from folder: {folder}")
+    
+    def load_single_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Video File", self._last_dir,
+            "Video Files (*.mp4 *.mov *.mkv *.avi *.webm *.wmv *.flv);;All Files (*)"
+        )
+        if not path:
+            return
+        self._last_dir = os.path.dirname(path)
+        if path not in self.video_files:
+            self.video_files.append(path)
+        self._update_video_list()
+        self.log_viewer.append(f"📁 Added: {path}")
+    
+    def clear_videos(self):
+        self.video_files = []
+        self._update_video_list()
+        self.log_viewer.append("🗑️ Cleared video list")
+    
+    def _update_video_list(self):
+        self.video_list.clear()
+        for video_path in self.video_files:
+            item = QListWidgetItem(qta.icon('fa6s.file-video'), Path(video_path).name)
+            item.setData(Qt.UserRole, video_path)
+            item.setToolTip(video_path)
+            self.video_list.addItem(item)
+        self.files_label.setText(f"Files: {len(self.video_files)}")
+    
+    def browse_output(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self._last_dir)
+        if folder:
+            self._last_dir = folder
+            self.output_edit.setText(folder)
+            self.output_dir = folder
+            self._save_config()
+    
+    def paste_output(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if text:
+            self.output_edit.setText(text)
+            self.output_dir = text
+            self._save_config()
+
+    def clear_output(self):
+        # Clear output path and persist (only overwrite when non-empty is preserved in _save_config)
+        self.output_edit.clear()
+        self.output_dir = None
+        self._save_config()
+        self.log_viewer.append("🧹 Cleared output path")
+    
+    def run_process(self):
+        if self.worker and self.worker.isRunning():
+            self.log_viewer.append("\n⚠️ Stopping process...")
+            self.worker.stop()
+            self.run_button.setEnabled(False)
+            return
+        
+        if not self.video_files:
+            QMessageBox.warning(self, "No Videos", "Please load some video files first.")
+            return
+        
+        self._set_running_state(True)
+        
+        self.progress_bar.setValue(0)
+        self.log_viewer.append("=" * 60)
+        self.log_viewer.append("🚀 Starting upscale process...")
+        self.log_viewer.append("")
+        
+        self._remaining_sec = 0.0
+        self._remaining_frames = 0
+        self._elapsed = 0.0
+        self._processed = 0
+        self._total = 0
+        self._update_stats_label()
+        
+        model = self.model_combo.currentText()
+        scale = int(self.scale_combo.currentText())
+        batch_size = int(self.batch_combo.currentText())
+        encoder = self.encoder_combo.currentText()
+        hwaccel = self.decoder_combo.currentText()
+        output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
+        
+        self.worker = UpscaleWorker(
+            self.video_files, model, scale, batch_size, encoder, hwaccel, output_dir
+        )
+        self.worker.log_signal.connect(self.append_log)
+        self.worker.progress_signal.connect(self.progress_bar.setValue)
+        self.worker.stats_signal.connect(self.update_stats)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.video_completed_signal.connect(self.on_video_completed)
+        self.worker.start()
+        
+        if not self._rem_timer.isActive():
+            self._rem_timer.start()
+    
+    def _set_running_state(self, running: bool):
+        self.btn_load_db.setEnabled(not running)
+        self.btn_load_folder.setEnabled(not running)
+        self.btn_load_file.setEnabled(not running)
+        self.btn_clear.setEnabled(not running)
+        self.model_combo.setEnabled(not running)
+        self.scale_combo.setEnabled(not running and not self._is_scale_locked())
+        self.batch_combo.setEnabled(not running)
+        self.encoder_combo.setEnabled(not running)
+        self.decoder_combo.setEnabled(not running)
+        self.output_edit.setEnabled(not running)
+        self.btn_browse_output.setEnabled(not running)
+        self.btn_clear_output.setEnabled(not running)
+        
+        if running:
+            self.run_button.setText(" STOP")
+            self.run_button.setIcon(qta.icon('fa6s.stop'))
+            self.run_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #cc3333;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #aa2222;
+                }
+                QPushButton:pressed {
+                    background-color: #881111;
+                }
+            """)
+            self.status_label.setText("Status: Running")
+        else:
+            self.run_button.setText(" RUN UPSCALE")
+            self.run_button.setIcon(qta.icon('fa6s.play'))
+            self.run_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4e9e20;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #3d7307;
+                }
+                QPushButton:pressed {
+                    background-color: #1e7e34;
+                }
+            """)
+            self.status_label.setText("Status: Idle")
+    
+    def _is_scale_locked(self):
+        model_name = self.model_combo.currentText()
+        return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
+    
+    def append_log(self, message: str):
+        self.log_viewer.append(message)
+        self.log_viewer.verticalScrollBar().setValue(
+            self.log_viewer.verticalScrollBar().maximum()
+        )
+    
+    def update_stats(self, processed: int, total: int, elapsed: float, remaining: int, remaining_sec: float):
+        self._processed = processed
+        self._total = total
+        self._elapsed = elapsed
+        self._remaining_frames = remaining
+        self._remaining_sec = max(0.0, float(remaining_sec))
+        
+        if self.worker is not None and self.worker.isRunning() and not self._rem_timer.isActive():
+            self._rem_timer.start()
+        
+        self._update_stats_label()
+    
+    def _update_stats_label(self):
+        elapsed_s = self._fmt_seconds(self._elapsed)
+        remaining_time_s = self._fmt_seconds(self._remaining_sec)
+        self.elapsed_label.setText(f"Elapsed: {elapsed_s}")
+        self.eta_label.setText(f"ETA: {remaining_time_s}")
+        self.frames_label.setText(f"Frames: {self._processed}/{self._total}")
+        self.remaining_label.setText(f"Remaining: {self._remaining_frames}")
+    
+    def _fmt_seconds(self, s: float) -> str:
+        if s is None or s <= 0:
+            return "--:--:--"
+        m, sec = divmod(int(s), 60)
+        h, m = divmod(m, 60)
+        return f"{h:02d}:{m:02d}:{sec:02d}"
+    
+    def _countdown_tick(self):
+        self._elapsed = float(self._elapsed) + 1.0
+        if self._remaining_sec > 0:
+            self._remaining_sec = max(0.0, self._remaining_sec - 1.0)
+        self._update_stats_label()
+        
+        worker_finished = not (self.worker is not None and self.worker.isRunning())
+        if worker_finished and self._remaining_sec <= 0 and self._remaining_frames <= 0 and self._rem_timer.isActive():
+            self._rem_timer.stop()
+    
+    def on_video_completed(self, video_path: str, success: bool):
+        for i in range(self.video_list.count()):
+            item = self.video_list.item(i)
+            if item.data(Qt.UserRole) == video_path:
+                if success:
+                    item.setIcon(qta.icon('fa6s.circle-check', color='#4e9e20'))
+                else:
+                    item.setIcon(qta.icon('fa6s.circle-xmark', color='#cc3333'))
+                break
+    
+    def on_finished(self, success: bool, message: str):
+        self.log_viewer.append("")
+        self.log_viewer.append(message)
+        self.log_viewer.append("=" * 60)
+        
+        self._remaining_sec = 0.0
+        self._remaining_frames = 0
+        if self._rem_timer.isActive():
+            self._rem_timer.stop()
+        self._update_stats_label()
+        
+        self._set_running_state(False)
+        self.run_button.setEnabled(True)
+    
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait(3000)
+        event.accept()

@@ -11,7 +11,8 @@ expected = [
     "exiftool",
     "ghostscript",
     "cairo",
-    "ffmpeg"
+    "ffmpeg",
+    "realesrgan"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
@@ -36,7 +37,8 @@ def check_system_tool(tool_name):
     tool_commands = {
         "ghostscript": "gs",
         "exiftool": "exiftool",
-        "ffmpeg": "ffmpeg"
+        "ffmpeg": "ffmpeg",
+        "realesrgan": "realesrgan-ncnn-vulkan"
     }
     
     cmd = tool_commands.get(tool_name)
@@ -84,7 +86,7 @@ def check_folders():
         if not os.path.isdir(folder):
             tool_name = os.path.basename(folder)
             
-            if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg"]:
+            if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg", "realesrgan"]:
                 if check_system_tool(tool_name):
                     print(f"{tool_name} found in system PATH, skipping download.")
                     os.makedirs(folder, exist_ok=True)
@@ -102,6 +104,8 @@ def check_folders():
                     download_and_extract_cairo(folder)
                 elif folder.endswith("ffmpeg"):
                     download_and_extract_ffmpeg(folder)
+                elif folder.endswith("realesrgan"):
+                    download_and_extract_realesrgan(folder)
             else:
                 print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
                 if folder.endswith("cairo"):
@@ -219,6 +223,31 @@ def download_and_extract_ffmpeg(target_folder):
         print("FFmpeg extracted successfully.")
     except Exception as e:
         print(f"Failed to download or extract FFmpeg: {e}")
+
+def download_and_extract_realesrgan(target_folder):
+    system = platform.system()
+    urls = {
+        "Windows": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+        "Darwin": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip",
+        "Linux": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip"
+    }
+    
+    url = urls.get(system)
+    if not url:
+        print(f"No RealESRGAN download URL available for platform: {system}")
+        return
+    
+    zip_path = os.path.join(target_folder, "realesrgan.zip")
+    print(f"Downloading RealESRGAN to {zip_path} ...")
+    try:
+        download_with_progress(url, zip_path)
+        print("Download complete. Extracting...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(target_folder)
+        os.remove(zip_path)
+        print("RealESRGAN extracted successfully.")
+    except Exception as e:
+        print(f"Failed to download or extract RealESRGAN: {e}")
 
 def install_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> bool:
     """Upgrade pip/tools and install a specific PyAutoGUI version using the given python executable.
