@@ -597,6 +597,8 @@ class VideoUpscalerDialog(QDialog):
         self.output_dir: Optional[str] = None
         # remember last dir for dialogs (default to user home)
         self._last_dir = os.path.expanduser("~")
+        # flag to avoid saving/clearing output_dir during initialization
+        self._config_loaded = False
         
         self._remaining_sec = 0.0
         self._remaining_frames = 0
@@ -651,6 +653,9 @@ class VideoUpscalerDialog(QDialog):
                         self.decoder_combo.setCurrentText(decoder)
         except Exception:
             pass
+        finally:
+            # mark config loaded so subsequent saves that clear output_dir are considered user intent
+            self._config_loaded = True
     
     def _save_config(self):
         try:
@@ -673,6 +678,11 @@ class VideoUpscalerDialog(QDialog):
             # Only update output_dir if it's explicitly set (non-empty)
             if self.output_dir:
                 cfg['output_dir'] = self.output_dir.replace('\\', '/')
+            elif getattr(self, '_config_loaded', False):
+                # If config already loaded and output_dir now None, assume user cleared it and remove key
+                if 'output_dir' in cfg:
+                    cfg.pop('output_dir', None)
+            # else: during initial loading/early saves, do not remove existing output_dir
 
             # Write atomically to avoid truncation
             tmp = CONFIG_FILE.with_suffix('.tmp')
@@ -729,6 +739,11 @@ class VideoUpscalerDialog(QDialog):
         self.btn_paste_output.setToolTip("Paste output folder path from clipboard")
         self.btn_paste_output.clicked.connect(self.paste_output)
         toolbar_layout.addWidget(self.btn_paste_output)
+
+        self.btn_clear_output = QPushButton(qta.icon('fa6s.eraser'), "")
+        self.btn_clear_output.setToolTip("Clear output folder path")
+        self.btn_clear_output.clicked.connect(self.clear_output)
+        toolbar_layout.addWidget(self.btn_clear_output)
         
         main_layout.addLayout(toolbar_layout)
         
@@ -1020,6 +1035,13 @@ class VideoUpscalerDialog(QDialog):
             self.output_edit.setText(text)
             self.output_dir = text
             self._save_config()
+
+    def clear_output(self):
+        # Clear output path and persist (only overwrite when non-empty is preserved in _save_config)
+        self.output_edit.clear()
+        self.output_dir = None
+        self._save_config()
+        self.log_viewer.append("🧹 Cleared output path")
     
     def run_process(self):
         if self.worker and self.worker.isRunning():
@@ -1078,6 +1100,7 @@ class VideoUpscalerDialog(QDialog):
         self.decoder_combo.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         self.btn_browse_output.setEnabled(not running)
+        self.btn_clear_output.setEnabled(not running)
         
         if running:
             self.run_button.setText(" STOP")
