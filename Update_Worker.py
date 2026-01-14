@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QPushButton, QProgressBar, QTextEdit, QMessageBox, QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QPalette
 
 try:
     import qtawesome as qta
@@ -661,24 +661,43 @@ class UpdateWorkerDialog(QDialog):
         
         self.close_button = QPushButton("Cancel Update")
         if HAS_QTAWESOME:
-            self.close_button.setIcon(qta.icon('fa6s.xmark', color='#333'))
+            self.close_button.setIcon(qta.icon('fa6s.xmark'))
         self.close_button.setMinimumHeight(36)
         self.close_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.close_button.clicked.connect(self.close)
-        self.close_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e0e0e0;
-                color: #222;
-                border-radius: 6px;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background-color: #d6d6d6;
-            }
-            QPushButton:pressed {
-                background-color: #cfcfcf;
-            }
-        """)
+        # adaptive grey style for both dark and light themes
+        is_dark = self.palette().color(QPalette.Window).lightness() < 128
+        if is_dark:
+            close_style = """
+                QPushButton {
+                    background-color: rgba(255,255,255,0.06);
+                    color: #ffffff;
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255,255,255,0.09);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(255,255,255,0.12);
+                }
+            """
+        else:
+            close_style = """
+                QPushButton {
+                    background-color: rgba(0,0,0,0.06);
+                    color: #222;
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(0,0,0,0.08);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(0,0,0,0.10);
+                }
+            """
+        self.close_button.setStyleSheet(close_style)
         button_layout.addWidget(self.close_button, 1)
         
         layout.addLayout(button_layout)
