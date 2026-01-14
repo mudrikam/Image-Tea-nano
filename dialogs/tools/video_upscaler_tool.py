@@ -8,6 +8,8 @@ import platform
 import json
 from pathlib import Path
 from typing import Optional, List
+import numpy as np
+import cv2
 
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
@@ -21,6 +23,7 @@ import qtawesome as qta
 
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
+from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager, UpscalerModelManagerDialog
 
 
 def get_ffmpeg_path():
@@ -102,9 +105,179 @@ class UpscaleWorker(QThread):
         self.ffprobe_bin = get_ffprobe_path()
         self.realesrgan_bin = get_realesrgan_path()
         self.models_dir = get_models_dir()
+        
+        from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager
+        self.model_manager = UpscalerModelManager()
+        model_info = self.model_manager.get_model_by_name(model)
+        self.model_type = model_info['type'] if model_info else 'ncnn'
+        self.model_info = model_info
 
     def stop(self):
         self._stop_requested = True
+    
+    def _init_upscaler_backend(self):
+        if self.model_type == 'ncnn':
+            return None
+        elif self.model_type == 'pth':
+            try:
+                import torch
+                
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                model_path = self.model_info.get('model_file', '')
+                
+                if not Path(model_path).exists():
+                    self.log_signal.emit(f"❌ Model file not found: {model_path}")
+                    return None
+                
+                try:
+                    from realesrgan import RealESRGANer
+                    from basicsr.archs.rrdbnet_arch import RRDBNet
+                    
+                    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=self.scale)
+                    upsampler = RealESRGANer(
+                        scale=self.scale,
+                        model_path=model_path,
+                        model=model,
+                        tile=0,
+                        tile_pad=10,
+                        pre_pad=0,
+                        half=False,
+                        device=device
+                    )
+                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device})")
+                    return ('realesrgan', upsampler)
+                except ImportError:
+                    self.log_signal.emit("   ⚠️ RealESRGANer not available, using direct PyTorch loading...")
+                    
+                    state_dict = torch.load(model_path, map_location=device, weights_only=False)
+                    if 'params_ema' in state_dict:
+                        state_dict = state_dict['params_ema']
+                    elif 'params' in state_dict:
+                        state_dict = state_dict['params']
+                    
+                    self.log_signal.emit(f"✅ PyTorch model loaded directly (Device: {device})")
+                    return ('torch_direct', (state_dict, device))
+                    
+            except ImportError as e:
+                self.log_signal.emit(f"❌ PyTorch not installed: {e}")
+                self.log_signal.emit("   Install: pip install torch torchvision")
+                return None
+            except Exception as e:
+                self.log_signal.emit(f"❌ Failed to initialize PyTorch backend: {e}")
+                return None
+        
+        elif self.model_type == 'onnx':
+            try:
+                import onnxruntime as ort
+                
+                model_path = self.model_info.get('model_file', '')
+                if not Path(model_path).exists():
+                    self.log_signal.emit(f"❌ Model file not found: {model_path}")
+                    return None
+                
+                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                session = ort.InferenceSession(model_path, providers=providers)
+                
+                provider_used = session.get_providers()[0]
+                self.log_signal.emit(f"✅ ONNX backend initialized (Provider: {provider_used})")
+                return session
+            except ImportError as e:
+                self.log_signal.emit(f"❌ ONNX Runtime missing: {e}")
+                self.log_signal.emit("   Install: pip install onnxruntime or onnxruntime-gpu")
+                return None
+            except Exception as e:
+                self.log_signal.emit(f"❌ Failed to initialize ONNX backend: {e}")
+                return None
+        
+        return None
+    
+    def _upscale_frame_pytorch(self, backend_tuple, frame_path: str, output_path: str) -> bool:
+        try:
+            backend_type, backend = backend_tuple
+            
+            if backend_type == 'realesrgan':
+                img = cv2.imread(frame_path, cv2.IMREAD_UNCHANGED)
+                if img is None:
+                    return False
+                
+                output, _ = backend.enhance(img, outscale=self.scale)
+                cv2.imwrite(output_path, output, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                return True
+            
+            elif backend_type == 'torch_direct':
+                try:
+                    state_dict, device = backend
+                    import torch
+                    from basicsr.archs.rrdbnet_arch import RRDBNet
+                    
+                    model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=self.scale)
+                    model.to(device)
+                    try:
+                        model.load_state_dict(state_dict)
+                    except Exception:
+                        new_sd = {}
+                        for k, v in state_dict.items():
+                            nk = k
+                            if nk.startswith('module.'):
+                                nk = nk[len('module.'):]
+                            new_sd[nk] = v
+                        model.load_state_dict(new_sd, strict=False)
+                    
+                    model.eval()
+                    with torch.no_grad():
+                        img = cv2.imread(frame_path, cv2.IMREAD_COLOR)
+                        if img is None:
+                            return False
+                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        img = img.astype(np.float32) / 255.0
+                        img = np.transpose(img, (2, 0, 1))
+                        img = np.expand_dims(img, axis=0)
+                        tensor = torch.from_numpy(img).to(device)
+                        if next(model.parameters()).dtype == torch.float16:
+                            tensor = tensor.half()
+                        output = model(tensor)
+                        if isinstance(output, (tuple, list)):
+                            output = output[0]
+                        output = output.squeeze(0).float().cpu().clamp(0, 1).numpy()
+                        output = np.transpose(output, (1, 2, 0))
+                        output = (output * 255.0).round().astype(np.uint8)
+                        output = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite(output_path, output, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    return True
+                except Exception as e:
+                    self.log_signal.emit(f"   ❌ PyTorch direct upscale error: {e}")
+                    return False
+                
+        except Exception:
+            return False
+    
+    def _upscale_frame_onnx(self, session, frame_path: str, output_path: str) -> bool:
+        try:
+            img = cv2.imread(frame_path, cv2.IMREAD_COLOR)
+            if img is None:
+                return False
+            
+            img = img.astype(np.float32) / 255.0
+            img = np.transpose(img, (2, 0, 1))
+            img = np.expand_dims(img, axis=0)
+            
+            input_name = session.get_inputs()[0].name
+            output_name = session.get_outputs()[0].name
+            
+            expected_type = session.get_inputs()[0].type
+            if 'float16' in expected_type:
+                img = img.astype(np.float16)
+            
+            result = session.run([output_name], {input_name: img})[0]
+            
+            result = np.squeeze(result, axis=0)
+            result = np.transpose(result, (1, 2, 0))
+            result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
+            
+            cv2.imwrite(output_path, result, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+            return True
+        except Exception:
+            return False
 
     def run(self):
         try:
@@ -271,75 +444,116 @@ class UpscaleWorker(QThread):
             
             self.log_signal.emit(f"")
             self.log_signal.emit(f"🚀 PHASE 2/3: UPSCALING FRAMES")
-            self.log_signal.emit(f"   🧩 Model: {self.model} | Scale: {self.scale}x | Batch: {self.batch_size}")
+            self.log_signal.emit(f"   🧩 Model: {self.model} (Type: {self.model_type.upper()}) | Scale: {self.scale}x | Batch: {self.batch_size}")
             
             for f in OUT_FRAMES_DIR.glob("*"):
                 f.unlink()
             
-            model_to_use = self.model
-            # If the selected model already contains an explicit scale (e.g., x2/x3/x4) use it.
-            if re.search(r"x([234])", model_to_use, re.IGNORECASE):
-                self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
-            else:
-                # try suffix candidate first
-                candidate = f"{model_to_use}-x{self.scale}"
-                if (self.models_dir / f"{candidate}.param").exists():
-                    self.log_signal.emit(f"   Using model {candidate} for scale {self.scale}x")
-                    model_to_use = candidate
-                else:
-                    # try to find any model file containing the base name and scale anywhere
-                    found = None
-                    for p in self.models_dir.glob("*.param"):
-                        stem = p.stem
-                        if model_to_use in stem and f"x{self.scale}" in stem:
-                            found = stem
-                            break
-                    if found:
-                        self.log_signal.emit(f"   Using model {found} for scale {self.scale}x")
-                        model_to_use = found
-            
-            start_time = time.time()
-            processed = 0
             frame_files = sorted(TMP_FRAMES_DIR.glob("*.png"))
             total_frames = len(frame_files)
+            start_time = time.time()
+            processed = 0
             
-            num_batches = (total_frames + self.batch_size - 1) // self.batch_size
-            self.log_signal.emit(f"   🔁 Processing {num_batches} batches")
-            
-            for batch_idx in range(num_batches):
-                if self._stop_requested:
+            if self.model_type in ['pth', 'onnx']:
+                backend = self._init_upscaler_backend()
+                if backend is None:
+                    self.log_signal.emit("❌ Failed to initialize backend")
                     return False
                 
-                start_idx = batch_idx * self.batch_size
-                end_idx = min(start_idx + self.batch_size, total_frames)
-                batch_frames = frame_files[start_idx:end_idx]
-                batch_num = batch_idx + 1
-                batch_frame_count = len(batch_frames)
+                self.log_signal.emit(f"   Processing {total_frames} frames with {self.model_type.upper()} backend")
                 
-                if batch_frames:
-                    first_frame = Image.open(batch_frames[0])
-                    input_width, input_height = first_frame.size
-                    output_width = input_width * self.scale
-                    output_height = input_height * self.scale
-                    self.log_signal.emit(f"   📦 Batch {batch_num}/{num_batches}: Processing frames {start_idx+1}-{end_idx} ({batch_frame_count} frames)")
-                    self.log_signal.emit(f"      📐 Input: {input_width}x{input_height} → Output: {output_width}x{output_height}")
+                for idx, frame_file in enumerate(frame_files):
+                    if self._stop_requested:
+                        return False
+                    
+                    output_path = OUT_FRAMES_DIR / frame_file.name
+                    
+                    success = False
+                    if self.model_type == 'pth':
+                        success = self._upscale_frame_pytorch(backend, str(frame_file), str(output_path))
+                    elif self.model_type == 'onnx':
+                        success = self._upscale_frame_onnx(backend, str(frame_file), str(output_path))
+                    
+                    if not success:
+                        self.log_signal.emit(f"   ❌ Failed to upscale frame {frame_file.name}")
+                        return False
+                    
+                    processed = idx + 1
+                    elapsed = time.time() - start_time
+                    remaining = max(0, total_frames - processed)
+                    eta = 0.0
+                    if processed > 0:
+                        rate = elapsed / processed
+                        eta = rate * remaining
+                        progress_pct = int((processed / total_frames) * 100)
+                        self.progress_signal.emit(min(100, progress_pct))
+                    
+                    self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
+                    
+                    if (idx + 1) % 10 == 0 or (idx + 1) == total_frames:
+                        self.log_signal.emit(f"   Progress: {processed}/{total_frames} frames ({progress_pct}%)")
                 
-                for f in BATCH_INPUT_DIR.glob("*"):
-                    f.unlink()
-                for f in BATCH_OUTPUT_DIR.glob("*"):
-                    f.unlink()
+                elapsed = time.time() - start_time
+                self.progress_signal.emit(100)
+                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {total_frames} frames in {elapsed:.2f}s")
+            
+            else:
+                model_to_use = self.model
+                if re.search(r"x([234])", model_to_use, re.IGNORECASE):
+                    self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
+                else:
+                    candidate = f"{model_to_use}-x{self.scale}"
+                    if (self.models_dir / f"{candidate}.param").exists():
+                        self.log_signal.emit(f"   Using model {candidate} for scale {self.scale}x")
+                        model_to_use = candidate
+                    else:
+                        found = None
+                        for p in self.models_dir.glob("*.param"):
+                            stem = p.stem
+                            if model_to_use in stem and f"x{self.scale}" in stem:
+                                found = stem
+                                break
+                        if found:
+                            self.log_signal.emit(f"   Using model {found} for scale {self.scale}x")
+                            model_to_use = found
                 
-                for frame_file in batch_frames:
-                    shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
+                num_batches = (total_frames + self.batch_size - 1) // self.batch_size
+                self.log_signal.emit(f"   🔁 Processing {num_batches} batches with NCNN backend")
                 
-                cmd = [
-                    str(self.realesrgan_bin),
-                    "-i", str(BATCH_INPUT_DIR),
-                    "-o", str(BATCH_OUTPUT_DIR),
-                    "-m", str(self.models_dir),
-                    "-n", model_to_use,
-                    "-s", str(self.scale),
-                    "-t", "0",
+                for batch_idx in range(num_batches):
+                    if self._stop_requested:
+                        return False
+                    
+                    start_idx = batch_idx * self.batch_size
+                    end_idx = min(start_idx + self.batch_size, total_frames)
+                    batch_frames = frame_files[start_idx:end_idx]
+                    batch_num = batch_idx + 1
+                    batch_frame_count = len(batch_frames)
+                    
+                    if batch_frames:
+                        first_frame = Image.open(batch_frames[0])
+                        input_width, input_height = first_frame.size
+                        output_width = input_width * self.scale
+                        output_height = input_height * self.scale
+                        self.log_signal.emit(f"   📦 Batch {batch_num}/{num_batches}: Processing frames {start_idx+1}-{end_idx} ({batch_frame_count} frames)")
+                        self.log_signal.emit(f"      📐 Input: {input_width}x{input_height} → Output: {output_width}x{output_height}")
+                    
+                    for f in BATCH_INPUT_DIR.glob("*"):
+                        f.unlink()
+                    for f in BATCH_OUTPUT_DIR.glob("*"):
+                        f.unlink()
+                    
+                    for frame_file in batch_frames:
+                        shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
+                    
+                    cmd = [
+                        str(self.realesrgan_bin),
+                        "-i", str(BATCH_INPUT_DIR),
+                        "-o", str(BATCH_OUTPUT_DIR),
+                        "-m", str(self.models_dir),
+                        "-n", model_to_use,
+                        "-s", str(self.scale),
+                        "-t", "0",
                     "-f", "png",
                 ]
                 
@@ -379,19 +593,19 @@ class UpscaleWorker(QThread):
                 
                 self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
             
-            if self._stop_requested:
-                return False
-            
-            self.log_signal.emit("🔧 Renaming output frames...")
-            output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
-            for idx, frame_file in enumerate(output_frames, start=1):
-                new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
-                if frame_file != new_name:
-                    frame_file.rename(new_name)
-            
-            self.progress_signal.emit(100)
-            elapsed = time.time() - start_time
-            self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
+                if self._stop_requested:
+                    return False
+                
+                self.log_signal.emit("🔧 Renaming output frames...")
+                output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
+                for idx, frame_file in enumerate(output_frames, start=1):
+                    new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
+                    if frame_file != new_name:
+                        frame_file.rename(new_name)
+                
+                self.progress_signal.emit(100)
+                elapsed = time.time() - start_time
+                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
             
             if self._stop_requested:
                 return False
@@ -626,11 +840,8 @@ class VideoUpscalerDialog(QDialog):
         self.worker: Optional[UpscaleWorker] = None
         self.video_files: List[str] = []
         self.output_dir: Optional[str] = None
-        # remember last dir for dialogs (default to user home)
         self._last_dir = os.path.expanduser("~")
-        # flag to avoid saving/clearing output_dir during initialization
         self._config_loaded = False
-        # track whether the last processed video had an error - used to decide whether to auto-clear logs
         self._last_video_had_error = False
         
         self._remaining_sec = 0.0
@@ -638,6 +849,8 @@ class VideoUpscalerDialog(QDialog):
         self._elapsed = 0.0
         self._processed = 0
         self._total = 0
+        
+        self.model_manager = UpscalerModelManager()
         
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -772,6 +985,11 @@ class VideoUpscalerDialog(QDialog):
         self.model_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout_row1.addWidget(self.model_combo)
         
+        self.btn_model_manager = QPushButton(qta.icon('fa6s.gear'), "")
+        self.btn_model_manager.setToolTip("Open Model Manager")
+        self.btn_model_manager.clicked.connect(self._open_model_manager)
+        settings_layout_row1.addWidget(self.btn_model_manager)
+        
         settings_layout_row1.addWidget(QLabel("Scale:"))
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(["2", "3", "4"])
@@ -781,7 +999,7 @@ class VideoUpscalerDialog(QDialog):
         
         settings_layout_row1.addWidget(QLabel("Batch:"))
         self.batch_combo = QComboBox()
-        self.batch_combo.addItems(["5", "10", "20", "30", "50", "100"])
+        self.batch_combo.addItems(["5", "10", "15", "20", "25", "30", "35", "40", "45", "50"])
         self.batch_combo.setCurrentText("10")
         self.batch_combo.setToolTip("Frames per batch (higher = faster but more VRAM)")
         self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
@@ -977,20 +1195,28 @@ class VideoUpscalerDialog(QDialog):
     
     def populate_models(self):
         self.model_combo.clear()
-        models_dir = get_models_dir()
-        models = []
-        if models_dir.exists() and models_dir.is_dir():
-            models = sorted([p.stem for p in models_dir.glob("*.param")])
+        self.model_manager_instance = UpscalerModelManager()
+        models = self.model_manager_instance.get_all_models()
+        
         if models:
-            self.model_combo.addItems(models)
-            self.log_viewer.append(f"✅ Found {len(models)} model(s) in {models_dir}")
+            model_names = [m['name'] for m in models]
+            self.model_combo.addItems(model_names)
+            ncnn_count = len([m for m in models if m['type'] == 'ncnn'])
+            pth_count = len([m for m in models if m['type'] == 'pth'])
+            onnx_count = len([m for m in models if m['type'] == 'onnx'])
+            self.log_viewer.append(f"✅ Found {len(models)} model(s) (NCNN: {ncnn_count}, PTH: {pth_count}, ONNX: {onnx_count})")
         else:
             defaults = ["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"]
             self.model_combo.addItems(defaults)
-            self.log_viewer.append(f"⚠️ No model files found in {models_dir}; using defaults")
+            self.log_viewer.append(f"⚠️ No model files found; using defaults")
         
         if self.model_combo.count() > 0:
             self._on_model_changed(self.model_combo.currentText())
+    
+    def _open_model_manager(self):
+        dialog = UpscalerModelManagerDialog(self)
+        dialog.models_changed.connect(self.populate_models)
+        dialog.exec()
     
     def check_binaries(self):
         missing = []
@@ -1137,6 +1363,44 @@ class VideoUpscalerDialog(QDialog):
         if not self.video_files:
             QMessageBox.warning(self, "No Videos", "Please load some video files first.")
             return
+        
+        model_name = self.model_combo.currentText()
+        model_info = self.model_manager.get_model_by_name(model_name)
+        if model_info:
+            model_type = model_info.get('type', 'ncnn')
+            if model_type == 'pth':
+                from dialogs.tools.upscaler_model_manager_dialog import are_pth_deps_installed, DependencyInstallerDialog
+                if not are_pth_deps_installed():
+                    reply = QMessageBox.question(
+                        self, "PTH Dependencies Required",
+                        "PTH models require PyTorch and RealESRGAN packages.\n\n"
+                        "Would you like to install them now?\n"
+                        "(This may take several minutes)",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if reply == QMessageBox.Yes:
+                        dialog = DependencyInstallerDialog(self, 'pth')
+                        dialog.exec()
+                        if not are_pth_deps_installed():
+                            return
+                    else:
+                        return
+            elif model_type == 'onnx':
+                from dialogs.tools.upscaler_model_manager_dialog import are_onnx_deps_installed, DependencyInstallerDialog
+                if not are_onnx_deps_installed():
+                    reply = QMessageBox.question(
+                        self, "ONNX Dependencies Required",
+                        "ONNX models require ONNX Runtime package.\n\n"
+                        "Would you like to install it now?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if reply == QMessageBox.Yes:
+                        dialog = DependencyInstallerDialog(self, 'onnx')
+                        dialog.exec()
+                        if not are_onnx_deps_installed():
+                            return
+                    else:
+                        return
         
         self._set_running_state(True)
         

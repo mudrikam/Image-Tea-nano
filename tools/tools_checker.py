@@ -5,6 +5,9 @@ import sys
 import shutil
 import subprocess
 import platform
+
+# Add parent directory to path so config can be imported
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import BASE_PATH
 
 expected = [
@@ -371,7 +374,10 @@ def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '
         return False
     
     ok_req = install_requirements(python_exe)
-    return ok_req
+    if not ok_req:
+        return False
+    
+    return True
 
 
 if __name__ == "__main__":
