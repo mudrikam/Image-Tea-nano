@@ -193,10 +193,8 @@ class ImageUpscaleWorker(QThread):
                     import torch
                     from basicsr.archs.rrdbnet_arch import RRDBNet
                     
-                    # Build model and load weights
                     model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=self.scale)
                     model.to(device)
-                    # Normalize state dict keys if needed
                     try:
                         model.load_state_dict(state_dict)
                     except Exception:
@@ -213,13 +211,11 @@ class ImageUpscaleWorker(QThread):
                         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
                         if img is None:
                             return False
-                        # Convert BGR to RGB
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         img = img.astype(np.float32) / 255.0
                         img = np.transpose(img, (2, 0, 1))
                         img = np.expand_dims(img, axis=0)
                         tensor = torch.from_numpy(img).to(device)
-                        # If model params are half precision, convert input
                         if next(model.parameters()).dtype == torch.float16:
                             tensor = tensor.half()
                         output = model(tensor)
@@ -228,7 +224,6 @@ class ImageUpscaleWorker(QThread):
                         output = output.squeeze(0).float().cpu().clamp(0, 1).numpy()
                         output = np.transpose(output, (1, 2, 0))
                         output = (output * 255.0).round().astype(np.uint8)
-                        # Convert RGB back to BGR for saving
                         output = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
                         if self.output_format == 'png':
                             cv2.imwrite(output_path, output, [cv2.IMWRITE_PNG_COMPRESSION, 0])
@@ -437,8 +432,19 @@ class ImageUpscaleWorker(QThread):
                     "-f", self.output_format,
                 ]
                 
+                startupinfo = None
+                creationflags = 0
+                if platform.system() == "Windows":
+                    try:
+                        si = subprocess.STARTUPINFO()
+                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        si.wShowWindow = subprocess.SW_HIDE
+                        startupinfo = si
+                        creationflags = subprocess.CREATE_NO_WINDOW
+                    except Exception:
+                        startupinfo = None
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                       text=True, cwd=str(self.realesrgan_bin.parent))
+                                       text=True, cwd=str(self.realesrgan_bin.parent), startupinfo=startupinfo, creationflags=creationflags)
                 
                 for line in proc.stdout:
                     if self._stop_requested:
@@ -587,7 +593,6 @@ class ImageUpscalerDialog(QDialog):
         except Exception:
             pass
         finally:
-            # mark config loaded so subsequent saves that clear output_dir are considered user intent
             self._config_loaded = True
     
     def _save_config(self):
@@ -609,11 +614,9 @@ class ImageUpscalerDialog(QDialog):
             if self.output_dir:
                 cfg['output_dir'] = self.output_dir.replace('\\', '/')
             elif getattr(self, '_config_loaded', False):
-                # If config already loaded and output_dir now None, assume user cleared it and remove key
                 if 'output_dir' in cfg:
                     cfg.pop('output_dir', None)
-            # else: during initial loading/early saves, do not remove existing output_dir
-
+    
             tmp = CONFIG_FILE.with_suffix('.tmp')
             with open(tmp, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=2)
@@ -729,19 +732,16 @@ class ImageUpscalerDialog(QDialog):
         
         main_layout.addWidget(splitter, 1)
         
-        # Output layout - full width above stats
         output_layout = QHBoxLayout()
         output_layout.setSpacing(8)
         
         output_layout.addWidget(QLabel("Output:"))
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("Default: temp/image_upscaler/results")
-        # Make output path entry expand full width
         self.output_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.output_edit.setMinimumWidth(0)
         self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
         self.output_edit.editingFinished.connect(self._save_config)
-        # Give the QLineEdit stretch so it takes remaining space
         output_layout.addWidget(self.output_edit, 1)
         
         self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
@@ -1131,13 +1131,11 @@ class ImageUpscalerDialog(QDialog):
         return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
     
     def append_log(self, message: str):
-        # Append and keep log size bounded to last 200 lines to avoid huge logs
         self.log_viewer.append(message)
         try:
             text = self.log_viewer.toPlainText()
             lines = text.splitlines()
             if len(lines) > 200:
-                # keep only the last 200 lines
                 new_text = "\n".join(lines[-200:])
                 self.log_viewer.setPlainText(new_text)
         except Exception:
