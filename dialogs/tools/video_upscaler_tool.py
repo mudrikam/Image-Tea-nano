@@ -21,6 +21,37 @@ from PIL import Image
 from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
 
+class FileDropListWidget(QListWidget):
+    files_dropped = Signal(list)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    paths.append(url.toLocalFile())
+            if paths:
+                self.files_dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
+
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager, UpscalerModelManagerDialog
@@ -1158,8 +1189,9 @@ class VideoUpscalerDialog(QDialog):
         left_layout.setSpacing(4)
         
         left_layout.addWidget(QLabel("Loaded Videos:"))
-        self.video_list = QListWidget()
+        self.video_list = FileDropListWidget()
         self.video_list.setMinimumWidth(300)
+        self.video_list.files_dropped.connect(self._on_files_dropped)
         left_layout.addWidget(self.video_list)
         
         left_widget.setLayout(left_layout)
@@ -1393,7 +1425,29 @@ class VideoUpscalerDialog(QDialog):
             self.video_files.append(path)
         self._update_video_list()
         self.log_viewer.append(f"📁 Added: {path}")
-    
+
+    def _on_files_dropped(self, paths: list):
+        self.add_videos(paths)
+
+    def add_videos(self, paths: list):
+        allowed = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.wmv', '.flv')
+        added = 0
+        for p in paths:
+            try:
+                pp = str(Path(p))
+                if not Path(pp).exists():
+                    continue
+                if not pp.lower().endswith(allowed):
+                    continue
+                if pp not in self.video_files:
+                    self.video_files.append(pp)
+                    added += 1
+            except Exception:
+                continue
+        if added:
+            self._update_video_list()
+            self.log_viewer.append(f"📥 Added {added} video(s) via drag-and-drop")
+
     def clear_videos(self):
         self.video_files = []
         self._update_video_list()
