@@ -5,6 +5,8 @@ import sys
 import shutil
 import subprocess
 import platform
+import webbrowser
+from PySide6.QtWidgets import QMessageBox, QApplication
 
 # Add parent directory to path so config can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -86,6 +88,46 @@ def download_with_progress(url, filename):
         print("Download finished.")
     except Exception as e:
         print(f"Failed to download: {e}")
+
+def show_manual_install_dialog(tool_name, target_folder, download_url=None):
+    app = QApplication.instance()
+    abs_folder = os.path.abspath(target_folder)
+    if app is None:
+        msg = f"Manual install required for {tool_name}.\nPut the downloaded files into: {abs_folder}\n"
+        if download_url:
+            msg += f"Download from: {download_url}\n"
+        print(msg)
+        return
+    msg = QMessageBox()
+    msg.setIcon(QMessageBox.Warning)
+    msg.setWindowTitle(f"{tool_name} - Manual Install Required")
+    text = f"Download or extraction of {tool_name} failed.\n\n"
+    if download_url:
+        text += f"Please download manually from:\n{download_url}\n\n"
+    text += f"Steps:\n1) Download the package appropriate for your operating system.\n2) Extract the package contents.\n3) Move the extracted files into:\n{abs_folder}\n4) Ensure the executable (e.g., ffmpeg.exe) is present in that folder.\n5) Restart the application if necessary."
+    msg.setText(text)
+    open_btn = msg.addButton("Open Tools Folder", QMessageBox.ActionRole)
+    if download_url:
+        guide_btn = msg.addButton("Open Download Page", QMessageBox.ActionRole)
+    msg.addButton(QMessageBox.Ok)
+    msg.exec()
+    clicked = msg.clickedButton()
+    if clicked == open_btn:
+        try:
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(abs_folder)
+            elif system == "Darwin":
+                subprocess.run(["open", abs_folder])
+            else:
+                subprocess.run(["xdg-open", abs_folder])
+        except Exception as e:
+            print(f"Failed to open folder {abs_folder}: {e}")
+    if download_url and 'guide_btn' in locals() and clicked == guide_btn:
+        try:
+            webbrowser.open(download_url)
+        except Exception as e:
+            print(f"Failed to open browser for {download_url}: {e}")
 
 def check_folders():
     system = platform.system()
@@ -231,6 +273,7 @@ def download_and_extract_ffmpeg(target_folder):
         print("FFmpeg extracted successfully.")
     except Exception as e:
         print(f"Failed to download or extract FFmpeg: {e}")
+        show_manual_install_dialog("FFmpeg", target_folder, "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip")
 
 def download_and_extract_realesrgan(target_folder):
     system = platform.system()
@@ -256,6 +299,7 @@ def download_and_extract_realesrgan(target_folder):
         print("RealESRGAN extracted successfully.")
     except Exception as e:
         print(f"Failed to download or extract RealESRGAN: {e}")
+        show_manual_install_dialog("RealESRGAN", target_folder, url)
 
 
 def find_executable_in_folder(folder, names):
@@ -303,6 +347,18 @@ def ensure_tool_executable(tool_name, tool_folder):
         print(f"{tool_name} executable(s) verified after extraction.")
         return True
     print(f"Error: {tool_name} executable(s) still missing after attempted extraction.")
+    dl_url = None
+    if tool_name == "ffmpeg":
+        dl_url = "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip"
+    elif tool_name == "realesrgan":
+        system = platform.system()
+        urls = {
+            "Windows": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+            "Darwin": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip",
+            "Linux": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip"
+        }
+        dl_url = urls.get(system)
+    show_manual_install_dialog(tool_name, tool_folder, dl_url)
     return False
 
 

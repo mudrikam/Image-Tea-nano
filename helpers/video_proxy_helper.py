@@ -54,7 +54,7 @@ def get_video_info(video_path):
                 "-show_streams",
                 video_path
             ]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
+            result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
             if result and result.stdout:
                 try:
                     info = json.loads(result.stdout)
@@ -90,7 +90,7 @@ def get_video_info(video_path):
                     print(f"[VideoProxy] ffprobe parse error: {e}")
         # Fallback: use ffmpeg -i parsing
         cmd = [FFMPEG_PATH, "-i", video_path, "-hide_banner"]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         output = result.stdout
 
         duration = None
@@ -158,6 +158,14 @@ def get_ffmpeg_thread_args():
     """
     return ["-filter_threads", "0", "-threads", "0"]
 
+def _run(cmd, **kwargs):
+    if os.name == 'nt':
+        kwargs.setdefault('creationflags', subprocess.CREATE_NO_WINDOW)
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs.setdefault('startupinfo', si)
+    return subprocess.run(cmd, **kwargs)
+
 
 def choose_video_encoder():
     """Return (encoder_name, is_hardware_encoder).
@@ -165,7 +173,7 @@ def choose_video_encoder():
     Prefer GPU encoders (NVENC, QSV, AMF, VAAPI) if available; fallback to libx264.
     """
     try:
-        result = subprocess.run(
+        result = _run(
             [FFMPEG_PATH, "-hide_banner", "-encoders"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -196,28 +204,28 @@ def detect_gpu_pipeline_support():
     }
     try:
         # encoders
-        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([FFMPEG_PATH, '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'h264_nvenc' in out or 'hevc_nvenc' in out:
             support['has_nvenc'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg encoders: {e}")
     try:
-        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([FFMPEG_PATH, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'h264_cuvid' in out or 'hevc_cuvid' in out:
             support['has_cuvid'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg decoders: {e}")
     try:
-        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([FFMPEG_PATH, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'scale_npp' in out:
             support['has_scale_npp'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg filters: {e}")
     try:
-        result = subprocess.run([FFMPEG_PATH, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([FFMPEG_PATH, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'cuda' in out.lower():
             support['has_hwaccel_cuda'] = True
