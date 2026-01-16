@@ -193,6 +193,16 @@ class UpdateWorkerThread(QThread):
         self.progress.emit(60)
         self._update_time_info(60)
         
+        cache_file = os.path.join(self.base_path, "temp", "health_checker_cache.json")
+        flag_file = os.path.join(self.base_path, "temp", ".is_health_verified")
+        for p in (cache_file, flag_file):
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                    self.log.emit(f"Removed stale health file: {p}")
+                except Exception as e:
+                    self.log.emit(f"Could not remove stale health file {p}: {e}")
+
         extracted_root = self._find_extracted_root(extract_path)
         if not extracted_root:
             raise RuntimeError("Could not find extracted content root directory")
