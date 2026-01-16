@@ -19,6 +19,11 @@ expected = [
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
+EXECUTABLE_REQUIREMENTS = {
+    "ffmpeg": ["ffmpeg", "ffprobe"],
+    "realesrgan": ["realesrgan-ncnn-vulkan"]
+}
+
 def get_embedded_python_path():
     system = platform.system()
     if system == "Windows":
@@ -252,6 +257,67 @@ def download_and_extract_realesrgan(target_folder):
     except Exception as e:
         print(f"Failed to download or extract RealESRGAN: {e}")
 
+
+def find_executable_in_folder(folder, names):
+    for root, dirs, files in os.walk(folder):
+        for name in names:
+            if name in files:
+                path = os.path.join(root, name)
+                if os.path.isfile(path):
+                    return path
+    return None
+
+
+def _candidate_exists_in_path(candidate_names):
+    for name in candidate_names:
+        if shutil.which(name):
+            return True
+    return False
+
+
+def is_executable_available(tool_name, tool_folder):
+    reqs = EXECUTABLE_REQUIREMENTS.get(tool_name, [])
+    for base in reqs:
+        candidates = [base, f"{base}.exe"]
+        if _candidate_exists_in_path(candidates):
+            continue
+        found_in_folder = find_executable_in_folder(tool_folder, candidates)
+        if not found_in_folder:
+            return False
+    return True
+
+
+def ensure_tool_executable(tool_name, tool_folder):
+    if is_executable_available(tool_name, tool_folder):
+        print(f"{tool_name} executable(s) present; skipping check.")
+        return True
+    print(f"{tool_name} executables missing; attempting to download and extract.")
+    if tool_name == "ffmpeg":
+        download_and_extract_ffmpeg(tool_folder)
+    elif tool_name == "realesrgan":
+        download_and_extract_realesrgan(tool_folder)
+    else:
+        print(f"No auto-install handler for {tool_name}")
+        return False
+    if is_executable_available(tool_name, tool_folder):
+        print(f"{tool_name} executable(s) verified after extraction.")
+        return True
+    print(f"Error: {tool_name} executable(s) still missing after attempted extraction.")
+    return False
+
+
+def ensure_executables_for_tools():
+    overall_ok = True
+    targets = {
+        "ffmpeg": os.path.join(BASE_PATH, "tools", "ffmpeg"),
+        "realesrgan": os.path.join(BASE_PATH, "tools", "realesrgan"),
+    }
+    for name, folder in targets.items():
+        if not ensure_tool_executable(name, folder):
+            overall_ok = False
+    return overall_ok
+
+
 def install_pyautogui(python_exe: str | None = None, version: str = '0.9.53') -> bool:
     """Upgrade pip/tools and install a specific PyAutoGUI version using the given python executable.
 
@@ -369,6 +435,9 @@ def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '
     Returns True if basic tooling appears ready (folders present and PyAutoGUI importable).
     """
     check_folders()
+    exe_ok = ensure_executables_for_tools()
+    if not exe_ok:
+        return False
     ok = ensure_pyautogui(python_exe, pyautogui_version)
     if not ok:
         return False
