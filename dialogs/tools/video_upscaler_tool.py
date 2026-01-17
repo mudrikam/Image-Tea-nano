@@ -843,7 +843,13 @@ class UpscaleWorker(QThread):
                         "-c:a", "copy",
                     ])
                 else:
-                    merge_cmd.extend(["-map", "0:v:0"])
+                    merge_cmd.extend([
+                        "-map", "0:v:0",
+                        "-an",
+                    ])
+
+                if self.remove_audio:
+                    self.log_signal.emit("   🔇 Audio will be removed from output")
 
                 merge_cmd.extend(["-c:v", try_codec])
 
