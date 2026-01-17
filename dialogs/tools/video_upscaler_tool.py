@@ -310,6 +310,67 @@ class UpscaleWorker(QThread):
         except Exception:
             return False
 
+    def _detect_ffmpeg_encoders(self) -> dict:
+        enc = {}
+        if not self.ffmpeg_bin.exists():
+            return {
+                'h264_nvenc': False,
+                'hevc_nvenc': False,
+                'h264_amf': False,
+                'h264_qsv': False,
+                'libx264': False,
+                'nvenc': False,
+                'nvidia': False,
+            }
+        res = subprocess.run([str(self.ffmpeg_bin), "-hide_banner", "-encoders"], capture_output=True, text=True)
+        out = (res.stdout or "").lower()
+        enc['h264_nvenc'] = 'h264_nvenc' in out
+        enc['hevc_nvenc'] = 'hevc_nvenc' in out
+        enc['h264_amf'] = 'h264_amf' in out
+        enc['h264_qsv'] = 'h264_qsv' in out
+        enc['libx264'] = 'libx264' in out
+        enc['nvenc'] = 'nvenc' in out
+        enc['nvidia'] = shutil.which('nvidia-smi') is not None
+        return enc
+
+    def _preferred_encoder_order(self, requested_codec: str) -> List[str]:
+        if requested_codec == 'libx264':
+            return ['libx264']
+        detected = self._detect_ffmpeg_encoders()
+        order: List[str] = []
+        if detected.get('nvidia') or detected.get('h264_nvenc') or detected.get('hevc_nvenc'):
+            if detected.get('h264_nvenc'):
+                order.append('h264_nvenc')
+            if detected.get('hevc_nvenc') and 'hevc_nvenc' not in order:
+                order.append('hevc_nvenc')
+            if detected.get('h264_qsv'):
+                order.append('h264_qsv')
+            if detected.get('h264_amf'):
+                order.append('h264_amf')
+        elif detected.get('h264_amf'):
+            order.append('h264_amf')
+            if detected.get('h264_nvenc'):
+                order.append('h264_nvenc')
+            if detected.get('hevc_nvenc'):
+                order.append('hevc_nvenc')
+        elif detected.get('h264_qsv'):
+            order.append('h264_qsv')
+            if detected.get('h264_nvenc'):
+                order.append('h264_nvenc')
+        if detected.get('libx264') and 'libx264' not in order:
+            order.append('libx264')
+        if not order:
+            order = ['libx264']
+        seen = set()
+        final: List[str] = []
+        for e in order:
+            if e not in seen:
+                final.append(e)
+                seen.add(e)
+        detected_list = [k for k, v in detected.items() if v and k in ['h264_nvenc', 'hevc_nvenc', 'h264_amf', 'h264_qsv', 'libx264']]
+        self.log_signal.emit(f"   Detected FFmpeg encoders: {', '.join(detected_list) if detected_list else 'none'}")
+        return final
+
     def run(self):
         try:
             total_videos = len(self.video_paths)
@@ -750,149 +811,106 @@ class UpscaleWorker(QThread):
             
             self.log_signal.emit(f"   🎛️ Using encoder: {self.encoder} ({video_codec})")
             
-            merge_cmd = [
-                str(self.ffmpeg_bin),
-                "-framerate", str(fps),
-                "-start_number", "1",
-                "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
-            ]
-            
-            if not self.remove_audio:
-                merge_cmd.extend([
-                    "-i", video_path,
-                    "-map", "0:v:0",
-                    "-map", "1:a:0?",
-                    "-c:a", "copy",
-                ])
-            else:
-                merge_cmd.extend([
-                    "-map", "0:v:0",
-                ])
-            
-            merge_cmd.extend([
-                "-c:v", video_codec,
-            ])
-            
-            if video_codec == "h264_nvenc":
-                merge_cmd.extend(["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0"])
-            elif video_codec == "hevc_nvenc":
-                merge_cmd.extend(["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0"])
-            elif video_codec == "h264_amf":
-                merge_cmd.extend(["-quality", "quality", "-rc", "vbr_latency", "-qp_i", "19", "-qp_p", "19"])
-            elif video_codec == "h264_qsv":
-                merge_cmd.extend(["-preset", "veryslow", "-global_quality", "19"])
-            else:
-                merge_cmd.extend(["-preset", "medium", "-crf", "18"])
-            
-            merge_cmd.extend([
-                "-r", str(fps),
-                "-pix_fmt", "yuv420p",
-                "-y",
-                str(output_path)
-            ])
-            
-            self.log_signal.emit(f"   ⏺️ Encoding video...")
-            
-            startupinfo = None
-            creationflags = 0
-            if platform.system() == "Windows":
-                try:
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = subprocess.SW_HIDE
-                    startupinfo = si
-                    creationflags = subprocess.CREATE_NO_WINDOW
-                except Exception:
-                    startupinfo = None
-            proc = subprocess.Popen(
-                merge_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                startupinfo=startupinfo, creationflags=creationflags
-            )
-            
-            for line in proc.stderr:
-                if self._stop_requested:
-                    proc.terminate()
-                    return False
-                if "frame=" in line:
-                    match = re.search(r"frame=\s*(\d+)", line)
-                    if match:
-                        merged_frames = int(match.group(1))
-                        if total_merge_frames > 0:
-                            progress = int((merged_frames / total_merge_frames) * 100)
-                            self.progress_signal.emit(min(100, progress))
-            
-            proc.wait()
-            
-            if proc.returncode != 0:
-                self.log_signal.emit(f"⚠️ FFmpeg merge failed with {video_codec}")
-                
-                if video_codec == "h264_nvenc":
-                    self.log_signal.emit(f"🔄 Retrying with HEVC encoder (supports higher resolutions)...")
-                    
-                    video_codec = "hevc_nvenc"
-                    merge_cmd = [
-                        str(self.ffmpeg_bin),
-                        "-framerate", str(fps),
-                        "-start_number", "1",
-                        "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
+            enc_opts = {
+                "h264_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0"],
+                "hevc_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0"],
+                "h264_amf": ["-quality", "quality", "-rc", "vbr_latency", "-qp_i", "19", "-qp_p", "19"],
+                "h264_qsv": ["-preset", "veryslow", "-global_quality", "19"],
+                "libx264": ["-preset", "medium", "-crf", "18"],
+            }
+
+            detected = self._detect_ffmpeg_encoders()
+            try_encoders = self._preferred_encoder_order(video_codec)
+            tried = []
+            successful = False
+
+            for try_codec in try_encoders:
+                tried.append(try_codec)
+                self.log_signal.emit(f"   🎛️ Trying encoder: {try_codec}")
+
+                merge_cmd = [
+                    str(self.ffmpeg_bin),
+                    "-framerate", str(fps),
+                    "-start_number", "1",
+                    "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
+                ]
+
+                if not self.remove_audio:
+                    merge_cmd.extend([
                         "-i", video_path,
                         "-map", "0:v:0",
                         "-map", "1:a:0?",
                         "-c:a", "copy",
-                        "-c:v", video_codec,
-                        "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0",
-                        "-r", str(fps),
-                        "-pix_fmt", "yuv420p",
-                        "-y",
-                        str(output_path)
-                    ]
-                    
-                    self.log_signal.emit(f"   🎛️ Using fallback encoder: hevc_nvenc")
-                    self.log_signal.emit(f"   ⏺️ Re-encoding video...")
-                    
-                    startupinfo = None
-                    creationflags = 0
-                    if platform.system() == "Windows":
-                        try:
-                            si = subprocess.STARTUPINFO()
-                            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                            si.wShowWindow = subprocess.SW_HIDE
-                            startupinfo = si
-                            creationflags = subprocess.CREATE_NO_WINDOW
-                        except Exception:
-                            startupinfo = None
-                    proc = subprocess.Popen(
-                        merge_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        startupinfo=startupinfo, creationflags=creationflags
-                    )
-                    
-                    for line in proc.stderr:
-                        if self._stop_requested:
-                            proc.terminate()
-                            return False
-                        if "frame=" in line:
-                            match = re.search(r"frame=\s*(\d+)", line)
-                            if match:
-                                merged_frames = int(match.group(1))
-                                if total_merge_frames > 0:
-                                    progress = int((merged_frames / total_merge_frames) * 100)
-                                    self.progress_signal.emit(min(100, progress))
-                    
-                    proc.wait()
-                    
-                    if proc.returncode != 0:
-                        self.log_signal.emit(f"❌ FFmpeg merge failed even with HEVC fallback")
-                        return False
-                    
-                    self.log_signal.emit(f"✅ Successfully encoded with HEVC fallback")
+                    ])
                 else:
-                    return False
+                    merge_cmd.extend(["-map", "0:v:0"])
+
+                merge_cmd.extend(["-c:v", try_codec])
+
+                opt_list = enc_opts.get(try_codec, ["-preset", "medium", "-crf", "18"])
+                merge_cmd.extend(opt_list)
+
+                merge_cmd.extend([
+                    "-r", str(fps),
+                    "-pix_fmt", "yuv420p",
+                    "-y",
+                    str(output_path)
+                ])
+
+                self.log_signal.emit(f"   ⏺️ Encoding video...")
+
+                startupinfo = None
+                creationflags = 0
+                if platform.system() == "Windows":
+                    try:
+                        si = subprocess.STARTUPINFO()
+                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        si.wShowWindow = subprocess.SW_HIDE
+                        startupinfo = si
+                        creationflags = subprocess.CREATE_NO_WINDOW
+                    except Exception:
+                        startupinfo = None
+
+                proc = subprocess.Popen(
+                    merge_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    startupinfo=startupinfo, creationflags=creationflags
+                )
+
+                stderr_lines = []
+                for line in proc.stderr:
+                    if self._stop_requested:
+                        proc.terminate()
+                        return False
+                    if "frame=" in line:
+                        match = re.search(r"frame=\s*(\d+)", line)
+                        if match:
+                            merged_frames = int(match.group(1))
+                            if total_merge_frames > 0:
+                                progress = int((merged_frames / total_merge_frames) * 100)
+                                self.progress_signal.emit(min(100, progress))
+                    stderr_lines.append(line)
+
+                proc.wait()
+
+                if proc.returncode == 0:
+                    video_codec = try_codec
+                    successful = True
+                    break
+
+                self.log_signal.emit(f"⚠️ FFmpeg merge failed with {try_codec}")
+                last_err = "".join(stderr_lines[-20:])
+                if try_codec != "libx264":
+                    self.log_signal.emit("   🔁 Trying next fallback encoder...")
+                else:
+                    self.log_signal.emit("   ❌ All encoders failed; aborting merge")
+
+            if not successful:
+                return False
+
+            self.progress_signal.emit(100)
             
             self.progress_signal.emit(100)
             
