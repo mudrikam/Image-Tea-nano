@@ -89,45 +89,68 @@ def download_with_progress(url, filename):
     except Exception as e:
         print(f"Failed to download: {e}")
 
-def show_manual_install_dialog(tool_name, target_folder, download_url=None):
+def show_manual_install_dialog(tool_name, target_folder, download_url=None, parent=None):
     app = QApplication.instance()
     abs_folder = os.path.abspath(target_folder)
     if app is None:
-        msg = f"Manual install required for {tool_name}.\nPut the downloaded files into: {abs_folder}\n"
-        if download_url:
-            msg += f"Download from: {download_url}\n"
-        print(msg)
-        return
-    msg = QMessageBox()
+        raise RuntimeError("QApplication instance is required for GUI dialogs")
+    if parent is None:
+        parent = app.activeWindow()
+    if parent is None:
+        candidates = [w for w in app.topLevelWidgets() if w.isVisible() and not isinstance(w, QMessageBox)]
+        main_candidates = [w for w in candidates if w.__class__.__name__ == 'QMainWindow']
+        if main_candidates:
+            parent = main_candidates[0]
+        elif candidates:
+            parent = candidates[0]
+        else:
+            raise RuntimeError("An active window is required as parent for the install dialog")
+    msg = QMessageBox(parent)
     msg.setIcon(QMessageBox.Warning)
     msg.setWindowTitle(f"{tool_name} - Manual Install Required")
+    if not parent.windowIcon().isNull():
+        msg.setWindowIcon(parent.windowIcon())
+    app_launch_path = os.path.abspath(BASE_PATH)
+    system = platform.system()
+    extra_note = ""
+    if system == "Windows":
+        drive = os.path.splitdrive(app_launch_path)[0]
+        if drive and drive.upper().startswith("C:"):
+            extra_note = (
+                "\n\nNote: Image-Tea is currently located on drive C:. "
+                "On some systems, running or extracting tools on C: can be restricted by Windows security. "
+                "Please try running Image-Tea from a different drive (e.g., D:) or ensure permissions and antivirus allow writes to the application folder."
+            )
+    elif system in ("Darwin", "Linux"):
+        if any(app_launch_path.startswith(p) for p in ("/Applications", "/usr", "/opt", "/var", "/snap")):
+            extra_note = (
+                "\n\nNote: Image-Tea appears to be installed in a system location. "
+                "System locations may restrict write/execute permissions. "
+                "Try running from a user-writable location (e.g., your home directory) or another disk."
+            )
     text = f"Download or extraction of {tool_name} failed.\n\n"
+    text += f"App launch path: {app_launch_path}\n\n"
     if download_url:
         text += f"Please download manually from:\n{download_url}\n\n"
-    text += f"Steps:\n1) Download the package appropriate for your operating system.\n2) Extract the package contents.\n3) Move the extracted files into:\n{abs_folder}\n4) Ensure the executable (e.g., ffmpeg.exe) is present in that folder.\n5) Restart the application if necessary."
+    text += f"Steps:\n1) Download the package appropriate for your operating system.\n2) Extract the package contents.\n3) Move the extracted files into:\n{abs_folder}\n4) Ensure the executable (e.g., ffmpeg.exe) is present in that folder.\n5) Restart the application if necessary.{extra_note}"
     msg.setText(text)
     open_btn = msg.addButton("Open Tools Folder", QMessageBox.ActionRole)
+    guide_btn = None
     if download_url:
         guide_btn = msg.addButton("Open Download Page", QMessageBox.ActionRole)
     msg.addButton(QMessageBox.Ok)
     msg.exec()
     clicked = msg.clickedButton()
     if clicked == open_btn:
-        try:
-            system = platform.system()
-            if system == "Windows":
-                os.startfile(abs_folder)
-            elif system == "Darwin":
-                subprocess.run(["open", abs_folder])
-            else:
-                subprocess.run(["xdg-open", abs_folder])
-        except Exception as e:
-            print(f"Failed to open folder {abs_folder}: {e}")
-    if download_url and 'guide_btn' in locals() and clicked == guide_btn:
-        try:
-            webbrowser.open(download_url)
-        except Exception as e:
-            print(f"Failed to open browser for {download_url}: {e}")
+        system = platform.system()
+        if system == "Windows":
+            os.startfile(abs_folder)
+        elif system == "Darwin":
+            subprocess.run(["open", abs_folder])
+        else:
+            subprocess.run(["xdg-open", abs_folder])
+    if download_url and guide_btn is not None and clicked == guide_btn:
+        webbrowser.open(download_url)
 
 def check_folders():
     system = platform.system()

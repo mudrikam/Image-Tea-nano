@@ -43,9 +43,53 @@ REM Download and extract Python embedded distribution
 REM =====================================================================
 echo Downloading Python embedded distribution...
 powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%'"
+if exist "%PYTHON_ZIP%" (
+    echo Download succeeded.
+    echo Extracting Python...
+    powershell -Command "Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force"
+) else (
+    echo Automatic download failed or blocked.
+    echo A stable internet connection is required to let Image-Tea download Python automatically.
+    echo You can manually install Python from: https://www.python.org/
+    choice /M "Have you installed Python from https://www.python.org/?"
+    if errorlevel 2 goto MANUAL_INSTALL_N
+    if errorlevel 1 goto MANUAL_INSTALL_Y
+)
 
-echo Extracting Python...
-powershell -Command "Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force"
+goto :AFTER_DOWNLOAD
+
+:MANUAL_INSTALL_N
+echo Powershell or cmd on this machine does not permit Image-Tea to download Python automatically.
+echo Please install Python manually from https://www.python.org/ and ensure it is added to PATH.
+choice /M "After installing Python, press Y to continue or N to abort"
+if errorlevel 2 (
+    echo Installation aborted by user.
+    goto :ABORT_INSTALL
+) else (
+    goto MANUAL_INSTALL_Y
+)
+
+:MANUAL_INSTALL_Y
+nwhere python >nul 2>&1
+if errorlevel 1 (
+    echo Python executable not found in PATH.
+    echo Ensure Python is installed and added to PATH, then run this installer again.
+    choice /M "Have you added Python to PATH and installed it?"
+    if errorlevel 2 goto MANUAL_INSTALL_N
+    if errorlevel 1 goto MANUAL_INSTALL_Y
+) else (
+    for /f "delims=" %%P in ('where python') do set "USER_PY=%%P" & goto :RUN_INSTALL_PY
+)
+
+:RUN_INSTALL_PY
+echo Found Python at %USER_PY%
+"%USER_PY%" "%BASE_DIR%\install.py"
+if errorlevel 1 (
+    echo install.py failed to run or returned an error. Aborting.
+    goto :ABORT_INSTALL
+)
+
+:AFTER_DOWNLOAD
 
 REM =====================================================================
 REM Set up pip in the embedded Python distribution
@@ -75,6 +119,10 @@ if exist "%REQUIREMENTS_FILE%" (
 ) else (
     echo Warning: requirements.txt not found. Skipping package installation.
 )
+
+:ABORT_INSTALL
+echo Installation aborted or failed. Please fix the issue and try again.
+exit /b 1
 
 :VERIFY
 echo.

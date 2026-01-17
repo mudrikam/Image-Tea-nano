@@ -1022,12 +1022,14 @@ class ImageUpscalerDialog(QDialog):
     def open_output_folder(self):
         path = self.output_edit.text().strip()
         if not path:
-            self.log_viewer.append("⚠️ No output path specified")
-            return
-        p = Path(path)
-        if not p.exists():
-            self.log_viewer.append("⚠️ Output folder does not exist")
-            return
+            p = RESULTS_DIR
+            p.mkdir(parents=True, exist_ok=True)
+            self.log_viewer.append(f"ℹ️ No output path specified; opening default: {p}")
+        else:
+            p = Path(path)
+            if not p.exists():
+                self.log_viewer.append("⚠️ Output folder does not exist")
+                return
         try:
             if os.name == 'nt':
                 os.startfile(str(p))
