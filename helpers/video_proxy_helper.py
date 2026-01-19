@@ -3,6 +3,8 @@ import subprocess
 import json
 import time
 import threading
+import shutil
+import platform
 from config import BASE_PATH
 from PySide6.QtWidgets import QApplication
 from dialogs.video_proxy_dialog import VideoProxyDialog
@@ -10,8 +12,22 @@ from PySide6.QtCore import QThread, Signal
 
 _video_proxy_invoker = None
 
-FFMPEG_PATH = os.path.join(BASE_PATH, "tools", "ffmpeg", "ffmpeg.exe")
-FFPROBE_PATH = os.path.join(BASE_PATH, "tools", "ffmpeg", "ffprobe.exe")
+def _resolve_binary(name):
+    system = platform.system()
+    tool_dir = os.path.join(BASE_PATH, "tools", "ffmpeg")
+    if system == "Windows":
+        candidate = os.path.join(tool_dir, f"{name}.exe")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+        system_path = shutil.which(name)
+        if system_path:
+            return system_path
+        return candidate
+    system_path = shutil.which(name)
+    return system_path if system_path else name
+
+FFMPEG_PATH = _resolve_binary("ffmpeg")
+FFPROBE_PATH = _resolve_binary("ffprobe")
 
 VIDEO_EXTENSIONS = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
 
@@ -45,9 +61,16 @@ def get_video_proxy_setting():
 def get_video_info(video_path):
     # Prefer ffprobe for structured metadata parsing if available
     try:
-        if os.path.exists(FFPROBE_PATH):
+        ffprobe_exec = None
+        if platform.system() == "Windows":
+            if os.path.isfile(FFPROBE_PATH) and os.access(FFPROBE_PATH, os.X_OK):
+                ffprobe_exec = FFPROBE_PATH
+        else:
+            ffprobe_exec = shutil.which("ffprobe")
+
+        if ffprobe_exec:
             cmd = [
-                FFPROBE_PATH,
+                ffprobe_exec,
                 "-v", "quiet",
                 "-print_format", "json",
                 "-show_format",
@@ -55,7 +78,7 @@ def get_video_info(video_path):
                 video_path
             ]
             result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=10)
-            if result and result.stdout:
+            if result and getattr(result, 'stdout', None):
                 try:
                     info = json.loads(result.stdout)
                     duration = None
@@ -70,7 +93,6 @@ def get_video_info(video_path):
                             duration = None
                     if fmt.get('bit_rate'):
                         bitrate = fmt.get('bit_rate')
-                    # find video stream
                     for s in streams:
                         if s.get('codec_type') == 'video':
                             w = s.get('width')
@@ -88,8 +110,20 @@ def get_video_info(video_path):
                     }
                 except Exception as e:
                     print(f"[VideoProxy] ffprobe parse error: {e}")
+
         # Fallback: use ffmpeg -i parsing
-        cmd = [FFMPEG_PATH, "-i", video_path, "-hide_banner"]
+        ffmpeg_exec = None
+        if platform.system() == "Windows":
+            if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+                ffmpeg_exec = FFMPEG_PATH
+        else:
+            ffmpeg_exec = shutil.which("ffmpeg")
+
+        if not ffmpeg_exec:
+            print(f"[VideoProxy] ffmpeg/ffprobe not available for parsing: {video_path}")
+            return None
+
+        cmd = [ffmpeg_exec, "-i", video_path, "-hide_banner"]
         result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         output = result.stdout
 
@@ -127,10 +161,30 @@ def get_video_info(video_path):
         return None
 
 def ensure_ffmpeg_exists():
-    if not os.path.exists(FFMPEG_PATH):
-        print(f"[VideoProxy] FFmpeg not found at {FFMPEG_PATH}")
-        return False, f"FFmpeg not found at {FFMPEG_PATH}"
-    return True, None
+    system = platform.system()
+    if system == "Windows":
+        if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+            return True, None
+        if shutil.which("ffmpeg"):
+            return True, None
+        return False, f"FFmpeg not found at {FFMPEG_PATH} or in PATH"
+    if shutil.which("ffmpeg"):
+        return True, None
+    msg = "FFmpeg not found in PATH. Please install FFmpeg (https://ffmpeg.org/download.html)"
+    app = QApplication.instance()
+    if app is not None:
+        try:
+            from tools.tools_checker import show_manual_install_dialog
+            show_manual_install_dialog("FFmpeg", os.path.join(BASE_PATH, "tools", "ffmpeg"), "https://ffmpeg.org/download.html", parent=app.activeWindow())
+        except Exception as e:
+            print(f"[VideoProxy] Could not show install dialog: {e}")
+    else:
+        print("FFmpeg not found in PATH. Install examples:")
+        print("  Ubuntu/Debian: sudo apt update && sudo apt install ffmpeg")
+        print("  Fedora: sudo dnf install ffmpeg")
+        print("  Arch: sudo pacman -S ffmpeg")
+        print("  macOS (Homebrew): brew install ffmpeg")
+    return False, msg
 
 def determine_auto_proxy_preset(video_path):
     info = get_video_info(video_path)
@@ -172,16 +226,23 @@ def choose_video_encoder():
 
     Prefer GPU encoders (NVENC, QSV, AMF, VAAPI) if available; fallback to libx264.
     """
+    ffmpeg_exec = None
+    if platform.system() == "Windows":
+        if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+            ffmpeg_exec = FFMPEG_PATH
+    else:
+        ffmpeg_exec = shutil.which("ffmpeg")
+    if not ffmpeg_exec:
+        return "libx264", False
     try:
         result = _run(
-            [FFMPEG_PATH, "-hide_banner", "-encoders"],
+            [ffmpeg_exec, "-hide_banner", "-encoders"],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             timeout=5,
         )
         output = result.stdout or ""
-        # Order of preference
         preferred = ["h264_nvenc", "hevc_nvenc", "h264_qsv", "hevc_qsv", "h264_amf", "h264_vaapi"]
         for enc in preferred:
             if enc in output:
@@ -202,30 +263,37 @@ def detect_gpu_pipeline_support():
         'has_scale_npp': False,
         'has_hwaccel_cuda': False
     }
+    ffmpeg_exec = None
+    if platform.system() == "Windows":
+        if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+            ffmpeg_exec = FFMPEG_PATH
+    else:
+        ffmpeg_exec = shutil.which("ffmpeg")
+    if not ffmpeg_exec:
+        return support
     try:
-        # encoders
-        result = _run([FFMPEG_PATH, '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([ffmpeg_exec, '-hide_banner', '-encoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'h264_nvenc' in out or 'hevc_nvenc' in out:
             support['has_nvenc'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg encoders: {e}")
     try:
-        result = _run([FFMPEG_PATH, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([ffmpeg_exec, '-hide_banner', '-decoders'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'h264_cuvid' in out or 'hevc_cuvid' in out:
             support['has_cuvid'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg decoders: {e}")
     try:
-        result = _run([FFMPEG_PATH, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([ffmpeg_exec, '-hide_banner', '-filters'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'scale_npp' in out:
             support['has_scale_npp'] = True
     except Exception as e:
         print(f"[VideoProxy] Failed to probe ffmpeg filters: {e}")
     try:
-        result = _run([FFMPEG_PATH, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
+        result = _run([ffmpeg_exec, '-hide_banner', '-hwaccels'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=5)
         out = result.stdout or ''
         if 'cuda' in out.lower():
             support['has_hwaccel_cuda'] = True

@@ -133,6 +133,44 @@ def show_manual_install_dialog(tool_name, target_folder, download_url=None, pare
     if download_url:
         text += f"Please download manually from:\n{download_url}\n\n"
     text += f"Steps:\n1) Download the package appropriate for your operating system.\n2) Extract the package contents.\n3) Move the extracted files into:\n{abs_folder}\n4) Ensure the executable (e.g., ffmpeg.exe) is present in that folder.\n5) Restart the application if necessary.{extra_note}"
+
+    # Add quick install commands / tips for macOS and major Linux distributions when applicable
+    system = platform.system()
+    if system in ("Darwin", "Linux"):
+        text += "\n\nQuick install (macOS / Linux) - common package manager commands:\n"
+        lower_tool = tool_name.lower()
+        if lower_tool.startswith("ffmpeg"):
+            text += (
+                "  Ubuntu/Debian: sudo apt update && sudo apt install ffmpeg\n"
+                "  Fedora: sudo dnf install ffmpeg\n"
+                "  Arch: sudo pacman -S ffmpeg\n"
+                "  macOS (Homebrew): brew install ffmpeg\n"
+                "  Snap (if available): sudo snap install ffmpeg\n"
+            )
+        elif "exif" in lower_tool:
+            text += (
+                "  Ubuntu/Debian: sudo apt update && sudo apt install libimage-exiftool-perl\n"
+                "  Fedora: sudo dnf install perl-Image-ExifTool\n"
+                "  Arch: sudo pacman -S perl-image-exiftool\n"
+                "  macOS (Homebrew): brew install exiftool\n"
+            )
+        elif "ghostscript" in lower_tool or lower_tool.startswith("ghostscript"):
+            text += (
+                "  Ubuntu/Debian: sudo apt update && sudo apt install ghostscript\n"
+                "  Fedora: sudo dnf install ghostscript\n"
+                "  Arch: sudo pacman -S ghostscript\n"
+                "  macOS (Homebrew): brew install ghostscript\n"
+            )
+        elif "cairo" in lower_tool:
+            text += (
+                "  Ubuntu/Debian: sudo apt update && sudo apt install libcairo2 libcairo2-dev\n"
+                "  Fedora: sudo dnf install cairo cairo-devel\n"
+                "  Arch: sudo pacman -S cairo\n"
+                "  macOS (Homebrew): brew install cairo\n"
+            )
+        else:
+            text += f"  For {tool_name}, please use your distribution package manager (apt/dnf/pacman) or Homebrew on macOS.\n"
+
     msg.setText(text)
     open_btn = msg.addButton("Open Tools Folder", QMessageBox.ActionRole)
     guide_btn = None
@@ -163,6 +201,21 @@ def check_folders():
                 if check_system_tool(tool_name):
                     print(f"{tool_name} found in system PATH, skipping download.")
                     os.makedirs(folder, exist_ok=True)
+                    continue
+                # For Linux/macOS: do not attempt to auto-download ffmpeg/realesrgan; prompt user to install
+                if tool_name == "ffmpeg":
+                    app = QApplication.instance()
+                    if app is not None:
+                        try:
+                            show_manual_install_dialog("FFmpeg", folder, "https://ffmpeg.org/download.html", parent=app.activeWindow())
+                        except Exception as e:
+                            print(f"[ToolsChecker] Could not show FFmpeg install dialog: {e}")
+                    else:
+                        print("FFmpeg not found in PATH. Install examples:")
+                        print("  Ubuntu/Debian: sudo apt update && sudo apt install ffmpeg")
+                        print("  Fedora: sudo dnf install ffmpeg")
+                        print("  Arch: sudo pacman -S ffmpeg")
+                        print("  macOS (Homebrew): brew install ffmpeg")
                     continue
             
             print(f"Missing folder: {folder}")
@@ -360,7 +413,19 @@ def ensure_tool_executable(tool_name, tool_folder):
         return True
     print(f"{tool_name} executables missing; attempting to download and extract.")
     if tool_name == "ffmpeg":
-        download_and_extract_ffmpeg(tool_folder)
+        if platform.system() == "Windows":
+            download_and_extract_ffmpeg(tool_folder)
+        else:
+            app = QApplication.instance()
+            if app is not None:
+                try:
+                    show_manual_install_dialog("FFmpeg", tool_folder, "https://ffmpeg.org/download.html", parent=app.activeWindow())
+                except Exception as e:
+                    print(f"[ToolsChecker] Could not show FFmpeg install dialog: {e}")
+            else:
+                print("FFmpeg not found. Please install FFmpeg: https://ffmpeg.org/download.html")
+                print("Install examples:\n  Ubuntu/Debian: sudo apt update && sudo apt install ffmpeg\n  Fedora: sudo dnf install ffmpeg\n  Arch: sudo pacman -S ffmpeg\n  macOS (Homebrew): brew install ffmpeg")
+            return False
     elif tool_name == "realesrgan":
         download_and_extract_realesrgan(tool_folder)
     else:

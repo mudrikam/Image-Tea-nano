@@ -5,9 +5,11 @@ from PySide6.QtCore import QThread, Signal, Qt, QObject, QTimer, QCoreApplicatio
 import json
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QProgressBar, QSizePolicy, 
 							   QTextEdit, QPushButton, QHBoxLayout, QTableWidget, 
-							   QTableWidgetItem, QHeaderView, QFileDialog, QGroupBox, QMessageBox)
+					   QTableWidgetItem, QHeaderView, QFileDialog, QGroupBox, QMessageBox, QApplication)
 from PySide6.QtGui import QIcon
 import os
+import shutil
+import platform
 import exiftool
 from config import BASE_PATH
 import time
@@ -370,11 +372,34 @@ def read_metadata_pyexiv2(file_path):
 		return None, None, None
 
 def read_metadata_video(file_path):
-	exiftool_path = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
 	video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'}
 	ext = os.path.splitext(file_path)[1].lower()
 	if ext not in video_exts:
 		return None, None, None
+	if platform.system() == "Windows":
+		exiftool_path = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
+		if not (os.path.isfile(exiftool_path) and os.access(exiftool_path, os.X_OK)):
+			system_ex = shutil.which("exiftool")
+			if system_ex:
+				exiftool_path = system_ex
+	else:
+		system_ex = shutil.which("exiftool")
+		if not system_ex:
+			app = QApplication.instance()
+			if app is not None:
+				try:
+					from tools.tools_checker import show_manual_install_dialog
+					show_manual_install_dialog("ExifTool", os.path.join(BASE_PATH, "tools", "exiftool"), "https://exiftool.org/", parent=app.activeWindow() if app else None)
+				except Exception as e:
+					print(f"[Metadata] Could not show ExifTool install dialog: {e}")
+			else:
+				print("ExifTool not found in PATH. Install examples:")
+				print("  Ubuntu/Debian: sudo apt update && sudo apt install libimage-exiftool-perl")
+				print("  Fedora: sudo dnf install perl-Image-ExifTool")
+				print("  Arch: sudo pacman -S perl-image-exiftool")
+				print("  macOS (Homebrew): brew install exiftool")
+			return None, None, None
+		exiftool_path = system_ex
 	try:
 		with exiftool.ExifToolHelper(executable=exiftool_path) as et:
 			metadata_list = et.get_metadata([file_path])
@@ -481,8 +506,30 @@ class VideoMetadataWriterThread(QThread):
 	def run(self):
 		start_time = time.time()
 		video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'}
-		exiftool_path = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
 		video_rows = [row for row in self.rows if os.path.splitext(row[1])[1].lower() in video_exts]
+		if platform.system() == "Windows":
+			exiftool_path = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
+			if not (os.path.isfile(exiftool_path) and os.access(exiftool_path, os.X_OK)):
+				system_ex = shutil.which("exiftool")
+				if system_ex:
+					exiftool_path = system_ex
+		else:
+			system_ex = shutil.which("exiftool")
+			if not system_ex:
+				app = QApplication.instance()
+				try:
+					from tools.tools_checker import show_manual_install_dialog
+					show_manual_install_dialog("ExifTool", os.path.join(BASE_PATH, "tools", "exiftool"), "https://exiftool.org/", parent=app.activeWindow() if app else None)
+				except Exception as e:
+					print(f"[Metadata] Could not show ExifTool install dialog: {e}")
+				for row in video_rows:
+					filename = row[2] if len(row) > 2 else os.path.basename(row[1])
+					self.failed_count += 1
+					self.errors.append((filename, "ExifTool not found"))
+				elapsed_time = time.time() - start_time
+				self.finished.emit(self.success_count, self.failed_count, elapsed_time, self.errors)
+				return
+			exiftool_path = system_ex
 		total = len(video_rows)
 		total_chunks = (total + self.chunk_size - 1) // self.chunk_size
 		
