@@ -119,10 +119,11 @@ def _istock_format(file):
     created_date = today.strftime("%m/%d/%Y")
     description = file[4] if file[4] is not None else ""
     country = ""
-    brief_code = ""
     title = file[3] if file[3] is not None else ""
     keywords = file[5] if file[5] is not None else ""
-    return f'{filename},{created_date},"{description}","{country}","{brief_code}","{title}","""{keywords}"""'
+    poster_timecode = ""
+    shot_speed = "Real Time"
+    return f'{filename},"{description}","{country}","{title}","{keywords}","{poster_timecode}","{shot_speed}",{created_date}'
 
 def _pond5_format(file):
     filename = file[2]
@@ -293,7 +294,7 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                     print(f"[csv_exporter] Error exporting Vecteezy CSV: {e}")
     if "iStock" in platforms and output_path:
         rows = []
-        header = "file name,created date,description,country,brief code,title,keywords"
+        header = "file name,description,country,title,keywords,poster timecode,shot speed,date created"
         for file in files:
             rows.append(_istock_format(file))
             if progress_callback:
