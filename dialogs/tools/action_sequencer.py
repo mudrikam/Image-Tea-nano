@@ -276,6 +276,9 @@ class ActionSequencerDialog(QDialog):
         self.action_bar_widget.select_file_requested.connect(self.on_select_file)
         self.action_bar_widget.settings_requested.connect(self.on_open_settings)
         self.action_bar_widget.output_path_changed.connect(self.on_output_path_changed)
+        # New signals: manual/paste edits
+        self.action_bar_widget.source_path_changed.connect(self.on_source_path_changed)
+        self.action_bar_widget.file_path_changed.connect(self.on_file_path_changed)
         self.action_bar_widget.clear_source_requested.connect(self.on_clear_source)
         
         self.preset_list_widget.preset_selected.connect(self.on_preset_selected)
@@ -409,10 +412,7 @@ class ActionSequencerDialog(QDialog):
                 self.loaded_files.append(filepath)
         
         self.status_bar_widget.update_files_count(len(self.loaded_files), 'database')
-        try:
-            self.action_bar_widget.clear_source_button.setEnabled(len(self.loaded_files) > 0)
-        except Exception:
-            pass
+        self.action_bar_widget.clear_source_button.setEnabled(len(self.loaded_files) > 0)
         print(f"Loaded {len(self.loaded_files)} files from database")
     
     def on_select_source(self):
@@ -433,10 +433,7 @@ class ActionSequencerDialog(QDialog):
             
             self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
             # update ActionBar display so user sees selected source folder
-            try:
-                self.action_bar_widget.set_source_path(folder)
-            except Exception:
-                pass
+            self.action_bar_widget.set_source_path(folder)
             # Save source path to config
             self.config.set('source_path', folder)
             print(f"Loaded {len(self.loaded_files)} files from folder: {folder}")
@@ -454,13 +451,58 @@ class ActionSequencerDialog(QDialog):
             self.loaded_files = [file_path]
             self.status_bar_widget.update_files_count(1, 'manual')
             # update ActionBar display so user sees selected file
-            try:
-                self.action_bar_widget.set_file_path(file_path)
-            except Exception:
-                pass
+            self.action_bar_widget.set_file_path(file_path)
             # Save file path to config (save as source_path)
             self.config.set('source_path', file_path)
             print(f"Loaded file: {file_path}")
+
+    def on_source_path_changed(self, path):
+        """Handle manual/paste changes to source path field."""
+        path = (path or "").strip()
+        if not path:
+            self.loaded_files = []
+            self.status_bar_widget.update_files_count(0, '')
+            self.config.set('source_path', '')
+            return
+
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                self.loaded_files = []
+                for root, dirs, files in os.walk(path):
+                    for file in files:
+                        self.loaded_files.append(os.path.join(root, file))
+                self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
+                self.action_bar_widget.set_source_path(path)
+                self.config.set('source_path', path)
+                print(f"Loaded {len(self.loaded_files)} files from folder: {path}")
+            else:
+                self.loaded_files = [path]
+                self.status_bar_widget.update_files_count(1, 'manual')
+                self.action_bar_widget.set_file_path(path)
+                self.config.set('source_path', path)
+                print(f"Loaded file: {path}")
+        else:
+            QMessageBox.warning(self, "Source Path Not Found", f"The specified source path does not exist:\n{path}")
+            print(f"Source path does not exist: {path}")
+
+    def on_file_path_changed(self, path):
+        """Handle manual/paste changes to file field."""
+        path = (path or "").strip()
+        if not path:
+            self.loaded_files = []
+            self.status_bar_widget.update_files_count(0, '')
+            self.config.set('source_path', '')
+            return
+
+        if os.path.exists(path) and os.path.isfile(path):
+            self.loaded_files = [path]
+            self.status_bar_widget.update_files_count(1, 'manual')
+            self.config.set('source_path', path)
+            self.action_bar_widget.set_file_path(path)
+            print(f"Loaded file: {path}")
+        else:
+            QMessageBox.warning(self, "File Not Found", f"The specified file does not exist:\n{path}")
+            print(f"File path does not exist: {path}")
     
     def on_open_settings(self):
         dlg = ActionSettingsDialog(self)
@@ -529,26 +571,21 @@ class ActionSequencerDialog(QDialog):
                 # Check if files are loaded OR if source path is set
                 if not self.loaded_files:
                     # Try to get source path from action bar
-                    try:
-                        source_path = self.action_bar_widget.source_path_edit.text().strip()
-                        if source_path and os.path.exists(source_path):
-                            # Load files from source path
-                            if os.path.isdir(source_path):
-                                print(f"Auto-loading files from source path: {source_path}")
-                                self.loaded_files = []
-                                for root, dirs, files in os.walk(source_path):
-                                    for file in files:
-                                        filepath = os.path.join(root, file)
-                                        self.loaded_files.append(filepath)
-                                self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
-                            else:
-                                # Single file path
-                                self.loaded_files = [source_path]
-                                self.status_bar_widget.update_files_count(1, 'manual')
-                    except Exception as e:
-                        print(f"Error auto-loading from source path: {e}")
-                
-                # Final check: if still no files, show warning
+                    source_path = self.action_bar_widget.source_path_input.text().strip()
+                    if source_path and os.path.exists(source_path):
+                        # Load files from source path
+                        if os.path.isdir(source_path):
+                            print(f"Auto-loading files from source path: {source_path}")
+                            self.loaded_files = []
+                            for root, dirs, files in os.walk(source_path):
+                                for file in files:
+                                    filepath = os.path.join(root, file)
+                                    self.loaded_files.append(filepath)
+                            self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
+                        else:
+                            # Single file path
+                            self.loaded_files = [source_path]
+                            self.status_bar_widget.update_files_count(1, 'manual')
                 if not self.loaded_files:
                     QMessageBox.warning(self, "No Files Loaded", "Please load files from database or select source folder for batch processing")
                     return
@@ -705,7 +742,26 @@ class ActionSequencerDialog(QDialog):
                 print(f"Error loading source path: {e}")
     
     def on_output_path_changed(self, path):
+        """Save output path and create directory if missing."""
+        if not path:
+            self.config.set('output_path', '')
+            return
+
+        # Create output directory if it does not exist
+        if not os.path.exists(path):
+            try:
+                os.makedirs(path, exist_ok=True)
+                print(f"Created output directory: {path}")
+            except OSError as e:
+                QMessageBox.critical(self, "Create Output Path Failed", f"Could not create output directory:\n{path}\n\n{e}")
+                return
+
         self.config.set('output_path', path)
+        # keep UI in sync
+        try:
+            self.action_bar_widget.set_output_path(path)
+        except Exception as e:
+            print(f"Failed to set output path in UI: {e}")
     
     def on_reset_tool(self):
         print("Clear All requested")
