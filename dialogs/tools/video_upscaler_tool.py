@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
 from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
+import traceback
 
 class FileDropListWidget(QListWidget):
     files_dropped = Signal(list)
@@ -277,9 +278,16 @@ class UpscaleWorker(QThread):
                     return True
                 except Exception as e:
                     self.log_signal.emit(f"   ❌ PyTorch direct upscale error: {e}")
+                    tb = traceback.format_exc()
+                    for l in tb.splitlines()[-20:]:
+                        self.log_signal.emit(f"      {l}")
                     return False
                 
-        except Exception:
+        except Exception as e:
+            self.log_signal.emit(f"   ❌ PyTorch upscale exception: {e}")
+            tb = traceback.format_exc()
+            for l in tb.splitlines()[-20:]:
+                self.log_signal.emit(f"      {l}")
             return False
     
     def _upscale_frame_onnx(self, session, frame_path: str, output_path: str) -> bool:
@@ -407,6 +415,10 @@ class UpscaleWorker(QThread):
                 else:
                     self.finished_signal.emit(False, f"⚠️ Completed {succeeded}/{total_videos} videos; some failed. See logs.")
         except Exception as e:
+            self.log_signal.emit(f"   ❌ Exception: {e}")
+            tb = traceback.format_exc()
+            for l in tb.splitlines()[-40:]:
+                self.log_signal.emit(f"      {l}")
             self.finished_signal.emit(False, f"❌ Error: {str(e)}")
 
     def _upscale_video(self, video_path: str) -> bool:
@@ -518,10 +530,12 @@ class UpscaleWorker(QThread):
                 startupinfo=startupinfo, creationflags=creationflags
             )
             
+            stderr_lines = []
             for line in proc.stderr:
                 if self._stop_requested:
                     proc.terminate()
                     return False
+                stderr_lines.append(line.rstrip())
                 if "frame=" in line:
                     match = re.search(r"frame=\s*(\d+)", line)
                     if match:
@@ -533,7 +547,14 @@ class UpscaleWorker(QThread):
             proc.wait()
             
             if proc.returncode != 0:
-                self.log_signal.emit("❌ FFmpeg extraction failed")
+                self.log_signal.emit(f"❌ FFmpeg extraction failed (returncode={proc.returncode})")
+                if stderr_lines:
+                    tail = stderr_lines[-50:]
+                    self.log_signal.emit("   🔎 Recent FFmpeg stderr:")
+                    for l in tail:
+                        self.log_signal.emit(f"      {l}")
+                else:
+                    self.log_signal.emit("   🔎 No FFmpeg stderr captured")
                 return False
             
             frame_count = len(list(TMP_FRAMES_DIR.glob("*.png")))

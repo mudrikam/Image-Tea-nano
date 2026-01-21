@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
 from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
+import traceback
 
 class FileDropListWidget(QListWidget):
     files_dropped = Signal(list)
@@ -265,10 +266,16 @@ class ImageUpscaleWorker(QThread):
                     return True
                 except Exception as e:
                     self.log_signal.emit(f"   ❌ PyTorch direct upscale error: {e}")
+                    tb = traceback.format_exc()
+                    for l in tb.splitlines()[-20:]:
+                        self.log_signal.emit(f"      {l}")
                     return False
                 
         except Exception as e:
             self.log_signal.emit(f"   ❌ PyTorch upscale error: {e}")
+            tb = traceback.format_exc()
+            for l in tb.splitlines()[-20:]:
+                self.log_signal.emit(f"      {l}")
             return False
     
     def _upscale_image_onnx(self, session, img_path: str, output_path: str) -> bool:
@@ -477,6 +484,7 @@ class ImageUpscaleWorker(QThread):
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                        text=True, cwd=str(self.realesrgan_bin.parent), startupinfo=startupinfo, creationflags=creationflags)
                 
+                last_stdout = []
                 for line in proc.stdout:
                     if self._stop_requested:
                         proc.terminate()
@@ -485,14 +493,52 @@ class ImageUpscaleWorker(QThread):
                     ll = line.strip()
                     if not ll:
                         continue
+                    last_stdout.append(ll)
                     low = ll.lower()
                     if 'fail' in low or 'error' in low:
                         self.log_signal.emit(f"   ❗ ERROR: {ll}")
                 
                 proc.wait()
                 
+                # If the process failed, emit helpful diagnostics (return code + last lines)
                 if proc.returncode != 0:
-                    self.log_signal.emit(f"❌ RealESRGAN failed on batch {batch_num}")
+                    self.log_signal.emit(f"❌ RealESRGAN failed on batch {batch_num} (returncode={proc.returncode})")
+                    if last_stdout:
+                        tail = last_stdout[-50:]
+                        self.log_signal.emit("   🔎 Recent RealESRGAN output:")
+                        for l in tail:
+                            self.log_signal.emit(f"      {l}")
+                    else:
+                        self.log_signal.emit("   🔎 No RealESRGAN stdout captured")
+
+                    # show files present in output folder to help debugging
+                    outputs = sorted([p.name for p in BATCH_OUTPUT_DIR.glob("*")]) if BATCH_OUTPUT_DIR.exists() else []
+                    if outputs:
+                        self.log_signal.emit(f"   ℹ️ BATCH_OUTPUT_DIR contains: {', '.join(outputs[:20])}{'...' if len(outputs)>20 else ''}")
+                    else:
+                        self.log_signal.emit("   ℹ️ BATCH_OUTPUT_DIR is empty")
+
+                    for img_path in batch_images:
+                        self.image_completed_signal.emit(img_path, False)
+                    overall_success = False
+                    processed = end_idx
+                    continue
+
+                # If process succeeded but no outputs produced, show recent output to help debugging
+                produced_files = list(BATCH_OUTPUT_DIR.glob(f"*.{self.output_format}"))
+                if not produced_files:
+                    self.log_signal.emit(f"❌ RealESRGAN finished but produced no outputs for batch {batch_num}")
+                    if last_stdout:
+                        tail = last_stdout[-50:]
+                        self.log_signal.emit("   🔎 Recent RealESRGAN output:")
+                        for l in tail:
+                            self.log_signal.emit(f"      {l}")
+                    outputs = sorted([p.name for p in BATCH_OUTPUT_DIR.glob("*")]) if BATCH_OUTPUT_DIR.exists() else []
+                    if outputs:
+                        self.log_signal.emit(f"   ℹ️ BATCH_OUTPUT_DIR contains: {', '.join(outputs[:20])}{'...' if len(outputs)>20 else ''}")
+                    else:
+                        self.log_signal.emit("   ℹ️ BATCH_OUTPUT_DIR is empty")
+
                     for img_path in batch_images:
                         self.image_completed_signal.emit(img_path, False)
                     overall_success = False
@@ -556,6 +602,10 @@ class ImageUpscaleWorker(QThread):
                 self.finished_signal.emit(False, f"⚠️ Completed {succeeded}/{total_images} images in {elapsed:.2f}s; some failed.")
                 
         except Exception as e:
+            self.log_signal.emit(f"   ❌ Exception: {e}")
+            tb = traceback.format_exc()
+            for l in tb.splitlines()[-40:]:
+                self.log_signal.emit(f"      {l}")
             self.finished_signal.emit(False, f"❌ Error: {str(e)}")
 
 
