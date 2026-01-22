@@ -5,6 +5,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QFont
 from config import BASE_PATH
 
+# Flag indicating whether splash screen is currently active (visible)
+splash_active = False
+
 
 class SplashScreen(QWidget):
     def __init__(self):
@@ -144,5 +147,17 @@ class SplashScreen(QWidget):
         self.status_label.setText(message)
         self.repaint()
     
+    def show(self):
+        global splash_active
+        splash_active = True
+        super().show()
+
     def finish(self, main_window):
+        global splash_active
+        splash_active = False
         self.close()
+
+    def closeEvent(self, event):
+        global splash_active
+        splash_active = False
+        super().closeEvent(event)

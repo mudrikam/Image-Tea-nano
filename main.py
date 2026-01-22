@@ -3,12 +3,13 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import BASE_PATH
 sys.path.insert(0, BASE_PATH)
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QDialog
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon
 import time
 import qtawesome as qta
 from ui.splash_screen_window import SplashScreen
+import ui.splash_screen_window as splash_mod
 
 def load_app_config():
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
@@ -103,6 +104,25 @@ if __name__ == '__main__':
     splash = SplashScreen()
     splash.show()
     app.processEvents()
+
+    _original_QDialog_exec = QDialog.exec
+    _original_QDialog_show = QDialog.show
+
+    def _wait_for_splash():
+        while getattr(splash_mod, 'splash_active', False):
+            app.processEvents()
+            time.sleep(0.05)
+
+    def _patched_exec(self, *args, **kwargs):
+        _wait_for_splash()
+        return _original_QDialog_exec(self, *args, **kwargs)
+
+    def _patched_show(self, *args, **kwargs):
+        _wait_for_splash()
+        return _original_QDialog_show(self, *args, **kwargs)
+
+    QDialog.exec = _patched_exec
+    QDialog.show = _patched_show
     
     splash.show_message("Checking for updates...")
     app.processEvents()
