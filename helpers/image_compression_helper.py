@@ -5,6 +5,10 @@ import subprocess
 import platform
 from PIL import Image
 import config
+import ctypes
+import ctypes.util
+import importlib
+import shutil
 
 BASE_PATH = config.BASE_PATH
 
@@ -25,17 +29,174 @@ for ext, fmt in Image.registered_extensions().items():
 def get_ghostscript_path():
     system = platform.system()
     if system == "Windows":
-        return os.path.join(BASE_PATH, "tools", "ghostscript", "gswin64c.exe")
-    else:
-        gs_system = os.popen("which gs").read().strip()
-        if gs_system:
-            return gs_system
-        bundled_path = os.path.join(BASE_PATH, "tools", "ghostscript", "gs")
-        if os.path.exists(bundled_path):
-            return bundled_path
+        path = os.path.join(BASE_PATH, "tools", "ghostscript", "gswin64c.exe")
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+        print(f"Ghostscript: bundled Windows executable not found at {path}, will try PATH")
         return "gs"
 
+    gs = shutil.which("gs")
+    if gs:
+        return gs
+
+    candidates = [
+        "/opt/homebrew/bin/gs",
+        "/usr/local/bin/gs",
+        "/opt/local/bin/gs",
+        "/usr/bin/gs",
+    ]
+    for p in candidates:
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            print(f"Ghostscript found at {p}")
+            return p
+
+    bundled_path = os.path.join(BASE_PATH, "tools", "ghostscript", "gs")
+    if os.path.exists(bundled_path) and os.access(bundled_path, os.X_OK):
+        print(f"Using bundled Ghostscript at {bundled_path}")
+        return bundled_path
+
+    print("Ghostscript executable not found in standard locations. Falling back to 'gs' (must be in PATH) — consider installing Ghostscript (e.g., 'brew install ghostscript').")
+    return "gs"
+
 GHOSTSCRIPT_PATH = get_ghostscript_path()
+
+
+def _create_cairo_shim(lib_path):
+    try:
+        shim_dir = os.path.join(BASE_PATH, "temp", "cairo_shims")
+        os.makedirs(shim_dir, exist_ok=True)
+        base_name = os.path.basename(lib_path)
+        sonames = [
+            base_name,
+            "libcairo.2.dylib",
+            "libcairo.dylib",
+            "libcairo.so.2",
+            "cairo-2.dylib",
+            "cairo.dylib",
+        ]
+        created = []
+        for name in sonames:
+            dest = os.path.join(shim_dir, name)
+            try:
+                if os.path.exists(dest):
+                    created.append(dest)
+                    continue
+                try:
+                    os.symlink(lib_path, dest)
+                except Exception:
+                    shutil.copy2(lib_path, dest)
+                created.append(dest)
+            except Exception as e:
+                print(f"Warning: failed to create shim {dest}: {e}")
+
+        prev_fb = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+        if shim_dir not in prev_fb.split(":"):
+            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = shim_dir + (":" + prev_fb if prev_fb else "")
+            print(f"Added shim dir to DYLD_FALLBACK_LIBRARY_PATH: {shim_dir}")
+        prev = os.environ.get("DYLD_LIBRARY_PATH", "")
+        if shim_dir not in prev.split(":"):
+            os.environ["DYLD_LIBRARY_PATH"] = shim_dir + (":" + prev if prev else "")
+            print(f"Added shim dir to DYLD_LIBRARY_PATH: {shim_dir}")
+
+        rtld_flags = (getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+        for path in created:
+            try:
+                ctypes.CDLL(path, mode=rtld_flags)
+                print(f"Loaded cairo shim {path} (RTLD_GLOBAL|RTLD_NOW)")
+            except Exception as e:
+                print(f"Warning: failed to dlopen shim {path}: {e}")
+
+        if created:
+            print(f"Cairo shims created: {created}")
+            return True
+        else:
+            print("No cairo shims could be created")
+            return False
+    except Exception as e:
+        print(f"Failed to create cairo shims: {e}")
+        return False
+
+
+def _ensure_cairo_loaded():
+    if sys.platform != "darwin":
+        return True
+
+    try:
+        libname = ctypes.util.find_library('cairo') or ctypes.util.find_library('cairo-2')
+        if libname:
+            try:
+                rtld_flags = (getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+                ctypes.CDLL(libname, mode=rtld_flags)
+                print(f"Loaded cairo library: {libname} (RTLD_GLOBAL|RTLD_NOW)")
+                if os.path.isabs(libname) and os.path.exists(libname):
+                    _create_cairo_shim(libname)
+                return True
+            except Exception as e:
+                print(f"Found cairo name '{libname}' but failed to load it as RTLD_GLOBAL: {e}")
+    except Exception as e:
+        print(f"ctypes.util.find_library check failed: {e}")
+
+    candidates = [
+        "/opt/homebrew/lib/libcairo.dylib",
+        "/usr/local/lib/libcairo.dylib",
+        "/opt/local/lib/libcairo.dylib",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                rtld_flags = (getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+                ctypes.CDLL(p, mode=rtld_flags)
+                print(f"Loaded cairo library from {p} (RTLD_GLOBAL|RTLD_NOW)")
+                _create_cairo_shim(p)
+                return True
+            except Exception as e:
+                print(f"Failed to load cairo from {p} as RTLD_GLOBAL: {e}")
+
+    try:
+        res = subprocess.run(["pkg-config", "--variable=libdir", "cairo"], capture_output=True, text=True, check=False)
+        libdir = res.stdout.strip()
+        if libdir:
+            candidate = os.path.join(libdir, "libcairo.dylib")
+            if os.path.exists(candidate):
+                try:
+                    rtld_flags = (getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+                    ctypes.CDLL(candidate, mode=rtld_flags)
+                    print(f"Loaded cairo via pkg-config from {candidate} (RTLD_GLOBAL|RTLD_NOW)")
+                    _create_cairo_shim(candidate)
+                    return True
+                except Exception as e:
+                    print(f"Failed to load cairo via pkg-config from {candidate}: {e}")
+    except Exception as e:
+        print(f"pkg-config check failed: {e}")
+
+    for prefix in ["/opt/homebrew/lib", "/usr/local/lib", "/opt/local/lib"]:
+        if os.path.isdir(prefix):
+            prev_fb = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+            if prefix not in prev_fb.split(":"):
+                os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = prefix + (":" + prev_fb if prev_fb else "")
+                print(f"Prepended {prefix} to DYLD_FALLBACK_LIBRARY_PATH to help find cairo")
+            prev = os.environ.get("DYLD_LIBRARY_PATH", "")
+            if prefix not in prev.split(":"):
+                os.environ["DYLD_LIBRARY_PATH"] = prefix + (":" + prev if prev else "")
+                print(f"Prepended {prefix} to DYLD_LIBRARY_PATH to help find cairo")
+
+    try:
+        libname2 = ctypes.util.find_library('cairo') or ctypes.util.find_library('cairo-2')
+        if libname2:
+            try:
+                rtld_flags = (getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+                ctypes.CDLL(libname2, mode=rtld_flags)
+                print(f"Loaded cairo library after env change: {libname2} (RTLD_GLOBAL|RTLD_NOW)")
+                if os.path.isabs(libname2) and os.path.exists(libname2):
+                    _create_cairo_shim(libname2)
+                return True
+            except Exception as e:
+                print(f"Found cairo name '{libname2}' after env update but failed to load as RTLD_GLOBAL: {e}")
+    except Exception as e:
+        print(f"Final attempt to load cairo failed: {e}")
+
+    print("Cairo library not found on this system (macOS). Install cairo (e.g., 'brew install cairo') or ensure the installation's lib dir is discoverable.")
+    return False
 
 
 def ensure_temp_folder():
@@ -256,8 +417,61 @@ def image_has_transparency(path):
 
 
 def convert_svg_to_jpg(input_path, output_path, quality):
+    dlopen_original_flags = None
+    if sys.platform == "darwin":
+        if not _ensure_cairo_loaded():
+            print("Cannot render SVG: cairo native library not available on macOS.")
+            return None
+        if hasattr(sys, 'getdlopenflags') and hasattr(sys, 'setdlopenflags'):
+            try:
+                dlopen_original_flags = sys.getdlopenflags()
+                sys.setdlopenflags(dlopen_original_flags | getattr(ctypes, 'RTLD_GLOBAL', 0x100) | getattr(ctypes, 'RTLD_NOW', 0x2))
+                print("Set dlopen flags to include RTLD_GLOBAL for cairosvg import")
+            except Exception as e:
+                print(f"Warning: unable to set dlopen flags: {e}")
+
     try:
         import cairosvg
+    except Exception as e:
+        print(f"CairoSVG import error: {e}")
+        if sys.platform == "darwin":
+            if _ensure_cairo_loaded():
+                try:
+                    for mod in ('cairosvg', 'cairocffi', 'cairocffi.cairo'):
+                        if mod in sys.modules:
+                            del sys.modules[mod]
+                    importlib.invalidate_caches()
+                    cairosvg = importlib.import_module('cairosvg')
+                except Exception as e2:
+                    print(f"CairoSVG reload after loading cairo failed: {e2}")
+                    if dlopen_original_flags is not None:
+                        try:
+                            sys.setdlopenflags(dlopen_original_flags)
+                        except Exception as e3:
+                            print(f"Warning: failed to restore dlopen flags: {e3}")
+                    return None
+            else:
+                if dlopen_original_flags is not None:
+                    try:
+                        sys.setdlopenflags(dlopen_original_flags)
+                    except Exception as e3:
+                        print(f"Warning: failed to restore dlopen flags: {e3}")
+                return None
+        else:
+            if dlopen_original_flags is not None:
+                try:
+                    sys.setdlopenflags(dlopen_original_flags)
+                except Exception as e3:
+                    print(f"Warning: failed to restore dlopen flags: {e3}")
+            return None
+
+    if sys.platform == "darwin" and dlopen_original_flags is not None:
+        try:
+            sys.setdlopenflags(dlopen_original_flags)
+        except Exception as e:
+            print(f"Warning: failed to restore dlopen flags after import: {e}")
+
+    try:
         temp_png = output_path.replace(".jpg", ".png")
         cairosvg.svg2png(url=input_path, write_to=temp_png)
         if image_has_transparency(temp_png):
@@ -268,7 +482,7 @@ def convert_svg_to_jpg(input_path, output_path, quality):
         os.remove(temp_png)
         return output_path
     except Exception as e:
-        print(f"CairoSVG error: {e}")
+        print(f"CairoSVG rendering error: {e}")
         return None
 
 def compress_and_save_image(image_path):
