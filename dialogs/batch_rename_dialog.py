@@ -182,6 +182,9 @@ class BatchRenameDialog(QDialog):
         self.replace_space_checkbox = QCheckBox("Replace space with underscore", self.rename_group)
         group_layout.addRow(self.replace_space_checkbox)
 
+        self.sanitize_checkbox = QCheckBox("Sanitize filename (alphanumeric only)", self.rename_group)
+        group_layout.addRow(self.sanitize_checkbox)
+
         self.radio_default_pattern = QRadioButton("Default Pattern", self.rename_group)
         self.radio_custom_pattern = QRadioButton("Custom Pattern", self.rename_group)
         self.pattern_mode_group = QButtonGroup(self.rename_group)
@@ -268,6 +271,7 @@ class BatchRenameDialog(QDialog):
         self.timestamp_combo.currentIndexChanged.connect(self.update_preview)
         self.remove_special_checkbox.toggled.connect(self.update_preview)
         self.replace_space_checkbox.toggled.connect(self.update_preview)
+        self.sanitize_checkbox.toggled.connect(self.update_preview)
 
         self.setLayout(layout)
         self.update_preview()
@@ -340,7 +344,7 @@ class BatchRenameDialog(QDialog):
         date_val = today_date if (timestamp_mode == "Date" or "{date}" in pattern) else ""
 
         example_title = "Title Example"
-        # Sanitize title for preview (remove punctuation)
+        # Basic sanitization for preview: remove punctuation characters used only for example
         example_title = re.sub(r'[.,\-]', '', example_title)
         example_vars = {
             "prefix": prefix,
@@ -352,8 +356,28 @@ class BatchRenameDialog(QDialog):
             "title": example_title
         }
 
+        def _sanitize_alnum(s):
+            v = re.sub(r'[^A-Za-z0-9]', '', s)
+            return v if v else 'file'
+
+        # Prepare per-variable sanitized values according to selected options
+        sanitized_vars = {}
+        for k, v in example_vars.items():
+            if not v:
+                sanitized_vars[k] = v
+                continue
+            val = v
+            if self.sanitize_checkbox.isChecked():
+                val = _sanitize_alnum(val)
+            else:
+                if remove_special:
+                    val = re.sub(r'[^A-Za-z0-9_-]', '', val)
+                if replace_space:
+                    val = val.replace(' ', '_')
+            sanitized_vars[k] = val
+
         try:
-            preview_raw = pattern.format(**example_vars)
+            preview_raw = pattern.format(**sanitized_vars)
         except Exception:
             preview_raw = "Invalid pattern"
 
@@ -362,38 +386,35 @@ class BatchRenameDialog(QDialog):
         preview_raw = re.sub(r'\._+', '.', preview_raw)
         preview_raw = re.sub(r'^_+|_+$', '', preview_raw)
 
-        preview_html = preview_raw
+        # If sanitize is checked, perform a final sanitization on the combined name
+        final_sanitized = None
+        if self.sanitize_checkbox.isChecked():
+            final_sanitized = re.sub(r'[^A-Za-z0-9]', '', preview_raw)
+            if not final_sanitized:
+                final_sanitized = 'file'
+            preview_html = final_sanitized
+        else:
+            preview_html = preview_raw
+
         var_spans = []
         for var, color in self.VAR_COLORS.items():
-            val = example_vars[var]
-            if val:
-                marker = f"__VAR_{var.upper()}__"
-                preview_html = re.sub(
-                    re.escape(val),
-                    marker,
-                    preview_html,
-                    count=1
-                )
-                var_spans.append((marker, f'<span style="color:{color};font-weight:bold;">{val}</span>'))
+            val = sanitized_vars[var]
+            if not val:
+                continue
+            display_val = val
+            if self.sanitize_checkbox.isChecked():
+                # reflect final sanitization per variable (removes separators too)
+                display_val = re.sub(r'[^A-Za-z0-9]', '', val)
+            marker = f"__VAR_{var.upper()}__"
+            preview_html = re.sub(
+                re.escape(display_val),
+                marker,
+                preview_html,
+                count=1
+            )
+            var_spans.append((marker, f'<span style="color:{color};font-weight:bold;">{display_val}</span>'))
 
-        def process_outside_tags(html, func):
-            parts = re.split(r'(<[^>]+>)', html)
-            for i, part in enumerate(parts):
-                if not part.startswith('<'):
-                    parts[i] = func(part)
-            return ''.join(parts)
-
-        def remove_special_func(s):
-            return re.sub(r'[^A-Za-z0-9_-]', '', s)
-
-        def replace_space_func(s):
-            return s.replace(' ', '_')
-
-        if remove_special:
-            preview_html = process_outside_tags(preview_html, remove_special_func)
-        if replace_space:
-            preview_html = process_outside_tags(preview_html, replace_space_func)
-
+        # No global post-processing required; values were sanitized individually above
         for marker, span in var_spans:
             preview_html = preview_html.replace(marker, span, 1)
 
@@ -402,6 +423,14 @@ class BatchRenameDialog(QDialog):
     def _sanitize_windows_filename(self, name):
         # Remove Windows forbidden characters: <>:"/\|?* and control chars
         return re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', name)
+
+    def _sanitize_alnum_base(self, base):
+        # Keep only ASCII letters and digits; fallback to 'file' if result empty
+        sanitized = re.sub(r'[^A-Za-z0-9]', '', base)
+        if not sanitized:
+            print(f"[batch_rename] _sanitize_alnum_base: sanitized base empty for '{base}', fallback to 'file'")
+            sanitized = 'file'
+        return sanitized
 
     def do_rename(self):
         mode = self.combo_mode.currentText()
@@ -474,10 +503,21 @@ class BatchRenameDialog(QDialog):
                 title = sanitize_title(title)
                 remove_special = self.remove_special_checkbox.isChecked()
                 replace_space = self.replace_space_checkbox.isChecked()
-                if remove_special:
-                    title = re.sub(r'[^A-Za-z0-9_-]', '', title)
-                if replace_space:
-                    title = title.replace(' ', '_')
+                sanitize_name = self.sanitize_checkbox.isChecked()
+
+                if sanitize_name:
+                    title = re.sub(r'[^A-Za-z0-9]', '', title)
+                    if not title:
+                        orig_base = os.path.splitext(file_info.get('filename',''))[0]
+                        fb = self._sanitize_alnum_base(orig_base)
+                        print(f"[batch_rename] sanitize resulted in empty title for '{file_info.get('filename','')}', falling back to sanitized original base '{fb}'")
+                        title = fb
+                else:
+                    if remove_special:
+                        title = re.sub(r'[^A-Za-z0-9_-]', '', title)
+                    if replace_space:
+                        title = title.replace(' ', '_')
+
                 safe_title = sanitize_windows_filename(title)
                 return f"{safe_title}{ext}"
         else:
@@ -518,10 +558,22 @@ class BatchRenameDialog(QDialog):
                 new_base = re.sub(r'_+\.', '.', new_base)
                 new_base = re.sub(r'\._+', '.', new_base)
                 new_base = re.sub(r'^_+|_+$', '', new_base)
-                if remove_special:
-                    new_base = re.sub(r'[^A-Za-z0-9_-]', '', new_base)
-                if replace_space:
-                    new_base = new_base.replace(' ', '_')
+                sanitize_name = self.sanitize_checkbox.isChecked()
+                if sanitize_name:
+                    new_base_s = re.sub(r'[^A-Za-z0-9]', '', new_base)
+                    if not new_base_s:
+                        # fallback to sanitized original filename base
+                        orig_base = os.path.splitext(file_info.get('filename',''))[0]
+                        fb = self._sanitize_alnum_base(orig_base)
+                        print(f"[batch_rename] sanitize resulted in empty name for '{file_info.get('filename','')}', falling back to sanitized original base '{fb}'")
+                        new_base = fb
+                    else:
+                        new_base = new_base_s
+                else:
+                    if remove_special:
+                        new_base = re.sub(r'[^A-Za-z0-9_-]', '', new_base)
+                    if replace_space:
+                        new_base = new_base.replace(' ', '_')
                 safe_base = sanitize_windows_filename(new_base)
                 return f"{safe_base}{ext}"
 

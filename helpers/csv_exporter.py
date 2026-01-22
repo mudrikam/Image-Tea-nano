@@ -105,12 +105,25 @@ def _123rf_format(file):
     country = ""
     return f'"{filename}","{title}","{description}","{keywords}","{country}"'
 
+def _sanitize_filename_for_vecteezy(filename):
+    base, ext = os.path.splitext(filename)
+    sanitized = re.sub(r'[^A-Za-z0-9]', '', base)
+    if not sanitized:
+        print(f"[csv_exporter] _sanitize_filename_for_vecteezy: sanitized name empty for '{filename}'")
+        sanitized = 'file'
+        print(f"[csv_exporter] _sanitize_filename_for_vecteezy: fallback to '{sanitized}' for '{filename}'")
+    if ext:
+        return sanitized + ext
+    return sanitized
+
+
 def _vecteezy_format(file):
     filename = file[2]
+    filename = _sanitize_filename_for_vecteezy(filename)
     title = file[3] if file[3] is not None else ""
     description = file[4] if file[4] is not None else ""
     keywords = file[5] if file[5] is not None else ""
-    license_type = "Pro"
+    license_type = "Free"
     return f'{filename},"{title}","{description}","{keywords}",{license_type}'
 
 def _istock_format(file):
