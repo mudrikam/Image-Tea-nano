@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QTextBrowser, QSizePolicy, QSplitter, QComboBox, QLabel, QLineEdit, QPushButton
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 import qtawesome as qta
 from config import BASE_PATH
 import re
@@ -13,6 +13,13 @@ class ReadDocumentationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Read Documentation")
         self.resize(900, 600)
+        self.setWindowFlags(Qt.Window)
+        if parent is not None and hasattr(parent, 'windowIcon') and not parent.windowIcon().isNull():
+            self.setWindowIcon(parent.windowIcon())
+        else:
+            icon_path = os.path.join(BASE_PATH, "res", "image_tea.ico")
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
 
         self.lang_combo = QComboBox()
         self.lang_combo.addItem("Bahasa Indonesia", "id")

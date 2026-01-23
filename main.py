@@ -78,6 +78,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._envato_elements_dialog.close()
         if hasattr(self, '_prompt_injector_dialog') and self._prompt_injector_dialog:
             self._prompt_injector_dialog.close()
+        if hasattr(self, '_read_documentation_dialog') and self._read_documentation_dialog:
+            self._read_documentation_dialog.close()
         if hasattr(self, '_action_sequencer_dialog') and self._action_sequencer_dialog:
             self._action_sequencer_dialog.close()
         if hasattr(self, '_video_upscaler_dialog') and self._video_upscaler_dialog:

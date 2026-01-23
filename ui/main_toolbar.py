@@ -365,12 +365,22 @@ def setup_main_toolbar(window: QWidget):
         lambda: webbrowser.open(links["telegram"]),
         window, icon_size, obj_name='toolbar_telegram')
 
+    def open_documentation_toolbar():
+        if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
+            window._read_documentation_dialog = ReadDocumentationDialog(None)
+            window._read_documentation_dialog.destroyed.connect(lambda: setattr(window, '_read_documentation_dialog', None))
+            if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
+                window._read_documentation_dialog.setWindowIcon(window.windowIcon())
+        window._read_documentation_dialog.show()
+        window._read_documentation_dialog.raise_()
+        window._read_documentation_dialog.activateWindow()
+
     documentation_action = create_toolbar_button_with_label(
         make_icon('fa6s.book-open', icon_color),
         make_icon('fa6s.book-open', icon_color_hover),
         "Help",
         "Open the documentation/help dialog for guidance and troubleshooting.",
-        lambda: ReadDocumentationDialog(window).exec(),
+        open_documentation_toolbar,
         window, icon_size, obj_name='toolbar_help')
     
     toolbar.addAction(wa_action)

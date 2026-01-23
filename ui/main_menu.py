@@ -438,8 +438,14 @@ def setup_main_menu(window):
     documentation_action.setToolTip(MENU_TOOLTIPS["documentation"])
     documentation_action.setStatusTip(MENU_TOOLTIPS["documentation"])
     def open_documentation():
-        dialog = ReadDocumentationDialog(window)
-        dialog.exec()
+        if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
+            window._read_documentation_dialog = ReadDocumentationDialog(None)
+            window._read_documentation_dialog.destroyed.connect(lambda: setattr(window, '_read_documentation_dialog', None))
+            if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
+                window._read_documentation_dialog.setWindowIcon(window.windowIcon())
+        window._read_documentation_dialog.show()
+        window._read_documentation_dialog.raise_()
+        window._read_documentation_dialog.activateWindow()
     documentation_action.triggered.connect(open_documentation)
     help_menu.addAction(documentation_action)
 
