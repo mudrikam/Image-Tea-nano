@@ -146,7 +146,29 @@ class SplashScreen(QWidget):
     def show_message(self, message):
         self.status_label.setText(message)
         self.repaint()
-    
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_active = True
+            self._drag_offset = event.globalPos() - self.frameGeometry().topLeft()
+            self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if getattr(self, '_drag_active', False) and (event.buttons() & Qt.LeftButton):
+            try:
+                new_pos = event.globalPos() - self._drag_offset
+                self.move(new_pos)
+            except Exception:
+                pass
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if getattr(self, '_drag_active', False) and event.button() == Qt.LeftButton:
+            self._drag_active = False
+            self.setCursor(Qt.ArrowCursor)
+        super().mouseReleaseEvent(event)
+
     def show(self):
         global splash_active
         splash_active = True
