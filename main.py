@@ -115,11 +115,45 @@ if __name__ == '__main__':
             app.processEvents()
             time.sleep(0.05)
 
+    ALLOWED_DIALOG_CLASS_NAMES = {
+        'DisclaimerDialog',
+        'DonateDialog',
+        'UpdateNoticeDialog',
+        'ApiCallWarningDialog',
+        'GetApiKeyDialog',
+        'AIUnsuportedDialog'
+    }
+
+    def _is_allowed_while_splash(dialog):
+        cls = getattr(dialog, '__class__', None)
+        if cls is None:
+            return False
+        name = cls.__name__
+        if name in ALLOWED_DIALOG_CLASS_NAMES:
+            return True
+        return bool(getattr(dialog, 'allow_while_splash', False))
+
     def _patched_exec(self, *args, **kwargs):
+        if _is_allowed_while_splash(self):
+            had_top = bool(self.windowFlags() & Qt.WindowStaysOnTopHint)
+            if not had_top:
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            result = _original_QDialog_exec(self, *args, **kwargs)
+            if not had_top:
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+            return result
         _wait_for_splash()
         return _original_QDialog_exec(self, *args, **kwargs)
 
     def _patched_show(self, *args, **kwargs):
+        if _is_allowed_while_splash(self):
+            had_top = bool(self.windowFlags() & Qt.WindowStaysOnTopHint)
+            if not had_top:
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                res = _original_QDialog_show(self, *args, **kwargs)
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+                return res
+            return _original_QDialog_show(self, *args, **kwargs)
         _wait_for_splash()
         return _original_QDialog_show(self, *args, **kwargs)
 
