@@ -45,7 +45,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path, parse_backup_filename
+from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path, parse_backup_filename, set_version_to
 
 
 ZIP_NAME = "Image-Tea-nano.zip"
@@ -812,6 +812,8 @@ class UpdateWorkerDialog(QDialog):
     def _update_version_info(self, current, update, developer):
         self.current_version_label.setText(current)
         self.update_version_label.setText(update)
+        # store last resolved update tag for subsequent restore/version adjustments
+        self._last_update_tag = update
     
     def _update_time_info(self, elapsed, remaining, eta):
         try:
@@ -854,6 +856,10 @@ class UpdateWorkerDialog(QDialog):
                     self._append_log(f"Restoring configs from pre-update backup: {zip_path}")
                     restore_backup_by_path(zip_path)
                     self._append_log("Config restore completed.")
+                    # After restore, ensure app version and update_config reflect the new installed tag
+                    if hasattr(self, '_last_update_tag') and self._last_update_tag:
+                        set_version_to(self._last_update_tag, base_path=SCRIPT_DIR)
+                        self._append_log(f"Set app and update_config to {self._last_update_tag}")
                 except Exception as e:
                     print(f"Error restoring update backup: {e}")
                     self._append_log(f"ERROR: Failed to restore update backup: {e}")

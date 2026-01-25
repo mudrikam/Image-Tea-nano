@@ -672,6 +672,36 @@ def restore_backup_by_path(zip_path, base_path=BASE_PATH):
 	return True
 
 
+def set_version_to(tag, base_path=BASE_PATH):
+	if not tag:
+		raise ValueError("Tag is required")
+	version = tag[1:] if tag.startswith('v') else tag
+	app_config_path = os.path.join(base_path, 'configs', 'app_config.json')
+	if not os.path.exists(app_config_path):
+		raise FileNotFoundError("app_config.json not found")
+	with open(app_config_path, 'r', encoding='utf-8') as f:
+		app = json.load(f)
+	app['version'] = version
+	tmp_app = app_config_path + '.tmp'
+	with open(tmp_app, 'w', encoding='utf-8') as f:
+		json.dump(app, f, ensure_ascii=False, indent=4)
+	os.replace(tmp_app, app_config_path)
+	print(f"Set app_config version to {version}")
+
+	update_cfg_path = os.path.join(base_path, 'configs', 'update_config.json')
+	update_cfg = {}
+	if os.path.exists(update_cfg_path):
+		with open(update_cfg_path, 'r', encoding='utf-8') as f:
+			update_cfg = json.load(f)
+	update_cfg['tag_local'] = tag
+	tmp_update = update_cfg_path + '.tmp'
+	with open(tmp_update, 'w', encoding='utf-8') as f:
+		json.dump(update_cfg, f, ensure_ascii=False, indent=4)
+	os.replace(tmp_update, update_cfg_path)
+	print(f"Set update_config tag_local to {tag}")
+	return True
+
+
 def configs_newer_than_latest_backup():
 	configs_dir = os.path.join(BASE_PATH, 'configs')
 	if not os.path.exists(configs_dir):
