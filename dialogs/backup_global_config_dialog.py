@@ -569,6 +569,109 @@ class BackupGlobalConfigDialog(QDialog):
 			self.confirm_and_restore(fname)
 
 
+def parse_backup_filename(filename):
+	m = re.match(r'^(.*)_(\d{8}_\d{6})\.zip$', filename)
+	if not m:
+		return None, None
+	return m.group(1), m.group(2)
+
+
+def _compute_numbered_prefix(base_prefix, backups_dir):
+	m = re.match(r'^(.*?)(?:_(\d{3}))?$', base_prefix)
+	base_name = m.group(1)
+	files = [f for f in os.listdir(backups_dir) if f.lower().endswith('.zip')]
+	max_n = 0
+	for f in files:
+		p, _ = parse_backup_filename(f)
+		if not p:
+			continue
+		m2 = re.match(r'^' + re.escape(base_name) + r'_(\d{3})$', p)
+		if m2:
+			n = int(m2.group(1))
+			if n > max_n:
+				max_n = n
+	return f"{base_name}_{max_n+1:03d}"
+
+
+def create_backup_with_prefix(prefix, base_path=BASE_PATH):
+	if not prefix or not prefix.strip():
+		raise ValueError("Prefix must be a non-empty string")
+	cfg_dir = os.path.join(base_path, 'configs')
+	if not os.path.exists(cfg_dir):
+		raise FileNotFoundError("Configs directory does not exist")
+	backups_dir = os.path.join(base_path, 'configs', 'backup_configs')
+	os.makedirs(backups_dir, exist_ok=True)
+	if prefix.lower().endswith('.zip'):
+		prefix = prefix[:-4]
+	final_prefix = _compute_numbered_prefix(prefix, backups_dir)
+	timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+	zip_name = f"{final_prefix}_{timestamp}.zip"
+	zip_path = os.path.join(backups_dir, zip_name)
+	zf = zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED)
+	for root, dirs, files in os.walk(cfg_dir):
+		dirs[:] = [d for d in dirs if d not in EXCLUDED_FILES]
+		for f in files:
+			if f in EXCLUDED_FILES:
+				continue
+			full = os.path.join(root, f)
+			if not os.path.isfile(full):
+				continue
+			arc = os.path.relpath(full, cfg_dir)
+			zf.write(full, arc)
+	zf.close()
+	return zip_path
+
+
+def find_latest_backup_with_prefix(prefix, base_path=BASE_PATH):
+	backups_dir = os.path.join(base_path, 'configs', 'backup_configs')
+	if not os.path.exists(backups_dir):
+		raise FileNotFoundError("Backups directory does not exist")
+	files = [f for f in os.listdir(backups_dir) if f.lower().endswith('.zip') and f.startswith(prefix)]
+	if not files:
+		raise FileNotFoundError("No backups found with given prefix")
+	latest = max(files, key=lambda f: os.path.getmtime(os.path.join(backups_dir, f)))
+	return os.path.join(backups_dir, latest)
+
+
+def restore_backup_by_path(zip_path, base_path=BASE_PATH):
+	if not os.path.exists(zip_path):
+		raise FileNotFoundError(f"Backup not found: {zip_path}")
+	temp_base = os.path.join(base_path, 'temp', 'backup_restore')
+	os.makedirs(temp_base, exist_ok=True)
+	tmpdir = os.path.join(temp_base, os.path.basename(zip_path) + "_extract")
+	if os.path.exists(tmpdir):
+		shutil.rmtree(tmpdir)
+	os.makedirs(tmpdir, exist_ok=True)
+	with zipfile.ZipFile(zip_path, 'r') as zf:
+		for m in zf.infolist():
+			dest = os.path.join(tmpdir, m.filename)
+			abs_dest = os.path.abspath(dest)
+			abs_tmp = os.path.abspath(tmpdir)
+			if not (abs_dest == abs_tmp or abs_dest.startswith(abs_tmp + os.sep)):
+				raise ValueError("Illegal file path in backup (possible Zip Slip)")
+			if m.filename.endswith('/'):
+				os.makedirs(abs_dest, exist_ok=True)
+				continue
+			os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+			with zf.open(m) as src, open(abs_dest, 'wb') as dst:
+				dst.write(src.read())
+	cfg_dir = os.path.join(base_path, 'configs')
+	for root, dirs, files in os.walk(tmpdir):
+		for f in files:
+			rel = os.path.relpath(os.path.join(root, f), tmpdir)
+			if rel.split(os.sep)[0] in EXCLUDED_FILES:
+				continue
+			dest = os.path.join(cfg_dir, rel)
+			abs_dest = os.path.abspath(dest)
+			abs_cfg = os.path.abspath(cfg_dir)
+			if not (abs_dest == abs_cfg or abs_dest.startswith(abs_cfg + os.sep)):
+				raise ValueError("Illegal destination path")
+			os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+			shutil.copy2(os.path.join(root, f), abs_dest)
+	shutil.rmtree(tmpdir)
+	return True
+
+
 def configs_newer_than_latest_backup():
 	configs_dir = os.path.join(BASE_PATH, 'configs')
 	if not os.path.exists(configs_dir):

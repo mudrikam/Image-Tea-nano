@@ -45,6 +45,8 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path
+
 
 ZIP_NAME = "Image-Tea-nano.zip"
 RELEASES_API_TEMPLATE = "https://api.github.com/repos/{owner}/{repo}/releases/latest"
@@ -155,6 +157,15 @@ class UpdateWorkerThread(QThread):
         self.log.emit("Starting Image Tea update process...")
         
         os.makedirs(self.temp_dir, exist_ok=True)
+        
+        self.status.emit("Backing up configs before update...")
+        self.progress.emit(2)
+        self.log.emit("Creating pre-update backup with prefix 'backup_configs_on_update'...")
+        backup_zip = create_backup_with_prefix('backup_configs_on_update', base_path=self.base_path)
+        self.log.emit(f"Backup created: {backup_zip}")
+        last_backup_file = os.path.join(self.base_path, 'temp', 'last_update_backup_on_update.txt')
+        with open(last_backup_file, 'w', encoding='utf-8') as f:
+            f.write(backup_zip)
         
         owner, repo = get_repo_info()
         self.log.emit(f"Repository: {owner}/{repo}")
@@ -814,6 +825,19 @@ class UpdateWorkerDialog(QDialog):
             QMessageBox.Yes
         )
         if reply == QMessageBox.Yes:
+            last_backup_file = os.path.join(SCRIPT_DIR, 'temp', 'last_update_backup_on_update.txt')
+            if os.path.exists(last_backup_file):
+                try:
+                    with open(last_backup_file, 'r', encoding='utf-8') as f:
+                        zip_path = f.read().strip()
+                    self._append_log(f"Restoring configs from pre-update backup: {zip_path}")
+                    restore_backup_by_path(zip_path)
+                    self._append_log("Config restore completed.")
+                except Exception as e:
+                    print(f"Error restoring update backup: {e}")
+                    self._append_log(f"ERROR: Failed to restore update backup: {e}")
+            else:
+                self._append_log("No pre-update backup found to restore.")
             self._relaunch_app()
             return
         else:
