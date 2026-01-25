@@ -45,7 +45,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path
+from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path, parse_backup_filename
 
 
 ZIP_NAME = "Image-Tea-nano.zip"
@@ -158,27 +158,48 @@ class UpdateWorkerThread(QThread):
         
         os.makedirs(self.temp_dir, exist_ok=True)
         
+        # Create an immediate generic backup so a backup exists right away in logs
         self.status.emit("Backing up configs before update...")
         self.progress.emit(2)
-        self.log.emit("Creating pre-update backup with prefix 'backup_configs_on_update'...")
-        backup_zip = create_backup_with_prefix('backup_configs_on_update', base_path=self.base_path)
-        self.log.emit(f"Backup created: {backup_zip}")
+        self.log.emit("Creating initial pre-update backup with prefix 'backup_configs_on_update'...")
+        initial_backup = create_backup_with_prefix('backup_configs_on_update', base_path=self.base_path)
+        self.log.emit(f"Initial backup created: {initial_backup}")
         last_backup_file = os.path.join(self.base_path, 'temp', 'last_update_backup_on_update.txt')
+        os.makedirs(os.path.dirname(last_backup_file), exist_ok=True)
         with open(last_backup_file, 'w', encoding='utf-8') as f:
-            f.write(backup_zip)
-        
+            f.write(initial_backup)
+
         owner, repo = get_repo_info()
         self.log.emit(f"Repository: {owner}/{repo}")
-        
+
         self.status.emit("Fetching latest release info...")
-        self.progress.emit(5)
-        
+        self.progress.emit(3)
         tag = self._fetch_latest_tag(owner, repo)
         self.log.emit(f"Latest release tag: {tag}")
-        
+
         current_version = get_current_version()
+        curr_norm = current_version[1:] if current_version and current_version.startswith('v') else (current_version or "unknown")
+        tag_norm = tag[1:] if tag and tag.startswith('v') else (tag or "unknown")
+        versioned_prefix = f"backup_configs_on_update_{curr_norm}_to_{tag_norm}"
+
+        # Rename initial backup to versioned prefix (preserve timestamp and numbering)
+        ibname = os.path.basename(initial_backup)
+        pfx, ts = parse_backup_filename(ibname)
+        if ts:
+            new_name = f"{versioned_prefix}_{ts}.zip"
+        else:
+            # fallback to timestamp generated now
+            new_name = f"{versioned_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        new_path = os.path.join(os.path.dirname(initial_backup), new_name)
+        os.replace(initial_backup, new_path)
+        self.log.emit(f"Backup renamed to versioned name: {new_path}")
+        with open(last_backup_file, 'w', encoding='utf-8') as f:
+            f.write(new_path)
+
+        backup_zip = new_path
+
         self.update_info.emit(current_version, tag, owner)
-        
+
         self._update_time_info(5)
         
         self.status.emit("Downloading update package...")
