@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import platform
 import webbrowser
+import time
 from PySide6.QtWidgets import QMessageBox, QApplication
 
 # Add parent directory to path so config can be imported
@@ -76,18 +77,105 @@ def print_progress_bar(downloaded, total_length):
     else:
         print(f"\rDownloading... ({downloaded} bytes)", end='', flush=True)
 
-def download_with_progress(url, filename):
-    def reporthook(block_num, block_size, total_size):
-        downloaded = block_num * block_size
-        if total_size > 0 and downloaded > total_size:
-            downloaded = total_size
-        print_progress_bar(downloaded, total_size)
-    print(f"Downloading from {url} to {filename} ...")
+def _powershell_download(url, filename, timeout: int = 120) -> bool:
+    if not shutil.which("powershell"):
+        return False
+    # Force TLS1.2 in the PowerShell session for older Windows builds that default to older TLS
+    ps_cmd = (
+        "Try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+        "$wc = New-Object System.Net.WebClient; $wc.DownloadFile(\"%s\", \"%s\"); exit 0 } Catch { exit 1 }" % (url, filename)
+    )
+    cmd = [
+        "powershell",
+        "-NoProfile",
+        "-Command",
+        ps_cmd
+    ]
     try:
-        urllib.request.urlretrieve(url, filename, reporthook)
-        print("Download finished.")
+        res = subprocess.run(cmd, check=False, timeout=timeout)
+        return res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0
+    except subprocess.TimeoutExpired:
+        print("PowerShell download timed out")
+        return False
     except Exception as e:
-        print(f"Failed to download: {e}")
+        print(f"PowerShell download error: {e}")
+        return False
+
+
+def _bitsadmin_download(url, filename, timeout: int = 120) -> bool:
+    if not shutil.which("bitsadmin"):
+        return False
+    cmd = ["bitsadmin", "/transfer", "downloadjob", url, filename]
+    try:
+        res = subprocess.run(cmd, check=False, timeout=timeout)
+        return res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0
+    except subprocess.TimeoutExpired:
+        print("BitsAdmin download timed out")
+        return False
+    except Exception as e:
+        print(f"bitsadmin download error: {e}")
+        return False
+
+
+def download_with_progress(url, filename, overall_timeout: int = 300) -> bool:
+    def _stream_download(timeout_per_op: int = 30) -> bool:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Image-Tea/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout_per_op) as resp:
+                total = resp.getheader('Content-Length')
+                try:
+                    total_length = int(total) if total else 0
+                except Exception:
+                    total_length = 0
+                downloaded = 0
+                chunk_size = 8192
+                with open(filename, 'wb') as out:
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        downloaded += len(chunk)
+                        print_progress_bar(downloaded, total_length)
+                if os.path.exists(filename) and os.path.getsize(filename) > 0:
+                    return True
+                else:
+                    print("Downloaded file is empty or missing after streaming retrieval.")
+                    return False
+        except Exception as e:
+            print(f"Primary stream download failed: {e}")
+            return False
+
+    print(f"Downloading from {url} to {filename} ...")
+    start = time.time()
+    if _stream_download():
+        print("Download finished.")
+        return True
+
+    # Short-circuit if we've already exceeded overall timeout
+    if time.time() - start >= overall_timeout:
+        print("Overall download timeout exceeded; aborting automatic attempts.")
+        return False
+
+    if platform.system() == "Windows":
+        remaining = max(10, int(overall_timeout - (time.time() - start)))
+        print("Attempting PowerShell download (Windows fallback)...")
+        ok = _powershell_download(url, filename, timeout=remaining)
+        if ok:
+            print("PowerShell download finished.")
+            return True
+        if time.time() - start >= overall_timeout:
+            print("Overall download timeout exceeded after PowerShell attempt; aborting.")
+            return False
+        remaining = max(10, int(overall_timeout - (time.time() - start)))
+        print("PowerShell download failed; attempting BitsAdmin...")
+        ok = _bitsadmin_download(url, filename, timeout=remaining)
+        if ok:
+            print("BitsAdmin download finished.")
+            return True
+
+    print("All automatic download methods failed.")
+    return False
 
 def show_manual_install_dialog(tool_name, target_folder, download_url=None, parent=None):
     app = QApplication.instance()
@@ -190,19 +278,30 @@ def show_manual_install_dialog(tool_name, target_folder, download_url=None, pare
     if download_url and guide_btn is not None and clicked == guide_btn:
         webbrowser.open(download_url)
 
-def check_folders():
+def _emit(reporter, message: str):
+    if callable(reporter):
+        try:
+            reporter(message)
+        except Exception:
+            print(message)
+    else:
+        print(message)
+
+
+def check_folders(reporter=None):
     system = platform.system()
     
     for folder in expected_full:
+        tool_name = os.path.basename(folder)
+
+        _emit(reporter, f"Preparing tools (checking {tool_name})")
+
         if not os.path.isdir(folder):
-            tool_name = os.path.basename(folder)
-            
             if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg", "realesrgan"]:
                 if check_system_tool(tool_name):
-                    print(f"{tool_name} found in system PATH, skipping download.")
                     os.makedirs(folder, exist_ok=True)
+                    _emit(reporter, f"Preparing tools ({tool_name} found in system PATH)")
                     continue
-                # For Linux/macOS: do not attempt to auto-download ffmpeg/realesrgan; prompt user to install
                 if tool_name == "ffmpeg":
                     app = QApplication.instance()
                     if app is not None:
@@ -217,165 +316,209 @@ def check_folders():
                         print("  Arch: sudo pacman -S ffmpeg")
                         print("  macOS (Homebrew): brew install ffmpeg")
                     continue
-            
-            print(f"Missing folder: {folder}")
+
+            _emit(reporter, f"Preparing tools (downloading {tool_name})")
             os.makedirs(folder, exist_ok=True)
-            
+
             if system == "Windows":
                 if folder.endswith("ghostscript"):
-                    download_and_extract_ghostscript(folder)
+                    download_and_extract_ghostscript(folder, reporter=reporter)
                 elif folder.endswith("exiftool"):
-                    download_and_extract_exiftool(folder)
+                    download_and_extract_exiftool(folder, reporter=reporter)
                 elif folder.endswith("cairo"):
-                    download_and_extract_cairo(folder)
+                    download_and_extract_cairo(folder, reporter=reporter)
                 elif folder.endswith("ffmpeg"):
-                    download_and_extract_ffmpeg(folder)
+                    download_and_extract_ffmpeg(folder, reporter=reporter)
                 elif folder.endswith("realesrgan"):
-                    download_and_extract_realesrgan(folder)
+                    download_and_extract_realesrgan(folder, reporter=reporter)
             else:
                 print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
                 if folder.endswith("cairo"):
                     print("Note: Cairo is typically included with PySide6/Qt on Linux/Mac.")
 
-def download_and_extract_ghostscript(target_folder):
+        else:
+            # Folder exists; verify the tool is actually present and usable. If the top-level folder exists but
+            # executables or DLLs are missing, attempt deterministic download+extract (Windows) or warn the user (non-Windows).
+            if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo"]:
+                ok = is_executable_available(tool_name, folder)
+                if ok:
+                    _emit(reporter, f"Preparing tools ({tool_name} ready)")
+                else:
+                    _emit(reporter, f"Preparing tools ({tool_name} incomplete; downloading)")
+                    print(f"Folder exists but {tool_name} appears incomplete or missing required files: {folder}")
+                    if system == "Windows":
+                        _emit(reporter, f"Preparing tools (downloading {tool_name})")
+                        if tool_name == "ghostscript":
+                            download_and_extract_ghostscript(folder, reporter=reporter)
+                        elif tool_name == "exiftool":
+                            download_and_extract_exiftool(folder, reporter=reporter)
+                        elif tool_name == "cairo":
+                            download_and_extract_cairo(folder, reporter=reporter)
+                        elif tool_name == "ffmpeg":
+                            download_and_extract_ffmpeg(folder, reporter=reporter)
+                        elif tool_name == "realesrgan":
+                            download_and_extract_realesrgan(folder, reporter=reporter)
+                    else:
+                        print(f"{tool_name} appears incomplete. Please install or extract the tool into: {folder}")
+
+def download_and_extract_ghostscript(target_folder, reporter=None) -> bool:
     url = "https://github.com/mudrikam/ghostscript-for-image-tea/archive/refs/heads/main.zip"
     zip_path = os.path.join(target_folder, "ghostscript.zip")
-    print(f"Downloading Ghostscript to {zip_path} ...")
-    try:
-        download_with_progress(url, zip_path)
-        print("Download complete. Extracting...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(target_folder)
-            extracted_root = None
-            for name in zip_ref.namelist():
-                root = name.split('/')[0]
-                if root:
-                    extracted_root = os.path.join(target_folder, root)
-                    break
-            if extracted_root and os.path.isdir(extracted_root):
-                for item in os.listdir(extracted_root):
-                    src = os.path.join(extracted_root, item)
-                    dst = os.path.join(target_folder, item)
-                    if os.path.isdir(src):
-                        if not os.path.exists(dst):
-                            os.rename(src, dst)
-                    else:
-                        os.replace(src, dst)
-                try:
-                    os.rmdir(extracted_root)
-                except Exception:
-                    pass
-        os.remove(zip_path)
-        print("Ghostscript extracted successfully.")
-    except Exception as e:
-        print(f"Failed to download or extract Ghostscript: {e}")
+    _emit(reporter, f"Preparing tools (downloading ghostscript)")
 
-def download_and_extract_exiftool(target_folder):
+    ok = download_with_progress(url, zip_path)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download ghostscript)")
+        print("Failed to download Ghostscript; check network, TLS and system policies.")
+        return False
+
+    _emit(reporter, "Preparing tools (extracting ghostscript)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract ghostscript)")
+        print("Failed to extract Ghostscript archive; please extract manually.")
+        return False
+
+    _emit(reporter, "Preparing tools (ghostscript installed successfully)")
+    return True
+
+def download_and_extract_exiftool(target_folder, reporter=None) -> bool:
     url = "https://github.com/mudrikam/exiftool-for-image-tea/archive/refs/heads/main.zip"
     zip_path = os.path.join(target_folder, "exiftool.zip")
-    print(f"Downloading Exiftool to {zip_path} ...")
-    try:
-        download_with_progress(url, zip_path)
-        print("Download complete. Extracting...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(target_folder)
-            extracted_root = None
-            for name in zip_ref.namelist():
-                root = name.split('/')[0]
-                if root:
-                    extracted_root = os.path.join(target_folder, root)
-                    break
-            if extracted_root and os.path.isdir(extracted_root):
-                for item in os.listdir(extracted_root):
-                    src = os.path.join(extracted_root, item)
-                    dst = os.path.join(target_folder, item)
-                    if os.path.isdir(src):
-                        if not os.path.exists(dst):
-                            os.rename(src, dst)
-                    else:
-                        os.replace(src, dst)
-                try:
-                    os.rmdir(extracted_root)
-                except Exception:
-                    pass
-        os.remove(zip_path)
-        print("Exiftool extracted successfully.")
-    except Exception as e:
-        print(f"Failed to download or extract Exiftool: {e}")
+    _emit(reporter, f"Preparing tools (downloading exiftool)")
 
-def download_and_extract_cairo(target_folder):
+    ok = download_with_progress(url, zip_path)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download exiftool)")
+        print("Failed to download Exiftool; check network, TLS and system policies.")
+        return False
+
+    _emit(reporter, "Preparing tools (extracting exiftool)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract exiftool)")
+        print("Failed to extract Exiftool archive; please extract manually.")
+        return False
+
+    _emit(reporter, "Preparing tools (exiftool installed successfully)")
+    return True
+
+def download_and_extract_cairo(target_folder, reporter=None) -> bool:
     url = "https://github.com/preshing/cairo-windows/releases/download/with-tee/cairo-windows-1.17.2.zip"
     zip_path = os.path.join(target_folder, "cairo.zip")
-    print(f"Downloading Cairo to {zip_path} ...")
-    try:
-        download_with_progress(url, zip_path)
-        print("Download complete. Extracting...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(target_folder)
-        os.remove(zip_path)
-        print("Cairo extracted successfully.")
-    except Exception as e:
-        print(f"Failed to download or extract Cairo: {e}")
+    _emit(reporter, f"Preparing tools (downloading cairo)")
 
-def download_and_extract_ffmpeg(target_folder):
+    ok = download_with_progress(url, zip_path)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download cairo)")
+        print("Failed to download Cairo; check network, TLS and system policies.")
+        return False
+
+    _emit(reporter, "Preparing tools (extracting cairo)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract cairo)")
+        print("Failed to extract Cairo archive; please extract manually.")
+        return False
+
+    _emit(reporter, "Preparing tools (cairo installed successfully)")
+    return True
+
+def download_and_extract_ffmpeg(target_folder, reporter=None) -> bool:
     url = "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip"
     zip_path = os.path.join(target_folder, "ffmpeg.zip")
-    print(f"Downloading FFmpeg to {zip_path} ...")
+    _emit(reporter, f"Preparing tools (downloading ffmpeg)")
+
+    ok = download_with_progress(url, zip_path)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download ffmpeg)")
+        print("Failed to download FFmpeg; check network, TLS and system policies.")
+        return False
+
+    _emit(reporter, "Preparing tools (extracting ffmpeg)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract ffmpeg)")
+        print("Failed to extract FFmpeg archive; please extract manually.")
+        return False
+
+    if not is_executable_available("ffmpeg", target_folder):
+        _emit(reporter, "Preparing tools (ffmpeg verification failed)")
+        print(f"Error: FFmpeg executables not found in {target_folder} after extraction")
+        return False
+
+    _emit(reporter, "Preparing tools (ffmpeg installed successfully)")
+    return True
+
+def _extract_and_flatten_zip(zip_path, target_folder) -> bool:
     try:
-        download_with_progress(url, zip_path)
-        print("Download complete. Extracting...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(target_folder)
-            extracted_root = None
-            for name in zip_ref.namelist():
-                root = name.split('/')[0]
-                if root:
-                    extracted_root = os.path.join(target_folder, root)
-                    break
-            if extracted_root and os.path.isdir(extracted_root):
-                for item in os.listdir(extracted_root):
-                    src = os.path.join(extracted_root, item)
-                    dst = os.path.join(target_folder, item)
-                    if os.path.isdir(src):
-                        if not os.path.exists(dst):
-                            os.rename(src, dst)
-                    else:
-                        os.replace(src, dst)
+    except Exception as e:
+        print(f"Failed to extract {zip_path}: {e}")
+        return False
+
+    try:
+        entries = [e for e in os.listdir(target_folder) if e not in ("realesrgan.zip", "ffmpeg.zip", "ghostscript.zip", "exiftool.zip", "cairo.zip")]
+        if len(entries) == 1:
+            root = os.path.join(target_folder, entries[0])
+            if os.path.isdir(root):
+                for name in os.listdir(root):
+                    src = os.path.join(root, name)
+                    dst = os.path.join(target_folder, name)
+                    if os.path.exists(dst):
+                        if os.path.isdir(dst):
+                            shutil.rmtree(dst)
+                        else:
+                            os.remove(dst)
+                    shutil.move(src, dst)
                 try:
-                    os.rmdir(extracted_root)
+                    os.rmdir(root)
                 except Exception:
                     pass
-        os.remove(zip_path)
-        print("FFmpeg extracted successfully.")
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        return True
     except Exception as e:
-        print(f"Failed to download or extract FFmpeg: {e}")
-        show_manual_install_dialog("FFmpeg", target_folder, "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip")
+        print(f"Error while flattening extracted files: {e}")
+        return False
 
-def download_and_extract_realesrgan(target_folder):
+
+def download_and_extract_realesrgan(target_folder, reporter=None) -> bool:
     system = platform.system()
     urls = {
         "Windows": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
         "Darwin": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip",
         "Linux": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip"
     }
-    
+
     url = urls.get(system)
     if not url:
         print(f"No RealESRGAN download URL available for platform: {system}")
-        return
-    
+        return False
+
     zip_path = os.path.join(target_folder, "realesrgan.zip")
-    print(f"Downloading RealESRGAN to {zip_path} ...")
-    try:
-        download_with_progress(url, zip_path)
-        print("Download complete. Extracting...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(target_folder)
-        os.remove(zip_path)
-        print("RealESRGAN extracted successfully.")
-    except Exception as e:
-        print(f"Failed to download or extract RealESRGAN: {e}")
-        show_manual_install_dialog("RealESRGAN", target_folder, url)
+    _emit(reporter, f"Preparing tools (downloading realesrgan)")
+    ok = download_with_progress(url, zip_path)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download realesrgan)")
+        print("Failed to download RealESRGAN; check network, TLS and system policies.")
+        return False
+
+    _emit(reporter, "Preparing tools (extracting realesrgan)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract realesrgan)")
+        print("Failed to extract RealESRGAN archive; please extract manually.")
+        return False
+
+    if not is_executable_available("realesrgan", target_folder):
+        _emit(reporter, "Preparing tools (realesrgan verification failed)")
+        print(f"Error: RealESRGAN executables not found in {target_folder} after extraction")
+        return False
+
+    _emit(reporter, "Preparing tools (realesrgan installed successfully)")
+    return True
 
 
 def find_executable_in_folder(folder, names):
@@ -396,6 +539,17 @@ def _candidate_exists_in_path(candidate_names):
 
 
 def is_executable_available(tool_name, tool_folder):
+    # Special-case checks for tools that aren't simple executables
+    if tool_name == "cairo":
+        for root, dirs, files in os.walk(tool_folder):
+            for f in files:
+                name = f.lower()
+                if os.name == 'nt' and name.endswith('.dll') and ('cairo' in name or 'libcairo' in name):
+                    return True
+                if os.name != 'nt' and (name.endswith('.dylib') or name.endswith('.so')) and 'cairo' in name:
+                    return True
+        return False
+
     reqs = EXECUTABLE_REQUIREMENTS.get(tool_name, [])
     for base in reqs:
         candidates = [base, f"{base}.exe"]
@@ -407,14 +561,17 @@ def is_executable_available(tool_name, tool_folder):
     return True
 
 
-def ensure_tool_executable(tool_name, tool_folder):
+def ensure_tool_executable(tool_name, tool_folder, reporter=None):
     if is_executable_available(tool_name, tool_folder):
-        print(f"{tool_name} executable(s) present; skipping check.")
+        _emit(reporter, f"Preparing tools ({tool_name} ready)")
         return True
-    print(f"{tool_name} executables missing; attempting to download and extract.")
+    _emit(reporter, f"Preparing tools ({tool_name} missing; attempting install)")
+
     if tool_name == "ffmpeg":
         if platform.system() == "Windows":
-            download_and_extract_ffmpeg(tool_folder)
+            ok = download_and_extract_ffmpeg(tool_folder, reporter=reporter)
+            if not ok:
+                print("Failed to install ffmpeg via automatic method.")
         else:
             app = QApplication.instance()
             if app is not None:
@@ -427,13 +584,17 @@ def ensure_tool_executable(tool_name, tool_folder):
                 print("Install examples:\n  Ubuntu/Debian: sudo apt update && sudo apt install ffmpeg\n  Fedora: sudo dnf install ffmpeg\n  Arch: sudo pacman -S ffmpeg\n  macOS (Homebrew): brew install ffmpeg")
             return False
     elif tool_name == "realesrgan":
-        download_and_extract_realesrgan(tool_folder)
+        ok = download_and_extract_realesrgan(tool_folder, reporter=reporter)
+        if not ok:
+            print("Failed to install realesrgan via automatic method.")
     else:
         print(f"No auto-install handler for {tool_name}")
         return False
+
     if is_executable_available(tool_name, tool_folder):
-        print(f"{tool_name} executable(s) verified after extraction.")
+        _emit(reporter, f"Preparing tools ({tool_name} installed successfully)")
         return True
+
     print(f"Error: {tool_name} executable(s) still missing after attempted extraction.")
     dl_url = None
     if tool_name == "ffmpeg":
@@ -446,18 +607,18 @@ def ensure_tool_executable(tool_name, tool_folder):
             "Linux": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip"
         }
         dl_url = urls.get(system)
-    show_manual_install_dialog(tool_name, tool_folder, dl_url)
+    print(f"Manual install required. Please download and install {tool_name} from: {dl_url}")
     return False
 
 
-def ensure_executables_for_tools():
+def ensure_executables_for_tools(reporter=None):
     overall_ok = True
     targets = {
         "ffmpeg": os.path.join(BASE_PATH, "tools", "ffmpeg"),
         "realesrgan": os.path.join(BASE_PATH, "tools", "realesrgan"),
     }
     for name, folder in targets.items():
-        if not ensure_tool_executable(name, folder):
+        if not ensure_tool_executable(name, folder, reporter=reporter):
             overall_ok = False
     return overall_ok
 
@@ -473,14 +634,23 @@ def install_pyautogui(python_exe: str | None = None, version: str = '0.9.53') ->
         print("Error: Python executable not found; cannot install pyautogui.")
         return False
     try:
-        subprocess.check_call([python_exe, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
-    except subprocess.CalledProcessError as e:
+        res = subprocess.run([python_exe, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], capture_output=True, timeout=300)
+        if res.returncode != 0:
+            print(f"Error upgrading pip/setuptools/wheel: {res.stderr.decode('utf-8', errors='ignore')}")
+    except subprocess.TimeoutExpired:
+        print("Timeout while upgrading pip/setuptools/wheel")
+    except Exception as e:
         print(f"Error upgrading pip/setuptools/wheel: {e}")
-        # continue and attempt install anyway
     try:
-        subprocess.check_call([python_exe, "-m", "pip", "install", f"pyautogui=={version}", "--no-warn-script-location"])
-        return True
-    except subprocess.CalledProcessError as e:
+        res = subprocess.run([python_exe, "-m", "pip", "install", f"pyautogui=={version}", "--no-warn-script-location"], capture_output=True, timeout=600)
+        if res.returncode == 0:
+            return True
+        print(f"Error installing pyautogui: {res.stderr.decode('utf-8', errors='ignore')} | {res.stdout.decode('utf-8', errors='ignore')}")
+        return False
+    except subprocess.TimeoutExpired:
+        print("Timeout while installing pyautogui")
+        return False
+    except Exception as e:
         print(f"Error installing pyautogui: {e}")
         return False
 
@@ -573,13 +743,13 @@ def install_requirements(python_exe: str | None = None) -> bool:
         return False
 
 
-def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53') -> bool:
+def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53', reporter=None) -> bool:
     """Perform the standard tool checks and ensure PyAutoGUI is available.
 
     Returns True if basic tooling appears ready (folders present and PyAutoGUI importable).
     """
-    check_folders()
-    exe_ok = ensure_executables_for_tools()
+    check_folders(reporter=reporter)
+    exe_ok = ensure_executables_for_tools(reporter=reporter)
     if not exe_ok:
         return False
     ok = ensure_pyautogui(python_exe, pyautogui_version)

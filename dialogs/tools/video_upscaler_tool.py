@@ -701,9 +701,22 @@ class UpscaleWorker(QThread):
                                 creationflags = subprocess.CREATE_NO_WINDOW
                             except Exception:
                                 startupinfo = None
-                        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                                text=True, cwd=str(self.realesrgan_bin.parent),
-                                                startupinfo=startupinfo, creationflags=creationflags)
+                        try:
+                            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                                    text=True, cwd=str(self.realesrgan_bin.parent),
+                                                    startupinfo=startupinfo, creationflags=creationflags)
+                        except FileNotFoundError as e:
+                            self.log_signal.emit(f"❌ Error launching RealESRGAN for batch {batch_num}: {e} (executable not found)")
+                            self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
+                            self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
+                            self.log_signal.emit(f"   Command: {cmd}")
+                            return False
+                        except OSError as e:
+                            self.log_signal.emit(f"❌ OS error launching RealESRGAN for batch {batch_num}: {e}")
+                            self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
+                            self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
+                            self.log_signal.emit(f"   Command: {cmd}")
+                            return False
 
                         for line in proc.stdout:
                             if self._stop_requested:

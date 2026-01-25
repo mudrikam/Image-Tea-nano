@@ -168,8 +168,7 @@ if __name__ == '__main__':
     splash.show_message("Preparing tools...")
     app.processEvents()
     from tools.tools_checker import ensure_tools_ready
-    ensure_tools_ready()
-    
+    ensure_tools_ready(reporter=splash.show_message)
     splash.show_message("Running health check...")
     app.processEvents()
     from tools.image_tea_health_checker import run_check

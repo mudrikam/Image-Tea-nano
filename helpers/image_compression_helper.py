@@ -13,7 +13,32 @@ import shutil
 BASE_PATH = config.BASE_PATH
 
 CAIRO_DLL_DIR = os.path.join(BASE_PATH, "tools", "cairo", "cairo-windows-1.17.2", "lib", "x64")
+from tools.tools_checker import download_and_extract_cairo
+
 if os.name == "nt":
+    if not os.path.exists(CAIRO_DLL_DIR):
+        tools_folder = os.path.join(BASE_PATH, "tools", "cairo")
+        print(f"Cairo DLL dir not found at {CAIRO_DLL_DIR}; attempting to ensure tools folder: {tools_folder}")
+        ok = download_and_extract_cairo(tools_folder)
+        if ok:
+            print("Cairo package downloaded/extracted; searching for DLLs...")
+            found_dir = None
+            for root, dirs, files in os.walk(tools_folder):
+                for f in files:
+                    name = f.lower()
+                    if name.endswith('.dll') and ('cairo' in name or 'libcairo' in name):
+                        found_dir = root
+                        break
+                if found_dir:
+                    break
+            if found_dir:
+                CAIRO_DLL_DIR = found_dir
+                print(f"Found Cairo DLL directory: {CAIRO_DLL_DIR}")
+            else:
+                print(f"Cairo DLLs not found after extraction in {tools_folder}")
+        else:
+            print(f"Cairo not available in {tools_folder}; download/extract did not succeed")
+
     if CAIRO_DLL_DIR not in os.environ.get("PATH", ""):
         os.environ["PATH"] = CAIRO_DLL_DIR + ";" + os.environ.get("PATH", "")
     try:
