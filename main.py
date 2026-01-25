@@ -160,20 +160,34 @@ if __name__ == '__main__':
     QDialog.exec = _patched_exec
     QDialog.show = _patched_show
     
+    from tools.tools_checker import ProgressAggregator, compute_tools_work_units, ensure_tools_ready
+    from tools.image_tea_health_checker import build_remote_cache
+
+    ag = ProgressAggregator(progress_reporter=splash.set_progress)
+
+    tools_units = sum(compute_tools_work_units().values())
+    ag.add_total_units(1 + tools_units + 1 + 1 + 1 + 1)
+
     splash.show_message("Checking for updates...")
     app.processEvents()
     from helpers.check_for_update_helper import check_for_update
     check_for_update()
-    
+    ag.unit_completed()
+
     splash.show_message("Preparing tools...")
     app.processEvents()
-    from tools.tools_checker import ensure_tools_ready
-    ensure_tools_ready(reporter=splash.show_message)
+    ensure_tools_ready(reporter=splash.show_message, progress_reporter=ag.make_unit_progress_reporter(1), unit_callback=ag.unit_completed)
+
     splash.show_message("Running health check...")
     app.processEvents()
+    cache = build_remote_cache(force_refresh=False, progress_reporter=ag.make_unit_progress_reporter(1))
+    ag.unit_completed()
+    remote_count = len(cache.get('files', [])) if cache else 0
+    if remote_count:
+        ag.add_total_units(remote_count)
     from tools.image_tea_health_checker import run_check
-    run_check(repair=True, force_refresh=False, verbose=True)
-    
+    run_check(repair=True, force_refresh=False, verbose=True, cache=cache, unit_callback=ag.unit_completed, progress_reporter=ag.make_unit_progress_reporter(1))
+
     splash.show_message("Loading components...")
     app.processEvents()
     from ui.setup_ui import setup_ui
@@ -185,10 +199,12 @@ if __name__ == '__main__':
     )
     from dialogs.disclaimer_dialog import DisclaimerDialog
     import json
-    
+    ag.unit_completed()
+
     splash.show_message("Checking disclaimer...")
     app.processEvents()
     if DisclaimerDialog.check_and_show():
+        ag.unit_completed()
         splash.show_message("Starting application...")
         app.processEvents()
         time.sleep(2)
@@ -202,6 +218,9 @@ if __name__ == '__main__':
         window_geometry.moveCenter(center_point)
         window.move(window_geometry.topLeft())
         
+        # Final unit: starting application (1 unit)
+        ag.unit_completed()
+
         splash.finish(window)
         window.show()
         app.processEvents()

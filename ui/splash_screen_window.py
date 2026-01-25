@@ -1,6 +1,6 @@
 import os
 import json
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QApplication
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QApplication, QProgressBar
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QFont
 from config import BASE_PATH
@@ -135,7 +135,31 @@ class SplashScreen(QWidget):
         self.status_label.setAlignment(Qt.AlignLeft)
         info_layout.addWidget(self.status_label)
         
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setStyleSheet(
+            "QProgressBar { background-color: rgba(255,255,255,0.08); border-radius: 4px; }"
+            "QProgressBar::chunk { background-color: #4e9e20; border-radius: 4px; }"
+        )
+        info_layout.addWidget(self.progress_bar)
+        
         self.setFixedSize(pixmap.width() // 2 + 500, pixmap.height())
+
+    def show_message(self, message):
+        self.status_label.setText(message)
+        self.repaint()
+
+    def set_progress(self, percent: int):
+        if percent < 0:
+            percent = 0
+        if percent > 100:
+            percent = 100
+        self.progress_bar.setValue(int(percent))
+        self.repaint()
 
         screen = QApplication.primaryScreen().geometry()
         splash_geometry = self.frameGeometry()

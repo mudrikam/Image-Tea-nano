@@ -55,7 +55,7 @@ def health_flag_path():
     return os.path.join(BASE_PATH, "temp", HEALTH_FLAG)
 
 
-def _download_release_zip(tag, dest_path):
+def _download_release_zip(tag, dest_path, progress_reporter=None):
     cfg = _app_config()
     repo = cfg.get("links", {}).get("repo", "")
     if repo.endswith("/"):
@@ -67,10 +67,29 @@ def _download_release_zip(tag, dest_path):
     url = f"https://github.com/{owner}/{repo_name}/releases/download/{tag}/{ZIP_NAME}"
     resp = requests.get(url, stream=True, timeout=30)
     resp.raise_for_status()
+    total = resp.headers.get('Content-Length')
+    try:
+        total_length = int(total) if total else 0
+    except Exception:
+        total_length = 0
+    downloaded = 0
+    chunk_size = 1024 * 64
     with open(dest_path, "wb") as f:
-        for chunk in resp.iter_content(1024 * 64):
+        for chunk in resp.iter_content(chunk_size):
             if chunk:
                 f.write(chunk)
+                downloaded += len(chunk)
+                if callable(progress_reporter) and total_length:
+                    try:
+                        percent = int((downloaded * 100) / total_length)
+                        progress_reporter(percent)
+                    except Exception:
+                        pass
+    if callable(progress_reporter):
+        try:
+            progress_reporter(100)
+        except Exception:
+            pass
     return dest_path
 
 
@@ -105,7 +124,7 @@ def _list_files_in_zip(zip_path):
         return sorted(names)
 
 
-def build_remote_cache(force_refresh=False):
+def build_remote_cache(force_refresh=False, progress_reporter=None):
     tag = _tag_from_config()
     cache_file = cache_path()
     old_cache = None
@@ -136,7 +155,7 @@ def build_remote_cache(force_refresh=False):
     tmp_zip = os.path.join(tempfile.gettempdir(), f"health_{tag}.zip")
     try:
         try:
-            _download_release_zip(tag, tmp_zip)
+            _download_release_zip(tag, tmp_zip, progress_reporter=progress_reporter)
         except Exception as e:
             if old_cache is not None:
                 try:
@@ -197,15 +216,20 @@ def local_file_set():
     return set(sorted(files))
 
 
-def compare_with_cache(cache=None):
+def compare_with_cache(cache=None, unit_callback=None):
     if cache is None:
         cache = load_cache()
     if not cache:
         raise RuntimeError("No cache available. Run build_remote_cache() first.")
-    remote_files = set(cache.get('files', []))
+    remote_files = list(cache.get('files', []))
     local_files = local_file_set()
-    missing = sorted(list(remote_files - local_files))
-    extra = sorted(list(local_files - remote_files))
+    missing = []
+    for f in remote_files:
+        if callable(unit_callback):
+            unit_callback()
+        if f not in local_files:
+            missing.append(f)
+    extra = sorted(list(local_files - set(remote_files)))
     return {
         'tag': cache.get('tag'),
         'missing': missing,
@@ -255,17 +279,18 @@ def write_health_flag(tag):
         json.dump({'tag': tag, 'verified_at': datetime.utcnow().isoformat() + 'Z'}, f)
 
 
-def run_check(repair=False, force_refresh=False, verbose=True):
+def run_check(repair=False, force_refresh=False, verbose=True, cache=None, unit_callback=None, progress_reporter=None):
     if is_development():
         if verbose:
             print("Development mode detected (.env DEVELOPMENT=true) - skipping health check.")
         return {'skipped': True}
 
     tag = _tag_from_config()
-    cache = build_remote_cache(force_refresh=force_refresh)
+    if cache is None:
+        cache = build_remote_cache(force_refresh=force_refresh, progress_reporter=progress_reporter)
     if verbose:
         print(f"Health checker: using tag {cache.get('tag')} (fetched {cache.get('fetched_at')})")
-    report = compare_with_cache(cache)
+    report = compare_with_cache(cache, unit_callback=unit_callback)
     if report['missing']:
         if verbose:
             print(f"Missing {len(report['missing'])} files:")
@@ -276,7 +301,7 @@ def run_check(repair=False, force_refresh=False, verbose=True):
             if verbose:
                 print(f"Repaired {res.get('repaired')} files.")
             # re-compare
-            report = compare_with_cache(cache)
+            report = compare_with_cache(cache, unit_callback=unit_callback)
     if not report['missing']:
         write_health_flag(cache.get('tag'))
         if verbose:
