@@ -56,6 +56,7 @@ class FileDropListWidget(QListWidget):
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager, UpscalerModelManagerDialog
+from tools.tools_checker import is_vulkan_available
 
 
 def get_realesrgan_path():
@@ -123,6 +124,14 @@ class ImageUpscaleWorker(QThread):
             if not os.access(self.realesrgan_bin, os.X_OK):
                 print(f"System Error: RealESRGAN not executable after chmod: {self.realesrgan_bin}")
                 self.log_signal.emit(f"❌ OS error launching RealESRGAN: permission denied: {self.realesrgan_bin}")
+                return False
+        # Check Vulkan availability deterministically on non-Windows
+        if platform.system() != 'Windows':
+            if not is_vulkan_available():
+                msg = ("Vulkan not available or not configured correctly on this system. "
+                       "RealESRGAN requires Vulkan GPU drivers (or proper MoltenVK on macOS).")
+                print(f"System Error: {msg}")
+                self.log_signal.emit(f"❌ System Error: {msg}")
                 return False
         return True
     
@@ -531,8 +540,16 @@ class ImageUpscaleWorker(QThread):
                     if last_stdout:
                         tail = last_stdout[-50:]
                         self.log_signal.emit("   🔎 Recent RealESRGAN output:")
+                        combined = "\n".join(tail).lower()
                         for l in tail:
                             self.log_signal.emit(f"      {l}")
+
+                        # Detect Vulkan/driver specific failure signatures to give clearer system guidance
+                        if 'llvmpipe' in combined or 'llvm error' in combined or 'cannot select' in combined or 'fild' in combined:
+                            hint = ("System Error: Vulkan/driver failure detected in RealESRGAN output (llvmpipe/LLVM). "
+                                    "This indicates the system's Vulkan runtime or GPU drivers are missing or incompatible.")
+                            print(hint)
+                            self.log_signal.emit(f"   ❗ {hint}")
                     else:
                         self.log_signal.emit("   🔎 No RealESRGAN stdout captured")
 

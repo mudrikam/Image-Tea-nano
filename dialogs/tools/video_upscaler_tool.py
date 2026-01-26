@@ -754,8 +754,15 @@ class UpscaleWorker(QThread):
                         if last_stdout:
                             tail = last_stdout[-20:]
                             self.log_signal.emit("   🔎 Recent RealESRGAN output:")
+                            combined = "\n".join(tail).lower()
                             for l in tail:
                                 self.log_signal.emit(f"      {l}")
+
+                            if 'llvmpipe' in combined or 'llvm error' in combined or 'cannot select' in combined or 'fild' in combined:
+                                hint = ("System Error: Vulkan/driver failure detected in RealESRGAN output (llvmpipe/LLVM). "
+                                        "Ensure proper Vulkan GPU drivers are installed; using software rasterizers will fail.")
+                                print(hint)
+                                self.log_signal.emit(f"   ❗ {hint}")
 
                         if attempts > max_attempts:
                             self.log_signal.emit(f"   ❌ RealESRGAN failed repeatedly on batch {batch_num}; skipping batch")

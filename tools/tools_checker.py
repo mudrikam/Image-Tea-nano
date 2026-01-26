@@ -665,6 +665,46 @@ def _candidate_exists_in_path(candidate_names):
     return False
 
 
+def is_vulkan_available() -> bool:
+    """Deterministic check for Vulkan availability on non-Windows platforms.
+
+    Returns True if there's reasonable evidence Vulkan is available (vulkaninfo present
+    and runnable, or ICD files present, or /dev/dri devices exist). False otherwise.
+    """
+    if platform.system() == 'Windows':
+        return True
+
+    # Prefer explicit 'vulkaninfo' if available
+    if shutil.which('vulkaninfo'):
+        try:
+            res = subprocess.run(['vulkaninfo'], capture_output=True, text=True, timeout=5)
+            return res.returncode == 0 and bool(res.stdout.strip())
+        except subprocess.TimeoutExpired:
+            print("System Notice: 'vulkaninfo' timed out during Vulkan check")
+            return False
+        except Exception as e:
+            print(f"System Notice: 'vulkaninfo' check failed: {e}")
+            return False
+
+    # Check for ICD files
+    icd_paths = ['/etc/vulkan/icd.d', '/usr/share/vulkan/icd.d']
+    for p in icd_paths:
+        try:
+            if os.path.isdir(p) and any(f.endswith('.json') for f in os.listdir(p)):
+                return True
+        except Exception:
+            pass
+
+    # Check for /dev/dri presence as a heuristic for GPU drivers
+    try:
+        if os.path.isdir('/dev/dri') and any(os.path.exists(os.path.join('/dev/dri', f)) for f in os.listdir('/dev/dri')):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def is_executable_available(tool_name, tool_folder):
     if tool_name == "cairo":
         for root, dirs, files in os.walk(tool_folder):
