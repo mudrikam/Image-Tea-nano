@@ -27,20 +27,7 @@ DEPS_MARKER_FILE = Path(BASE_PATH) / "temp" / ".upscaler_deps_installed"
 
 
 def get_default_models_dir() -> Path:
-    system = platform.system()
-    if system == "Windows":
-        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
-    else:
-        home = Path.home()
-        possible_paths = [
-            Path("/usr/share/realesrgan-ncnn-vulkan/models"),
-            home / ".local" / "share" / "realesrgan-ncnn-vulkan" / "models",
-            Path(BASE_PATH) / "tools" / "realesrgan" / "models"
-        ]
-        for p in possible_paths:
-            if p.exists():
-                return p
-        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
+    return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
 
 
 def has_nvidia_gpu() -> bool:

@@ -49,7 +49,6 @@ def check_system_tool(tool_name):
         "ghostscript": "gs",
         "exiftool": "exiftool",
         "ffmpeg": "ffmpeg",
-        "realesrgan": "realesrgan-ncnn-vulkan"
     }
     
     cmd = tool_commands.get(tool_name)
@@ -372,7 +371,7 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
         _emit(reporter, f"Preparing tools (checking {tool_name})")
 
         if not os.path.isdir(folder):
-            if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg", "realesrgan"]:
+            if system != "Windows" and tool_name in ["ghostscript", "exiftool", "ffmpeg"]:
                 if check_system_tool(tool_name):
                     os.makedirs(folder, exist_ok=True)
                     _emit(reporter, f"Preparing tools ({tool_name} found in system PATH)")
@@ -411,9 +410,13 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
                 elif folder.endswith("realesrgan"):
                     download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
             else:
-                print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
-                if folder.endswith("cairo"):
-                    print("Note: Cairo is typically included with PySide6/Qt on Linux/Mac.")
+                # For non-Windows we also attempt deterministic download of RealESRGAN into the local tools folder
+                if folder.endswith("realesrgan"):
+                    download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                else:
+                    print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
+                    if folder.endswith("cairo"):
+                        print("Note: Cairo is typically included with PySide6/Qt on Linux/Mac.")
 
         else:
             # Folder exists; verify the tool is actually present and usable. If the top-level folder exists but
