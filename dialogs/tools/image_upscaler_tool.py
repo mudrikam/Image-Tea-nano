@@ -104,6 +104,27 @@ class ImageUpscaleWorker(QThread):
 
     def stop(self):
         self._stop_requested = True
+
+    def _preflight_realesrgan(self) -> bool:
+        if not self.realesrgan_bin.exists():
+            self.log_signal.emit(f"❌ RealESRGAN executable missing: {self.realesrgan_bin}")
+            print(f"System Error: RealESRGAN executable missing at {self.realesrgan_bin}")
+            return False
+        if platform.system() != 'Windows' and not os.access(self.realesrgan_bin, os.X_OK):
+            print(f"System Notice: RealESRGAN binary not executable, attempting to set +x: {self.realesrgan_bin}")
+            try:
+                st = os.stat(self.realesrgan_bin).st_mode
+                os.chmod(self.realesrgan_bin, st | 0o755)
+                print(f"Set executable bit on {self.realesrgan_bin}")
+            except Exception as e:
+                print(f"System Error: Cannot set executable bit on {self.realesrgan_bin}: {e}")
+                self.log_signal.emit(f"❌ OS error launching RealESRGAN: permission issue on {self.realesrgan_bin}")
+                return False
+            if not os.access(self.realesrgan_bin, os.X_OK):
+                print(f"System Error: RealESRGAN not executable after chmod: {self.realesrgan_bin}")
+                self.log_signal.emit(f"❌ OS error launching RealESRGAN: permission denied: {self.realesrgan_bin}")
+                return False
+        return True
     
     def _init_upscaler_backend(self):
         if self.model_type == 'ncnn':
