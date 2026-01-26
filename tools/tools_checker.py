@@ -626,9 +626,20 @@ def download_and_extract_realesrgan(target_folder, reporter=None, progress_repor
     if callable(unit_callback):
         unit_callback()
 
+    # Ensure the extracted RealESRGAN binary has execute permissions on non-Windows systems
+    executable_candidate = find_executable_in_folder(target_folder, ["realesrgan-ncnn-vulkan", "realesrgan-ncnn-vulkan.exe"])
+    if executable_candidate and os.name != 'nt':
+        try:
+            st = os.stat(executable_candidate).st_mode
+            if not (st & 0o111):
+                os.chmod(executable_candidate, st | 0o755)
+                print(f"Set executable permission on {executable_candidate}")
+        except Exception as e:
+            print(f"Failed to set executable bit on {executable_candidate}: {e}")
+
     if not is_executable_available("realesrgan", target_folder):
         _emit(reporter, "Preparing tools (realesrgan verification failed)")
-        print(f"Error: RealESRGAN executables not found in {target_folder} after extraction")
+        print(f"Error: RealESRGAN executables not found or not executable in {target_folder} after extraction")
         return False
     if callable(unit_callback):
         unit_callback()
@@ -671,6 +682,9 @@ def is_executable_available(tool_name, tool_folder):
         if tool_name == "realesrgan":
             found_in_folder = find_executable_in_folder(tool_folder, candidates)
             if not found_in_folder:
+                return False
+            # On non-Windows ensure the file is executable
+            if os.name != 'nt' and not os.access(found_in_folder, os.X_OK):
                 return False
             continue
         if _candidate_exists_in_path(candidates):

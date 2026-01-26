@@ -683,17 +683,23 @@ class UpscaleWorker(QThread):
                                 creationflags = subprocess.CREATE_NO_WINDOW
                             except Exception:
                                 startupinfo = None
+                        # Preflight permission check
+                        if not self._preflight_realesrgan():
+                            return False
+
                         try:
                             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
                                                     text=True, cwd=str(self.realesrgan_bin.parent),
                                                     startupinfo=startupinfo, creationflags=creationflags)
                         except FileNotFoundError as e:
+                            print(f"System Error: RealESRGAN executable not found: {e} - {self.realesrgan_bin}")
                             self.log_signal.emit(f"❌ Error launching RealESRGAN for batch {batch_num}: {e} (executable not found)")
                             self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
                             self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
                             self.log_signal.emit(f"   Command: {cmd}")
                             return False
                         except OSError as e:
+                            print(f"System Error launching RealESRGAN for batch {batch_num}: {e} - Executable: {self.realesrgan_bin}")
                             self.log_signal.emit(f"❌ OS error launching RealESRGAN for batch {batch_num}: {e}")
                             self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
                             self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
@@ -1403,13 +1409,38 @@ class VideoUpscalerDialog(QDialog):
             missing.append(f"Models not found at: {models_dir}")
         
         if missing:
-            print("WARNING - Missing binaries:")
+            self.log_viewer.append("⚠️ WARNING - Missing binaries:")
             for msg in missing:
-                print(f"   {msg}")
+                self.log_viewer.append(f"   {msg}")
+                print(f"WARNING - {msg}")
+            self.log_viewer.append("")
         else:
-            print("All binaries found")
-            print(f"   FFmpeg: {ffmpeg}")
-            print(f"   RealESRGAN: {realesrgan}")
+            self.log_viewer.append("✅ All binaries found")
+            self.log_viewer.append(f"   FFmpeg: {ffmpeg}")
+            self.log_viewer.append(f"   RealESRGAN: {realesrgan}")
+            self.log_viewer.append("")
+
+    def _preflight_realesrgan(self):
+        # Deterministic permission checks before launching RealESRGAN
+        if not self.realesrgan_bin.exists():
+            self.log_viewer.append(f"❌ RealESRGAN executable missing: {self.realesrgan_bin}")
+            print(f"System Error: RealESRGAN executable missing at {self.realesrgan_bin}")
+            return False
+        if platform.system() != 'Windows' and not os.access(self.realesrgan_bin, os.X_OK):
+            print(f"System Notice: RealESRGAN binary not executable, attempting to set +x: {self.realesrgan_bin}")
+            try:
+                st = os.stat(self.realesrgan_bin).st_mode
+                os.chmod(self.realesrgan_bin, st | 0o755)
+                print(f"Set executable bit on {self.realesrgan_bin}")
+            except Exception as e:
+                print(f"System Error: Cannot set executable bit on {self.realesrgan_bin}: {e}")
+                self.log_viewer.append(f"❌ OS error launching RealESRGAN: permission issue on {self.realesrgan_bin}")
+                return False
+            if not os.access(self.realesrgan_bin, os.X_OK):
+                print(f"System Error: RealESRGAN not executable after chmod: {self.realesrgan_bin}")
+                self.log_viewer.append(f"❌ OS error launching RealESRGAN: permission denied: {self.realesrgan_bin}")
+                return False
+        return True
     
     def _on_model_changed(self, model_name: str):
         m = re.search(r"x([234])", model_name, re.IGNORECASE)
