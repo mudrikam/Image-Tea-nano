@@ -58,7 +58,7 @@ def _adobe_stock_format(file, adobe_map, category_mapping):
             adobe_cat_id = mapping['category_id']
             break
     category_text = str(adobe_cat_id) if adobe_cat_id is not None else ""
-    return f'{filename},"{title}","{tags}","{category_text}",'
+    return f'"{filename}","{title}","{tags}","{category_text}",'
 
 def _shutterstock_format(file, shutterstock_map, category_mapping, db):
     filename = file[2]
@@ -95,7 +95,7 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
     
     editorial = "no"
     mature_content = "no"
-    return f'{filename},"{description}","{tags}","{categories}",{editorial},{mature_content},{illustration}'
+    return f'"{filename}","{description}","{tags}","{categories}",{editorial},{mature_content},{illustration}'
 
 def _123rf_format(file):
     filename = file[2]
@@ -124,7 +124,7 @@ def _vecteezy_format(file):
     description = file[4] if file[4] is not None else ""
     keywords = file[5] if file[5] is not None else ""
     license_type = "Free"
-    return f'{filename},"{title}","{description}","{keywords}",{license_type}'
+    return f'"{filename}","{title}","{description}","{keywords}",{license_type}'
 
 def _istock_format(file):
     filename = file[2]
@@ -136,7 +136,7 @@ def _istock_format(file):
     keywords = file[5] if file[5] is not None else ""
     poster_timecode = ""
     shot_speed = "Real Time"
-    return f'{filename},"{description}","{country}","{title}","{keywords}","{poster_timecode}","{shot_speed}",{created_date}'
+    return f'"{filename}","{description}","{country}","{title}","{keywords}","{poster_timecode}","{shot_speed}","{created_date}"'
 
 def _pond5_format(file):
     filename = file[2]
@@ -170,8 +170,7 @@ def _canva_format(file):
     artist = ""
     locale = "en"
     description = file[4] if file[4] is not None else ""
-    return f'{filename},"{title}","{keywords}",{artist},{locale},"{description}"'
-
+    return f'"{filename}","{title}","{keywords}",{artist},{locale},"{description}"'
 def _miricanvas_format(file):
     filename = file[2]
     # Remove extension for MiriCanvas
