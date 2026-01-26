@@ -652,7 +652,6 @@ def _candidate_exists_in_path(candidate_names):
 
 
 def is_executable_available(tool_name, tool_folder):
-    # Special-case checks for tools that aren't simple executables
     if tool_name == "cairo":
         for root, dirs, files in os.walk(tool_folder):
             for f in files:
@@ -666,6 +665,11 @@ def is_executable_available(tool_name, tool_folder):
     reqs = EXECUTABLE_REQUIREMENTS.get(tool_name, [])
     for base in reqs:
         candidates = [base, f"{base}.exe"]
+        if tool_name == "realesrgan":
+            found_in_folder = find_executable_in_folder(tool_folder, candidates)
+            if not found_in_folder:
+                return False
+            continue
         if _candidate_exists_in_path(candidates):
             continue
         found_in_folder = find_executable_in_folder(tool_folder, candidates)

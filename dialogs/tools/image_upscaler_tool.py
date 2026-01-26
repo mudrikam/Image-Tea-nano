@@ -60,30 +60,12 @@ from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager, Up
 
 def get_realesrgan_path():
     system = platform.system()
-    if system == "Windows":
-        return Path(BASE_PATH) / "tools" / "realesrgan" / "realesrgan-ncnn-vulkan.exe"
-    else:
-        result = subprocess.run(["which", "realesrgan-ncnn-vulkan"], capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout.strip():
-            return Path(result.stdout.strip())
-        return Path("/usr/bin/realesrgan-ncnn-vulkan")
+    bin_name = "realesrgan-ncnn-vulkan.exe" if system == "Windows" else "realesrgan-ncnn-vulkan"
+    return Path(BASE_PATH) / "tools" / "realesrgan" / bin_name
 
 
 def get_models_dir():
-    system = platform.system()
-    if system == "Windows":
-        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
-    else:
-        home = Path.home()
-        possible_paths = [
-            Path("/usr/share/realesrgan-ncnn-vulkan/models"),
-            home / ".local" / "share" / "realesrgan-ncnn-vulkan" / "models",
-            Path(BASE_PATH) / "tools" / "realesrgan" / "models"
-        ]
-        for p in possible_paths:
-            if p.exists():
-                return p
-        return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
+    return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
 
 
 TEMP_DIR = Path(BASE_PATH) / "temp" / "image_upscaler"
@@ -970,14 +952,12 @@ class ImageUpscalerDialog(QDialog):
             missing.append(f"Models not found at: {models_dir}")
         
         if missing:
-            self.log_viewer.append("⚠️ WARNING - Missing binaries:")
+            print("WARNING - Missing binaries:")
             for msg in missing:
-                self.log_viewer.append(f"   {msg}")
-            self.log_viewer.append("")
+                print(f"   {msg}")
         else:
-            self.log_viewer.append("✅ All binaries found")
-            self.log_viewer.append(f"   RealESRGAN: {realesrgan}")
-            self.log_viewer.append("")
+            print("All binaries found")
+            print(f"   RealESRGAN: {realesrgan}")
     
     def _on_model_changed(self, model_name: str):
         m = re.search(r"x([234])", model_name, re.IGNORECASE)
