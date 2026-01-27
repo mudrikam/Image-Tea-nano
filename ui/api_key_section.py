@@ -3,6 +3,8 @@ from PySide6.QtCore import Signal, Slot, QUrl
 from PySide6.QtGui import QDesktopServices
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
+import os
+import json
 
 class ApiKeySectionWidget(QWidget):
     api_key_changed = Signal(str, str, str)  # api_key, service, model
@@ -32,10 +34,9 @@ class ApiKeySectionWidget(QWidget):
         layout.addWidget(self.api_key_combo)
 
         self.tested_label = QLabel()
-        self.get_api_btn = QPushButton("Get FREE API Key")
+        self.get_api_btn = QPushButton("Get API Key Here")
         self.get_api_btn.setVisible(False)
         self.get_api_btn.setMinimumWidth(140)
-        # Add green color and icon to make the button more visible
         try:
             self.get_api_btn.setIcon(qta.icon('fa6s.key', color='#FFFFFF'))
         except Exception:
@@ -54,7 +55,11 @@ class ApiKeySectionWidget(QWidget):
         self.get_api_btn.setToolTip(
             "This application requires an API key to function."
         )
-        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aistudio.google.com/api-keys")))
+        app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
+        with open(app_cfg_path, 'r', encoding='utf-8') as f:
+            app_cfg = json.load(f)
+        get_api_link = app_cfg['links']['get_api_key']
+        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(get_api_link)))
         self.tested_label.setText(" - | -")
         self.tested_label.setToolTip(
             "This application requires an API key to function."

@@ -28,7 +28,8 @@ if exist "%PYTHON_DIR%" (
 REM =====================================================================
 REM Define variables for setup process
 REM =====================================================================
-set "PYTHON_ZIP=%TEMP%\python-3.12.10-embed-amd64.zip"
+REM Use application temp folder (not system %TEMP%) to avoid cross-process locks
+set "PYTHON_ZIP=%TEMP_DIR%\python-3.12.10-embed-amd64.zip"
 set "PYTHON_URL=https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
 set "REQUIREMENTS_FILE=%BASE_DIR%\requirements.txt"
 
@@ -42,6 +43,10 @@ REM =====================================================================
 REM Download and extract Python embedded distribution
 REM =====================================================================
 echo Downloading Python embedded distribution...
+if exist "%PYTHON_ZIP%" (
+    echo Removing previous temp archive "%PYTHON_ZIP%"...
+    del /f /q "%PYTHON_ZIP%" >nul 2>&1 || echo Could not delete previous temp archive.
+)
 powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%'"
 if exist "%PYTHON_ZIP%" (
     echo Download succeeded.
