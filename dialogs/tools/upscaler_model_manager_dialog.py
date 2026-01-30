@@ -40,17 +40,33 @@ def has_nvidia_gpu() -> bool:
 
 
 def are_pth_deps_installed() -> bool:
-    """Check if PyTorch and RealESRGAN dependencies are installed."""
+    """Check if PyTorch and required PTH dependencies are installed.
+
+    Returns True when PyTorch is present and at least one of:
+    - the RealESRGAN package (providing RealESRGANer), or
+    - the basicsr package (providing RRDBNet) is available.
+    """
     if DEPS_MARKER_FILE.exists():
         content = DEPS_MARKER_FILE.read_text()
         if "pth_installed" in content:
             return True
-    
+
     try:
         import torch
-        from realesrgan import RealESRGANer
-        return True
     except ImportError:
+        return False
+
+    # Accept either realesrgan (high-level helper) or basicsr (low-level RRDBNet implementation)
+    try:
+        from realesrgan import RealESRGANer  # type: ignore
+        return True
+    except Exception:
+        pass
+
+    try:
+        import basicsr  # type: ignore
+        return True
+    except Exception:
         return False
 
 

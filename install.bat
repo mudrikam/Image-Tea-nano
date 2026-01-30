@@ -43,15 +43,19 @@ REM =====================================================================
 REM Download and extract Python embedded distribution
 REM =====================================================================
 echo Downloading Python embedded distribution...
+if not exist "%TEMP_DIR%" (
+    echo Creating temp folder "%TEMP_DIR%"...
+    mkdir "%TEMP_DIR%"
+)
 if exist "%PYTHON_ZIP%" (
     echo Removing previous temp archive "%PYTHON_ZIP%"...
     del /f /q "%PYTHON_ZIP%" >nul 2>&1 || echo Could not delete previous temp archive.
 )
-powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Try { Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%' -UseBasicParsing -ErrorAction Stop } Catch { Write-Error $_; exit 1 }"
 if exist "%PYTHON_ZIP%" (
     echo Download succeeded.
     echo Extracting Python...
-    powershell -Command "Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Try { Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force -ErrorAction Stop } Catch { Write-Error $_; exit 1 }"
 ) else (
     echo Automatic download failed or blocked.
     echo A stable internet connection is required to let Image-Tea download Python automatically.
