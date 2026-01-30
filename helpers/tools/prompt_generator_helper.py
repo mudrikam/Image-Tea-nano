@@ -148,13 +148,6 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
         print(f"File not found: {filepath}")
         return []
     
-    # Check if it's an image file
-    ext = os.path.splitext(filepath)[1].lower()
-    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg', '.eps', '.pdf'}
-    if ext not in image_extensions:
-        print(f"Skipping non-image file: {filepath}")
-        return []
-    
     # Compress image for AI processing
     try:
         compressed_path = compress_and_save_image(filepath)
