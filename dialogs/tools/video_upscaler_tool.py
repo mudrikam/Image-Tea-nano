@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
+import itertools
 from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
 import traceback
@@ -225,7 +226,86 @@ class UpscaleWorker(QThread):
                 return None
         
         return None
-    
+
+    def _normalize_and_save_frame(self, img_arr, output_path: str, ref_frame_path: str | None = None) -> bool:
+        if not isinstance(img_arr, np.ndarray):
+            print(f"ERROR: Upscaler produced non-numpy output for {output_path}")
+            self.log_signal.emit(f"❌ Upscaler produced invalid frame output for {os.path.basename(output_path)}")
+            return False
+
+        arr = img_arr
+        if arr.ndim == 2:
+            arr = np.stack([arr, arr, arr], axis=-1)
+            self.log_signal.emit(f"ℹ️ Converted single-channel frame for {os.path.basename(output_path)}")
+        if arr.ndim == 3 and arr.shape[2] == 4:
+            arr = arr[:, :, :3]
+            self.log_signal.emit(f"ℹ️ Dropped alpha channel for {os.path.basename(output_path)}")
+
+        if np.issubdtype(arr.dtype, np.floating):
+            maxv = float(np.max(arr)) if arr.size else 0.0
+            if maxv <= 1.5:
+                norm = np.clip(arr * 255.0, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
+            else:
+                norm = np.clip(arr, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
+        else:
+            norm = np.clip(arr, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
+
+        if ref_frame_path and os.path.exists(ref_frame_path):
+            ref = cv2.imread(ref_frame_path, cv2.IMREAD_COLOR)
+            if ref is not None:
+                ref = ref.astype(np.float32) / 255.0
+                if ref.shape[:2] != norm.shape[:2]:
+                    try:
+                        ref = cv2.resize(ref, (norm.shape[1], norm.shape[0]), interpolation=cv2.INTER_LINEAR)
+                    except Exception:
+                        pass
+                mse = np.mean((norm - ref) ** 2)
+                self.log_signal.emit(f"   ℹ️ Frame MSE to reference: {mse:.6f}")
+                if mse < 0.001:  # Adjusted MSE threshold
+                    arr2 = (norm * 255.0).round().astype(np.uint8)
+                    ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+                    if ok:
+                        self.log_signal.emit(f"   ℹ️ Frame similar to reference; saved without correction: {os.path.basename(output_path)}")
+                        return True
+
+        def imbalance(a: np.ndarray) -> float:
+            m = a.mean(axis=(0, 1)).astype(np.float64)
+            mx = float(m.max())
+            rest = float(m.sum() - m.max())
+            return mx / (rest + 1e-9)
+
+        best = None
+        best_score = float('inf')
+        best_perm = (0,1,2)
+        for perm in itertools.permutations([0,1,2]):
+            p = norm[..., list(perm)]
+            s = imbalance((p * 255.0).astype(np.uint8))
+            if s < best_score:
+                best_score = s
+                best = p
+                best_perm = perm
+        if best is not None:
+            norm = best
+            if best_perm != (0,1,2):
+                self.log_signal.emit(f"🔧 Auto-permuted channels for {os.path.basename(output_path)} to {best_perm} (score {best_score:.3f})")
+
+        means = norm.mean(axis=(0,1))
+        target = float(means.mean()) if means.size else 0.0
+        if target > 0:
+            gains = target / (means + 1e-9)
+            gains = np.clip(gains, 0.75, 1.5)
+            if not np.allclose(gains, 1.0, atol=0.03):
+                self.log_signal.emit(f"🔧 Applied frame channel gains for {os.path.basename(output_path)}: {gains.tolist()}")
+                norm = np.clip(norm * gains.reshape((1,1,3)), 0.0, 1.0)
+
+        arr2 = (norm * 255.0).round().astype(np.uint8)
+        ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+        if not ok:
+            print(f"ERROR: Failed to write frame to {output_path}")
+            self.log_signal.emit(f"❌ Failed to write frame: {os.path.basename(output_path)}")
+            return False
+        return True
+
     def _upscale_frame_pytorch(self, backend_tuple, frame_path: str, output_path: str) -> bool:
         try:
             backend_type, backend = backend_tuple
@@ -779,13 +859,28 @@ class UpscaleWorker(QThread):
 
                     for frame_file in batch_frames:
                         out_file = BATCH_OUTPUT_DIR / frame_file.name
+                        dest = OUT_FRAMES_DIR / frame_file.name
                         if out_file.exists():
-                            try:
-                                shutil.copy2(out_file, OUT_FRAMES_DIR / frame_file.name)
-                                copied_count += 1
-                            except Exception as e:
-                                self.log_signal.emit(f"   ❗ Failed to copy output {out_file.name}: {e}")
-                                overall_success = False
+                            img = cv2.imread(str(out_file), cv2.IMREAD_UNCHANGED)
+                            if img is None:
+                                try:
+                                    shutil.copy2(out_file, dest)
+                                    copied_count += 1
+                                except Exception as e:
+                                    self.log_signal.emit(f"   ❗ Failed to copy raw output {out_file.name}: {e}")
+                                    overall_success = False
+                            else:
+                                self.log_signal.emit(f"   ℹ️ Frame output means (BGR): {img.mean(axis=(0,1)).tolist() if img.ndim==3 else [img.mean()]} for {out_file.name}")
+                                ok = self._normalize_and_save_frame(img, str(dest))
+                                if ok:
+                                    copied_count += 1
+                                else:
+                                    try:
+                                        shutil.copy2(out_file, dest)
+                                        copied_count += 1
+                                    except Exception as e:
+                                        self.log_signal.emit(f"   ❗ Failed to copy fallback raw output {out_file.name}: {e}")
+                                        overall_success = False
                         else:
                             self.log_signal.emit(f"   ⚠️ Missing upscaled output for: {frame_file.name}")
                             overall_success = False
