@@ -850,21 +850,16 @@ class UpdateWorkerDialog(QDialog):
         if reply == QMessageBox.Yes:
             last_backup_file = os.path.join(SCRIPT_DIR, 'temp', 'last_update_backup_on_update.txt')
             if os.path.exists(last_backup_file):
-                try:
-                    with open(last_backup_file, 'r', encoding='utf-8') as f:
-                        zip_path = f.read().strip()
-                    self._append_log(f"Restoring configs from pre-update backup: {zip_path}")
-                    restore_backup_by_path(zip_path)
-                    self._append_log("Config restore completed.")
-                    # After restore, ensure app version and update_config reflect the new installed tag
-                    if hasattr(self, '_last_update_tag') and self._last_update_tag:
-                        set_version_to(self._last_update_tag, base_path=SCRIPT_DIR)
-                        self._append_log(f"Set app and update_config to {self._last_update_tag}")
-                except Exception as e:
-                    print(f"Error restoring update backup: {e}")
-                    self._append_log(f"ERROR: Failed to restore update backup: {e}")
+                with open(last_backup_file, 'r', encoding='utf-8') as f:
+                    zip_path = f.read().strip()
+                print(f"Restoring configs from pre-update backup: {zip_path}")
+                restore_backup_by_path(zip_path, base_path=SCRIPT_DIR, skip_app_config=True)
+                print("Config restore completed.")
+                if hasattr(self, '_last_update_tag') and self._last_update_tag:
+                    set_version_to(self._last_update_tag, base_path=SCRIPT_DIR)
+                    print(f"Set app and update_config to {self._last_update_tag}")
             else:
-                self._append_log("No pre-update backup found to restore.")
+                print("No pre-update backup found to restore.")
             self._relaunch_app()
             return
         else:

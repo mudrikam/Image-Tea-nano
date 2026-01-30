@@ -633,7 +633,7 @@ def find_latest_backup_with_prefix(prefix, base_path=BASE_PATH):
 	return os.path.join(backups_dir, latest)
 
 
-def restore_backup_by_path(zip_path, base_path=BASE_PATH):
+def restore_backup_by_path(zip_path, base_path=BASE_PATH, skip_app_config=False):
 	if not os.path.exists(zip_path):
 		raise FileNotFoundError(f"Backup not found: {zip_path}")
 	temp_base = os.path.join(base_path, 'temp', 'backup_restore')
@@ -660,6 +660,8 @@ def restore_backup_by_path(zip_path, base_path=BASE_PATH):
 		for f in files:
 			rel = os.path.relpath(os.path.join(root, f), tmpdir)
 			if rel.split(os.sep)[0] in EXCLUDED_FILES:
+				continue
+			if skip_app_config and os.path.normpath(rel) == os.path.normpath('app_config.json'):
 				continue
 			dest = os.path.join(cfg_dir, rel)
 			abs_dest = os.path.abspath(dest)
