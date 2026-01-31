@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton
+from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QFileDialog
 from PySide6.QtGui import QAction, QPixmap, QIcon
 from PySide6.QtCore import Qt
 import qtawesome as qta
@@ -8,10 +8,12 @@ import os
 import subprocess
 import platform
 import json
+from config import BASE_PATH
 from helpers.file_importer import import_files
+from helpers.csv_importer import import_csv_interactive
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
-from dialogs.csv_exporter_dialog import CSVExporterDialog
 from dialogs.edit_prompt_dialog import EditPromptDialog
+from dialogs.csv_exporter_dialog import CSVExporterDialog
 from dialogs.custom_prompt_dialog import CustomPromptDialog
 from dialogs.batch_rename_dialog import BatchRenameDialog
 from dialogs.metadata_writing_chunk_size_dialog import MetadataWritingChunkSizeDialog
@@ -21,7 +23,6 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 from dialogs.about_dialog import AboutDialog
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.update_notice_dialog import UpdateNoticeDialog
-from config import BASE_PATH
 from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
 from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
 from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
@@ -53,6 +54,7 @@ MENU_TOOLTIPS = {
     "write_images": "Embed metadata into image files",
     "write_videos": "Embed metadata into video files", 
     "export_csv": "Export metadata to CSV file for external use",
+    "import_csv": "Import metadata from CSV file into database",
     "chunk_size": "Configure chunk size for metadata writing operations",
     
     # Prompt menu
@@ -266,6 +268,14 @@ def setup_main_menu(window):
         dialog.exec()
     export_metadata_action.triggered.connect(show_export_dialog)
     metadata_menu.addAction(export_metadata_action)
+
+    import_metadata_action = QAction(qta.icon('fa6s.file-csv'), "Import Metadata from CSV", window)
+    import_metadata_action.setToolTip(MENU_TOOLTIPS["import_csv"])
+    import_metadata_action.setStatusTip(MENU_TOOLTIPS["import_csv"])
+    def do_import_csv():
+        import_csv_interactive(window)
+    import_metadata_action.triggered.connect(do_import_csv)
+    metadata_menu.addAction(import_metadata_action)
 
     metadata_menu.addSeparator()
 
