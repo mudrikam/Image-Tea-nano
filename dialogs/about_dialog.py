@@ -6,6 +6,8 @@ import json
 import os
 from config import BASE_PATH
 
+from ui.theme_system import theme
+
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,7 +82,7 @@ class AboutDialog(QDialog):
 
         tagline_label = QLabel(f"<b>{tagline}</b>")
         tagline_label.setAlignment(Qt.AlignLeft)
-        tagline_label.setStyleSheet("color: #4e9e20; font-size: 18px;")
+        tagline_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-size: 18px;")
         detail_layout.addWidget(tagline_label)
 
         version_label = QLabel(f"Version: {version}")

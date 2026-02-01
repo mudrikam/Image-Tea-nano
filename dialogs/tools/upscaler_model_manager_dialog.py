@@ -20,6 +20,7 @@ from PySide6.QtGui import QIcon
 import qtawesome as qta
 
 from config import BASE_PATH
+from ui.theme_system import theme
 
 
 MODELS_CONFIG_FILE = Path(BASE_PATH) / "configs" / "upscaler_models_config.json"
@@ -464,7 +465,7 @@ class DependencyInstallerDialog(QDialog):
         
         if success:
             self.step_label.setText(f"✓ {action_text} {success_msg}")
-            self.step_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            self.step_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('success')};")
             self.progress_bar.setValue(self.progress_bar.maximum())
             self.log_text.append(f"\n{action_text} complete! {success_detail}")
             self.btn_cancel.setText("Close")
@@ -475,7 +476,7 @@ class DependencyInstallerDialog(QDialog):
                 self.parent()._update_deps_status()
         else:
             self.step_label.setText(f"✗ {action_text} Failed")
-            self.step_label.setStyleSheet("font-weight: bold; color: #f44336;")
+            self.step_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('error')};")
             self.log_text.append(f"\n{action_text} failed. Please check the log above.")
             self.btn_action.setEnabled(True)
             self.btn_cancel.setText("Close")
@@ -1031,7 +1032,7 @@ class UpscalerModelManagerDialog(QDialog):
         info_layout.addStretch()
         
         self.models_dir_label = QLabel(f"Models Dir: {self.model_manager.models_dir}")
-        self.models_dir_label.setStyleSheet("color: #666;")
+        self.models_dir_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
         info_layout.addWidget(self.models_dir_label)
         
         main_layout.addLayout(info_layout)
@@ -1230,7 +1231,7 @@ class UpscalerModelManagerDialog(QDialog):
         
         if deps['pth']:
             self.pth_status_label.setText("✓ PTH Ready")
-            self.pth_status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.pth_status_label.setStyleSheet(f"color: {theme.get_color('success')}; font-weight: bold;")
             self.btn_install_pth.setEnabled(True)
             self.btn_install_pth.setIcon(qta.icon('fa6s.trash'))
             self.btn_install_pth.setText(" Uninstall PTH")
@@ -1238,7 +1239,7 @@ class UpscalerModelManagerDialog(QDialog):
             self.btn_install_pth.setStyleSheet("")
         else:
             self.pth_status_label.setText("✗ PTH Not Installed")
-            self.pth_status_label.setStyleSheet("color: #888;")
+            self.pth_status_label.setStyleSheet(f"color: {theme.get_color('gray')};")
             self.btn_install_pth.setEnabled(True)
             self.btn_install_pth.setIcon(qta.icon('fa6s.download'))
             self.btn_install_pth.setText(" Install PTH Support")
@@ -1247,7 +1248,7 @@ class UpscalerModelManagerDialog(QDialog):
         
         if deps['onnx']:
             self.onnx_status_label.setText("✓ ONNX Ready")
-            self.onnx_status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.onnx_status_label.setStyleSheet(f"color: {theme.get_color('success')}; font-weight: bold;")
             self.btn_install_onnx.setEnabled(True)
             self.btn_install_onnx.setIcon(qta.icon('fa6s.trash'))
             self.btn_install_onnx.setText(" Uninstall ONNX")
@@ -1255,7 +1256,7 @@ class UpscalerModelManagerDialog(QDialog):
             self.btn_install_onnx.setStyleSheet("")
         else:
             self.onnx_status_label.setText("✗ ONNX Not Installed")
-            self.onnx_status_label.setStyleSheet("color: #888;")
+            self.onnx_status_label.setStyleSheet(f"color: {theme.get_color('gray')};")
             self.btn_install_onnx.setEnabled(True)
             self.btn_install_onnx.setIcon(qta.icon('fa6s.download'))
             self.btn_install_onnx.setText(" Install ONNX Support")

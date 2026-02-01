@@ -1,10 +1,11 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
 import qtawesome as qta
 from dialogs.tools.add_action_dialog import AddActionDialog
 from database.db_operation import ImageTeaDB
+from ui.theme_system import theme
 
 
 class ActionListWidget(QWidget):
@@ -57,17 +58,18 @@ class ActionListWidget(QWidget):
         
         widget = QWidget()
         widget.setObjectName(f"actionItem_{action_data['id']}")
-        color = action_data.get("color", "#888888")
+        color = action_data.get("color", theme.get_color('gray'))
         hex_color = color.lstrip('#')
         r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        # Use fractional alpha (30/255 -> ~0.12, 80/255 -> ~0.31) for consistent theme blending
         widget.setStyleSheet(f"""
             QWidget#actionItem_{action_data['id']} {{
-                background-color: rgba({r}, {g}, {b}, 30);
+                background-color: rgba({r}, {g}, {b}, 0.12);
                 border-radius: 4px;
                 border: 1px solid rgba({r}, {g}, {b}, 0); /* transparent default */
             }}
             QWidget#actionItem_{action_data['id']}:hover {{
-                background-color: rgba({r}, {g}, {b}, 80);
+                background-color: rgba({r}, {g}, {b}, 0.31);
                 border: 1px solid rgba({r}, {g}, {b}, 1);
             }}
         """)
@@ -105,7 +107,7 @@ class ActionListWidget(QWidget):
         content_layout.addWidget(name_label)
         
         order_label = QLabel(f"Order: {action_data.get('order_index', 0)}")
-        order_label.setStyleSheet("color: #888; font-size: 9px; background: transparent;")
+        order_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 9px; background: transparent;")
         content_layout.addWidget(order_label)
         
         main_layout.addLayout(content_layout)
@@ -229,7 +231,7 @@ class ActionListWidget(QWidget):
                 self.current_action_set['id'],
                 new_name,
                 original.get('icon', ''),
-                original.get('color', '#888888'),
+                original.get('color', theme.get_color('gray')),
                 original.get('type', 'Action'),
                 original.get('delay', 0),
                 original.get('javascript_code', ''),
@@ -278,16 +280,21 @@ class ActionListWidget(QWidget):
         container_layout.setSpacing(0)
         
         widget = QWidget()
-        widget.setStyleSheet("""
-            QWidget {
-                background-color: rgba(100, 100, 100, 20);
-                border: 2px dashed rgba(150, 150, 150, 0.2);
+        # Theme-aware add-new action style
+        _g_q = QColor(theme.get_color('gray'))
+        _g_rgb = f"{_g_q.red()},{_g_q.green()},{_g_q.blue()}"
+        _s_q = QColor(theme.get_color('success'))
+        _s_rgb = f"{_s_q.red()},{_s_q.green()},{_s_q.blue()}"
+        widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: rgba({_g_rgb},0.08);
+                border: 2px dashed rgba({_g_rgb},0.2);
                 border-radius: 4px;
-            }
-            QWidget:hover {
-                background-color: rgba(78, 158, 32, 30);
-                border: 2px dashed rgba(78,158,32,0.35);
-            }
+            }}
+            QWidget:hover {{
+                background-color: rgba({_s_rgb},0.12);
+                border: 2px dashed rgba({_s_rgb},0.35);
+            }}
         """)
         widget.setCursor(Qt.PointingHandCursor)
         
@@ -296,7 +303,7 @@ class ActionListWidget(QWidget):
         main_layout.setSpacing(8)
         
         icon_label = QLabel()
-        icon = qta.icon('fa6s.plus', color='#888888')
+        icon = qta.icon('fa6s.plus', color=theme.get_color('gray'))
         icon_label.setPixmap(icon.pixmap(20, 20))
         icon_label.setFixedWidth(24)
         icon_label.setStyleSheet("background: transparent; border: none;")
@@ -307,7 +314,7 @@ class ActionListWidget(QWidget):
         name_font.setBold(True)
         name_font.setPointSize(10)
         name_label.setFont(name_font)
-        name_label.setStyleSheet("color: #888; background: transparent; border: none;")
+        name_label.setStyleSheet(f"color: {theme.get_color('gray')}; background: transparent; border: none;")
         main_layout.addWidget(name_label)
         main_layout.addStretch()
         

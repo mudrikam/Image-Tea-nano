@@ -4,6 +4,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent, QColor
 from helpers.file_importer import import_files
 import qtawesome as qta
 import os
+from ui.theme_system import theme
 
 try:
     from PIL import Image
@@ -29,7 +30,7 @@ class DragDropWidget(QWidget):
 		
 		self.inner_widget = QWidget()
 		self.inner_widget.setObjectName("innerWidget")
-		self.inner_widget.setStyleSheet("QWidget#innerWidget { border: 2px dashed #aaa; border-radius: 12px; }")
+		self.inner_widget.setStyleSheet(f"QWidget#innerWidget {{ border: 2px dashed {theme.get_color('gray')}; border-radius: 12px; }}")
 		
 		layout = QVBoxLayout(self.inner_widget)
 		layout.setContentsMargins(20, 20, 20, 20)
@@ -37,16 +38,17 @@ class DragDropWidget(QWidget):
 		
 		self.icon_label = QLabel()
 		self.icon_label.setAlignment(Qt.AlignCenter)
-		dnd_green = QColor(103, 192, 51, int(0.5 * 255))
+		dnd_green = QColor(theme.get_color('success'))
+		dnd_green.setAlpha(int(0.5 * 255))
 		self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=dnd_green).pixmap(64, 64))
 		
 		self.text_label = QLabel("Add Files by Drag & Drop")
 		self.text_label.setAlignment(Qt.AlignCenter)
-		self.text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
+		self.text_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 14pt; font-weight: bold;")
 		
 		self.sub_text = QLabel("Drag and drop images or videos here")
 		self.sub_text.setAlignment(Qt.AlignCenter)
-		self.sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
+		self.sub_text.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10pt;")
 		self.sub_text.setWordWrap(True)
 		
 		layout.addStretch(1)
@@ -57,9 +59,13 @@ class DragDropWidget(QWidget):
 		
 		outer_layout.addWidget(self.inner_widget)
 		
-		self._default_style = "QWidget#innerWidget { border: 2px dashed #aaa; border-radius: 12px; }"
-		self._accept_style = "QWidget#innerWidget { border: 2px dashed rgba(121, 202, 12, 0.8); background-color: rgba(121, 202, 12, 0.1); border-radius: 12px; }"
-		self._reject_style = "QWidget#innerWidget { border: 2px dashed rgba(224, 23, 23, 0.8); background-color: rgba(224, 23, 23, 0.1); border-radius: 12px; }"
+		self._default_style = f"QWidget#innerWidget {{ border: 2px dashed {theme.get_color('gray')}; border-radius: 12px; }}"
+		accept_color = QColor(theme.get_color('success'))
+		accept_color.setAlpha(int(0.8 * 255))
+		reject_color = QColor(theme.get_color('error'))
+		reject_color.setAlpha(int(0.8 * 255))
+		self._accept_style = f"QWidget#innerWidget {{ border: 2px dashed rgba({accept_color.red()}, {accept_color.green()}, {accept_color.blue()}, 0.8); background-color: rgba({accept_color.red()}, {accept_color.green()}, {accept_color.blue()}, 0.1); border-radius: 12px; }}"
+		self._reject_style = f"QWidget#innerWidget {{ border: 2px dashed rgba({reject_color.red()}, {reject_color.green()}, {reject_color.blue()}, 0.8); background-color: rgba({reject_color.red()}, {reject_color.green()}, {reject_color.blue()}, 0.1); border-radius: 12px; }}"
 		
 		video_exts = {
 			".mp4", ".mpeg", ".mov", ".avi", ".flv",

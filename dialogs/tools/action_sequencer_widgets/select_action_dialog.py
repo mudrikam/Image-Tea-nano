@@ -6,6 +6,7 @@ import os
 from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+from ui.theme_system import theme
 
 class SelectActionDialog(QDialog):
     action_selected = Signal(dict)
@@ -36,7 +37,7 @@ class SelectActionDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.hand-pointer', color='#3498DB')
+        dialog_icon = qta.icon('fa6s.hand-pointer', color=theme.get_color('primary'))
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(32, 32))
         header_layout.addWidget(icon_label)
@@ -155,7 +156,7 @@ class SelectActionDialog(QDialog):
             else:
                 full_icon_name = icon_name
             try:
-                icon = qta.icon(full_icon_name, color=action_data.get("color", "#888888"))
+                icon = qta.icon(full_icon_name, color=action_data.get("color", theme.get_color('gray')))
                 icon_label.setPixmap(icon.pixmap(20, 20))
             except:
                 pass
@@ -172,7 +173,7 @@ class SelectActionDialog(QDialog):
         content_layout.addWidget(name_label)
         
         set_label = QLabel(action_data["action_set"])
-        set_label.setStyleSheet("color: #888; font-size: 10px;")
+        set_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         content_layout.addWidget(set_label)
         
         layout.addLayout(content_layout)

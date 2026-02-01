@@ -7,6 +7,7 @@ from PySide6.QtGui import QFont, QIcon
 import qtawesome as qta
 from config import BASE_PATH
 import re
+from ui.theme_system import theme
 
 class ReadDocumentationDialog(QDialog):
     def __init__(self, parent=None):
@@ -89,8 +90,8 @@ class ReadDocumentationDialog(QDialog):
         self.doc_root_id = os.path.join(BASE_PATH, "documentation", "lang_ID")
         self.doc_root_en = os.path.join(BASE_PATH, "documentation", "lang_EN")
         self.res_images_path = os.path.join(BASE_PATH, "res", "images")
-        self.file_icon = qta.icon('fa6s.file', color='#4e9e20')
-        self.folder_icon = qta.icon('fa6s.folder', color="#7E7E7E")
+        self.file_icon = qta.icon('fa6s.file', color=theme.get_color('primary'))
+        self.folder_icon = qta.icon('fa6s.folder', color=theme.get_color('gray'))
 
         self.current_lang = "id"
         self.all_md_files = []
@@ -262,7 +263,7 @@ class ReadDocumentationDialog(QDialog):
                     md_text = f.read()
                 self.viewer.setSearchPaths([self.res_images_path])
                 pattern = re.compile(re.escape(keyword), re.IGNORECASE)
-                highlighted_md = pattern.sub(lambda m: f"<span style='color:#2ecc40'>{m.group(0)}</span>", md_text)
+                highlighted_md = pattern.sub(lambda m: f"<span style='color:{theme.get_color('success')}'>{m.group(0)}</span>", md_text)
                 self.viewer.setMarkdown(highlighted_md)
                 self.viewer.setLineWrapMode(QTextBrowser.WidgetWidth)
             except Exception as e:

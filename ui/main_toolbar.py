@@ -18,6 +18,7 @@ from dialogs.file_metadata_dialog import FileMetadataDialog
 from helpers.file_importer import import_files
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
 from ui.main_menu import run_updater
+from ui.theme_system import theme
 
 def get_app_links():
     import json
@@ -74,7 +75,7 @@ def create_toolbar_button_with_label(icon_normal, icon_hover, text, tooltip, tri
     btn.clicked.connect(triggered_func)
     btn.installEventFilter(HoverIconEventFilter(btn, icon_normal, icon_hover, icon_size))
     label = QLabel(text)
-    label.setStyleSheet("font-family: 'Segoe UI'; font-size: 9px; color: #666;")
+    label.setStyleSheet(f"font-family: 'Segoe UI'; font-size: 9px; color: {theme.get_color('gray')};")
     label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
     v_layout.addWidget(btn, alignment=Qt.AlignHCenter)
     v_layout.addWidget(label, alignment=Qt.AlignHCenter)
@@ -105,7 +106,7 @@ def show_clear_dialog(window):
     # Icon and label
     top_layout = QHBoxLayout()
     icon_label = QLabel()
-    icon_label.setPixmap(qta.icon('fa6s.triangle-exclamation', color='#f0ad4e').pixmap(32, 32))
+    icon_label.setPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(32, 32))
     top_layout.addWidget(icon_label)
     
     text_label = QLabel("Choose what to clear from database:")
@@ -156,19 +157,19 @@ def setup_main_toolbar(window: QWidget):
     toolbar.setMovable(False)
     toolbar.setFloatable(False)
     toolbar.setIconSize(window.style().standardIcon(QStyle.SP_DesktopIcon).actualSize(toolbar.iconSize()))
-    toolbar.setStyleSheet("""
-        QToolBar { padding: 5px; }
-        QToolButton {
+    toolbar.setStyleSheet(f"""
+        QToolBar {{ padding: 5px; }}
+        QToolButton {{
             padding: 4px;
             border-radius: 6px;
-        }
-        QToolButton:hover {
-            background-color: #4e9e20;
-        }
+        }}
+        QToolButton:hover {{
+            background-color: {theme.get_color('primary')};
+        }}
     """)
 
-    icon_color = "#4e9e20"
-    icon_color_hover = "#FFFFFF"
+    icon_color = theme.get_color('primary')
+    icon_color_hover = theme.get_color('white')
     icon_size = toolbar.iconSize()
 
     def make_icon(icon_name, color):

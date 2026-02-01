@@ -17,6 +17,7 @@ from ui.api_key_section import ApiKeySectionWidget
 from ui.main_statusbar import MainStatusBar
 from database.db_operation import ImageTeaDB
 from dialogs.guide_tour import GuideOverlay
+from .theme_system import theme
 
 def setup_ui(self):
     invoker = get_video_proxy_invoker(timeout=5)
@@ -28,7 +29,7 @@ def setup_ui(self):
         from dialogs.backup_global_config_dialog import configs_newer_than_latest_backup
         if configs_newer_than_latest_backup() and hasattr(self, 'backup_configs_action'):
             try:
-                self.backup_configs_action.setIcon(qta.icon('fa6s.triangle-exclamation', color="#e61515"))
+                self.backup_configs_action.setIcon(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('error')))
             except Exception:
                 pass
     except Exception:
@@ -107,11 +108,11 @@ def setup_ui(self):
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
 
-    self.gen_btn = QPushButton(qta.icon('fa6s.wand-magic-sparkles', color='white'), "Generate Metadata")
-    self.gen_btn.setStyleSheet("""
-        QPushButton {
-            background-color: #4e9e20;
-            color: white;
+    self.gen_btn = QPushButton(qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white')), "Generate Metadata")
+    self.gen_btn.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {theme.get_color('primary')};
+            color: {theme.get_color('white')};
             border: none;
             border-radius: 5px;
             padding: 6px 12px;
@@ -119,10 +120,10 @@ def setup_ui(self):
             max-height: 36px;
             min-width: 240px;
             max-width: 240px;
-        }
-        QPushButton:hover { background-color: #3d7307; }
-        QPushButton:pressed { background-color: #376006; }
-        QPushButton:disabled { background-color: #9fbf9a; color: #f2f2f2; }
+        }}
+        QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}
+        QPushButton:pressed {{ background-color: {theme.get_color('primary_pressed')}; }}
+        QPushButton:disabled {{ background-color: {theme.get_color('button_disabled_bg')}; color: {theme.get_color('button_disabled_fg')}; }}
     """)
     self.gen_btn.setCursor(Qt.PointingHandCursor)
 

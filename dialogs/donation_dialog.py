@@ -1,11 +1,13 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QSizePolicy
-from PySide6.QtGui import QPixmap, QPalette
+from PySide6.QtGui import QPixmap, QPalette, QColor
 from PySide6.QtCore import Qt
 import os
 import datetime
 from config import BASE_PATH
 import qtawesome as qta
 import webbrowser
+
+from ui.theme_system import theme
 
 def _get_donation_optout_path():
     return os.path.join(BASE_PATH, "temp", ".donation_optout")
@@ -60,24 +62,24 @@ class DonateDialog(QDialog):
 
             is_dark = self.palette().color(QPalette.Window).lightness() < 128
 
-            treat_btn = QPushButton(qta.icon('fa6s.gift', color='#ffffff'), " Treat Dev")
+            treat_btn = QPushButton(qta.icon('fa6s.gift', color=theme.get_color('white')), " Treat Dev")
             treat_btn.setMinimumHeight(36)
             treat_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             treat_btn.clicked.connect(self._treat_dev)
-            treat_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4e9e20;
-                    color: white;
+            treat_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('primary')};
+                    color: {theme.get_color('white')};
                     border-radius: 6px;
                     padding: 6px 12px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #3d8e1a;
-                }
-                QPushButton:pressed {
-                    background-color: #2f6b13;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('primary_hover')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('primary_pressed')};
+                }}
             """)
             button_layout.addWidget(treat_btn, 1)
 
@@ -87,34 +89,38 @@ class DonateDialog(QDialog):
             not_today_btn.clicked.connect(self._not_today)
 
             if is_dark:
-                not_today_style = """
-                    QPushButton {
-                        background-color: rgba(255,255,255,0.06);
-                        color: #ffffff;
+                _wht_q = QColor(theme.get_color('white'))
+                _wht_rgb = f"{_wht_q.red()},{_wht_q.green()},{_wht_q.blue()}"
+                not_today_style = f"""
+                    QPushButton {{
+                        background-color: rgba({_wht_rgb},0.06);
+                        color: {theme.get_color('white')};
                         border-radius: 6px;
                         padding: 6px 12px;
-                    }
-                    QPushButton:hover {
-                        background-color: rgba(255,255,255,0.09);
-                    }
-                    QPushButton:pressed {
-                        background-color: rgba(255,255,255,0.12);
-                    }
+                    }}
+                    QPushButton:hover {{
+                        background-color: rgba({_wht_rgb},0.09);
+                    }}
+                    QPushButton:pressed {{
+                        background-color: rgba({_wht_rgb},0.12);
+                    }}
                 """
             else:
-                not_today_style = """
-                    QPushButton {
-                        background-color: rgba(0,0,0,0.06);
-                        color: #222222;
+                _blk_q = QColor(theme.get_color('black'))
+                _blk_rgb = f"{_blk_q.red()},{_blk_q.green()},{_blk_q.blue()}"
+                not_today_style = f"""
+                    QPushButton {{
+                        background-color: rgba({_blk_rgb},0.06);
+                        color: {theme.get_color('text_dark')};
                         border-radius: 6px;
                         padding: 6px 12px;
-                    }
-                    QPushButton:hover {
-                        background-color: rgba(0,0,0,0.08);
-                    }
-                    QPushButton:pressed {
-                        background-color: rgba(0,0,0,0.10);
-                    }
+                    }}
+                    QPushButton:hover {{
+                        background-color: rgba({_blk_rgb},0.08);
+                    }}
+                    QPushButton:pressed {{
+                        background-color: rgba({_blk_rgb},0.10);
+                    }}
                 """
 
             not_today_btn.setStyleSheet(not_today_style)

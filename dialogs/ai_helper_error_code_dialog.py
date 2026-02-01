@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QTextEdit, QHBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QSizePolicy, QMessageBox, QFileDialog, QApplication
-from PySide6.QtGui import QIcon, QGuiApplication
+from PySide6.QtGui import QIcon, QGuiApplication, QColor
 from PySide6.QtCore import Qt
 import qtawesome as qta
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
@@ -12,6 +12,8 @@ from datetime import datetime
 from config import BASE_PATH
 import re
 import traceback
+
+from ui.theme_system import theme
 
 GEMINI_ERRORS = {
     "400": {
@@ -276,7 +278,7 @@ class AIHelperErrorCodeDialog(QDialog):
         top = QHBoxLayout()
 
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color='#FFD600').pixmap(28, 28))
+        icon_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(28, 28))
         icon_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         top.addWidget(icon_lbl)
 
@@ -298,7 +300,7 @@ class AIHelperErrorCodeDialog(QDialog):
         summary_text = " \u00B7 ".join(summary_parts) if summary_parts else "Error"
 
         summary_lbl = QLabel(summary_text)
-        summary_lbl.setStyleSheet('color: gray; font-size: 12px;')
+        summary_lbl.setStyleSheet(f'color: {theme.get_color("text_dark")}; font-size: 12px;')
         summary_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         vtitle = QVBoxLayout()
@@ -309,7 +311,7 @@ class AIHelperErrorCodeDialog(QDialog):
         try:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ts_lbl = QLabel(now)
-            ts_lbl.setStyleSheet('color: gray; font-size: 11px;')
+            ts_lbl.setStyleSheet(f'color: {theme.get_color("text_dark")}; font-size: 11px;')
             ts_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             top.addWidget(ts_lbl)
         except Exception as e:
@@ -373,7 +375,7 @@ class AIHelperErrorCodeDialog(QDialog):
 
                 instr = QLabel("Click a table row to view the error details. Use 'Export CSV' to save a report file you can share when asking for help in community channels.")
                 instr.setWordWrap(True)
-                instr.setStyleSheet('color: gray; font-size: 12px;')
+                instr.setStyleSheet(f'color: {theme.get_color("text_dark")}; font-size: 12px;')
                 layout.addWidget(instr)
 
                 cfg_path = os.path.join(BASE_PATH, 'configs', 'app_config.json')
@@ -401,10 +403,12 @@ class AIHelperErrorCodeDialog(QDialog):
             error_layout.setContentsMargins(4, 2, 4, 2)
             error_layout.setAlignment(Qt.AlignLeft)
             error_icon = QLabel()
-            error_icon.setPixmap(qta.icon('fa6s.xmark', color='#ff6464').pixmap(14, 14))
+            error_icon.setPixmap(qta.icon('fa6s.xmark', color=theme.get_color('error')).pixmap(14, 14))
             self.error_label = QLabel("Error : Loading...")
             self.error_label.setWordWrap(True)
-            self.error_label.setStyleSheet('background-color: rgba(255,100,100,0.12); padding:6px; border-radius:4px;')
+            _err_q = QColor(theme.get_color('error'))
+            _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+            self.error_label.setStyleSheet(f'background-color: rgba({_err_rgb},0.12); padding:6px; border-radius:4px;')
             self.error_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             error_layout.addWidget(error_icon)
             error_layout.addWidget(self.error_label)
@@ -415,10 +419,12 @@ class AIHelperErrorCodeDialog(QDialog):
             status_layout.setContentsMargins(4, 2, 4, 2)
             status_layout.setAlignment(Qt.AlignLeft)
             status_icon = QLabel()
-            status_icon.setPixmap(qta.icon('fa6s.circle-info', color='#ffa500').pixmap(14, 14))
+            status_icon.setPixmap(qta.icon('fa6s.circle-info', color=theme.get_color('warning')).pixmap(14, 14))
             self.status_label = QLabel("Status : Loading...")
             self.status_label.setWordWrap(True)
-            self.status_label.setStyleSheet('background-color: rgba(255,165,0,0.12); padding:6px; border-radius:4px;')
+            _warn_q = QColor(theme.get_color('warning'))
+            _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
+            self.status_label.setStyleSheet(f'background-color: rgba({_warn_rgb},0.12); padding:6px; border-radius:4px;')
             self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             status_layout.addWidget(status_icon)
             status_layout.addWidget(self.status_label)
@@ -429,10 +435,12 @@ class AIHelperErrorCodeDialog(QDialog):
             desc_layout.setContentsMargins(4, 2, 4, 2)
             desc_layout.setAlignment(Qt.AlignLeft)
             desc_icon = QLabel()
-            desc_icon.setPixmap(qta.icon('fa6s.book', color='#f0f0f0').pixmap(14, 14))
+            desc_icon.setPixmap(qta.icon('fa6s.book', color=theme.get_color('text_light')).pixmap(14, 14))
             self.description_label = QLabel("Description : Loading...")
             self.description_label.setWordWrap(True)
-            self.description_label.setStyleSheet('background-color: rgba(240,240,240,0.12); padding:6px; border-radius:4px;')
+            _txt_q = QColor(theme.get_color('text_light'))
+            _txt_rgb = f"{_txt_q.red()},{_txt_q.green()},{_txt_q.blue()}"
+            self.description_label.setStyleSheet(f'background-color: rgba({_txt_rgb},0.12); padding:6px; border-radius:4px;')
             self.description_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             desc_layout.addWidget(desc_icon)
             desc_layout.addWidget(self.description_label)
@@ -443,10 +451,12 @@ class AIHelperErrorCodeDialog(QDialog):
             example_layout.setContentsMargins(4, 2, 4, 2)
             example_layout.setAlignment(Qt.AlignLeft)
             example_icon = QLabel()
-            example_icon.setPixmap(qta.icon('fa6s.clipboard', color='#dcdcdc').pixmap(14, 14))
+            example_icon.setPixmap(qta.icon('fa6s.clipboard', color=theme.get_color('text_light')).pixmap(14, 14))
             self.example_label = QLabel("Example : Loading...")
             self.example_label.setWordWrap(True)
-            self.example_label.setStyleSheet('background-color: rgba(220,220,220,0.12); padding:6px; border-radius:4px;')
+            _txt_q2 = QColor(theme.get_color('text_light'))
+            _txt_rgb2 = f"{_txt_q2.red()},{_txt_q2.green()},{_txt_q2.blue()}"
+            self.example_label.setStyleSheet(f'background-color: rgba({_txt_rgb2},0.12); padding:6px; border-radius:4px;')
             self.example_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             example_layout.addWidget(example_icon)
             example_layout.addWidget(self.example_label)
@@ -457,10 +467,12 @@ class AIHelperErrorCodeDialog(QDialog):
             solution_layout.setContentsMargins(4, 2, 4, 2)
             solution_layout.setAlignment(Qt.AlignLeft)
             solution_icon = QLabel()
-            solution_icon.setPixmap(qta.icon('fa6s.circle-check', color='#4bb64b').pixmap(14, 14))
+            solution_icon.setPixmap(qta.icon('fa6s.circle-check', color=theme.get_color('success')).pixmap(14, 14))
             self.solution_label = QLabel("Solution : Loading...")
             self.solution_label.setWordWrap(True)
-            self.solution_label.setStyleSheet('background-color: rgba(200,255,200,0.12); padding:6px; border-radius:4px;')
+            _succ_q = QColor(theme.get_color('success'))
+            _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
+            self.solution_label.setStyleSheet(f'background-color: rgba({_succ_rgb},0.12); padding:6px; border-radius:4px;')
             self.solution_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             solution_layout.addWidget(solution_icon)
             solution_layout.addWidget(self.solution_label)
@@ -489,7 +501,7 @@ class AIHelperErrorCodeDialog(QDialog):
         btn_layout.addWidget(export_btn)
 
         wa_btn = QPushButton("Report Error")
-        wa_btn.setIcon(qta.icon('fa6b.whatsapp', color='#25D366'))
+        wa_btn.setIcon(qta.icon('fa6b.whatsapp', color=theme.get_color('success')))
         wa_btn.setToolTip("Report this error via WhatsApp")
         wa_btn.clicked.connect(self._report_via_whatsapp)
         btn_layout.addWidget(wa_btn)

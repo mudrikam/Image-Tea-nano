@@ -1,9 +1,11 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal, QTimer
-from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor
+from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor, QColor
 from PySide6.QtCore import QUrl
 import os
 import qtawesome as qta
+
+from ui.theme_system import theme
 
 try:
     from PIL import Image
@@ -152,8 +154,10 @@ class TagsPillWidget(QWidget):
         pill.setAlignment(Qt.AlignCenter)
         pill.setWordWrap(False)
         if index in getattr(self, "similar_indices", set()):
-            bg_color = "rgba(244, 67, 54, 0.25)"
-            border_color = "rgba(244, 67, 54, 0.7)"
+            _err_q = QColor(theme.get_color('error'))
+            _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+            bg_color = f"rgba({_err_rgb},0.25)"
+            border_color = f"rgba({_err_rgb},0.7)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
@@ -165,8 +169,10 @@ class TagsPillWidget(QWidget):
                 }}
             """
         elif index < 5:
-            bg_color = "rgba(113, 204, 0, 0.3)"
-            border_color = "rgba(113, 204, 0, 0.5)"
+            _succ_q = QColor(theme.get_color('success'))
+            _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
+            bg_color = f"rgba({_succ_rgb},0.3)"
+            border_color = f"rgba({_succ_rgb},0.5)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
@@ -178,8 +184,10 @@ class TagsPillWidget(QWidget):
                 }}
             """
         elif index < 15:
-            bg_color = "rgba(255, 235, 59, 0.2)"
-            border_color = "rgba(255, 193, 7, 0.5)"
+            _warn_q = QColor(theme.get_color('warning'))
+            _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
+            bg_color = f"rgba({_warn_rgb},0.2)"
+            border_color = f"rgba({_warn_rgb},0.5)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
@@ -191,8 +199,10 @@ class TagsPillWidget(QWidget):
                 }}
             """
         else:
-            bg_color = "rgba(158, 158, 158, 0.2)"
-            border_color = "rgba(158, 158, 158, 0.5)"
+            _gray_q = QColor(theme.get_color('gray'))
+            _gray_rgb = f"{_gray_q.red()},{_gray_q.green()},{_gray_q.blue()}"
+            bg_color = f"rgba({_gray_rgb},0.2)"
+            border_color = f"rgba({_gray_rgb},0.5)"
             style = f"""
                 QLabel {{
                     background-color: {bg_color};
@@ -357,7 +367,7 @@ class ImagePreviewWidget(QGraphicsView):
             except Exception:
                 pass
         self._no_preview_text = self._scene.addText(message)
-        self._no_preview_text.setDefaultTextColor(Qt.gray)
+        self._no_preview_text.setDefaultTextColor(QColor(theme.get_color('text_dark')))
         self._no_preview_text.setVisible(True)
         self._position_no_preview_text()
 
@@ -467,7 +477,9 @@ class PropertiesWidget(QWidget):
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
         sep.setFixedHeight(8)
-        sep.setStyleSheet("border-top: 1px solid rgba(128,128,128,0.3);")
+        _gray_q2 = QColor(theme.get_color('gray'))
+        _gray_rgb2 = f"{_gray_q2.red()},{_gray_q2.green()},{_gray_q2.blue()}"
+        sep.setStyleSheet(f"border-top: 1px solid rgba({_gray_rgb2},0.3);")
         self.content_layout.addWidget(sep)
 
     def _create_icon_label(self, text, icon_name):
@@ -478,7 +490,7 @@ class PropertiesWidget(QWidget):
         h.setSpacing(6)
         icon_label = QLabel()
         try:
-            icon = qta.icon(icon_name, color="#666")
+            icon = qta.icon(icon_name, color=theme.get_color('text_dark'))
             icon_label.setPixmap(icon.pixmap(14, 14))
         except Exception:
             pass

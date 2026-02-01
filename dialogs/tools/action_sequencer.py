@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QComboBox, QFileDialog, QWidget, QMessageBox
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QColor
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 import subprocess
@@ -17,6 +17,7 @@ from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper impor
 from helpers.tools.action_sequencer_helpers.action_sequencer_photoshop_jsx_helper import PhotoshopJSXGenerator
 from helpers.tools.action_sequencer_helpers.action_sequencer_illustrator_jsx_helper import IllustratorJSXGenerator
 from helpers.tools.action_sequencer_helpers.action_sequencer_file_watcher_helper import ActionSequencerFileWatcher
+from ui.theme_system import theme
 
 
 class BatchWorkerThread(QThread):
@@ -235,40 +236,42 @@ class ActionSequencerDialog(QDialog):
         self.setLayout(main_layout)
     
     def apply_styles(self):
-        self.setStyleSheet("""
-            QListWidget {
+        _prm_q = QColor(theme.get_color('primary'))
+        _prm_rgb = f"{_prm_q.red()},{_prm_q.green()},{_prm_q.blue()}"
+        self.setStyleSheet(f"""
+            QListWidget {{
                 outline: none;
-            }
-            QListWidget#stepList, QListWidget#actionList {
+            }}
+            QListWidget#stepList, QListWidget#actionList {{
                 outline: none;
-            }
-            QListWidget#stepList::item, QListWidget#actionList::item {
+            }}
+            QListWidget#stepList::item, QListWidget#actionList::item {{
                 border: none;
                 padding: 0px;
-            }
-            QListWidget#stepList::item:selected, QListWidget#actionList::item:selected {
+            }}
+            QListWidget#stepList::item:selected, QListWidget#actionList::item:selected {{
                 background-color: transparent;
-            }
-            QListWidget#stepList::item:hover, QListWidget#actionList::item:hover {
+            }}
+            QListWidget#stepList::item:hover, QListWidget#actionList::item:hover {{
                 background-color: transparent;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 border: none;
                 outline: none;
-            }
-            QListWidget::item:selected {
-                background-color: #4e9e20;
+            }}
+            QListWidget::item:selected {{
+                background-color: {theme.get_color('primary')};
                 color: white;
                 border: none;
                 outline: none;
-            }
-            QListWidget::item:hover {
-                background-color: rgba(78, 158, 32, 100);
-            }
-            QListWidget::item:focus {
+            }}
+            QListWidget::item:hover {{
+                background-color: rgba({_prm_rgb},0.39);
+            }}
+            QListWidget::item:focus {{
                 outline: none;
                 border: none;
-            }
+            }}
         """)
     
     def connect_signals(self):

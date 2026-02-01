@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLa
 from PySide6.QtCore import Qt
 import qtawesome as qta
 
+from ui.theme_system import theme
+
 class ApiCallWarningDialog(QDialog):
     def __init__(self, parent=None, file_count=None):
         super().__init__(parent)
@@ -12,7 +14,7 @@ class ApiCallWarningDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
 
         icon_label = QLabel()
-        warn_icon = qta.icon('fa6s.triangle-exclamation', color='#e67e22')
+        warn_icon = qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning'))
         icon_pixmap = warn_icon.pixmap(48, 48)
         icon_label.setPixmap(icon_pixmap)
         icon_label.setAlignment(Qt.AlignCenter)
@@ -21,7 +23,7 @@ class ApiCallWarningDialog(QDialog):
         count_text = f"{file_count:,}"
         label1 = QLabel(f"You are about to generate metadata for {count_text} files.")
         label1.setAlignment(Qt.AlignCenter)
-        label1.setStyleSheet("color: #e67e22; font-weight: bold; font-size: 18px;")
+        label1.setStyleSheet(f"color: {theme.get_color('warning')}; font-weight: bold; font-size: 18px;")
         layout.addWidget(label1)
 
         est_token = 0
@@ -48,7 +50,7 @@ class ApiCallWarningDialog(QDialog):
 
         label3 = QLabel("By continuing, you acknowledge and understand the above risks.")
         label3.setAlignment(Qt.AlignCenter)
-        label3.setStyleSheet("color: #e74c3c; font-weight: bold; font-size: 12px;")
+        label3.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold; font-size: 12px;")
         layout.addWidget(label3)
 
         button_layout = QHBoxLayout()

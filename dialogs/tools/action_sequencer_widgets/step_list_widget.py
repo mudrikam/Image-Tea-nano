@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
 from PySide6.QtCore import Qt, Signal, QPoint
-from PySide6.QtGui import QFont, QDrag, QPixmap, QPainter
+from PySide6.QtGui import QFont, QDrag, QPixmap, QPainter, QColor
 import qtawesome as qta
 from .select_action_dialog import SelectActionDialog
 from database.db_operation import ImageTeaDB
 from helpers.tools.action_sequencer_helpers.action_sequencer_platform_validator import PlatformFormatValidator
+from ui.theme_system import theme
 
 class DraggableListWidget(QListWidget):
     """QListWidget subclass that creates a drag pixmap so the item follows the cursor while dragging."""
@@ -108,7 +109,7 @@ class StepListWidget(QWidget):
         
         widget = QWidget()
         widget.setObjectName(f"stepItem_{step_data['id']}")
-        color = step_data.get("color", "#888888")
+        color = step_data.get("color", theme.get_color('gray'))
         hex_color = color.lstrip('#')
         r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         widget.setStyleSheet(f"""
@@ -156,7 +157,7 @@ class StepListWidget(QWidget):
         content_layout.addWidget(name_label)
         
         order_label = QLabel(f"Order: {step_data.get('order_index', 0)}")
-        order_label.setStyleSheet("color: #888; font-size: 9px; background: transparent;")
+        order_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 9px; background: transparent;")
         content_layout.addWidget(order_label)
         
         main_layout.addLayout(content_layout)
@@ -614,17 +615,22 @@ class StepListWidget(QWidget):
         container_layout.setContentsMargins(2, 2, 2, 2)
         container_layout.setSpacing(0)
         
+        _gray_q = QColor(theme.get_color('gray'))
+        _gray_rgb = f"{_gray_q.red()},{_gray_q.green()},{_gray_q.blue()}"
+        _prm_q = QColor(theme.get_color('primary'))
+        _prm_rgb = f"{_prm_q.red()},{_prm_q.green()},{_prm_q.blue()}"
+        
         widget = QWidget()
-        widget.setStyleSheet("""
-            QWidget {
-                background-color: rgba(100, 100, 100, 20);
-                border: 2px dashed rgba(150, 150, 150, 0.2);
+        widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: rgba({_gray_rgb},0.08);
+                border: 2px dashed rgba({_gray_rgb},0.2);
                 border-radius: 4px;
-            }
-            QWidget:hover {
-                background-color: rgba(78, 158, 32, 30);
-                border: 2px dashed rgba(78,158,32,0.35);
-            }
+            }}
+            QWidget:hover {{
+                background-color: rgba({_prm_rgb},0.12);
+                border: 2px dashed rgba({_prm_rgb},0.35);
+            }}
         """)
         widget.setCursor(Qt.PointingHandCursor)
         
@@ -633,7 +639,7 @@ class StepListWidget(QWidget):
         main_layout.setSpacing(8)
         
         icon_label = QLabel()
-        icon = qta.icon('fa6s.plus', color='#888888')
+        icon = qta.icon('fa6s.plus', color=theme.get_color('gray'))
         icon_label.setPixmap(icon.pixmap(20, 20))
         icon_label.setFixedWidth(24)
         icon_label.setStyleSheet("background: transparent; border: none;")
@@ -644,7 +650,7 @@ class StepListWidget(QWidget):
         name_font.setBold(True)
         name_font.setPointSize(10)
         name_label.setFont(name_font)
-        name_label.setStyleSheet("color: #888; background: transparent; border: none;")
+        name_label.setStyleSheet(f"color: {theme.get_color('gray')}; background: transparent; border: none;")
         main_layout.addWidget(name_label)
         main_layout.addStretch()
         
