@@ -12,6 +12,7 @@ from dialogs.tools.action_sequencer_widgets import (ActionBarWidget, PresetListW
 from dialogs.tools.action_settings_dialog import ActionSettingsDialog
 from dialogs.tools.add_preset_dialog import AddPresetDialog
 from dialogs.tools.add_action_dialog import AddActionDialog
+from dialogs.tools.free_presets_dialog import FreePresetsDialog
 from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper import ActionSequencerConfig
 from helpers.tools.action_sequencer_helpers.action_sequencer_photoshop_jsx_helper import PhotoshopJSXGenerator
 from helpers.tools.action_sequencer_helpers.action_sequencer_illustrator_jsx_helper import IllustratorJSXGenerator
@@ -302,6 +303,7 @@ class ActionSequencerDialog(QDialog):
         self.status_bar_widget.stop_process_requested.connect(self.on_stop_process)
         
         self.action_bar_widget.reset_requested.connect(self.on_reset_tool)
+        self.action_bar_widget.get_free_presets_requested.connect(self.on_open_free_presets)
     
     def on_platform_changed(self, platform_id):
         """Clear all loaded data when platform changes"""
@@ -402,6 +404,10 @@ class ActionSequencerDialog(QDialog):
     def on_action_modified(self):
         self.preset_list_widget.load_action_sets_from_db()
     
+    def on_open_free_presets(self):
+        dlg = FreePresetsDialog(self)
+        dlg.exec()
+
     def on_load_from_database(self):
         all_files = self.db.get_all_files()
         self.loaded_files = []

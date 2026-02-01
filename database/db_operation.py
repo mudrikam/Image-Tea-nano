@@ -779,6 +779,21 @@ class ImageTeaDB:
                     'note': row[3] if row[3] else ''
                 }
             return None
+    
+    def get_platform_by_name(self, platform_name):
+        """Get a single platform by name"""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT platforms_id, platforms_name, platforms_exec_path, platforms_note FROM action_sequencer_platforms WHERE platforms_name = ?', (platform_name,))
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'name': row[1],
+                    'exec_path': row[2],
+                    'note': row[3] if row[3] else ''
+                }
+            return None
 
     # --- Action Sequencer Action Set methods ---
     def get_action_sets_by_platform(self, platform_id):

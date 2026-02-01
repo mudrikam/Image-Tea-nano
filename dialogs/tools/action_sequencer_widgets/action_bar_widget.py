@@ -13,6 +13,7 @@ class ActionBarWidget(QWidget):
     file_path_changed = Signal(str)
     reset_requested = Signal()
     clear_source_requested = Signal()
+    get_free_presets_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,6 +45,11 @@ class ActionBarWidget(QWidget):
         self.reset_button = QPushButton(qta.icon('fa6s.rotate-left'), " Clear All")
         self.reset_button.clicked.connect(self.on_reset_clicked)
         buttons_layout.addWidget(self.reset_button)
+
+        self.get_free_button = QPushButton(qta.icon('fa6s.cloud-arrow-down', color='#4e9e20'), " Get FREE Presets")
+        self.get_free_button.setToolTip("Get free presets from remote repository")
+        self.get_free_button.clicked.connect(self.on_get_free_presets_clicked)
+        buttons_layout.addWidget(self.get_free_button)
         
         buttons_layout.addStretch()
         
@@ -136,6 +142,9 @@ class ActionBarWidget(QWidget):
         self.set_file_path("")
         self.output_path_changed.emit("")
         self.reset_requested.emit()
+    
+    def on_get_free_presets_clicked(self):
+        self.get_free_presets_requested.emit()
     
     def on_select_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_path)

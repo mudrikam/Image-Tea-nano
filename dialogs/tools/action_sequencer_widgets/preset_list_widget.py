@@ -8,6 +8,7 @@ import qtawesome as qta
 from database.db_operation import ImageTeaDB
 from helpers.tools.action_sequencer_helpers.action_sequencer_import_export_helper import ActionSequencerImportExport
 from dialogs.tools.add_action_set_dialog import AddActionSetDialog
+from dialogs.tools.free_presets_dialog import FreePresetsDialog
 from datetime import datetime
 
 class PresetListWidget(QWidget):
@@ -656,6 +657,10 @@ class PresetListWidget(QWidget):
             import_action = menu.addAction("Import Preset")
             import_action.setIcon(qta.icon('fa6s.file-import'))
             import_action.triggered.connect(self.on_import_preset)
+            
+            get_free_presets_action = menu.addAction("Get FREE Presets")
+            get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
+            get_free_presets_action.triggered.connect(self.on_get_free_presets)
         
         global_pos = self.preset_list.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
@@ -679,6 +684,10 @@ class PresetListWidget(QWidget):
         import_action = menu.addAction("Import Preset")
         import_action.setIcon(qta.icon('fa6s.file-import'))
         import_action.triggered.connect(self.on_import_preset)
+        
+        get_free_presets_action = menu.addAction("Get FREE Presets")
+        get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
+        get_free_presets_action.triggered.connect(self.on_get_free_presets)
         
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
 
@@ -945,3 +954,10 @@ class PresetListWidget(QWidget):
                 self.load_action_sets_from_db()
             else:
                 QMessageBox.warning(self, "Import Failed", message)
+    
+    def on_get_free_presets(self):
+        """Open FREE Presets dialog to browse and download presets from GitHub"""
+        dialog = FreePresetsDialog(self)
+        dialog.exec()
+        self.load_presets_from_db()
+
