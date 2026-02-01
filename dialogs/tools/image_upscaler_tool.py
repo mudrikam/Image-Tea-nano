@@ -14,7 +14,7 @@ import cv2
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
     QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
-    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QSpinBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
@@ -85,7 +85,7 @@ class ImageUpscaleWorker(QThread):
     image_completed_signal = Signal(str, bool)
 
     def __init__(self, image_paths: List[str], model: str, scale: int, batch_size: int = 10,
-                 output_format: str = "png", output_dir: str = None):
+                 output_format: str = "png", output_dir: str = None, tint_adjustment: tuple = (0, 0, 0)):
         super().__init__()
         self.image_paths = image_paths
         self.model = model
@@ -93,6 +93,7 @@ class ImageUpscaleWorker(QThread):
         self.batch_size = batch_size
         self.output_format = output_format.lower()
         self.output_dir = output_dir
+        self.tint_adjustment = tint_adjustment
         self._stop_requested = False
         
         self.realesrgan_bin = get_realesrgan_path()
@@ -226,78 +227,25 @@ class ImageUpscaleWorker(QThread):
             arr = arr[:, :, :3]
             self.log_signal.emit(f"ℹ️ Dropped alpha channel for {os.path.basename(output_path)}")
 
-        # Convert to float [0..1]
         if np.issubdtype(arr.dtype, np.floating):
-            maxv = float(np.max(arr)) if arr.size else 0.0
-            if maxv <= 1.5:
-                norm = np.clip(arr * 255.0, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
-            else:
-                norm = np.clip(arr, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
+            arr_u8 = np.clip(arr * 255.0, 0, 255).round().astype(np.uint8)
         else:
-            norm = np.clip(arr, 0, 255).astype(np.uint8).astype(np.float32) / 255.0
+            arr_u8 = np.clip(arr, 0, 255).astype(np.uint8)
 
-        # If reference image provided, check if produced is already similar
-        if ref_path and os.path.exists(ref_path):
-            ref = cv2.imread(ref_path, cv2.IMREAD_COLOR)
-            if ref is not None:
-                ref = ref.astype(np.float32) / 255.0
-                if ref.shape[:2] != norm.shape[:2]:
-                    try:
-                        ref = cv2.resize(ref, (norm.shape[1], norm.shape[0]), interpolation=cv2.INTER_LINEAR)
-                    except Exception:
-                        pass
-                mse = np.mean((norm - ref) ** 2)
-                self.log_signal.emit(f"   ℹ️ MSE to reference: {mse:.6f}")
-                if mse < 0.001:  # Adjusted MSE threshold
-                    arr2 = (norm * 255.0).round().astype(np.uint8)
-                    if self.output_format == 'png':
-                        ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                    elif self.output_format in ['jpg', 'jpeg']:
-                        ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                    else:
-                        ok = cv2.imwrite(output_path, arr2)
-                    if ok:
-                        self.log_signal.emit(f"   ℹ️ Output similar to reference; saved without correction: {os.path.basename(output_path)}")
-                        return True
+        r_adj, g_adj, b_adj = self.tint_adjustment
+        if r_adj != 0 or g_adj != 0 or b_adj != 0:
+            arr_float = arr_u8.astype(np.float32)
+            arr_float[:, :, 0] += b_adj
+            arr_float[:, :, 1] += g_adj
+            arr_float[:, :, 2] += r_adj
+            arr_u8 = np.clip(arr_float, 0, 255).astype(np.uint8)
 
-        def imbalance(a: np.ndarray) -> float:
-            m = a.mean(axis=(0, 1)).astype(np.float64)
-            mx = float(m.max())
-            rest = float(m.sum() - m.max())
-            return mx / (rest + 1e-9)
-
-        # Try all permutations and gentle per-channel gains
-        best = None
-        best_score = float('inf')
-        best_perm = (0,1,2)
-        for perm in itertools.permutations([0,1,2]):
-            p = norm[..., list(perm)]
-            s = imbalance((p * 255.0).astype(np.uint8))
-            if s < best_score:
-                best_score = s
-                best = p
-                best_perm = perm
-        if best is not None:
-            norm = best
-            if best_perm != (0,1,2):
-                self.log_signal.emit(f"🔧 Auto-permuted channels for {os.path.basename(output_path)} to {best_perm} (score {best_score:.3f})")
-
-        means = norm.mean(axis=(0,1))
-        target = float(means.mean()) if means.size else 0.0
-        if target > 0:
-            gains = target / (means + 1e-9)
-            gains = np.clip(gains, 0.75, 1.5)
-            if not np.allclose(gains, 1.0, atol=0.03):
-                self.log_signal.emit(f"🔧 Applied channel gains for {os.path.basename(output_path)}: {gains.tolist()}")
-                norm = np.clip(norm * gains.reshape((1,1,3)), 0.0, 1.0)
-
-        arr2 = (norm * 255.0).round().astype(np.uint8)
         if self.output_format == 'png':
-            ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+            ok = cv2.imwrite(output_path, arr_u8, [cv2.IMWRITE_PNG_COMPRESSION, 0])
         elif self.output_format in ['jpg', 'jpeg']:
-            ok = cv2.imwrite(output_path, arr2, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            ok = cv2.imwrite(output_path, arr_u8, [cv2.IMWRITE_JPEG_QUALITY, 95])
         else:
-            ok = cv2.imwrite(output_path, arr2)
+            ok = cv2.imwrite(output_path, arr_u8)
 
         if not ok:
             print(f"ERROR: Failed to write image to {output_path}")
@@ -785,6 +733,8 @@ class ImageUpscalerDialog(QDialog):
         self._processed = 0
         self._total = 0
         
+        self.tint_adjustment = (2, -5, 0)
+        
         self.model_manager = UpscalerModelManager()
         
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
@@ -827,6 +777,15 @@ class ImageUpscalerDialog(QDialog):
                     fmt = config.get('format', '')
                     if fmt and self.format_combo.findText(fmt.upper()) >= 0:
                         self.format_combo.setCurrentText(fmt.upper())
+                    
+                    tint_r = config.get('tint_r', 2)
+                    self.tint_r_spin.setValue(tint_r)
+                    
+                    tint_g = config.get('tint_g', -5)
+                    self.tint_g_spin.setValue(tint_g)
+                    
+                    tint_b = config.get('tint_b', 0)
+                    self.tint_b_spin.setValue(tint_b)
         except Exception:
             pass
         finally:
@@ -847,6 +806,9 @@ class ImageUpscalerDialog(QDialog):
             cfg['scale'] = self.scale_combo.currentText()
             cfg['batch'] = self.batch_combo.currentText()
             cfg['format'] = self.format_combo.currentText().lower()
+            cfg['tint_r'] = self.tint_r_spin.value()
+            cfg['tint_g'] = self.tint_g_spin.value()
+            cfg['tint_b'] = self.tint_b_spin.value()
 
             if self.output_dir:
                 cfg['output_dir'] = self.output_dir.replace('\\', '/')
@@ -930,6 +892,30 @@ class ImageUpscalerDialog(QDialog):
         self.format_combo.setToolTip("Output image format")
         self.format_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout.addWidget(self.format_combo)
+        
+        settings_layout.addWidget(QLabel("Tint R:"))
+        self.tint_r_spin = QSpinBox()
+        self.tint_r_spin.setRange(-50, 50)
+        self.tint_r_spin.setValue(2)
+        self.tint_r_spin.setToolTip("Red channel adjustment (-50 to +50)")
+        self.tint_r_spin.valueChanged.connect(self._on_tint_changed)
+        settings_layout.addWidget(self.tint_r_spin)
+        
+        settings_layout.addWidget(QLabel("G:"))
+        self.tint_g_spin = QSpinBox()
+        self.tint_g_spin.setRange(-50, 50)
+        self.tint_g_spin.setValue(-5)
+        self.tint_g_spin.setToolTip("Green channel adjustment (-50 to +50)")
+        self.tint_g_spin.valueChanged.connect(self._on_tint_changed)
+        settings_layout.addWidget(self.tint_g_spin)
+        
+        settings_layout.addWidget(QLabel("B:"))
+        self.tint_b_spin = QSpinBox()
+        self.tint_b_spin.setRange(-50, 50)
+        self.tint_b_spin.setValue(0)
+        self.tint_b_spin.setToolTip("Blue channel adjustment (-50 to +50)")
+        self.tint_b_spin.valueChanged.connect(self._on_tint_changed)
+        settings_layout.addWidget(self.tint_b_spin)
         
         settings_layout.addStretch()
         
@@ -1153,6 +1139,10 @@ class ImageUpscalerDialog(QDialog):
         else:
             self.scale_combo.setEnabled(True)
     
+    def _on_tint_changed(self):
+        self.tint_adjustment = (self.tint_r_spin.value(), self.tint_g_spin.value(), self.tint_b_spin.value())
+        self._save_config()
+    
     def load_from_database(self):
         images = self.db.get_all_files()
         image_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif')
@@ -1343,7 +1333,7 @@ class ImageUpscalerDialog(QDialog):
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
         
         self.worker = ImageUpscaleWorker(
-            self.image_files, model, scale, batch_size, output_format, output_dir
+            self.image_files, model, scale, batch_size, output_format, output_dir, self.tint_adjustment
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
