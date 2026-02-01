@@ -567,7 +567,7 @@ class UpscalerModelManager:
     
     def _detect_scale(self, model_name: str) -> int:
         import re
-        m = re.search(r'x([234])', model_name, re.IGNORECASE)
+        m = re.search(r'x([1-8])', model_name, re.IGNORECASE)
         if m:
             return int(m.group(1))
         return 4
@@ -793,7 +793,7 @@ class AddModelDialog(QDialog):
         form_layout.addRow("Type:", self.type_combo)
         
         self.scale_spin = QSpinBox()
-        self.scale_spin.setRange(2, 4)
+        self.scale_spin.setRange(1, 8)
         self.scale_spin.setValue(4)
         form_layout.addRow("Scale:", self.scale_spin)
         

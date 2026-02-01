@@ -297,7 +297,15 @@ class ImageUpscaleWorker(QThread):
                         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
                         if img is None:
                             return False
+                        
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        
+                        h, w = img.shape[:2]
+                        pad_h = (4 - h % 4) % 4
+                        pad_w = (4 - w % 4) % 4
+                        if pad_h > 0 or pad_w > 0:
+                            img = np.pad(img, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+                        
                         img = img.astype(np.float32) / 255.0
                         img = np.transpose(img, (2, 0, 1))
                         img = np.expand_dims(img, axis=0)
@@ -309,15 +317,16 @@ class ImageUpscaleWorker(QThread):
                             output = output[0]
                         output = output.squeeze(0).float().cpu().clamp(0, 1).numpy()
                         output = np.transpose(output, (1, 2, 0))
-                        output = (output * 255.0).round().astype(np.uint8)
+                        
+                        if pad_h > 0 or pad_w > 0:
+                            output_h = h * self.scale
+                            output_w = w * self.scale
+                            output = output[:output_h, :output_w, :]
+                        
+                        output = (output * 255.0).astype(np.uint8)
                         output = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
-                        if self.output_format == 'png':
-                            cv2.imwrite(output_path, output, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                        elif self.output_format in ['jpg', 'jpeg']:
-                            cv2.imwrite(output_path, output, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                        else:
-                            cv2.imwrite(output_path, output)
-                    return True
+                        
+                        return self._normalize_and_save_image(output, output_path)
                 except Exception as e:
                     self.log_signal.emit(f"   ❌ PyTorch direct upscale error: {e}")
                     tb = traceback.format_exc()
@@ -458,7 +467,7 @@ class ImageUpscaleWorker(QThread):
             processed = 0
             
             model_to_use = self.model
-            if re.search(r"x([234])", model_to_use, re.IGNORECASE):
+            if re.search(r"x([1-8])", model_to_use, re.IGNORECASE):
                 self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
             else:
                 candidate = f"{model_to_use}-x{self.scale}"
@@ -872,7 +881,7 @@ class ImageUpscalerDialog(QDialog):
         
         settings_layout.addWidget(QLabel("Scale:"))
         self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["2", "3", "4"])
+        self.scale_combo.addItems(["1", "2", "3", "4", "5", "6", "7", "8"])
         self.scale_combo.setCurrentText("2")
         self.scale_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout.addWidget(self.scale_combo)
@@ -1130,7 +1139,7 @@ class ImageUpscalerDialog(QDialog):
         return True
     
     def _on_model_changed(self, model_name: str):
-        m = re.search(r"x([234])", model_name, re.IGNORECASE)
+        m = re.search(r"x([1-8])", model_name, re.IGNORECASE)
         if m:
             s = m.group(1)
             self.scale_combo.setCurrentText(s)
@@ -1403,7 +1412,7 @@ class ImageUpscalerDialog(QDialog):
     
     def _is_scale_locked(self):
         model_name = self.model_combo.currentText()
-        return bool(re.search(r"x([234])", model_name, re.IGNORECASE))
+        return bool(re.search(r"x([1-8])", model_name, re.IGNORECASE))
     
     def append_log(self, message: str):
         self.log_viewer.append(message)
