@@ -4,6 +4,7 @@ import qtawesome as qta
 import json
 import os
 from config import BASE_PATH
+from ui.theme_system import theme
 
 class PromptSectionWidget(QWidget):
     def __init__(self, parent=None):
@@ -18,7 +19,7 @@ class PromptSectionWidget(QWidget):
         main_layout.setSpacing(6)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        icon_color = "#4e9e20"
+        icon_color = theme.get_color('primary')
         icon_size = 14
         fixed_width = 80
 
@@ -31,7 +32,7 @@ class PromptSectionWidget(QWidget):
         min_title_icon = QLabel()
         min_title_icon.setPixmap(qta.icon('fa6s.arrow-down-short-wide', color=icon_color).pixmap(icon_size, icon_size))
         min_title_label = QLabel("Min Title")
-        min_title_label.setStyleSheet("color: #666; font-size: 10px;")
+        min_title_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         min_title_header.addWidget(min_title_icon)
         min_title_header.addWidget(min_title_label)
         min_title_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -57,7 +58,7 @@ class PromptSectionWidget(QWidget):
         max_title_icon = QLabel()
         max_title_icon.setPixmap(qta.icon('fa6s.arrow-up-wide-short', color=icon_color).pixmap(icon_size, icon_size))
         max_title_label = QLabel("Max Title")
-        max_title_label.setStyleSheet("color: #666; font-size: 10px;")
+        max_title_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         max_title_header.addWidget(max_title_icon)
         max_title_header.addWidget(max_title_label)
         max_title_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -83,7 +84,7 @@ class PromptSectionWidget(QWidget):
         max_desc_icon = QLabel()
         max_desc_icon.setPixmap(qta.icon('fa6s.align-left', color=icon_color).pixmap(icon_size, icon_size))
         max_desc_label = QLabel("Max Desc")
-        max_desc_label.setStyleSheet("color: #666; font-size: 10px;")
+        max_desc_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         max_desc_header.addWidget(max_desc_icon)
         max_desc_header.addWidget(max_desc_label)
         max_desc_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -109,7 +110,7 @@ class PromptSectionWidget(QWidget):
         tag_count_icon = QLabel()
         tag_count_icon.setPixmap(qta.icon('fa6s.tags', color=icon_color).pixmap(icon_size, icon_size))
         tag_count_label = QLabel("Tag Count")
-        tag_count_label.setStyleSheet("color: #666; font-size: 10px;")
+        tag_count_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         tag_count_header.addWidget(tag_count_icon)
         tag_count_header.addWidget(tag_count_label)
         tag_count_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -135,7 +136,7 @@ class PromptSectionWidget(QWidget):
         batch_size_icon = QLabel()
         batch_size_icon.setPixmap(qta.icon('fa6s.layer-group', color=icon_color).pixmap(icon_size, icon_size))
         batch_size_label = QLabel("Batch Size")
-        batch_size_label.setStyleSheet("color: #666; font-size: 10px;")
+        batch_size_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         batch_size_header.addWidget(batch_size_icon)
         batch_size_header.addWidget(batch_size_label)
         batch_size_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -161,7 +162,7 @@ class PromptSectionWidget(QWidget):
         compression_icon = QLabel()
         compression_icon.setPixmap(qta.icon('fa6s.compress', color=icon_color).pixmap(icon_size, icon_size))
         compression_label = QLabel("Quality")
-        compression_label.setStyleSheet("color: #666; font-size: 10px;")
+        compression_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         compression_header.addWidget(compression_icon)
         compression_header.addWidget(compression_label)
         compression_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -187,7 +188,7 @@ class PromptSectionWidget(QWidget):
         delay_icon = QLabel()
         delay_icon.setPixmap(qta.icon('fa6s.hourglass-half', color=icon_color).pixmap(icon_size, icon_size))
         delay_label = QLabel("Delay (s)")
-        delay_label.setStyleSheet("color: #666; font-size: 10px;")
+        delay_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         delay_header.addWidget(delay_icon)
         delay_header.addWidget(delay_label)
         delay_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -214,7 +215,7 @@ class PromptSectionWidget(QWidget):
         proxy_icon = QLabel()
         proxy_icon.setPixmap(qta.icon('fa6s.video', color=icon_color).pixmap(icon_size, icon_size))
         proxy_label = QLabel("Proxy")
-        proxy_label.setStyleSheet("color: #666; font-size: 10px;")
+        proxy_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         proxy_header.addWidget(proxy_icon)
         proxy_header.addWidget(proxy_label)
         proxy_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -253,7 +254,7 @@ class PromptSectionWidget(QWidget):
         preset_icon = QLabel()
         preset_icon.setPixmap(qta.icon('fa6s.list', color=icon_color).pixmap(icon_size, icon_size))
         preset_label = QLabel("Preset")
-        preset_label.setStyleSheet("color: #666; font-size: 10px;")
+        preset_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         preset_header.addWidget(preset_icon)
         preset_header.addWidget(preset_label)
         preset_header.setAlignment(Qt.AlignmentFlag.AlignLeft)

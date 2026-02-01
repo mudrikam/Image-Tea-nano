@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QScrollArea, QGroupBox, QCheckBox, QComboBox, QApplication
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QBuffer, QIODevice, QByteArray
-from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon
+from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon, QColor
 import qtawesome as qta
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
@@ -18,6 +18,7 @@ from helpers.tools.envato_elements_api_helper import process_image_with_gemini
 from helpers.tools.envato_elements_yaml_helper import (
     load_data_yaml, save_data_yaml, replace_placeholders, generate_final_description
 )
+from ui.theme_system import theme
 
 
 class ImageProcessor(QThread):
@@ -52,18 +53,20 @@ class ImageDisplayWidget(QLabel):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("""
-            QLabel {
-                border: 2px dashed #ccc;
+        _gray_q0 = QColor(theme.get_color('gray'))
+        _gray_rgb0 = f"{_gray_q0.red()},{_gray_q0.green()},{_gray_q0.blue()}"
+        self.setStyleSheet(f"""
+            QLabel {{
+                border: 2px dashed {theme.get_color('gray')};
                 border-radius: 8px;
-                background-color: rgba(128, 128, 128, 0.05);
-                color: #888;
+                background-color: rgba({_gray_rgb0},0.05);
+                color: {theme.get_color('gray')};
                 font-size: 12px;
-            }
-            QLabel:hover {
-                background-color: rgba(128, 128, 128, 0.1);
-                border-color: #999;
-            }
+            }}
+            QLabel:hover {{
+                background-color: rgba({_gray_rgb0},0.1);
+                border-color: {theme.get_color('gray')};
+            }}
         """)
         self.setText("Drag & Drop Image Here\nor CLICK to Select File")
         self.setMinimumSize(400, 120)
@@ -192,26 +195,30 @@ class EnvatoElementsMetadataDialog(QDialog):
     def update_progress_animation(self):
         self.button_blink_state = not self.button_blink_state
         if self.button_blink_state:
-            self.process_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(0, 255, 0, 0.3);
-                    border: 2px solid #4CAF50;
+            _succ_q = QColor(theme.get_color('success'))
+            _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
+            self.process_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: rgba({_succ_rgb},0.3);
+                    border: 2px solid {theme.get_color('success')};
                     border-radius: 5px;
                     padding: 4px;
                     font-weight: bold;
-                    color: white;
-                }
+                    color: {theme.get_color('white')};
+                }}
             """)
         else:
-            self.process_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(0, 255, 0, 0.1);
-                    border: 2px solid #4CAF50;
+            _succ_q = QColor(theme.get_color('success'))
+            _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
+            self.process_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: rgba({_succ_rgb},0.1);
+                    border: 2px solid {theme.get_color('success')};
                     border-radius: 5px;
                     padding: 4px;
                     font-weight: bold;
-                    color: #333;
-                }
+                    color: {theme.get_color('text_dark')};
+                }}
             """)
     
     def create_api_selection_panel(self, main_layout):
@@ -338,7 +345,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         image_layout.addWidget(self.progress_bar)
         
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #666; font-style: italic; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-style: italic; font-size: 11px;")
         self.status_label.setMaximumHeight(16)
         image_layout.addWidget(self.status_label)
         
@@ -346,21 +353,25 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.process_btn.setIcon(qta.icon('fa6s.play'))
         self.process_btn.setMaximumHeight(30)
         self.process_btn.clicked.connect(self.process_image)
-        self.process_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(0, 255, 0, 0.05);
-                border: 2px solid #4CAF50;
+        _succ_q2 = QColor(theme.get_color('success'))
+        _succ_rgb2 = f"{_succ_q2.red()},{_succ_q2.green()},{_succ_q2.blue()}"
+        _gray_q2 = QColor(theme.get_color('gray'))
+        _gray_rgb2 = f"{_gray_q2.red()},{_gray_q2.green()},{_gray_q2.blue()}"
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba({_succ_rgb2},0.05);
+                border: 2px solid {theme.get_color('success')};
                 border-radius: 5px;
                 padding: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(0, 255, 0, 0.1);
-            }
-            QPushButton:disabled {
-                background-color: rgba(128, 128, 128, 0.05);
-                border-color: #ccc;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_succ_rgb2},0.1);
+            }}
+            QPushButton:disabled {{
+                background-color: rgba({_gray_rgb2},0.05);
+                border-color: {theme.get_color('gray')};
+            }}
         """)
         image_layout.addWidget(self.process_btn)
         
@@ -528,14 +539,14 @@ class EnvatoElementsMetadataDialog(QDialog):
         title_len = len(self.title_edit.text())
         self.title_label.setText(f"Title ({title_len}/{title_max})")
         if title_len > title_max:
-            self.title_label.setStyleSheet("color: red; font-weight: bold;")
+            self.title_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold;")
         else:
             self.title_label.setStyleSheet("")
         
         tagline_len = len(self.tagline_edit.text())
         self.tagline_label.setText(f"Tagline ({tagline_len}/{tagline_max})")
         if tagline_len > tagline_max:
-            self.tagline_label.setStyleSheet("color: red; font-weight: bold;")
+            self.tagline_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold;")
         else:
             self.tagline_label.setStyleSheet("")
         
@@ -546,7 +557,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         if count == 0:
             self.tags_label.setStyleSheet("")
         elif count != tags_expected:
-            self.tags_label.setStyleSheet("color: red; font-weight: bold;")
+            self.tags_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold;")
         else:
             self.tags_label.setStyleSheet("")
     
@@ -768,21 +779,25 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.process_btn.setText("Process Image")
         self.process_btn.setEnabled(True)
-        self.process_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(0, 255, 0, 0.05);
-                border: 2px solid #4CAF50;
+        _succ_q5 = QColor(theme.get_color('success'))
+        _succ_rgb5 = f"{_succ_q5.red()},{_succ_q5.green()},{_succ_q5.blue()}"
+        _gray_q5 = QColor(theme.get_color('gray'))
+        _gray_rgb5 = f"{_gray_q5.red()},{_gray_q5.green()},{_gray_q5.blue()}"
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba({_succ_rgb5},0.05);
+                border: 2px solid {theme.get_color('success')};
                 border-radius: 5px;
                 padding: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(0, 255, 0, 0.1);
-            }
-            QPushButton:disabled {
-                background-color: rgba(128, 128, 128, 0.05);
-                border-color: #ccc;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_succ_rgb5},0.1);
+            }}
+            QPushButton:disabled {{
+                background-color: rgba({_gray_rgb5},0.05);
+                border-color: {theme.get_color('gray')};
+            }}
         """)
         self.status_label.setText("Processing completed successfully!")
         
@@ -826,21 +841,21 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.process_btn.setText("Process Image")
         self.process_btn.setEnabled(True)
-        self.process_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(0, 255, 0, 0.05);
-                border: 2px solid #4CAF50;
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba({_succ_rgb5},0.05);
+                border: 2px solid {theme.get_color('success')};
                 border-radius: 5px;
                 padding: 4px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(0, 255, 0, 0.1);
-            }
-            QPushButton:disabled {
-                background-color: rgba(128, 128, 128, 0.05);
-                border-color: #ccc;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_succ_rgb5},0.1);
+            }}
+            QPushButton:disabled {{
+                background-color: rgba({_gray_rgb5},0.05);
+                border-color: {theme.get_color('gray')};
+            }}
         """)
         self.status_label.setText("Error occurred")
         

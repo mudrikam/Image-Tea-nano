@@ -18,6 +18,7 @@ from helpers.tools.imagen_generator_helper import (
     load_imagen_config, save_imagen_config, generate_images_from_prompts,
     validate_image_generation_params, get_default_image_settings, get_openrouter_resolutions
 )
+from ui.theme_system import theme
 
 
 class ImagenGeneratorWorker(QThread):
@@ -514,7 +515,7 @@ class ImagenGeneratorDialog(QDialog):
         self.total_images_label = QLabel("Generated Images: 0")
         self.remaining_prompts_label = QLabel("Remaining: 0")
         self.current_generation_label = QLabel("Ready to generate")
-        self.current_generation_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+        self.current_generation_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
         stats_row2.addWidget(self.total_images_label)
         stats_row2.addWidget(self.remaining_prompts_label)
         stats_row2.addWidget(self.current_generation_label)
@@ -656,40 +657,40 @@ class ImagenGeneratorDialog(QDialog):
         if self.is_running:
             self.run_btn.setIcon(qta.icon('fa6s.stop'))
             self.run_btn.setText("Stop Generation")
-            self.run_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #dc3545;
-                    color: white;
+            self.run_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('error')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #c82333;
-                }
-                QPushButton:pressed {
-                    background-color: #bd2130;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('secondary')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('secondary')};
+                }}
             """)
         else:
             self.run_btn.setIcon(qta.icon('fa6s.play'))
             self.run_btn.setText("Run Prompt")
-            self.run_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4e9e20;
-                    color: white;
+            self.run_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('primary')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #3d7307;
-                }
-                QPushButton:pressed {
-                    background-color: #1e7e34;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('primary_hover')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('primary_pressed')};
+                }}
             """)
 
     def toggle_generation(self):
@@ -768,7 +769,7 @@ class ImagenGeneratorDialog(QDialog):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.current_generation_label.setText("Stopping generation...")
-            self.current_generation_label.setStyleSheet("color: #ffc107; font-weight: bold;")
+            self.current_generation_label.setStyleSheet(f"color: {theme.get_color('warning')}; font-weight: bold;")
             
             self.load_prompts_from_db()
             self.refresh_table()
@@ -784,7 +785,7 @@ class ImagenGeneratorDialog(QDialog):
     def on_prompt_processing(self, prompt_text):
         """Handle prompt processing updates"""
         self.current_generation_label.setText(f"Generating images for: {prompt_text}")
-        self.current_generation_label.setStyleSheet("color: #007bff; font-weight: bold;")
+        self.current_generation_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
 
     def on_image_generated(self):
         """Handle when a new image is generated - just refresh stats, table is updated real-time via status_updated"""
@@ -796,7 +797,7 @@ class ImagenGeneratorDialog(QDialog):
         self.update_run_button()
         self.progress_bar.setVisible(False)
         self.current_generation_label.setText(f"Generation completed. {total_generated} images generated.")
-        self.current_generation_label.setStyleSheet("color: #28a745; font-weight: bold;")
+        self.current_generation_label.setStyleSheet(f"color: {theme.get_color('success')}; font-weight: bold;")
         self.refresh_stats_if_needed()
         
         self.load_prompts_from_db()
@@ -812,7 +813,7 @@ class ImagenGeneratorDialog(QDialog):
         self.update_run_button()
         self.progress_bar.setVisible(False)
         self.current_generation_label.setText(f"Generation stopped: {error_message}")
-        self.current_generation_label.setStyleSheet("color: #dc3545; font-weight: bold;")
+        self.current_generation_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold;")
         self.refresh_stats_if_needed()
         
         self.load_prompts_from_db()
@@ -1198,18 +1199,32 @@ class ImagenGeneratorDialog(QDialog):
     def _status_color(self, status):
         """Get status color consistent with main_table.py"""
         if status == "processing":
-            return QColor(243, 200, 24, int(0.3 * 255))
+            _warn_col = QColor(theme.get_color('warning'))
+            _warn_col.setAlpha(int(0.3 * 255))
+            return _warn_col
         elif status == "generated" or status == "success":
-            return QColor(113, 204, 0, int(0.3 * 255))
+            _succ_col = QColor(theme.get_color('success'))
+            _succ_col.setAlpha(int(0.3 * 255))
+            return _succ_col
         elif status == "failed":
-            return QColor(255, 0, 0, int(0.15 * 255))
+            _err_col = QColor(theme.get_color('error'))
+            _err_col.setAlpha(int(0.15 * 255))
+            return _err_col
         elif status == "stopping":
-            return QColor(255, 140, 0, int(0.18 * 255))
+            _warn_col2 = QColor(theme.get_color('warning'))
+            _warn_col2.setAlpha(int(0.18 * 255))
+            return _warn_col2
         elif status == "stopped":
-            return QColor(200, 40, 40, int(0.18 * 255))
+            _err_col2 = QColor(theme.get_color('error'))
+            _err_col2.setAlpha(int(0.18 * 255))
+            return _err_col2
         elif status == "pending" or status is None:
-            return QColor(120, 120, 120, int(0.18 * 255))
-        return QColor(0, 0, 0, int(0.1 * 255))
+            _gray_col = QColor(theme.get_color('gray'))
+            _gray_col.setAlpha(int(0.18 * 255))
+            return _gray_col
+        _blk_col = QColor(theme.get_color('black'))
+        _blk_col.setAlpha(int(0.1 * 255))
+        return _blk_col
 
     def update_table_row_status(self, prompt_id, status, images_generated=0, error_msg=""):
         """Update table row status with color and real-time data"""

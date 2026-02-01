@@ -23,6 +23,8 @@ from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
 import traceback
 
+from ui.theme_system import theme
+
 class FileDropListWidget(QListWidget):
     files_dropped = Signal(list)
 
@@ -1490,21 +1492,21 @@ class VideoUpscalerDialog(QDialog):
         self.run_button.setMinimumHeight(40)
         self.run_button.setMinimumWidth(180)
         self.run_button.clicked.connect(self.run_process)
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         bottom_layout.addWidget(self.run_button)
         
@@ -1829,41 +1831,41 @@ class VideoUpscalerDialog(QDialog):
         if running:
             self.run_button.setText(" STOP")
             self.run_button.setIcon(qta.icon('fa6s.stop'))
-            self.run_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #cc3333;
-                    color: white;
+            self.run_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('secondary')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #aa2222;
-                }
-                QPushButton:pressed {
-                    background-color: #881111;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('secondary_hover')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('secondary_pressed')};
+                }}
             """)
             self.status_label.setText("Status: Running")
         else:
             self.run_button.setText(" RUN UPSCALE")
             self.run_button.setIcon(qta.icon('fa6s.play'))
-            self.run_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #4e9e20;
-                    color: white;
+            self.run_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('primary')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #3d7307;
-                }
-                QPushButton:pressed {
-                    background-color: #1e7e34;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('primary_hover')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('primary_pressed')};
+                }}
             """)
             self.status_label.setText("Status: Idle")
     
@@ -1929,9 +1931,9 @@ class VideoUpscalerDialog(QDialog):
             item = self.video_list.item(i)
             if item.data(Qt.UserRole) == video_path:
                 if success:
-                    item.setIcon(qta.icon('fa6s.circle-check', color='#4e9e20'))
+                    item.setIcon(qta.icon('fa6s.circle-check', color=theme.get_color('primary')))
                 else:
-                    item.setIcon(qta.icon('fa6s.circle-xmark', color='#cc3333'))
+                    item.setIcon(qta.icon('fa6s.circle-xmark', color=theme.get_color('secondary')))
                 break
     
     def on_finished(self, success: bool, message: str):

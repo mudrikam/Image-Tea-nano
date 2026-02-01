@@ -7,6 +7,7 @@ import datetime
 from config import BASE_PATH
 from helpers.csv_exporter import export_csv_for_platforms, get_next_index
 import qtawesome as qta
+from ui.theme_system import theme
 
 class CSVExporterDialog(QDialog):
     CONFIG_PATH = os.path.join(BASE_PATH, "configs", "csv_config.json")
@@ -111,7 +112,7 @@ class CSVExporterDialog(QDialog):
                 "Canva": "#007CCF",
                 "MiriCanvas": "#00B2C6",
             }
-            color = platform_colors.get(platform, "#333333")
+            color = platform_colors.get(platform, theme.get_color('text_dark'))
             icon_btn = QPushButton(qta.icon('fa6s.file-csv', color=color), "")
             icon_btn.setToolTip("CSV filename")
             icon_btn.setFixedWidth(28)
@@ -171,7 +172,7 @@ class CSVExporterDialog(QDialog):
         main_layout.addWidget(self.open_folder_checkbox)
 
         btn_layout = QHBoxLayout()
-        self.ok_btn = QPushButton(qta.icon('fa6s.file-csv', color='#28a745'), "Export")
+        self.ok_btn = QPushButton(qta.icon('fa6s.file-csv', color=theme.get_color('success')), "Export")
         self.ok_btn.setToolTip("Export metadata to CSV")
         self.ok_btn.clicked.connect(self.export_csv)
         self.ok_btn.setFixedHeight(36)
@@ -181,7 +182,7 @@ class CSVExporterDialog(QDialog):
         main_layout.addLayout(btn_layout)
 
         self.validation_label = QLabel("")
-        self.validation_label.setStyleSheet('color: #ff6666; font-size: 11px')
+        self.validation_label.setStyleSheet(f'color: {theme.get_color("error")}; font-size: 11px')
         self.validation_label.setVisible(False)
         main_layout.addWidget(self.validation_label)
 

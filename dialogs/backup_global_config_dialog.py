@@ -12,6 +12,8 @@ import qtawesome as qta
 import traceback
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 
+from ui.theme_system import theme
+
 EXCLUDED_FILES = { 'update_config.json', '__init__.py', 'backup_configs' }
 
 
@@ -35,7 +37,7 @@ class BackupGlobalConfigDialog(QDialog):
 		self.export_api_btn.setToolTip("Export API keys to CSV")
 		self.export_api_btn.clicked.connect(self.backup_api_keys)
 		top_layout.addWidget(self.export_api_btn)
-		clear_icon = qta.icon('fa6s.trash', color='#e61515')
+		clear_icon = qta.icon('fa6s.trash', color=theme.get_color('secondary'))
 		self.clear_all_btn = QPushButton(clear_icon, "Clear Backups")
 		self.clear_all_btn.setToolTip("Delete all backups (permanent) — consider exporting first")
 		self.clear_all_btn.clicked.connect(self.clear_all_backups)
@@ -114,7 +116,7 @@ class BackupGlobalConfigDialog(QDialog):
 			edit_btn.setToolTip("Edit backup name (timestamp preserved)")
 			edit_btn.clicked.connect(lambda checked, p=path: self.edit_backup_name(p))
 			btn_layout.addWidget(edit_btn)
-			export_icon = qta.icon('fa6s.upload', color='#4e9e20')
+			export_icon = qta.icon('fa6s.upload', color=theme.get_color('primary'))
 			export_btn = QPushButton(export_icon, "")
 			export_btn.setToolTip("Export backup to location")
 			export_btn.clicked.connect(lambda checked, p=path: self.export_backup(p))
@@ -160,7 +162,7 @@ class BackupGlobalConfigDialog(QDialog):
 		fname = os.path.basename(zip_path)
 		prefix, _ = self._parse_backup_filename(fname)
 		display = prefix if prefix else (fname[:-4] if fname.lower().endswith('.zip') else fname)
-		msg = f"Backup created: <span style='color:#4e9e20'><b>{display}</b></span>"
+		msg = f"Backup created: <span style='color:{theme.get_color('primary')}'><b>{display}</b></span>"
 		mb = QMessageBox(self)
 		mb.setWindowTitle("Backup Created")
 		mb.setIcon(QMessageBox.Information)
@@ -222,7 +224,7 @@ class BackupGlobalConfigDialog(QDialog):
 		fname = os.path.basename(path)
 		prefix, _ = self._parse_backup_filename(fname)
 		display = prefix if prefix else (fname[:-4] if fname.lower().endswith('.zip') else fname)
-		msg = f"Delete backup <b><span style='color:#4e9e20'>{display}</span></b>? This action cannot be undone."
+		msg = f"Delete backup <b><span style='color:{theme.get_color('primary')}>{display}</span></b>? This action cannot be undone."
 		mb = QMessageBox(self)
 		mb.setWindowTitle("Delete Backup")
 		mb.setIcon(QMessageBox.Warning)
@@ -281,7 +283,7 @@ class BackupGlobalConfigDialog(QDialog):
 			fname = os.path.basename(path)
 			prefix, _ = self._parse_backup_filename(fname)
 			display = prefix if prefix else (fname[:-4] if fname.lower().endswith('.zip') else fname)
-			msg = f"Exported backup <span style='color:#4e9e20'><b>{display}</b></span> to:<br/>{filename}"
+			msg = f"Exported backup <span style='color:{theme.get_color('primary')}'><b>{display}</b></span> to:<br/>{filename}"
 			mb = QMessageBox(self)
 			mb.setWindowTitle("Export Complete")
 			mb.setIcon(QMessageBox.Information)
@@ -373,7 +375,7 @@ class BackupGlobalConfigDialog(QDialog):
 			new_name = f"{new_prefix}_{timestamp}.zip"
 			new_path = os.path.join(self.backups_dir, new_name)
 			os.rename(path, new_path)
-			msg = f"Backup renamed to: <span style='color:#4e9e20'><b>{new_prefix}</b></span>"
+			msg = f"Backup renamed to: <span style='color:{theme.get_color('primary')}'><b>{new_prefix}</b></span>"
 			mb = QMessageBox(self)
 			mb.setWindowTitle("Renamed")
 			mb.setIcon(QMessageBox.Information)
@@ -535,8 +537,8 @@ class BackupGlobalConfigDialog(QDialog):
 			pre_display = pre_prefix if pre_prefix else (pre_name[:-4] if pre_name.lower().endswith('.zip') else pre_name)
 			post_display = post_prefix if post_prefix else (post_name[:-4] if post_name.lower().endswith('.zip') else post_name)
 			msg = (
-				f"Restore complete.<br/>Pre-restore backup: <span style='color:#4e9e20'><b>{pre_display}</b></span><br/>"
-				f"Post-restore backup: <span style='color:#4e9e20'><b>{post_display}</b></span>"
+				f"Restore complete.<br/>Pre-restore backup: <span style='color:{theme.get_color('primary')}'><b>{pre_display}</b></span><br/>"
+				f"Post-restore backup: <span style='color:{theme.get_color('primary')}'><b>{post_display}</b></span>"
 			)
 		mb = QMessageBox(self)
 		mb.setWindowTitle("Restore Complete")

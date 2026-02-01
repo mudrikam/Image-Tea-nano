@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QFileDialog
+from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QFileDialog, QWidgetAction, QWidget, QScrollArea
 from PySide6.QtGui import QAction, QPixmap, QIcon
 from PySide6.QtCore import Qt
 import qtawesome as qta
@@ -9,6 +9,7 @@ import subprocess
 import platform
 import json
 from config import BASE_PATH
+from .theme_system import theme
 from helpers.file_importer import import_files
 from helpers.csv_importer import import_csv_interactive
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
@@ -32,6 +33,7 @@ from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetad
 from dialogs.tools.action_sequencer import ActionSequencerDialog
 from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
 from dialogs.tools.image_upscaler_tool import ImageUpscalerDialog
+from dialogs.tools.theme_editor_dialog import ThemeEditorDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -184,6 +186,7 @@ def setup_main_menu(window):
 
     edit_menu = QMenu("Edit", menubar)
     edit_menu.setToolTipsVisible(True)
+
     delete_action = QAction(qta.icon('fa6s.trash'), "Delete Selected", window)
     delete_action.setToolTip(MENU_TOOLTIPS["delete_selected"])
     delete_action.setStatusTip(MENU_TOOLTIPS["delete_selected"])
@@ -241,6 +244,100 @@ def setup_main_menu(window):
                 dialog.exec()
     edit_metadata_action.triggered.connect(open_edit_metadata)
     edit_menu.addAction(edit_metadata_action)
+    
+    edit_menu.addSeparator()
+    
+    themes_submenu = QMenu("Themes", edit_menu)
+    themes_submenu.setIcon(qta.icon('fa6s.palette'))
+    themes_submenu.setToolTipsVisible(True)
+    
+    def load_themes_menu():
+        themes_submenu.clear()
+        try:
+            editor_action = QAction(qta.icon('fa6s.pen-to-square'), "Theme Editor...", window)
+            editor_action.triggered.connect(lambda: ThemeEditorDialog(window).exec())
+            themes_submenu.addAction(editor_action)
+            themes_submenu.addSeparator()
+
+            import json
+            config_path = os.path.join('configs', 'app_themes.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                themes_data = json.load(f)
+
+            current_theme = themes_data.get('current_theme', 'default')
+
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(4, 4, 4, 4)
+            container_layout.setSpacing(0)
+
+            for theme_id, theme_info in themes_data['themes'].items():
+                theme_name = theme_info.get('name', theme_id)
+                btn = QPushButton(theme_name)
+                btn.setFlat(True)
+                btn.setCheckable(True)
+                is_active = (theme_id == current_theme)
+                btn.setChecked(is_active)
+                btn.setStyleSheet(
+                    "QPushButton { text-align: left; padding: 6px 12px; border: none; }"
+                    f"QPushButton:checked {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; }}"
+                )
+                if is_active:
+                    try:
+                        btn.setIcon(qta.icon('fa6s.check'))
+                    except Exception:
+                        pass
+                btn.clicked.connect(lambda checked, tid=theme_id: apply_theme(tid))
+                container_layout.addWidget(btn)
+
+            container_layout.addStretch()
+
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            scroll.setWidget(container)
+            scroll.setFixedWidth(220)
+            scroll.setFixedHeight(320)
+
+            wa = QWidgetAction(window)
+            wa.setDefaultWidget(scroll)
+            themes_submenu.addAction(wa)
+
+        except Exception as e:
+            print(f"Error loading themes menu: {e}")
+    
+    def apply_theme(theme_id):
+        config_path = os.path.join('configs', 'app_themes.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            themes_data = json.load(f)
+
+        themes_data['current_theme'] = theme_id
+
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(themes_data, f, indent=2)
+
+        reply = QMessageBox.question(
+            window,
+            "Theme Changed",
+            f"Theme changed to '{themes_data['themes'][theme_id]['name']}'. Restart the application now to apply changes?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        load_themes_menu()
+
+        if reply == QMessageBox.Yes:
+            print(f"Theme changed to '{themes_data['themes'][theme_id]['name']}' - restarting now.")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        else:
+            print(f"Theme changed to '{themes_data['themes'][theme_id]['name']}'. Restart required to apply changes.")
+    
+    def open_theme_editor():
+        dialog = ThemeEditorDialog(window)
+        dialog.theme_changed.connect(lambda theme_id: load_themes_menu())
+        dialog.exec()
+    
+    load_themes_menu()
+    edit_menu.addMenu(themes_submenu)
 
     metadata_menu = QMenu("Metadata", menubar)
     metadata_menu.setToolTipsVisible(True)

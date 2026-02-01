@@ -19,6 +19,7 @@ from helpers.tools.batch_audio_remover_helper import (
     check_gpu_support,
     remove_audio_from_video
 )
+from ui.theme_system import theme
 
 
 class AudioRemovalWorker(QThread):
@@ -144,7 +145,7 @@ class BatchAudioRemoverDialog(QDialog):
         source_path_label_title.setStyleSheet("font-weight: bold;")
         source_path_layout.addWidget(source_path_label_title)
         self.source_path_label = QLabel("No source selected")
-        self.source_path_label.setStyleSheet("color: #888;")
+        self.source_path_label.setStyleSheet(f"color: {theme.get_color('gray')};")
         source_path_layout.addWidget(self.source_path_label)
         source_path_layout.addStretch()
         path_info_layout.addLayout(source_path_layout)
@@ -154,7 +155,7 @@ class BatchAudioRemoverDialog(QDialog):
         dest_path_label_title.setStyleSheet("font-weight: bold;")
         dest_path_layout.addWidget(dest_path_label_title)
         self.dest_path_label = QLabel("No destination selected")
-        self.dest_path_label.setStyleSheet("color: #888;")
+        self.dest_path_label.setStyleSheet(f"color: {theme.get_color('gray')};")
         dest_path_layout.addWidget(self.dest_path_label)
         dest_path_layout.addStretch()
         path_info_layout.addLayout(dest_path_layout)
@@ -247,21 +248,21 @@ class BatchAudioRemoverDialog(QDialog):
         self.start_btn.setMinimumWidth(150)
         self.start_btn.setToolTip("Start audio removal process")
         self.start_btn.clicked.connect(self.toggle_processing)
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         bottom_layout.addWidget(self.start_btn)
         
@@ -280,7 +281,7 @@ class BatchAudioRemoverDialog(QDialog):
                 self.destination_folder = config.get('destination_folder')
                 if self.destination_folder and os.path.exists(self.destination_folder):
                     self.dest_path_label.setText(self.destination_folder)
-                    self.dest_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+                    self.dest_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
                     print(f"[DEBUG] Auto scanning destination folder: {self.destination_folder}")
                     self.destination_files = scan_directory_for_videos(self.destination_folder)
                     print(f"[DEBUG] Found {len(self.destination_files)} files in destination")
@@ -290,7 +291,7 @@ class BatchAudioRemoverDialog(QDialog):
                     self.load_from_db = True
                     self.select_source_btn.setEnabled(False)
                     self.source_path_label.setText("Loaded from database")
-                    self.source_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+                    self.source_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
                     
                     files = self.db.get_all_files()
                     video_files = []
@@ -310,7 +311,7 @@ class BatchAudioRemoverDialog(QDialog):
                     source_folder = config.get('source_folder')
                     if source_folder and os.path.exists(source_folder):
                         self.source_path_label.setText(source_folder)
-                        self.source_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+                        self.source_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
                         self.load_from_db = False
                         self.select_source_btn.setEnabled(True)
                         
@@ -357,7 +358,7 @@ class BatchAudioRemoverDialog(QDialog):
         
         self.source_files = video_files
         self.source_path_label.setText("Loaded from database")
-        self.source_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+        self.source_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
         self.save_paths_to_config()
         self.update_source_table()
         self.update_destination_table()
@@ -390,7 +391,7 @@ class BatchAudioRemoverDialog(QDialog):
             self.load_from_db = False
             self.source_files = video_files
             self.source_path_label.setText(directory)
-            self.source_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+            self.source_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
             self.save_paths_to_config()
             self.update_source_table()
             self.update_destination_table()
@@ -407,7 +408,7 @@ class BatchAudioRemoverDialog(QDialog):
         if directory:
             self.destination_folder = directory
             self.dest_path_label.setText(directory)
-            self.dest_path_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+            self.dest_path_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
             self.save_paths_to_config()
             # Auto-scan destination when selected
             print(f"[DEBUG] Destination folder selected: {directory} - starting auto-scan")
@@ -484,10 +485,10 @@ class BatchAudioRemoverDialog(QDialog):
             status_item = QTableWidgetItem(status_text)
             
             if status_text == 'success':
-                filename_item.setForeground(QColor(0, 255, 0))
-                status_item.setForeground(QColor(0, 255, 0))
+                filename_item.setForeground(QColor(theme.get_color('success')))
+                status_item.setForeground(QColor(theme.get_color('success')))
             elif status_text == 'pending' and filename in dest_filenames:
-                filename_item.setForeground(QColor(255, 0, 0))
+                filename_item.setForeground(QColor(theme.get_color('error')))
             
             self.source_table.setItem(row, 0, filename_item)
             self.source_table.setItem(row, 1, status_item)
@@ -512,11 +513,11 @@ class BatchAudioRemoverDialog(QDialog):
             
             if filename in source_status_map:
                 if source_status_map[filename] == 'success':
-                    filename_item.setForeground(QColor(0, 255, 0))
-                    status_item.setForeground(QColor(0, 255, 0))
+                    filename_item.setForeground(QColor(theme.get_color('success')))
+                    status_item.setForeground(QColor(theme.get_color('success')))
                 elif source_status_map[filename] == 'pending':
-                    filename_item.setForeground(QColor(255, 0, 0))
-                    status_item.setForeground(QColor(255, 0, 0))
+                    filename_item.setForeground(QColor(theme.get_color('error')))
+                    status_item.setForeground(QColor(theme.get_color('error')))
                 
             self.dest_table.setItem(row, 0, filename_item)
             self.dest_table.setItem(row, 1, status_item)
@@ -540,9 +541,9 @@ class BatchAudioRemoverDialog(QDialog):
         self.progress_bar.setValue(0)
         
         self.source_path_label.setText("No source selected")
-        self.source_path_label.setStyleSheet("color: #888;")
+        self.source_path_label.setStyleSheet(f"color: {theme.get_color('gray')};")
         self.dest_path_label.setText("No destination selected")
-        self.dest_path_label.setStyleSheet("color: #888;")
+        self.dest_path_label.setStyleSheet(f"color: {theme.get_color('gray')};")
         
         config_path = os.path.join(BASE_PATH, 'temp', 'batch_audio_remover_config.json')
         if os.path.exists(config_path):
@@ -624,21 +625,21 @@ class BatchAudioRemoverDialog(QDialog):
         
         self.start_btn.setText(" Stop Process")
         self.start_btn.setIcon(qta.icon('fa6s.stop'))
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #dc3545;
-                color: white;
+        self.start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('secondary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #c82333;
-            }
-            QPushButton:pressed {
-                background-color: #bd2130;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('secondary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('secondary_pressed')};
+            }}
         """)
         
         self.success_count = 0
@@ -671,21 +672,21 @@ class BatchAudioRemoverDialog(QDialog):
         self.is_processing = False
         self.start_btn.setText(" Start Process")
         self.start_btn.setIcon(qta.icon('fa6s.play'))
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         self.update_stats()
         
@@ -710,21 +711,21 @@ class BatchAudioRemoverDialog(QDialog):
         self.is_processing = False
         self.start_btn.setText(" Start Process")
         self.start_btn.setIcon(qta.icon('fa6s.play'))
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         self.progress_bar.setValue(100)
         

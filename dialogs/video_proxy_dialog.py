@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QFrame
 from PySide6.QtCore import Qt
 import qtawesome as qta
+from ui.theme_system import theme
 
 class VideoProxyDialog(QDialog):
     def __init__(self, parent=None, batch_info=None):
@@ -28,24 +29,24 @@ class VideoProxyDialog(QDialog):
         if self.total_files > 1:
             batch_layout = QHBoxLayout()
             batch_icon = QLabel()
-            batch_icon.setPixmap(qta.icon('fa6s.layer-group', color='#4e9e20').pixmap(16, 16))
+            batch_icon.setPixmap(qta.icon('fa6s.layer-group', color=theme.get_color('primary')).pixmap(16, 16))
             batch_layout.addWidget(batch_icon)
             self.batch_label = QLabel(f"File 1 of {self.total_files}")
-            self.batch_label.setStyleSheet("font-weight: bold; color: #4e9e20;")
+            self.batch_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('primary')};")
             batch_layout.addWidget(self.batch_label)
             batch_layout.addStretch()
             layout.addLayout(batch_layout)
 
         self.filename_label = QLabel("Filename: -")
-        self.filename_label.setStyleSheet("color: #666;")
+        self.filename_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
         layout.addWidget(self.filename_label)
 
         info_grid = QVBoxLayout()
         info_grid.setSpacing(6)
         settings_label = QLabel("Creating video proxy with settings:")
-        settings_label.setStyleSheet("font-weight: bold; color: #4e9e20;")
+        settings_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('primary')};")
         self.settings_detail_label = QLabel("-")
-        self.settings_detail_label.setStyleSheet("color: #666;")
+        self.settings_detail_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
         info_grid.addWidget(settings_label)
         info_grid.addWidget(self.settings_detail_label)
         layout.addLayout(info_grid)
@@ -59,7 +60,7 @@ class VideoProxyDialog(QDialog):
         progress_layout.setSpacing(5)
 
         self.status_label = QLabel("Please wait: creating video proxy...")
-        self.status_label.setStyleSheet("color: #666; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 11px;")
         progress_layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -102,10 +103,10 @@ class VideoProxyDialog(QDialog):
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
             self.status_label.setText("Completed")
-            self.status_label.setStyleSheet("color: #4e9e20; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
         elif status == "error":
             error = data.get("error", "Unknown error")
             self.status_label.setText(f"Error: {error}")
-            self.status_label.setStyleSheet("color: #d32f2f; font-weight: bold;")
+            self.status_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold;")
         else:
             self.status_label.setText("Please wait: creating video proxy...")

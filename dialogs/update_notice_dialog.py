@@ -6,6 +6,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 from config import BASE_PATH
+from ui.theme_system import theme
 
 
 def format_human_readable_date(iso_date_str):
@@ -83,7 +84,7 @@ class UpdateNoticeDialog(QDialog):
 
         current_label = QLabel(f"<b>Current version:</b> {local_tag or 'unknown'}")
         new_label = QLabel(f"<b>Latest:</b> {remote_tag or 'unknown'}")
-        new_label.setStyleSheet("QLabel { background-color: #4e9e20; color: white; font-size: 14pt; font-weight: bold; padding: 4px 8px; border-radius: 4px; }")
+        new_label.setStyleSheet(f"QLabel {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; font-size: 14pt; font-weight: bold; padding: 4px 8px; border-radius: 4px; }}")
         checked_label = QLabel(f"<b>Checked at:</b> {format_human_readable_date(checked_time) or ''}")
         checked_label.setWordWrap(True)
 
@@ -169,7 +170,7 @@ class UpdateNoticeDialog(QDialog):
         skip_layout.setContentsMargins(0, 0, 0, 0)
         skip_layout.setSpacing(6)
         self._skip_countdown_label = QLabel(f"({self._skip_remaining}s)")
-        self._skip_countdown_label.setStyleSheet("QLabel { color: #666666; }")
+        self._skip_countdown_label.setStyleSheet(f"QLabel {{ color: {theme.get_color('text_dark')}; }}")
         skip_layout.addWidget(self.skip_checkbox)
         skip_layout.addWidget(self._skip_countdown_label, alignment=Qt.AlignLeft)
         skip_container.setLayout(skip_layout)
@@ -195,7 +196,7 @@ class UpdateNoticeDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(12)
-        update_icon = qta.icon('fa6s.download', color="#FFFFFF")
+        update_icon = qta.icon('fa6s.download', color=theme.get_color('white'))
         later_icon = qta.icon('fa6s.clock-rotate-left')
         self.update_btn = QPushButton(update_icon, " Update Now")
         self.later_btn = QPushButton(later_icon, " Remind Me Later")
@@ -236,8 +237,8 @@ class UpdateNoticeDialog(QDialog):
 
         self._later_timer.timeout.connect(_later_tick)
         self._later_timer.start()
-        self.update_btn.setStyleSheet("QPushButton { background-color: #4e9e20; color: white; font-weight: bold; padding: 8px 14px; border-radius: 6px; } QPushButton:hover { background-color: #3d7307; }")
-        self.later_btn.setStyleSheet("QPushButton { padding: 8px 12px; border-radius: 6px; } QPushButton:hover { border: 1px solid #999; }")
+        self.update_btn.setStyleSheet(f"QPushButton {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; font-weight: bold; padding: 8px 14px; border-radius: 6px; }} QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}")
+        self.later_btn.setStyleSheet(f"QPushButton {{ padding: 8px 12px; border-radius: 6px; }} QPushButton:hover {{ border: 1px solid {theme.get_color('gray')}; }}")
         self.update_btn.setMinimumHeight(40)
         self.later_btn.setMinimumHeight(40)
         self.update_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

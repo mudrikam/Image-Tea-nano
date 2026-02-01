@@ -15,6 +15,8 @@ import html
 import qtawesome as qta
 import os
 
+from ui.theme_system import theme
+
 class NoDataWidget(QWidget):
     """Widget to display 'No files to load' message consistently across all tabs"""
     def __init__(self, parent=None):
@@ -26,16 +28,17 @@ class NoDataWidget(QWidget):
         
         self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
-        green_color = QColor(103, 192, 51, int(0.5 * 255))
+        green_color = QColor(theme.get_color('success'))
+        green_color.setAlpha(int(0.5 * 255))
         self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=green_color).pixmap(64, 64))
         
         self.text_label = QLabel("No files to load")
         self.text_label.setAlignment(Qt.AlignCenter)
-        self.text_label.setStyleSheet("color: #888; font-size: 14pt; font-weight: bold;")
+        self.text_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 14pt; font-weight: bold;")
         
         self.sub_text = QLabel("Import files or drag and drop files here")
         self.sub_text.setAlignment(Qt.AlignCenter)
-        self.sub_text.setStyleSheet("color: #aaa; font-size: 10pt;")
+        self.sub_text.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 10pt;")
         
         layout.addStretch(1)
         layout.addWidget(self.icon_label)
@@ -305,18 +308,20 @@ class GridManager:
                     break
             if label:
                 if filepath in self._checked_filepaths:
-                    label.setStyleSheet(
-                        "QLabel {"
-                        "border: 2.5px solid rgba(0, 120, 255, 0.85);"
-                        "border-radius: 4px;"
-                        "padding: 2px;"
-                        "background-color: rgba(0, 120, 255, 0.10);"
-                        "}"
-                        "QLabel:hover {"
-                        "border: 2.5px solid rgba(0, 120, 255, 1.0);"
-                        "background-color: rgba(0, 120, 255, 0.18);"
-                        "}"
-                    )
+                    _pr_q = QColor(theme.get_color('primary'))
+                    _pr_rgb = f"{_pr_q.red()},{_pr_q.green()},{_pr_q.blue()}"
+                    label.setStyleSheet(f"""
+                        QLabel {{
+                            border: 2.5px solid rgba({_pr_rgb},0.85);
+                            border-radius: 4px;
+                            padding: 2px;
+                            background-color: rgba({_pr_rgb},0.10);
+                        }}
+                        QLabel:hover {{
+                            border: 2.5px solid rgba({_pr_rgb},1.0);
+                            background-color: rgba({_pr_rgb},0.18);
+                        }}
+                    """)
                 else:
                     self._set_image(label, filepath, status)
 
@@ -430,8 +435,12 @@ class GridManager:
         if self._status_color_func:
             color = self._status_color_func(status)
         if color is None:
-            color = QColor(0, 0, 0, int(0.1 * 255))
+            _blk_def = QColor(theme.get_color('black'))
+            _blk_def.setAlpha(int(0.1 * 255))
+            color = _blk_def
         border_rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()/255:.2f})"
+        _succ_q_local = QColor(theme.get_color('success'))
+        _succ_rgb_local = f"{_succ_q_local.red()},{_succ_q_local.green()},{_succ_q_local.blue()}"
         label.setStyleSheet(f"""
             QLabel {{
                 border: 2px solid {border_rgba};
@@ -440,8 +449,8 @@ class GridManager:
                 background-color: transparent;
             }}
             QLabel:hover {{
-                border: 2.5px solid rgba(88, 165, 0, 0.7);
-                background-color: rgba(88, 165, 0, 0.05);
+                border: 2.5px solid rgba({_succ_rgb_local},0.7);
+                background-color: rgba({_succ_rgb_local},0.05);
             }}
         """)
 
@@ -471,8 +480,12 @@ class GridManager:
                         if self._status_color_func:
                             color = self._status_color_func(status)
                         if color is None:
-                            color = QColor(0, 0, 0, int(0.1 * 255))
+                            _blk_def2 = QColor(theme.get_color('black'))
+                            _blk_def2.setAlpha(int(0.1 * 255))
+                            color = _blk_def2
                         border_rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()/255:.2f})"
+                        _succ_q2 = QColor(theme.get_color('success'))
+                        _succ_rgb2 = f"{_succ_q2.red()},{_succ_q2.green()},{_succ_q2.blue()}"
                         child.setStyleSheet(f"""
                             QLabel {{
                                 border: 2px solid {border_rgba};
@@ -481,8 +494,8 @@ class GridManager:
                                 background-color: transparent;
                             }}
                             QLabel:hover {{
-                                border: 2.5px solid rgba(88, 165, 0, 0.7);
-                                background-color: rgba(88, 165, 0, 0.05);
+                                border: 2.5px solid rgba({_succ_rgb2},0.7);
+                                background-color: rgba({_succ_rgb2},0.05);
                             }}
                         """)
                         break
@@ -490,17 +503,19 @@ class GridManager:
             if self.active_image:
                 for child in self.active_image.children():
                     if isinstance(child, QLabel) and child.objectName() != "filename_label":
-                        child.setStyleSheet("""
-                            QLabel {
-                                border: 2px solid rgba(88, 165, 0, 0.7);
+                        _succ_q3 = QColor(theme.get_color('success'))
+                        _succ_rgb3 = f"{_succ_q3.red()},{_succ_q3.green()},{_succ_q3.blue()}"
+                        child.setStyleSheet(f"""
+                            QLabel {{
+                                border: 2px solid rgba({_succ_rgb3},0.7);
                                 border-radius: 4px;
                                 padding: 2px;
-                                background-color: rgba(88, 165, 0, 0.20);
-                            }
-                            QLabel:hover {
-                                border: 2.5px solid rgba(88, 165, 0, 1.0);
-                                background-color: rgba(88, 165, 0, 0.25);
-                            }
+                                background-color: rgba({_succ_rgb3},0.20);
+                            }}
+                            QLabel:hover {{
+                                border: 2.5px solid rgba({_succ_rgb3},1.0);
+                                background-color: rgba({_succ_rgb3},0.25);
+                            }}
                         """)
                         break
         except Exception as e:
@@ -828,7 +843,7 @@ class ImageTableWidget(QWidget):
         self.total_pages_label = QLabel("/1")
         self.total_pages_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.total_pages_label.setMinimumWidth(30)
-        self.total_pages_label.setStyleSheet("font-weight: bold; color: #555;")
+        self.total_pages_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('text_dark')};")
         
         self.next_btn = QPushButton(self)
         self.next_btn.setIcon(qta.icon("fa6s.chevron-right"))
@@ -906,7 +921,7 @@ class ImageTableWidget(QWidget):
         thumbnail_controls_layout = QHBoxLayout()
         thumbnail_controls_layout.setContentsMargins(4, 4, 4, 4)
         zoom_label = QLabel("Columns per Row:")
-        zoom_label.setStyleSheet("font-size: 9pt; color: #666;")
+        zoom_label.setStyleSheet(f"font-size: 9pt; color: {theme.get_color('text_dark')};")
         thumbnail_controls_layout.addWidget(zoom_label)
         
         self.zoom_preset_combo = QComboBox(self)
@@ -974,7 +989,7 @@ class ImageTableWidget(QWidget):
         
         self.progress_label = QLabel("Ready")
         self.progress_label.setAlignment(Qt.AlignLeft)
-        self.progress_label.setStyleSheet("font-size: 9pt; color: #666;")
+        self.progress_label.setStyleSheet(f"font-size: 9pt; color: {theme.get_color('text_dark')};")
         progress_layout.addWidget(self.progress_label)
         
         self.progress_bar = QProgressBar(self)
@@ -1785,18 +1800,32 @@ class ImageTableWidget(QWidget):
 
     def _status_color(self, status):
         if status == "processing":
-            return QColor(243, 200, 24, int(0.3 * 255))
+            _warn_col = QColor(theme.get_color('warning'))
+            _warn_col.setAlpha(int(0.3 * 255))
+            return _warn_col
         elif status == "success":
-            return QColor(113, 204, 0, int(0.3 * 255))
+            _succ_col = QColor(theme.get_color('success'))
+            _succ_col.setAlpha(int(0.3 * 255))
+            return _succ_col
         elif status == "failed":
-            return QColor(255, 0, 0, int(0.15 * 255))
+            _err_col = QColor(theme.get_color('error'))
+            _err_col.setAlpha(int(0.15 * 255))
+            return _err_col
         elif status == "stopping":
-            return QColor(255, 140, 0, int(0.18 * 255))
+            _warn_col2 = QColor(theme.get_color('warning'))
+            _warn_col2.setAlpha(int(0.18 * 255))
+            return _warn_col2
         elif status == "stopped":
-            return QColor(200, 40, 40, int(0.18 * 255))
+            _err_col2 = QColor(theme.get_color('error'))
+            _err_col2.setAlpha(int(0.18 * 255))
+            return _err_col2
         elif status == "draft":
-            return QColor(120, 120, 120, int(0.18 * 255))
-        return QColor(0, 0, 0, int(0.1 * 255))
+            _gray_col = QColor(theme.get_color('gray'))
+            _gray_col.setAlpha(int(0.18 * 255))
+            return _gray_col
+        _blk_col = QColor(theme.get_color('black'))
+        _blk_col.setAlpha(int(0.1 * 255))
+        return _blk_col
 
     def update_row_data(self, row_idx, row_data):
         display_values = list(row_data[1:7])
@@ -2160,10 +2189,12 @@ class ImageTableWidget(QWidget):
     def _highlight_selected_row(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
+            _succ_q3 = QColor(theme.get_color('success'))
+            _succ_rgb3 = f"{_succ_q3.red()},{_succ_q3.green()},{_succ_q3.blue()}"
             self.table.setStyleSheet(
-                "QTableWidget::item:selected {"
-                "background-color: rgba(88, 165, 0, 51);"
-                "color: black;"
+                f"QTableWidget::item:selected {{"
+                f"background-color: rgba({_succ_rgb3},0.2);"
+                f"color: {theme.get_color('black')};"
                 "}"
             )
         else:

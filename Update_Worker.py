@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QPushButton, QProgressBar, QTextEdit, QMessageBox, QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QIcon, QPalette
+from PySide6.QtGui import QFont, QIcon, QPalette, QColor
 
 try:
     import qtawesome as qta
@@ -46,6 +46,8 @@ except ImportError:
     HAS_REQUESTS = False
 
 from dialogs.backup_global_config_dialog import create_backup_with_prefix, find_latest_backup_with_prefix, restore_backup_by_path, parse_backup_filename, set_version_to
+
+from ui.theme_system import theme
 
 
 ZIP_NAME = "Image-Tea-nano.zip"
@@ -503,7 +505,7 @@ class UpdateWorkerDialog(QDialog):
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         
         if HAS_QTAWESOME:
-            self.setWindowIcon(qta.icon('fa6s.mug-hot', color='#4e9e20'))
+            self.setWindowIcon(qta.icon('fa6s.mug-hot', color=theme.get_color('primary')))
         
         self.auto_start = auto_start
         self.update_thread = None
@@ -530,7 +532,7 @@ class UpdateWorkerDialog(QDialog):
             icon_container_layout = QHBoxLayout(icon_container)
             icon_container_layout.setContentsMargins(0, 0, 0, 0)
             icon_label = QLabel()
-            icon_label.setPixmap(qta.icon('fa6s.download', color='#4e9e20').pixmap(56, 56))
+            icon_label.setPixmap(qta.icon('fa6s.download', color=theme.get_color('primary')).pixmap(56, 56))
             icon_label.setAlignment(Qt.AlignCenter)
             icon_container_layout.addWidget(icon_label)
             header_layout.addWidget(icon_container, alignment=Qt.AlignTop)
@@ -551,7 +553,7 @@ class UpdateWorkerDialog(QDialog):
             developer = "Desainia Studio"
         
         developer_label = QLabel(f"Developer: {developer}")
-        developer_label.setStyleSheet("color: #666; font-size: 10pt;")
+        developer_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 10pt;")
         title_layout.addWidget(developer_label)
         
         header_layout.addLayout(title_layout, 1)
@@ -569,12 +571,12 @@ class UpdateWorkerDialog(QDialog):
         version_line_layout.setSpacing(10)
         version_line_layout.addWidget(QLabel("<b>Current:</b>"))
         self.current_version_label = QLabel(get_current_version())
-        self.current_version_label.setStyleSheet("color: #666; font-weight: bold; font-size: 11pt;")
+        self.current_version_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-weight: bold; font-size: 11pt;")
         version_line_layout.addWidget(self.current_version_label)
         version_line_layout.addSpacing(20)
         version_line_layout.addWidget(QLabel("<b>Update:</b>"))
         self.update_version_label = QLabel("Fetching...")
-        self.update_version_label.setStyleSheet("color: #4e9e20; font-weight: bold; font-size: 11pt;")
+        self.update_version_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; font-size: 11pt;")
         version_line_layout.addWidget(self.update_version_label)
         version_line_layout.addStretch()
         info_grid.addLayout(version_line_layout)
@@ -589,7 +591,7 @@ class UpdateWorkerDialog(QDialog):
         time_line_layout = QHBoxLayout()
         time_line_layout.setSpacing(10)
         self.time_info_label = QLabel("Elapsed: 00:00:00   Remaining: 00:00:00   ETA: 00:00:00")
-        self.time_info_label.setStyleSheet("font-family: 'Consolas', 'Courier New', monospace; font-size: 10pt; color: #666;")
+        self.time_info_label.setStyleSheet(f"font-family: 'Consolas', 'Courier New', monospace; font-size: 10pt; color: {theme.get_color('text_dark')};")
         time_line_layout.addWidget(self.time_info_label)
         time_line_layout.addStretch()
         info_grid.addLayout(time_line_layout)
@@ -609,17 +611,17 @@ class UpdateWorkerDialog(QDialog):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #ccc;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: 1px solid {theme.get_color('gray')};
                 border-radius: 5px;
                 text-align: center;
                 height: 25px;
-            }
-            QProgressBar::chunk {
-                background-color: #4e9e20;
+            }}
+            QProgressBar::chunk {{
+                background-color: {theme.get_color('primary')};
                 border-radius: 4px;
-            }
+            }}
         """)
         layout.addWidget(self.progress_bar)
         
@@ -628,15 +630,15 @@ class UpdateWorkerDialog(QDialog):
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
+        self.log_text.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {theme.get_color('background_light')};
+                color: {theme.get_color('foreground')};
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 11px;
-                border: 1px solid #333;
+                border: 1px solid {theme.get_color('text_dark')};
                 border-radius: 5px;
-            }
+            }}
         """)
         layout.addWidget(self.log_text, 1)
         if hasattr(self, '_pending_logs') and self._pending_logs:
@@ -651,53 +653,53 @@ class UpdateWorkerDialog(QDialog):
         
         self.start_button = QPushButton("Update Now")
         if HAS_QTAWESOME:
-            self.start_button.setIcon(qta.icon('fa6s.download', color='#ffffff'))
+            self.start_button.setIcon(qta.icon('fa6s.download', color=theme.get_color('white')))
         self.start_button.setMinimumHeight(36)
         self.start_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.start_button.clicked.connect(self._show_stop_warning)
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.start_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border-radius: 6px;
                 padding: 6px 12px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3d8e1a;
-            }
-            QPushButton:pressed {
-                background-color: #2f6b13;
-            }
-            QPushButton:disabled {
-                background-color: #9fc79b;
-                color: #eee;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('button_disabled_bg')};
+                color: {theme.get_color('button_disabled_fg')};
+            }}
         """)
         button_layout.addWidget(self.start_button, 1)
         
         self.relaunch_button = QPushButton("Relaunch App")
         if HAS_QTAWESOME:
-            self.relaunch_button.setIcon(qta.icon('fa6s.rotate-right', color='#ffffff'))
+            self.relaunch_button.setIcon(qta.icon('fa6s.rotate-right', color=theme.get_color('white')))
         self.relaunch_button.setMinimumHeight(36)
         self.relaunch_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.relaunch_button.clicked.connect(self._relaunch_app)
         self.relaunch_button.setEnabled(False)
         self.relaunch_button.hide()
-        self.relaunch_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.relaunch_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border-radius: 6px;
                 padding: 6px 12px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3d8e1a;
-            }
-            QPushButton:pressed {
-                background-color: #2f6b13;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         button_layout.addWidget(self.relaunch_button, 1)
         
@@ -710,34 +712,38 @@ class UpdateWorkerDialog(QDialog):
         # adaptive grey style for both dark and light themes
         is_dark = self.palette().color(QPalette.Window).lightness() < 128
         if is_dark:
-            close_style = """
-                QPushButton {
-                    background-color: rgba(255,255,255,0.06);
-                    color: #ffffff;
+            _white_q = QColor(theme.get_color('white'))
+            _white_rgb = f"{_white_q.red()},{_white_q.green()},{_white_q.blue()}"
+            close_style = f"""
+                QPushButton {{
+                    background-color: rgba({_white_rgb},0.06);
+                    color: {theme.get_color('white')};
                     border-radius: 6px;
                     padding: 6px 12px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255,255,255,0.09);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255,255,255,0.12);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: rgba({_white_rgb},0.09);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba({_white_rgb},0.12);
+                }}
             """
         else:
-            close_style = """
-                QPushButton {
-                    background-color: rgba(0,0,0,0.06);
-                    color: #222;
+            _black_q = QColor(theme.get_color('black'))
+            _black_rgb = f"{_black_q.red()},{_black_q.green()},{_black_q.blue()}"
+            close_style = f"""
+                QPushButton {{
+                    background-color: rgba({_black_rgb},0.06);
+                    color: {theme.get_color('text_dark')};
                     border-radius: 6px;
                     padding: 6px 12px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(0,0,0,0.08);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(0,0,0,0.10);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: rgba({_black_rgb},0.08);
+                }}
+                QPushButton:pressed {{
+                    background-color: rgba({_black_rgb},0.10);
+                }}
             """
         self.close_button.setStyleSheet(close_style)
         button_layout.addWidget(self.close_button, 1)
@@ -760,7 +766,7 @@ class UpdateWorkerDialog(QDialog):
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.setDefaultButton(QMessageBox.No)
         if HAS_QTAWESOME:
-            msg.setIconPixmap(qta.icon('fa6s.triangle-exclamation', color='#f0ad4e').pixmap(64, 64))
+            msg.setIconPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(64, 64))
         
         result = msg.exec()
         

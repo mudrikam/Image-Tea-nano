@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 import qtawesome as qta
 import time
+from ui.theme_system import theme
 
 
 class StatusBarWidget(QWidget):
@@ -76,21 +77,21 @@ class StatusBarWidget(QWidget):
         self.run_button.setMinimumHeight(40)
         self.run_button.setMinimumWidth(180)
         self.run_button.clicked.connect(self.on_run_clicked)
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         bottom_layout.addWidget(self.run_button)
         
@@ -122,35 +123,35 @@ class StatusBarWidget(QWidget):
         if platform_name == 'Illustrator':
             self.run_button.setEnabled(False)
             self.run_button.setText(" PROCESSING...")
-            self.run_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #888;
-                    color: white;
+            self.run_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('gray')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
+                }}
             """)
         else:
             stop_icon = qta.icon('fa6s.stop')
             self.run_button.setIcon(stop_icon)
             self.run_button.setText(" STOP PROCESS")
-            self.run_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #f44336;
-                    color: white;
+            self.run_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {theme.get_color('error')};
+                    color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #d32f2f;
-                }
-                QPushButton:pressed {
-                    background-color: #c62828;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.get_color('error_hover')};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.get_color('error_pressed')};
+                }}
             """)
         
         self.update_status("Running")
@@ -185,21 +186,21 @@ class StatusBarWidget(QWidget):
         run_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(run_icon)
         self.run_button.setText(" RUN SEQUENCES")
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: white;
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3d7307;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
         """)
         
         if self.start_time:
@@ -215,21 +216,21 @@ class StatusBarWidget(QWidget):
         continue_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(continue_icon)
         self.run_button.setText(" CONTINUE PROCESS")
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('warning')};
+                color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
                 font-weight: bold;
                 font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #E65100;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('warning_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('warning_pressed')};
+            }}
         """)
     
     def reset_stats(self):
@@ -266,13 +267,13 @@ class StatusBarWidget(QWidget):
         self.status_label.setText(f"Status: {status}")
         
         if status == "Running":
-            self.status_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            self.status_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('success')};")
         elif status == "Error":
-            self.status_label.setStyleSheet("font-weight: bold; color: #f44336;")
+            self.status_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('error')};")
         elif status == "Completed":
-            self.status_label.setStyleSheet("font-weight: bold; color: #2196F3;")
+            self.status_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('info')};")
         else:
-            self.status_label.setStyleSheet("font-weight: bold; color: #888;")
+            self.status_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('gray')};")
     
     def update_progress(self, value):
         if not self.is_running:

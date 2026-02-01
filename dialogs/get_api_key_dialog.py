@@ -5,6 +5,8 @@ import qtawesome as qta
 import json
 import os
 
+from ui.theme_system import theme
+
 
 class GetApiKeyDialog(QDialog):
     def __init__(self, parent=None):
@@ -44,18 +46,18 @@ class GetApiKeyDialog(QDialog):
         self.get_api_btn = QPushButton()
         self.get_api_btn.setObjectName("get_api_btn")
         self.get_api_btn.setText("Get API Key")
-        self.get_api_btn.setIcon(qta.icon('fa6s.cart-shopping', color='white'))
+        self.get_api_btn.setIcon(qta.icon('fa6s.cart-shopping', color=theme.get_color('white')))
         self.get_api_btn.setMinimumHeight(36)
-        self.get_api_btn.setStyleSheet("""
-            QPushButton#get_api_btn {
-                background-color: #4e9e20;
-                color: white;
+        self.get_api_btn.setStyleSheet(f"""
+            QPushButton#get_api_btn {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 font-weight: bold;
                 border-radius: 4px;
-            }
-            QPushButton#get_api_btn:hover {
-                background-color: #3f8a18;
-            }
+            }}
+            QPushButton#get_api_btn:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
         """)
         self.get_api_btn.setToolTip("Get API key from our spreadsheet")
         self.get_api_btn.clicked.connect(self._open_get_api_page)

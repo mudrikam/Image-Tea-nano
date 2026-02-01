@@ -5,6 +5,7 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
 import os
 import json
+from ui.theme_system import theme
 
 class ApiKeySectionWidget(QWidget):
     api_key_changed = Signal(str, str, str)  # api_key, service, model
@@ -38,19 +39,19 @@ class ApiKeySectionWidget(QWidget):
         self.get_api_btn.setVisible(False)
         self.get_api_btn.setMinimumWidth(140)
         try:
-            self.get_api_btn.setIcon(qta.icon('fa6s.key', color='#FFFFFF'))
+            self.get_api_btn.setIcon(qta.icon('fa6s.key', color=theme.get_color('white')))
         except Exception:
             pass
-        self.get_api_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: #ffffff;
+        self.get_api_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border-radius: 4px;
                 padding: 6px 8px;
-            }
-            QPushButton:hover {
-                background-color: #3f8a1a;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
         """)
         self.get_api_btn.setToolTip(
             "This application requires an API key to function."

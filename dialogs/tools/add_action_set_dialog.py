@@ -6,6 +6,7 @@ from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+from ui.theme_system import theme
 
 
 class AddActionSetDialog(QDialog):
@@ -43,7 +44,7 @@ class AddActionSetDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.layer-group', color='#9B59B6')
+        dialog_icon = qta.icon('fa6s.layer-group', color=theme.get_color('secondary'))
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(24, 24))
         header_layout.addWidget(icon_label)

@@ -15,6 +15,8 @@ from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemi
 from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
 
+from ui.theme_system import theme
+
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -1074,7 +1076,7 @@ def batch_generate_metadata(window):
 
 def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_color=None):
     color_line = f"color: {text_color};\n        " if text_color is not None else ""
-    pressed = pressed_color if pressed_color is not None else '#376006'
+    pressed = pressed_color if pressed_color is not None else theme.get_color('primary_pressed')
     hover = hover_color if hover_color is not None else pressed
     return f"""
     QPushButton {{
@@ -1089,7 +1091,7 @@ def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_c
     }}
     QPushButton:hover {{ background-color: {hover}; }}
     QPushButton:pressed {{ background-color: {pressed}; }}
-    QPushButton:disabled {{ background-color: #9fbf9a; color: #f2f2f2; }}
+    QPushButton:disabled {{ background-color: {theme.get_color('button_disabled_bg')}; color: {theme.get_color('button_disabled_fg')}; }}
     """
 
 
@@ -1106,9 +1108,12 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
             style = _gen_btn_style_string(bg_color, text_color=None, hover_color=bg_color)
             btn.setStyleSheet(style)
 
-        # Use thin yellow and thin grey for blinking to support light/dark themes
-        color1 = color if color else "rgba(255,220,28,0.22)"
-        color2 = "rgba(128,128,128,0.12)"
+        _warn_q = QColor(theme.get_color('warning'))
+        _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
+        _gray_q = QColor(theme.get_color('gray'))
+        _gray_rgb = f"{_gray_q.red()},{_gray_q.green()},{_gray_q.blue()}"
+        color1 = color if color else f"rgba({_warn_rgb},0.22)"
+        color2 = f"rgba({_gray_rgb},0.12)"
         window._gen_btn_blink_state = True
 
         # Keep the full last stylesheet so it can be restored exactly
@@ -1148,20 +1153,22 @@ def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
     if is_stopping:
         btn.setText("Stopping process")
         btn.setIcon(qta.icon('fa6s.stop'))
-        _set_gen_btn_blinking(window, True, "rgba(255, 220, 28, 0.3)", "Stopping process")
+        _warn_q2 = QColor(theme.get_color('warning'))
+        _warn_rgb2 = f"{_warn_q2.red()},{_warn_q2.green()},{_warn_q2.blue()}"
+        _set_gen_btn_blinking(window, True, f"rgba({_warn_rgb2},0.3)", "Stopping process")
     elif is_stop:
         btn.setText("Stop Processes")
-        btn.setIcon(qta.icon('fa6s.stop', color='white'))
+        btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
         _set_gen_btn_blinking(window, False)
         # Semi-opaque red (lighter) with white text for contrast; provide a slightly darker pressed color
-        style = _gen_btn_style_string('rgba(179,0,0,0.60)', text_color='white', pressed_color='rgba(140,0,0,0.80)', hover_color='rgba(179,0,0,0.75)')
+        style = _gen_btn_style_string(theme.get_color('secondary'), text_color='white', pressed_color=theme.get_color('secondary_pressed'), hover_color=theme.get_color('secondary_hover'))
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
     else:
         btn.setText("Generate Metadata")
-        btn.setIcon(qta.icon('fa6s.wand-magic-sparkles', color='white'))
+        btn.setIcon(qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white')))
         _set_gen_btn_blinking(window, False)
-        style = _gen_btn_style_string('#4e9e20', 'white', pressed_color='#376006', hover_color='#3d7307')
+        style = _gen_btn_style_string(theme.get_color('primary'), theme.get_color('white'), pressed_color=theme.get_color('primary_pressed'), hover_color=theme.get_color('primary_hover'))
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
 
@@ -1569,6 +1576,11 @@ def _run_next_batch(window):
             api_key = state['api_key']
             service = state['service']
             model = state['model']
+    else:
+        # Normal mode (non-parallel, non-rolling) - use API from state
+        api_key = state['api_key']
+        service = state['service']
+        model = state['model']
     
     row_map = state['row_map']
     metadata_func = state['metadata_func']

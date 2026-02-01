@@ -4,6 +4,8 @@ from config import BASE_PATH
 import os
 from database.db_migration_manager import DBMigrationManager
 
+from ui.theme_system import theme
+
 def get_db_path():
     config_path = os.path.join(BASE_PATH, 'configs', 'db_config.json')
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -886,7 +888,7 @@ class ImageTeaDB:
                 'export_setting': row[9]
             } for row in c.fetchall()]
 
-    def add_action(self, action_set_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100, order_index=None):
+    def add_action(self, action_set_id, name, icon='', color=theme.get_color('gray'), action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100, order_index=None):
         """Add a new action to an action set"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -903,7 +905,7 @@ class ImageTeaDB:
             conn.commit()
             return c.lastrowid
 
-    def update_action(self, action_id, name, icon='', color='#888888', action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100):
+    def update_action(self, action_id, name, icon='', color=theme.get_color('gray'), action_type='Action', delay=0, javascript_code='', export_format=None, export_setting=100):
         """Update an existing action"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()

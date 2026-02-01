@@ -14,6 +14,8 @@ import qtawesome as qta
 from database.db_operation import ImageTeaDB
 from helpers.tools.action_sequencer_helpers.action_sequencer_import_export_helper import ActionSequencerImportExport
 
+from ui.theme_system import theme
+
 
 class GitHubFetcherThread(QThread):
     fetch_completed = Signal(list)
@@ -189,7 +191,7 @@ class FreePresetsDialog(QDialog):
         
         self.info_label = QLabel(f"Browse and download free presets from:\n{self.repo_url}")
         self.info_label.setWordWrap(True)
-        self.info_label.setStyleSheet("color: #888; padding: 5px;")
+        self.info_label.setStyleSheet(f"color: {theme.get_color('gray')}; padding: 5px;")
         layout.addWidget(self.info_label)
         
         # Top controls (above table)
@@ -349,10 +351,10 @@ class FreePresetsDialog(QDialog):
             
             status_label = QLabel()
             if is_installed:
-                status_label.setPixmap(qta.icon('fa6s.circle-check', color='#4e9e20').pixmap(20, 20))
+                status_label.setPixmap(qta.icon('fa6s.circle-check', color=theme.get_color('primary')).pixmap(20, 20))
                 status_label.setToolTip("Installed")
             else:
-                status_label.setPixmap(qta.icon('fa6s.circle-arrow-down', color='#888').pixmap(20, 20))
+                status_label.setPixmap(qta.icon('fa6s.circle-arrow-down', color=theme.get_color('gray')).pixmap(20, 20))
                 status_label.setToolTip("Not installed")
             status_label.setAlignment(Qt.AlignCenter)
             
