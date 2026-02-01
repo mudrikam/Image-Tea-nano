@@ -17,6 +17,94 @@ def load_app_config():
         config = json.load(f)
     return config
 
+def patch_blackbox_provider():
+    """Adds a 'Blacbox AI' service option to AddApiKeyDialog without modifying the dialog file."""
+    try:
+        from dialogs.add_api_key_dialog import AddApiKeyDialog, ApiKeyTestThread
+    except Exception as e:
+        print(f"[Blackbox Patch] Unable to import dialogs.add_api_key_dialog: {e}")
+        return
+
+    try:
+        _orig_init = AddApiKeyDialog.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            _orig_init(self, *args, **kwargs)
+            try:
+                if hasattr(self, 'service_combo') and self.service_combo.findText("Blacbox AI") == -1:
+                    self.service_combo.addItem("Blacbox AI")
+            except Exception as e:
+                print(f"[Blackbox Patch] Unable to add service option: {e}")
+
+        AddApiKeyDialog.__init__ = _patched_init
+    except Exception as e:
+        print(f"[Blackbox Patch] Failed to patch AddApiKeyDialog.__init__: {e}")
+
+    try:
+        _orig_refresh_model_combo = AddApiKeyDialog._refresh_model_combo
+
+        def _patched_refresh_model_combo(self, *args, **kwargs):
+            try:
+                if hasattr(self, 'service_combo') and self.service_combo.currentText() == "Blacbox AI":
+                    if hasattr(self, 'model_combo'):
+                        self.model_combo.clear()
+                        # Placeholder model so the dialog can save/test key flow consistently.
+                        self.model_combo.addItem("blackbox")
+                        self.model_combo.setCurrentIndex(0)
+                    return
+            except Exception as e:
+                print(f"[Blackbox Patch] _refresh_model_combo patch error: {e}")
+            return _orig_refresh_model_combo(self, *args, **kwargs)
+
+        AddApiKeyDialog._refresh_model_combo = _patched_refresh_model_combo
+    except Exception as e:
+        print(f"[Blackbox Patch] Failed to patch AddApiKeyDialog._refresh_model_combo: {e}")
+
+    try:
+        _orig_on_service_combo_changed = AddApiKeyDialog._on_service_combo_changed
+
+        def _patched_on_service_combo_changed(self, idx):
+            try:
+                if hasattr(self, 'service_combo') and self.service_combo.currentText() == "Blacbox AI":
+                    self._detected_service = 'blackbox'
+                    try:
+                        self._refresh_model_combo()
+                    except Exception:
+                        pass
+                    try:
+                        self._api_key_valid = False
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, 'progress_bar'):
+                            self.progress_bar.setVisible(False)
+                    except Exception:
+                        pass
+                    return
+            except Exception as e:
+                print(f"[Blackbox Patch] _on_service_combo_changed patch error: {e}")
+            return _orig_on_service_combo_changed(self, idx)
+
+        AddApiKeyDialog._on_service_combo_changed = _patched_on_service_combo_changed
+    except Exception as e:
+        print(f"[Blackbox Patch] Failed to patch AddApiKeyDialog._on_service_combo_changed: {e}")
+
+    try:
+        _orig_thread_run = ApiKeyTestThread.run
+
+        def _patched_thread_run(self):
+            if getattr(self, 'service', None) == 'blackbox':
+                try:
+                    self.result.emit('fail', 'blackbox', 'Blackbox AI API key test is not implemented yet.')
+                except Exception:
+                    pass
+                return
+            return _orig_thread_run(self)
+
+        ApiKeyTestThread.run = _patched_thread_run
+    except Exception as e:
+        print(f"[Blackbox Patch] Failed to patch ApiKeyTestThread.run: {e}")
+
 class ImageTeaMainWindow(QMainWindow):
     show_ai_unsupported_dialog = Signal(str)
 
@@ -200,6 +288,9 @@ if __name__ == '__main__':
     from dialogs.disclaimer_dialog import DisclaimerDialog
     import json
     ag.unit_completed()
+
+    # Patch additional providers before the main window is created.
+    patch_blackbox_provider()
 
     splash.show_message("Checking disclaimer...")
     app.processEvents()
