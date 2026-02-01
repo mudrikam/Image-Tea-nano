@@ -98,7 +98,11 @@ def setup_ui(self):
         "All (Rolling API Keys)",
         "Failed Only (Rolling API Keys)",
         "Selected Only (Rolling API Keys)",
-        "Drafts Only (Rolling API Keys)"
+        "Drafts Only (Rolling API Keys)",
+        "All (Parallel API Processing)",
+        "Failed Only (Parallel API Processing)",
+        "Selected Only (Parallel API Processing)",
+        "Drafts Only (Parallel API Processing)"
     ])
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
@@ -142,6 +146,14 @@ def setup_ui(self):
             self.gen_btn.setToolTip("Generate only selected files using all available API keys with automatic retry")
         elif mode == "Drafts Only (Rolling API Keys)":
             self.gen_btn.setToolTip("Generate drafts onwards using all available API keys with automatic retry")
+        elif mode == "All (Parallel API Processing)":
+            self.gen_btn.setToolTip("Process files in parallel using multiple API keys simultaneously")
+        elif mode == "Failed Only (Parallel API Processing)":
+            self.gen_btn.setToolTip("Retry only failed files using parallel API processing")
+        elif mode == "Selected Only (Parallel API Processing)":
+            self.gen_btn.setToolTip("Generate only selected files using parallel API processing")
+        elif mode == "Drafts Only (Parallel API Processing)":
+            self.gen_btn.setToolTip("Generate drafts onwards using parallel API processing")
         else:
             self.gen_btn.setToolTip("Generate metadata")
 
