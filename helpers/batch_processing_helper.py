@@ -382,56 +382,52 @@ class BatchWorker(QThread):
         self._errors = [e for e in all_errors if e is not None]
         self.signals.finished.emit(self._errors)
 
-def distribute_files_to_parallel_api_keys(files, api_keys_list, batch_size):
+def create_parallel_rounds(files, api_keys_list, batch_size):
     """
-    Distribute files across multiple API keys for parallel processing.
+    Create parallel processing rounds where multiple APIs work simultaneously.
     
-    Logic:
-    - If batch_size >= num_api_keys: Each API key gets batch_size items (or fewer for last API)
-    - If batch_size < num_api_keys: Each API key gets roughly equal share, extra goes to last API
-    - Returns: List of tuples (api_info, file_batch)
+    Example: 10 files, 2 API keys, batch_size=3
+    - Round 1: API1 processes files 1-3, API2 processes files 4-6 (SIMULTANEOUSLY)
+    - Round 2: API1 processes files 7-9, API2 processes file 10 (SIMULTANEOUSLY)
+    
+    Returns: List of rounds, each round contains list of tasks [{api_info, files}, ...]
     """
     if not api_keys_list or not files:
         return []
     
     num_apis = len(api_keys_list)
     num_files = len(files)
+    files_per_round = batch_size * num_apis  # Total files processed per round
     
-    # If only 1 API key, just return all files with that API
-    if num_apis == 1:
-        return [(api_keys_list[0], files)]
+    rounds = []
+    round_start = 0
     
-    # If batch_size >= num_apis, distribute batch_size items per API
-    if batch_size >= num_apis:
-        parallel_batches = []
-        file_idx = 0
-        for api_idx in range(num_apis):
-            batch_end = min(file_idx + batch_size, num_files)
-            batch_files = files[file_idx:batch_end]
-            if batch_files:
-                parallel_batches.append((api_keys_list[api_idx], batch_files))
-            file_idx = batch_end
-            if file_idx >= num_files:
+    while round_start < num_files:
+        round_tasks = []
+        task_start = round_start
+        
+        for api_idx, api_info in enumerate(api_keys_list):
+            if task_start >= num_files:
                 break
-        return parallel_batches
-    else:
-        # batch_size < num_apis: Distribute files evenly
-        # Each API gets roughly equal share, remainder goes to last API
-        files_per_api = num_files // num_apis
-        remainder = num_files % num_apis
+            
+            task_end = min(task_start + batch_size, num_files)
+            task_files = files[task_start:task_end]
+            
+            if task_files:
+                round_tasks.append({
+                    'api_info': api_info,
+                    'files': task_files,
+                    'api_index': api_idx
+                })
+            
+            task_start = task_end
         
-        parallel_batches = []
-        file_idx = 0
-        for api_idx in range(num_apis):
-            # Last API gets remainder files
-            count = files_per_api + (remainder if api_idx == num_apis - 1 else 0)
-            batch_end = file_idx + count
-            batch_files = files[file_idx:batch_end]
-            if batch_files:
-                parallel_batches.append((api_keys_list[api_idx], batch_files))
-            file_idx = batch_end
+        if round_tasks:
+            rounds.append(round_tasks)
         
-        return parallel_batches
+        round_start += files_per_round
+    
+    return rounds
 
 def batch_generate_metadata(window):
     if getattr(window, 'is_generating', False):
@@ -793,7 +789,10 @@ def batch_generate_metadata(window):
     
     # Show initial progress with API info
     if is_parallel_mode and api_keys_list:
-        initial_text = f"Parallel API Processing ({len(api_keys_list)} APIs)"
+        batch_size = get_batch_size()
+        files_per_round = batch_size * len(api_keys_list)
+        total_rounds = (len(rows) + files_per_round - 1) // files_per_round
+        initial_text = f"Parallel API Processing - {len(api_keys_list)} APIs, {batch_size} files/API, ~{total_rounds} rounds"
     elif is_rolling_mode and api_keys_list:
         first_api = api_keys_list[0]
         initial_text = window.table.get_progress_format_text("rolling", first_api['service'], first_api['api_key'])
@@ -1024,20 +1023,16 @@ def batch_generate_metadata(window):
     
     # Create batches based on mode
     if is_parallel_mode and api_keys_list:
-        # For parallel mode, distribute files across API keys
-        # batch_size determines how many API keys are used per batch round
-        parallel_api_batches = distribute_files_to_parallel_api_keys(rows, api_keys_list, batch_size)
+        # For parallel mode, create rounds where multiple APIs work simultaneously
+        # Each round contains tasks for each API key working in parallel
+        parallel_rounds = create_parallel_rounds(rows, api_keys_list, batch_size)
         
-        # Create batches from parallel API distribution
-        batches = []
-        for api_info, batch_files in parallel_api_batches:
-            batches.append({
-                'files': batch_files,
-                'api_info': api_info,
-                'is_parallel_task': True
-            })
+        # Use rounds as batches - each "batch" is actually a round with multiple parallel tasks
+        batches = parallel_rounds
         
-        print(f"[PARALLEL] Created {len(batches)} parallel batch(es) from {len(api_keys_list)} API key(s)")
+        total_tasks = sum(len(round_tasks) for round_tasks in parallel_rounds)
+        print(f"[PARALLEL] Created {len(parallel_rounds)} round(s) with {total_tasks} total tasks from {len(api_keys_list)} API key(s)")
+        print(f"[PARALLEL] Each round processes up to {batch_size * len(api_keys_list)} files ({batch_size} per API)")
     else:
         # Standard batching for non-parallel modes
         batches = [rows[i:i+batch_size] for i in range(0, total_files, batch_size)]
@@ -1170,6 +1165,334 @@ def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
 
+def _run_parallel_round(window, state, round_tasks):
+    """
+    Run a parallel round where multiple API keys process their tasks simultaneously.
+    
+    round_tasks: List of dicts [{api_info, files, api_index}, ...]
+    """
+    stop_flag = state.get('stop_flag')
+    metadata_func = state['metadata_func']
+    row_map = state['row_map']
+    rows = state['rows']
+    api_keys_list = state.get('api_keys_list', [])
+    table_widget = window.table.table
+    
+    # Build API info string for progress display
+    api_info_parts = []
+    total_files_in_round = 0
+    for task in round_tasks:
+        api_info = task['api_info']
+        files = task['files']
+        total_files_in_round += len(files)
+        masked_key = f"***{api_info['api_key'][-5:]}" if len(api_info['api_key']) >= 5 else f"***{api_info['api_key']}"
+        api_info_parts.append(f"{api_info['service'].upper()}({masked_key}): {len(files)} files")
+    
+    # Update progress label to show up to two API entries, then truncate with "and N others"
+    round_num = state['current'] + 1
+    total_rounds = len(state['batches'])
+    max_display = 2
+    display_parts = api_info_parts[:max_display]
+    remaining = len(api_info_parts) - max_display
+    if remaining > 0:
+        display_parts.append(f"and {remaining} others")
+    progress_text = f"Round {round_num}/{total_rounds} - Parallel: {' | '.join(display_parts)}"
+    window.table.set_progress_info(progress_text)
+    
+    # Update status bar with parallel processing info (concise)
+    if hasattr(window, 'statusbar'):
+        status_preview = ' | '.join(display_parts)
+        statusbar_text = f"Parallel: {len(round_tasks)} APIs, {total_files_in_round} files ({status_preview})"
+        window.statusbar.showMessage(statusbar_text, 0)  # 0 means don't auto-hide
+    
+    print(f"[PARALLEL ROUND {round_num}] Starting with {len(round_tasks)} API(s): {', '.join(api_info_parts)}")
+    
+    # Mark all files in this round as "processing"
+    all_files_in_round = []
+    for task in round_tasks:
+        for row in task['files']:
+            filepath = row[1]
+            all_files_in_round.append(row)
+            window.db.update_file_status(filepath, "processing")
+            
+            # Update UI
+            for row_idx in range(table_widget.rowCount()):
+                item = table_widget.item(row_idx, 1)
+                if item and item.data(Qt.UserRole) == filepath:
+                    window.table.set_row_status_color(row_idx, "processing")
+                    break
+    
+    QApplication.processEvents()
+    
+    # Create workers for each task in the round
+    workers = []
+    worker_results = {}  # Store results from each worker
+    completed_workers = {'count': 0}  # Track completed workers
+    
+    def create_worker_finished_handler(task_idx, task, worker):
+        def on_worker_finished(errors):
+            nonlocal completed_workers
+            
+            if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                completed_workers['count'] += 1
+                return
+            
+            # Store results from this worker
+            cache_results = worker._results
+            worker_results[task_idx] = {
+                'task': task,
+                'results': cache_results,
+                'errors': errors
+            }
+            
+            # Process results immediately
+            api_info = task['api_info']
+            batch_files = task['files']
+            current_service = api_info['service']
+            current_model = api_info['model']
+            
+            for idx, result in cache_results:
+                if not isinstance(result, dict):
+                    continue
+                image_path = result.get("image_path")
+                title = result.get("title")
+                description = result.get("description")
+                tags = result.get("tags")
+                token_input = result.get("token_input")
+                token_output = result.get("token_output")
+                token_total = result.get("token_total")
+                category = result.get("category")
+                filetype = result.get("filetype")
+                result_service = result.get("service", current_service)
+                result_model = result.get("model", current_model)
+                error_message = result.get("error_message", "")
+                
+                if category is not None:
+                    file_id = None
+                    for row in batch_files:
+                        if row[1] == image_path:
+                            file_id = row[0]
+                            break
+                    if file_id is not None and isinstance(category, dict) and len(category) > 0:
+                        window.db.save_category_mapping(file_id, category)
+                
+                if filetype and filetype in ["Photo", "Illustration"]:
+                    file_id = None
+                    for row in batch_files:
+                        if row[1] == image_path:
+                            file_id = row[0]
+                            break
+                    if file_id is not None:
+                        window.db.delete_file_types_for_file(file_id)
+                        window.db.add_file_type(file_id, filetype)
+                
+                final_status = "success" if title and not error_message else "failed"
+                window.db.update_metadata(image_path, title, description, tags, status=final_status)
+                
+                if token_total > 0 and title:
+                    window.db.insert_api_token_stats(image_path, result_service, result_model, token_input, token_output, token_total)
+                
+                # Update UI row colors
+                for row_idx in range(table_widget.rowCount()):
+                    item = table_widget.item(row_idx, 1)
+                    if item and item.data(Qt.UserRole) == image_path:
+                        window.table.set_row_status_color(row_idx, final_status)
+                        break
+            
+            completed_workers['count'] += 1
+            
+            # Check if all workers completed
+            if completed_workers['count'] >= len(round_tasks):
+                _on_parallel_round_completed(window, state, round_tasks, worker_results)
+        
+        return on_worker_finished
+    
+    def create_worker_progress_handler(task_idx, task):
+        def on_worker_progress(cur, total):
+            if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                return
+            
+            # Update progress bar based on total progress across all rounds
+            total_files = len(rows)
+            
+            # Count files completed in previous rounds
+            files_before_this_round = 0
+            for i in range(state['current']):
+                batch_item = state['batches'][i]
+                if isinstance(batch_item, list) and len(batch_item) > 0:
+                    if isinstance(batch_item[0], dict) and 'files' in batch_item[0]:
+                        # It's a parallel round
+                        for t in batch_item:
+                            files_before_this_round += len(t.get('files', []))
+                    else:
+                        # Regular batch (list of rows)
+                        files_before_this_round += len(batch_item)
+            
+            # For current round, estimate progress based on completed results
+            current_round_completed = 0
+            for wr_data in worker_results.values():
+                current_round_completed += len(wr_data.get('results', []))
+            
+            total_completed = files_before_this_round + current_round_completed
+            window.table.progress_bar.setMinimum(0)
+            window.table.progress_bar.setMaximum(total_files)
+            window.table.progress_bar.setValue(min(total_completed, total_files))
+            
+            QApplication.processEvents()
+        
+        return on_worker_progress
+    
+    # Start all workers for this round
+    for task_idx, task in enumerate(round_tasks):
+        api_info = task['api_info']
+        batch_files = task['files']
+        
+        api_key = api_info['api_key']
+        service = api_info['service']
+        model = api_info['model']
+        
+        worker = BatchWorker(
+            api_key, model, batch_files, service, metadata_func, row_map,
+            stop_flag=stop_flag, api_keys_list=api_keys_list, 
+            is_rolling_mode=False, current_api_index=task.get('api_index', task_idx)
+        )
+        worker.is_parallel_mode = True
+        
+        # Connect signals
+        worker.signals.finished.connect(create_worker_finished_handler(task_idx, task, worker))
+        worker.signals.progress.connect(create_worker_progress_handler(task_idx, task))
+        
+        workers.append(worker)
+    
+    # Store workers in state for potential stop handling
+    state['parallel_workers'] = workers
+    
+    # Start all workers simultaneously
+    for worker in workers:
+        worker.start()
+
+def _on_parallel_round_completed(window, state, round_tasks, worker_results):
+    """Called when all workers in a parallel round have completed."""
+    stop_flag = state.get('stop_flag')
+    rows = state['rows']
+    api_keys_list = state.get('api_keys_list', [])
+    
+    if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+        _on_generation_finished(window, state['errors'], stopped=True)
+        return
+    
+    # Count successes and failures across all tasks in this round
+    total_in_round = sum(len(task['files']) for task in round_tasks)
+    failed_count = 0
+    failed_files = []
+    
+    for task_idx, result_data in worker_results.items():
+        task = result_data['task']
+        results = result_data['results']
+        
+        for idx, result in results:
+            if isinstance(result, dict) and (not result.get("title") or result.get("error_message")):
+                failed_count += 1
+                # Find original file row
+                image_path = result.get("image_path")
+                for row in task['files']:
+                    if row[1] == image_path:
+                        failed_files.append({
+                            'row': row,
+                            'api_info': task['api_info'],
+                            'error': result.get("error_message", "Unknown error")
+                        })
+                        break
+    
+    success_count = total_in_round - failed_count
+    print(f"[PARALLEL ROUND {state['current'] + 1}] Completed: {success_count} success, {failed_count} failed")
+    
+    # Handle failures with fallback (try other APIs)
+    if failed_files and len(api_keys_list) > 1:
+        retry_count = state.get('parallel_retry_count', 0)
+        max_retries = 2  # Max retry attempts per round
+        
+        if retry_count < max_retries:
+            # Find APIs that haven't been tried for failed files
+            used_apis = set()
+            for failed_file in failed_files:
+                used_apis.add(failed_file['api_info']['api_key'])
+            
+            available_apis = [api for api in api_keys_list if api['api_key'] not in used_apis]
+            
+            if available_apis:
+                print(f"[PARALLEL] Retrying {len(failed_files)} failed files with fallback API(s)")
+                state['parallel_retry_count'] = retry_count + 1
+                
+                # Create retry tasks for failed files with available APIs
+                retry_round = []
+                for i, failed_file in enumerate(failed_files):
+                    api_idx = i % len(available_apis)
+                    retry_round.append({
+                        'api_info': available_apis[api_idx],
+                        'files': [failed_file['row']],
+                        'api_index': api_idx
+                    })
+                
+                # Replace current batch with retry tasks
+                state['batches'][state['current']] = retry_round
+                
+                # Delay before retry
+                delay_seconds = get_delay_interval()
+                if delay_seconds > 0:
+                    window.table.set_progress_info(f"Retrying {len(failed_files)} failed files with fallback API(s)...")
+                    def _retry_cb():
+                        if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                            _on_generation_finished(window, state['errors'], stopped=True)
+                            window._batch_delay_timer = None
+                            return
+                        window._batch_delay_timer = None
+                        _run_parallel_round(window, state, retry_round)
+                    timer = QTimer(window)
+                    timer.setSingleShot(True)
+                    timer.timeout.connect(_retry_cb)
+                    timer.start(int(delay_seconds * 1000))
+                    window._batch_delay_timer = timer
+                else:
+                    _run_parallel_round(window, state, retry_round)
+                return
+    
+    # Reset retry counter for next round
+    state['parallel_retry_count'] = 0
+    
+    # Update UI
+    update_token_stats_ui(window)
+    window.table.refresh_table()
+    
+    if hasattr(window.table, '_emit_stats'):
+        window.table._emit_stats()
+    
+    # Move to next round
+    state['current'] += 1
+    
+    if state['current'] < len(state['batches']):
+        # Get fresh delay from config before next round
+        delay_seconds = get_delay_interval()
+        if delay_seconds > 0:
+            if hasattr(window, 'statusbar'):
+                window.statusbar.showMessage(f"Waiting {delay_seconds:.1f}s before next round...", int(delay_seconds * 1000))
+            def _delayed_cb():
+                if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                    _on_generation_finished(window, state['errors'], stopped=True)
+                    window._batch_delay_timer = None
+                    return
+                window._batch_delay_timer = None
+                _run_next_batch(window)
+            timer = QTimer(window)
+            timer.setSingleShot(True)
+            timer.timeout.connect(_delayed_cb)
+            timer.start(int(delay_seconds * 1000))
+            window._batch_delay_timer = timer
+        else:
+            _run_next_batch(window)
+    else:
+        _on_generation_finished(window, state['errors'])
+
 def _run_next_batch(window):
     state = window._batch_processing_state
     if state.get('should_stop', False):
@@ -1183,20 +1506,6 @@ def _run_next_batch(window):
     try:
         fresh_config = get_fresh_ai_config()
         print(f"[BATCH {state['current'] + 1}] Loading fresh config from JSON...")
-        
-        # Update batch_size and re-split if necessary
-        new_batch_size = int(fresh_config.get('batch_size', 5))
-        old_batch_size = len(state['batches'][0]) if state['batches'] and len(state['batches']) > 0 else new_batch_size
-        
-        # If batch size changed, re-split remaining batches
-        if new_batch_size != old_batch_size:
-            print(f"[BATCH {state['current'] + 1}] Batch size changed from {old_batch_size} to {new_batch_size}, re-splitting batches...")
-            remaining_rows = []
-            for i in range(state['current'], len(state['batches'])):
-                remaining_rows.extend(state['batches'][i])
-            new_batches = [remaining_rows[i:i+new_batch_size] for i in range(0, len(remaining_rows), new_batch_size)]
-            state['batches'] = state['batches'][:state['current']] + new_batches
-            
     except Exception as e:
         print(f"[ERROR] Failed to load fresh config: {e}")
     
@@ -1207,8 +1516,13 @@ def _run_next_batch(window):
     is_parallel_mode = state.get('is_parallel_mode', False)
     api_keys_list = state.get('api_keys_list', [])
     
-    # Extract batch data - could be dict (parallel) or list (normal)
-    if is_parallel_mode and isinstance(batch, dict):
+    # Handle PARALLEL mode - batch is a list of parallel tasks (a "round")
+    if is_parallel_mode and isinstance(batch, list) and len(batch) > 0 and isinstance(batch[0], dict) and 'api_info' in batch[0]:
+        _run_parallel_round(window, state, batch)
+        return
+    
+    # Extract batch data - could be dict (single parallel task fallback) or list (normal)
+    if is_parallel_mode and isinstance(batch, dict) and 'api_info' in batch:
         batch_files = batch['files']
         batch_api_info = batch['api_info']
         api_key = batch_api_info['api_key']
@@ -1830,11 +2144,18 @@ def stop_generate_metadata(window):
     _set_gen_btn_stop_state(window, False, is_stopping=True)
     QApplication.processEvents()
 
-    # Stop running worker if present
+    # Stop running worker if present (single worker mode)
     worker = state.get('worker')
     if worker and worker.isRunning():
         print("[STOP] Stopping batch worker thread...")
         worker.stop()
+    
+    # Stop parallel workers if present (parallel mode)
+    parallel_workers = state.get('parallel_workers', [])
+    for pw in parallel_workers:
+        if pw and pw.isRunning():
+            print("[STOP] Stopping parallel worker thread...")
+            pw.stop()
 
     # Cancel any pending inter-batch delay timer immediately
     if hasattr(window, '_batch_delay_timer') and window._batch_delay_timer:
