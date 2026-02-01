@@ -173,6 +173,16 @@
       "qwen/qwen3-32b",
       "whisper-large-v3",
       "whisper-large-v3-turbo"
+    ],
+    "blackbox": [
+      "blackboxai-pro",
+      "gpt-4o",
+      "gemini-pro",
+      "claude-sonnet-3.5",
+      "gemini-1.5-flash",
+      "llama-3.1-405b",
+      "llama-3.1-70b",
+      "gemini-1.5-pro"
     ]
   },
   "shutterstock_category_map": {
