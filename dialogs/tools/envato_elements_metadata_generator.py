@@ -26,12 +26,13 @@ class ImageProcessor(QThread):
     error_occurred = Signal(str)
     retry_status = Signal(str, int)
     
-    def __init__(self, image_data, api_key, model, limits, max_retries=5):
+    def __init__(self, image_data, api_key, model, limits, service=None, max_retries=5):
         super().__init__()
         self.image_data = image_data
         self.api_key = api_key
         self.model = model
         self.limits = limits
+        self.service = service
         self.max_retries = max_retries
     
     def run(self):
@@ -39,7 +40,8 @@ class ImageProcessor(QThread):
             self.image_data, 
             self.api_key, 
             self.model, 
-            self.limits
+            self.limits,
+            service=self.service
         )
         
         if result:
@@ -741,6 +743,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             api_key,
             model,
             limits=self.config['limits'],
+            service=service,
             max_retries=5
         )
         self.processor_thread.result_ready.connect(self.on_result_ready)
@@ -768,6 +771,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             api_key,
             model,
             limits=self.config['limits'],
+            service=service,
             max_retries=5
         )
         self.processor_thread.result_ready.connect(self.on_result_ready)
@@ -841,6 +845,10 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.process_btn.setText("Process Image")
         self.process_btn.setEnabled(True)
+        _succ_q5 = QColor(theme.get_color('success'))
+        _succ_rgb5 = f"{_succ_q5.red()},{_succ_q5.green()},{_succ_q5.blue()}"
+        _gray_q5 = QColor(theme.get_color('gray'))
+        _gray_rgb5 = f"{_gray_q5.red()},{_gray_q5.green()},{_gray_q5.blue()}"
         self.process_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: rgba({_succ_rgb5},0.05);

@@ -82,14 +82,18 @@ def _is_openrouter_key(api_key: str) -> bool:
     return bool(re.match(r"^sk-?or-", api_key))
 
 
-def process_image_with_gemini(image_data, api_key, model, limits):
+def process_image_with_gemini(image_data, api_key, model, limits, service=None):
     tags_count = limits['tags_expected']
     features_count = limits['expected_features']
     title_min = limits['title_min']
     title_max = limits['title_max']
     tagline_max = limits['tagline_max']
     
-    is_openrouter = _is_openrouter_key(api_key)
+    # If caller explicitly requests Blackbox service, use it
+    if service and isinstance(service, str) and service.lower() == 'blackbox':
+        return process_image_with_blackbox(image_data, api_key, model, title_min, title_max, tagline_max, tags_count, features_count)
+
+    is_openrouter = _is_openrouter_key(api_key) or (service and isinstance(service, str) and service.lower() == 'openrouter')
     
     if is_openrouter:
         return process_image_with_openrouter(image_data, api_key, model, title_min, title_max, tagline_max, tags_count, features_count)
@@ -198,6 +202,110 @@ def process_image_with_openrouter(image_data, api_key, model, title_min, title_m
             else:
                 return None, f"Error processing image: {error_str}"
     
+    return None, "Max retries exceeded"
+
+
+def process_image_with_blackbox(image_data, api_key, model, title_min, title_max, tagline_max, tags_count, features_count, max_retries=5):
+    """Generate Envato metadata using Blackbox AI via OpenAI-compatible endpoint"""
+    for attempt in range(1, max_retries + 1):
+        try:
+            if not api_key:
+                raise ValueError("API Key not provided")
+
+            image_bytes = base64.b64decode(image_data)
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            image_data_url = f"data:image/jpeg;base64,{image_b64}"
+
+            timestamp = int(time.time())
+            request_data = f"{timestamp}_{image_data[:100]}"
+            request_hash = hashlib.md5(request_data.encode()).hexdigest()
+
+            unique_prefix = f"This is a request with timestamp: {timestamp} and hash: {request_hash}. "
+
+            filled_prompt = INSTRUCTION_PROMPT.replace('_TITLE_MIN_', str(title_min))
+            filled_prompt = filled_prompt.replace('_TITLE_MAX_', str(title_max))
+            filled_prompt = filled_prompt.replace('_TAGLINE_MAX_', str(tagline_max))
+            filled_prompt = filled_prompt.replace('_TAGS_EXPECTED_', str(tags_count))
+            filled_prompt = filled_prompt.replace('_EXPECTED_FEATURES_', str(features_count))
+
+            prompt = unique_prefix + filled_prompt
+
+            client = OpenAI(api_key=api_key, base_url="https://api.blackbox.ai")
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_data_url}}
+                        ]
+                    }
+                ]
+            )
+
+            print(f"[DEBUG] RAW BLACKBOX RESPONSE: {response}")
+
+            if not response or not response.choices:
+                raise ValueError("Empty response from Blackbox")
+
+            response_text = response.choices[0].message.content.strip()
+
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
+
+            result = json.loads(response_text)
+
+            if 'tags' not in result:
+                raise KeyError("AI response missing 'tags' field")
+
+            if 'title' not in result:
+                raise KeyError("AI response missing 'title' field")
+
+            if 'tagline' not in result:
+                raise KeyError("AI response missing 'tagline' field")
+
+            if 'features' not in result:
+                raise KeyError("AI response missing 'features' field")
+
+            if len(result['tags']) != tags_count:
+                print(f"[WARNING] AI returned {len(result['tags'])} tags instead of {tags_count}")
+
+            if len(result.get('features', [])) != features_count:
+                print(f"[WARNING] AI returned {len(result.get('features', []))} features instead of {features_count}")
+
+            if len(result.get('title', '')) > title_max:
+                print(f"[WARNING] AI title is {len(result['title'])} characters (over {title_max} limit)")
+
+            if len(result.get('tagline', '')) > tagline_max:
+                print(f"[WARNING] AI tagline is {len(result['tagline'])} characters (over {tagline_max} limit)")
+
+            def to_title_case(s):
+                return s.title() if isinstance(s, str) else s
+
+            result['title'] = to_title_case(result['title'])
+            result['tagline'] = to_title_case(result['tagline'])
+            result['tags'] = [to_title_case(tag) for tag in result['tags']]
+
+            return result, None
+
+        except Exception as e:
+            error_str = str(e)
+            print(f"[ERROR] Error processing image with Blackbox (attempt {attempt}): {error_str}")
+            if "503" in error_str and "overloaded" in error_str.lower():
+                if attempt < max_retries:
+                    print(f"[DEBUG] Server overloaded, retrying... ({attempt}/{max_retries})")
+                    time.sleep(2)
+                    continue
+                else:
+                    return None, f"Server overloaded after {max_retries} attempts. Please try again later."
+            else:
+                return None, f"Error processing image: {error_str}"
+
     return None, "Max retries exceeded"
 
 
