@@ -93,6 +93,28 @@ class ApiKeyTestThread(QThread):
                         err_text = "<failed to stringify error>"
                     self.result.emit('fail', 'groq', err_text)
                     return
+        if self.service == 'blackbox' or self.service is None:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=self.api_key, base_url="https://api.blackbox.ai")
+                if not self.model:
+                    raise RuntimeError("No model selected for Blackbox API key test.")
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "Just say OK."}]
+                )
+                if response and hasattr(response, 'choices') and response.choices:
+                    self.result.emit('success', 'blackbox', 'OK')
+                    return
+            except Exception as e:
+                print(f"Blackbox API Key test error: {e}")
+                if self.service == 'blackbox':
+                    try:
+                        err_text = str(e)
+                    except Exception:
+                        err_text = "<failed to stringify error>"
+                    self.result.emit('fail', 'blackbox', err_text)
+                    return
         self.result.emit('fail', None, None)
 
 
@@ -351,6 +373,7 @@ class AddApiKeyDialog(QDialog):
         self.service_combo.addItem("OpenAI")
         self.service_combo.addItem("OpenRouter")
         self.service_combo.addItem("Groq")
+        self.service_combo.addItem("Blackbox")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
         service_layout.addWidget(_service_label_widget)
@@ -668,6 +691,8 @@ class AddApiKeyDialog(QDialog):
             models = self.model_list.get("openrouter", [])
         elif service == "groq":
             models = self.model_list.get("groq", [])
+        elif service == "blackbox":
+            models = self.model_list.get("blackbox", [])
         else:
             models = []
         for m in models:
@@ -757,7 +782,7 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
             
-            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq'}
+            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox'}
             svc_display = display_service_map.get(str(service).lower(), str(service))
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
@@ -1007,6 +1032,8 @@ class AddApiKeyDialog(QDialog):
                 self._detected_service = "gemini"
             elif service_text.lower() == "groq":
                 self._detected_service = "groq"
+            elif service_text.lower() == "blackbox":
+                self._detected_service = "blackbox"
             else:
                 self._detected_service = None
 
@@ -1034,6 +1061,8 @@ class AddApiKeyDialog(QDialog):
             self.service_combo.setCurrentText("Gemini")
         elif service == 'groq':
             self.service_combo.setCurrentText("Groq")
+        elif service == 'blackbox':
+            self.service_combo.setCurrentText("Blackbox")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1047,6 +1076,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = 'gemini'
         elif self.service_combo.currentText() == "Groq":
             self._detected_service = 'groq'
+        elif self.service_combo.currentText() == "Blackbox":
+            self._detected_service = 'blackbox'
         else:
             self._detected_service = None
         self._refresh_model_combo()
@@ -1318,6 +1349,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = "gemini"
         elif service_text.lower() == "groq":
             self._detected_service = "groq"
+        elif service_text.lower() == "blackbox":
+            self._detected_service = "blackbox"
         else:
             self._detected_service = None
         menu = QMenu(self)
