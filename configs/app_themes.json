@@ -834,6 +834,54 @@
         "button_disabled_fg": "#8a8a8a"
       }
     },
+    "vintage": {
+      "name": "Vintage (16-bit)",
+      "colors": {
+        "primary": "#FF6E54",
+        "primary_hover": "#FF3B30",
+        "primary_pressed": "#C03228",
+        "secondary": "#FFD166",
+        "secondary_hover": "#FFB84D",
+        "secondary_pressed": "#E6A641",
+        "success": "#2ECC71",
+        "error": "#FF3B30",
+        "warning": "#FFB84D",
+        "background_dark": "#0A1122",
+        "background_light": "#112233",
+        "foreground": "#E6F0FF",
+        "text_light": "#E6F0FF",
+        "text_dark": "#AABCCD",
+        "white": "#ffffff",
+        "black": "#000000",
+        "gray": "#6B6F86",
+        "button_disabled_bg": "#2B2F42",
+        "button_disabled_fg": "#9AA3B2"
+      }
+    },
+    "dos": {
+      "name": "DOS",
+      "colors": {
+        "primary": "#00FF00",
+        "primary_hover": "#00CC00",
+        "primary_pressed": "#009900",
+        "secondary": "#FFFF00",
+        "secondary_hover": "#E6E600",
+        "secondary_pressed": "#CCCC00",
+        "success": "#00FF00",
+        "error": "#FF0000",
+        "warning": "#FFFF00",
+        "background_dark": "#1d1d1d",
+        "background_light": "#151515",
+        "foreground": "#00FF00",
+        "text_light": "#00FF00",
+        "text_dark": "#66FF66",
+        "white": "#ffffff",
+        "black": "#464646",
+        "gray": "#335922",
+        "button_disabled_bg": "#212121",
+        "button_disabled_fg": "#444444"
+      }
+    },
     "ugly": {
       "name": "Ugly",
       "colors": {
