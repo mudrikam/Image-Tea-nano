@@ -6,6 +6,9 @@ import tempfile
 from datetime import datetime
 from config import BASE_PATH
 
+class ReleaseNotFoundError(Exception):
+    pass
+
 CACHE_NAME = "health_checker_cache.json"
 HEALTH_FLAG = ".is_health_verified"
 ZIP_NAME = "Image-Tea-nano.zip"
@@ -66,6 +69,8 @@ def _download_release_zip(tag, dest_path, progress_reporter=None):
     owner, repo_name = parts[-2], parts[-1]
     url = f"https://github.com/{owner}/{repo_name}/releases/download/{tag}/{ZIP_NAME}"
     resp = requests.get(url, stream=True, timeout=30)
+    if resp.status_code == 404:
+        raise ReleaseNotFoundError(f"Release {tag} not found at {url}")
     resp.raise_for_status()
     total = resp.headers.get('Content-Length')
     try:
@@ -156,6 +161,19 @@ def build_remote_cache(force_refresh=False, progress_reporter=None):
     try:
         try:
             _download_release_zip(tag, tmp_zip, progress_reporter=progress_reporter)
+        except ReleaseNotFoundError as e:
+            if old_cache is not None:
+                try:
+                    print(f"Warning: release not found ({e}), using existing cache.")
+                except Exception:
+                    pass
+                return old_cache
+            empty_cache = {'tag': tag, 'fetched_at': datetime.utcnow().isoformat() + 'Z', 'files': []}
+            try:
+                print(f"Warning: release not found ({e}), creating empty cache.")
+            except Exception:
+                pass
+            return empty_cache
         except Exception as e:
             if old_cache is not None:
                 try:
@@ -245,7 +263,14 @@ def repair_missing(missing_files, tag=None):
     if not tag:
         tag = _tag_from_config()
     tmp_zip = os.path.join(tempfile.gettempdir(), f"health_{tag}.zip")
-    _download_release_zip(tag, tmp_zip)
+    try:
+        _download_release_zip(tag, tmp_zip)
+    except ReleaseNotFoundError as e:
+        try:
+            print(f"Warning: release not found ({e}), cannot repair missing files.")
+        except Exception:
+            pass
+        return {'repaired': 0}
     repaired = 0
     try:
         with zipfile.ZipFile(tmp_zip, 'r') as z:

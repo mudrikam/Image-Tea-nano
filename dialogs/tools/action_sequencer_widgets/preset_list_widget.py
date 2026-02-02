@@ -65,15 +65,15 @@ class PresetListWidget(QWidget):
         self.preset_list = QListWidget()
         self.preset_list.setAlternatingRowColors(True)
         self.preset_list.setSpacing(2)
-        _succ_q = QColor(theme.get_color('success'))
-        _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
+        _prim_q = QColor(theme.get_color('primary'))
+        _prim_rgb = f"{_prim_q.red()},{_prim_q.green()},{_prim_q.blue()}"
         self.preset_list.setStyleSheet(f"""
             QListWidget::item:selected {{
                 background-color: {theme.get_color('primary')};
                 color: {theme.get_color('white')};
             }}
             QListWidget::item:hover {{
-                background-color: rgba({_succ_rgb},0.59);
+                background-color: rgba({_prim_rgb},0.12);
             }}
         """)
         self.preset_list.currentItemChanged.connect(self.on_preset_selection_changed)
@@ -115,15 +115,15 @@ class PresetListWidget(QWidget):
         self.action_set_list = QListWidget()
         self.action_set_list.setAlternatingRowColors(True)
         self.action_set_list.setSpacing(2)
-        _succ_q2 = QColor(theme.get_color('success'))
-        _succ_rgb2 = f"{_succ_q2.red()},{_succ_q2.green()},{_succ_q2.blue()}"
+        _prim_q2 = QColor(theme.get_color('primary'))
+        _prim_rgb2 = f"{_prim_q2.red()},{_prim_q2.green()},{_prim_q2.blue()}"
         self.action_set_list.setStyleSheet(f"""
             QListWidget::item:selected {{
                 background-color: {theme.get_color('primary')};
                 color: {theme.get_color('white')};
             }}
             QListWidget::item:hover {{
-                background-color: rgba({_succ_rgb2},0.59);
+                background-color: rgba({_prim_rgb2},0.12);
             }}
         """)
         self.action_set_list.currentItemChanged.connect(self.on_action_set_selection_changed)
