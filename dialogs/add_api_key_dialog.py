@@ -453,7 +453,7 @@ class AddApiKeyDialog(QDialog):
             print(f"Error fetching services for sort combo: {e}")
             services = []
         sort_items = ["All"]
-        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq'}
+        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox'}
         for s in services:
             try:
                 svc_display = display_service_map.get(str(s).lower(), str(s).capitalize())
@@ -1147,8 +1147,10 @@ class AddApiKeyDialog(QDialog):
                 service = 'openai'
             elif len(ak) > 30 and 'AIza' in ak:
                 service = 'gemini'
+            elif model and 'blackboxai' in model.lower():
+                service = 'blackbox'
         if not service:
-            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, or Groq.")
+            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, Groq, or Blackbox.")
             return
         if not model:
             QMessageBox.warning(self, "Input Error", "Model must be selected.")
