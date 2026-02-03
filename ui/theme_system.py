@@ -2,6 +2,7 @@ import json
 import os
 from typing import Dict, Any
 from config import BASE_PATH
+from PySide6.QtGui import QColor
 
 class ThemeSystem:
     def __init__(self, config_path: str = None):
@@ -55,6 +56,18 @@ class ThemeSystem:
             colors = self.themes[self.current_theme].get('colors', {})
             return colors.get(color_name, "#000000")  # fallback to black
         return "#000000"
+
+    def get_slider_style(self, groove_color_key: str = 'text_dark', fill_color_key: str = 'primary', handle_color_key: str = 'primary', groove_height: int = 6, handle_width: int = 12, groove_alpha: float = 0.22) -> str:
+        fill = self.get_color(fill_color_key)
+        handle = self.get_color(handle_color_key)
+        groove_q = QColor(self.get_color(groove_color_key))
+        groove_rgba = f"rgba({groove_q.red()},{groove_q.green()},{groove_q.blue()},{groove_alpha:.2f})"
+        return (
+            f"QSlider::groove:horizontal {{ background: {groove_rgba}; height: {groove_height}px; border-radius: {max(2, groove_height//2)}px; }}"
+            f"QSlider::sub-page:horizontal {{ background: {fill}; height: {groove_height}px; border-radius: {max(2, groove_height//2)}px; }}"
+            f"QSlider::handle:horizontal {{ background: {handle}; border: none; width: {handle_width}px; margin-top: -{groove_height//2}px; margin-bottom: -{groove_height//2}px; border-radius: {max(4, handle_width//2)}px; }}"
+            f"QSlider::add-page:horizontal {{ background: transparent; }}"
+        )
 
     def set_theme(self, theme_name: str):
         """Set current theme"""

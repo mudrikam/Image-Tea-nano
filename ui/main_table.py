@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QMessageBox, QAbstractItemView, QHeaderView,
     QVBoxLayout, QWidget, QProgressBar, QMenu, QLabel, QHBoxLayout, QLineEdit,
     QPushButton, QToolTip, QTabWidget, QScrollArea, QFrame, QLayout, QComboBox,
-    QSpacerItem, QSizePolicy, QSpinBox
+    QSpacerItem, QSizePolicy, QSpinBox, QSlider
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent, QItemSelectionModel
 from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage, QFont
@@ -932,6 +932,17 @@ class ImageTableWidget(QWidget):
         self.zoom_preset_combo.currentTextChanged.connect(self._on_zoom_preset_changed)
         thumbnail_controls_layout.addWidget(self.zoom_preset_combo)
         
+        self.zoom_slider = QSlider(Qt.Horizontal, self)
+        self.zoom_slider.setRange(48, 600)
+        self.zoom_slider.setSingleStep(4)
+        self.zoom_slider.setPageStep(16)
+        self.zoom_slider.setFixedWidth(220)
+        self.zoom_slider.setFixedHeight(18)
+        self.zoom_slider.setToolTip("Zoom thumbnails")
+        self.zoom_slider.valueChanged.connect(self._on_zoom_slider_changed)
+        self.zoom_slider.setStyleSheet(theme.get_slider_style())
+        thumbnail_controls_layout.addWidget(self.zoom_slider)
+        
         self._current_column_count = 4
         
         thumbnail_controls_layout.addStretch()
@@ -946,7 +957,7 @@ class ImageTableWidget(QWidget):
         self.thumbnail_content = QWidget()
         self.thumbnail_content.setAcceptDrops(True)
         self.thumbnail_scroll.setWidget(self.thumbnail_content)
-        self.thumbnail_flow = FlowLayout(margin=10, spacing=10)
+        self.thumbnail_flow = FlowLayout(margin=10, spacing=2)
         self.thumbnail_content.setLayout(self.thumbnail_flow)
         
         self.thumbnail_no_data_overlay = NoDataWidget()
@@ -1041,6 +1052,8 @@ class ImageTableWidget(QWidget):
         self._thumb_resize_timer.setSingleShot(True)
         self._thumb_resize_timer.setInterval(300)
         self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
+        if hasattr(self, 'zoom_slider'):
+            self.zoom_slider.setValue(self.grid_manager.image_size)
         
         self._resize_recalc_timer = QTimer(self)
         self._resize_recalc_timer.setSingleShot(True)
@@ -1290,12 +1303,24 @@ class ImageTableWidget(QWidget):
             
             if new_size != self.grid_manager.image_size:
                 self.grid_manager.set_image_size(new_size)
-                
+
+                if hasattr(self, 'zoom_slider'):
+                    self.zoom_slider.blockSignals(True)
+                    self.zoom_slider.setValue(int(new_size))
+                    self.zoom_slider.blockSignals(False)
+
                 self._pending_thumb_size = new_size
                 self._thumb_resize_timer.start()
-                
+
                 QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
-    
+
+    def _on_zoom_slider_changed(self, value):
+        self._pending_thumb_size = int(value)
+        self.grid_manager.set_image_size(self._pending_thumb_size)
+        self._update_zoom_preset_dropdown(self._pending_thumb_size)
+        self._thumb_resize_timer.start()
+        QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
+
     def _update_zoom_preset_dropdown(self, current_size):
         """Update dropdown to match current thumbnail size (called from Ctrl+Scroll)"""
         columns = self._calculate_columns_from_size(current_size)
@@ -1317,6 +1342,10 @@ class ImageTableWidget(QWidget):
             self.zoom_preset_combo.blockSignals(True)
             self.zoom_preset_combo.setCurrentText(selected_preset)
             self.zoom_preset_combo.blockSignals(False)
+        if hasattr(self, 'zoom_slider'):
+            self.zoom_slider.blockSignals(True)
+            self.zoom_slider.setValue(int(current_size))
+            self.zoom_slider.blockSignals(False)
     
     def _calculate_thumbnail_size_from_columns(self, columns):
         """Calculate thumbnail size based on desired number of columns"""
