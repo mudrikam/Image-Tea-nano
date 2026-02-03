@@ -327,7 +327,7 @@ def setup_main_menu(window):
 
         if reply == QMessageBox.Yes:
             print(f"Theme changed to '{themes_data['themes'][theme_id]['name']}' - restarting now.")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            relaunch_app()
         else:
             print(f"Theme changed to '{themes_data['themes'][theme_id]['name']}'. Restart required to apply changes.")
     
