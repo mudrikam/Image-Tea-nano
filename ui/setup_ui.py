@@ -69,11 +69,18 @@ def setup_ui(self):
         selected_row = self.table.get_selected_row_data() if hasattr(self.table, "get_selected_row_data") else None
         self.properties_widget.set_properties(selected_row)
 
+    def on_tags_data_changed():
+        self.table.refresh_table()
+        on_table_selection_changed()
+
     if hasattr(self.table, "selectionModel"):
         self.table.selectionModel().selectionChanged.connect(lambda *_: on_table_selection_changed())
 
     if hasattr(self.table, "data_refreshed"):
         self.table.data_refreshed.connect(lambda: on_table_selection_changed())
+
+    if hasattr(self.properties_widget.tags_pill_widget, "data_changed"):
+        self.properties_widget.tags_pill_widget.data_changed.connect(on_tags_data_changed)
 
     main_content_layout.addWidget(self.table, stretch=3)
     main_content_layout.addWidget(self.properties_widget, stretch=1)

@@ -1,11 +1,12 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QMenu
 from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal, QTimer
-from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor, QColor
+from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor, QColor, QAction
 from PySide6.QtCore import QUrl
 import os
 import qtawesome as qta
 
 from ui.theme_system import theme
+from dialogs.edit_tag_dialog import EditTagDialog
 
 try:
     from PIL import Image
@@ -124,13 +125,44 @@ class FlowLayout(QLayout):
 
         return y + lineHeight - rect.y()
 
+class TagDeleteButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._normal_icon = qta.icon('fa6s.xmark', color=theme.get_color('text_dark'))
+        self._hover_icon = qta.icon('fa6s.xmark', color=theme.get_color('error'))
+        self.setIcon(self._normal_icon)
+        self.setFixedSize(18, 18)
+        self.setIconSize(QSize(12, 12))
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def enterEvent(self, event):
+        self.setIcon(self._hover_icon)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setIcon(self._normal_icon)
+        super().leaveEvent(event)
+
+
 class TagsPillWidget(QWidget):
+    tag_deleted = Signal(str)
+    data_changed = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.flow_layout = FlowLayout(self, spacing=4)
         self.flow_layout.setContentsMargins(0, 0, 0, 0)
         self.tags = []
         self.similar_indices = set()
+        self.file_id = None
+        self.filepath = None
+        self.db = None
+
+    def set_file_info(self, file_id, filepath, db):
+        self.file_id = file_id
+        self.filepath = filepath
+        self.db = db
 
     def set_tags(self, tags_text):
         self.clear_tags()
@@ -150,73 +182,67 @@ class TagsPillWidget(QWidget):
             self.flow_layout.addWidget(pill)
 
     def _create_pill(self, tag_text, index):
-        pill = QLabel(tag_text)
-        pill.setAlignment(Qt.AlignCenter)
-        pill.setWordWrap(False)
+        container = QWidget()
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(4)
+
+        label = QLabel(tag_text)
+        label.setAlignment(Qt.AlignCenter)
+        label.setWordWrap(False)
+
+        delete_btn = TagDeleteButton()
+        delete_btn.clicked.connect(lambda: self._delete_tag(tag_text))
+
         if index in getattr(self, "similar_indices", set()):
             _err_q = QColor(theme.get_color('error'))
             _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
             bg_color = f"rgba({_err_rgb},0.25)"
             border_color = f"rgba({_err_rgb},0.7)"
-            style = f"""
-                QLabel {{
-                    background-color: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                    font-size: 8pt;
-                    font-weight: 500;
-                }}
-            """
+            btn_style = f"QPushButton {{ background: transparent; border: none; }}"
+            label_style = f"QLabel {{ background-color: transparent; border: none; padding: 3px 4px 3px 8px; font-size: 8pt; font-weight: 500; }}"
+            container_style = f"QWidget {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 10px; }}"
         elif index < 5:
             _succ_q = QColor(theme.get_color('success'))
             _succ_rgb = f"{_succ_q.red()},{_succ_q.green()},{_succ_q.blue()}"
             bg_color = f"rgba({_succ_rgb},0.3)"
             border_color = f"rgba({_succ_rgb},0.5)"
-            style = f"""
-                QLabel {{
-                    background-color: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                    font-size: 8pt;
-                    font-weight: 500;
-                }}
-            """
+            btn_style = f"QPushButton {{ background: transparent; border: none; }}"
+            label_style = f"QLabel {{ background-color: transparent; border: none; padding: 3px 4px 3px 8px; font-size: 8pt; font-weight: 500; }}"
+            container_style = f"QWidget {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 10px; }}"
         elif index < 15:
             _warn_q = QColor(theme.get_color('warning'))
             _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
             bg_color = f"rgba({_warn_rgb},0.2)"
             border_color = f"rgba({_warn_rgb},0.5)"
-            style = f"""
-                QLabel {{
-                    background-color: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                    font-size: 8pt;
-                    font-weight: 500;
-                }}
-            """
+            btn_style = f"QPushButton {{ background: transparent; border: none; }}"
+            label_style = f"QLabel {{ background-color: transparent; border: none; padding: 3px 4px 3px 8px; font-size: 8pt; font-weight: 500; }}"
+            container_style = f"QWidget {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 10px; }}"
         else:
             _gray_q = QColor(theme.get_color('gray'))
             _gray_rgb = f"{_gray_q.red()},{_gray_q.green()},{_gray_q.blue()}"
             bg_color = f"rgba({_gray_rgb},0.2)"
             border_color = f"rgba({_gray_rgb},0.5)"
-            style = f"""
-                QLabel {{
-                    background-color: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                    font-size: 8pt;
-                    font-weight: 500;
-                }}
-            """
-        pill.setStyleSheet(style)
-        pill.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        pill.adjustSize()
-        return pill
+            btn_style = f"QPushButton {{ background: transparent; border: none; }}"
+            label_style = f"QLabel {{ background-color: transparent; border: none; padding: 3px 4px 3px 8px; font-size: 8pt; font-weight: 500; }}"
+            container_style = f"QWidget {{ background-color: {bg_color}; border: 1px solid {border_color}; border-radius: 10px; }}"
+
+        label.setStyleSheet(label_style)
+        delete_btn.setStyleSheet(btn_style)
+        container.setStyleSheet(container_style)
+
+        container_layout.addWidget(label)
+        container_layout.addWidget(delete_btn)
+
+        container.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        container.adjustSize()
+        container.setContextMenuPolicy(Qt.CustomContextMenu)
+        container.customContextMenuRequested.connect(lambda pos: self._show_context_menu(pos, tag_text, container))
+        label.setCursor(Qt.PointingHandCursor)
+        label.mouseDoubleClickEvent = lambda event, t=tag_text: self._edit_tag(t)
+        container.mouseDoubleClickEvent = lambda event, t=tag_text: self._edit_tag(t)
+        container.tag_text = tag_text
+        return container
 
     def clear_tags(self):
         while self.flow_layout.count():
@@ -225,6 +251,53 @@ class TagsPillWidget(QWidget):
                 child.widget().deleteLater()
         self.tags = []
         self.similar_indices = set()
+
+    def _delete_tag(self, tag_text):
+        self.tags = [t for t in self.tags if t.strip() != tag_text.strip()]
+        new_tags_str = ', '.join(self.tags)
+        files = self.db.get_all_files()
+        for file_row in files:
+            if file_row[1] == self.filepath:
+                current_title = file_row[3]
+                current_description = file_row[4]
+                current_status = file_row[6]
+                self.db.update_metadata(self.filepath, current_title, current_description, new_tags_str, current_status)
+                print(f"Tag deleted: '{tag_text}' from {self.filepath}")
+                break
+        self.data_changed.emit()
+        self.clear_tags()
+        self.set_tags(new_tags_str)
+
+    def _edit_tag(self, old_tag_text):
+        dialog = EditTagDialog(old_tag_text, self)
+        if dialog.exec() == EditTagDialog.Accepted:
+            new_tag_text = dialog.get_tag_text()
+            if new_tag_text and new_tag_text != old_tag_text:
+                self.tags = [new_tag_text if t.strip() == old_tag_text.strip() else t for t in self.tags]
+                new_tags_str = ', '.join(self.tags)
+                files = self.db.get_all_files()
+                for file_row in files:
+                    if file_row[1] == self.filepath:
+                        current_title = file_row[3]
+                        current_description = file_row[4]
+                        current_status = file_row[6]
+                        self.db.update_metadata(self.filepath, current_title, current_description, new_tags_str, current_status)
+                        print(f"Tag edited: '{old_tag_text}' -> '{new_tag_text}' in {self.filepath}")
+                        break
+                self.data_changed.emit()
+                self.clear_tags()
+                self.set_tags(new_tags_str)
+
+    def _show_context_menu(self, pos, tag_text, widget):
+        menu = QMenu(self)
+        edit_action = QAction(qta.icon('fa6s.pen-to-square'), 'Edit Tag', self)
+        edit_action.triggered.connect(lambda: self._edit_tag(tag_text))
+        menu.addAction(edit_action)
+        menu.addSeparator()
+        delete_action = QAction(qta.icon('fa6s.trash'), 'Hapus Tag', self)
+        delete_action.triggered.connect(lambda: self._delete_tag(tag_text))
+        menu.addAction(delete_action)
+        menu.exec(widget.mapToGlobal(pos))
 
 
 
@@ -435,6 +508,7 @@ class PropertiesWidget(QWidget):
         }
 
         self.tags_pill_widget = TagsPillWidget()
+        self.tags_pill_widget.tag_deleted.connect(self._on_tag_deleted)
 
         for idx, label_text in enumerate(field_names):
             icon_name = icon_map.get(label_text, "fa6s.tag")
@@ -500,6 +574,21 @@ class PropertiesWidget(QWidget):
         h.addWidget(text_label)
         h.addStretch()
         return container, text_label
+
+    def _on_tag_deleted(self, filepath):
+        files = self.db.get_all_files()
+        for file_row in files:
+            if file_row[1] == filepath:
+                row_data = list(file_row)
+                title = row_data[3] if len(row_data) > 3 and row_data[3] is not None else ""
+                tags = row_data[5] if len(row_data) > 5 and row_data[5] is not None else ""
+                description = row_data[4] if len(row_data) > 4 and row_data[4] is not None else ""
+                title_length = len(title)
+                tag_count = len([t for t in tags.split(",") if t.strip()]) if tags else 0
+                desc_length = len(description)
+                row_data = [row_data[0]] + list(row_data[1:7]) + [row_data[7] if len(row_data) > 7 else ""] + [str(title_length), str(tag_count), str(desc_length)]
+                self.set_properties(row_data)
+                break
 
     def set_properties(self, row_data):
         if not row_data:
@@ -598,13 +687,17 @@ class PropertiesWidget(QWidget):
         for label_widget, label_text in zip(self.label_widgets, label_texts):
             label_widget.setText(f"<b>{label_text}:</b>")
 
+        file_id = row_data[0]
+        filepath = values[0]
+        
+        self.tags_pill_widget.set_file_info(file_id, filepath, self.db)
+        
         for i, (field, val) in enumerate(zip(self.fields, values)):
             if isinstance(field, TagsPillWidget):
                 field.set_tags(val)
             else:
                 field.setText(val)
-
-        filepath = values[0]
+        
         if filepath == self._last_preview_filepath and filepath in self._preview_cache:
             pixmap = self._preview_cache[filepath]
             self.preview_widget.set_pixmap(pixmap, filepath)
