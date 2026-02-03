@@ -28,17 +28,17 @@ class NoDataWidget(QWidget):
         
         self.icon_label = QLabel()
         self.icon_label.setAlignment(Qt.AlignCenter)
-        green_color = QColor(theme.get_color('success'))
-        green_color.setAlpha(int(0.5 * 255))
-        self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=green_color).pixmap(64, 64))
+        icon_color = QColor(theme.get_color('primary'))
+        icon_color.setAlpha(int(0.85 * 255))
+        self.icon_label.setPixmap(qta.icon("fa6s.folder-open", color=icon_color).pixmap(72, 72))
         
         self.text_label = QLabel("No files to load")
         self.text_label.setAlignment(Qt.AlignCenter)
-        self.text_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 14pt; font-weight: bold;")
+        self.text_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-size: 14pt; font-weight: bold;")
         
         self.sub_text = QLabel("Import files or drag and drop files here")
         self.sub_text.setAlignment(Qt.AlignCenter)
-        self.sub_text.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 10pt;")
+        self.sub_text.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 10pt;")
         
         layout.addStretch(1)
         layout.addWidget(self.icon_label)
@@ -981,6 +981,9 @@ class ImageTableWidget(QWidget):
         self.tab_widget.addTab(self.thumbnail_tab, qta.icon("fa6s.images"), "Thumbnail") 
         self.tab_widget.addTab(self.details_tab, qta.icon("fa6s.list"), "Details")
         self.tab_widget.addTab(self.add_files_tab, qta.icon("fa6s.folder-plus"), "Add Files")
+        self.tab_widget.setStyleSheet(f"QTabBar::tab {{ color: {theme.get_color('text_dark')}; }} QTabBar::tab:selected {{ color: {theme.get_color('primary')}; }}")
+        self.tab_widget.currentChanged.connect(self._update_tab_icons)
+        self._update_tab_icons(self.tab_widget.currentIndex())
         
                                                                                
         progress_layout = QVBoxLayout()
@@ -1200,6 +1203,17 @@ class ImageTableWidget(QWidget):
             self._pending_hover_row = None
             self._pending_tooltip_global_pos = None
             self._pending_tooltip_content = ""
+
+    def _update_tab_icons(self, current_index=None):
+        if current_index is None:
+            current_index = self.tab_widget.currentIndex()
+        icon_names = ["fa6s.table", "fa6s.images", "fa6s.list", "fa6s.folder-plus"]
+        for idx, name in enumerate(icon_names):
+            if idx == current_index:
+                icon = qta.icon(name, color=theme.get_color('primary'))
+            else:
+                icon = qta.icon(name)
+            self.tab_widget.setTabIcon(idx, icon)
 
     def _inject_open_metadata_dialog_for_grid(self):
         def _open_metadata_dialog_by_filepath(filepath):
