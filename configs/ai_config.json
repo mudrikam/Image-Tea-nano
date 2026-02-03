@@ -177,10 +177,21 @@
     "blackbox": [
       "blackboxai",
       "blackboxai-pro",
+      "blackboxai/openai/gpt-5",
+      "blackboxai/openai/gpt-5-mini",
       "blackboxai/openai/gpt-4",
       "blackboxai/openai/gpt-4o",
+      "blackboxai/google/gemini-3-pro-preview",
+      "blackboxai/google/gemini-2.5-flash",
       "blackboxai/anthropic/claude-sonnet-4.5",
-      "blackboxai/google/gemini-2.5-flash"
+      "blackboxai/anthropic/claude-opus-4.5",
+      "blackboxai/qwen/qwen3-max",
+      "blackboxai/mistralai/mistral-large",
+      "blackboxai/mistralai/ministral-14b-2512",
+      "blackboxai/amazon/nova-pro-v1",
+      "blackboxai/groq/compound",
+      "blackboxai/blackbox-search",
+      "blackboxai/openai/gpt-4o-mini"
     ]
   },
   "shutterstock_category_map": {

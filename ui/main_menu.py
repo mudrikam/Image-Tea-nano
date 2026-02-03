@@ -416,18 +416,16 @@ def setup_main_menu(window):
     video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
     prompt_menu.addAction(video_proxy_settings_action)
 
-    api_menu = QMenu("API", menubar)
-    api_menu.setToolTipsVisible(True)
-    add_api_action = QAction(qta.icon('fa6s.key'), "Add API Key", window)
-    add_api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])
-    add_api_action.setStatusTip(MENU_TOOLTIPS["add_api_key"])
+    api_action = QAction("API Key Manager", window)
+    api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])
+    api_action.setStatusTip(MENU_TOOLTIPS["add_api_key"])
     def show_api_dialog():
         dlg = AddApiKeyDialog(window)
         result = dlg.exec()
         if hasattr(window, 'api_key_section'):
             window.api_key_section.refresh()
-    add_api_action.triggered.connect(show_api_dialog)
-    api_menu.addAction(add_api_action)
+    api_action.triggered.connect(show_api_dialog)
+    menubar.addAction(api_action)
 
     help_menu = QMenu("Help", menubar)
     help_menu.setToolTipsVisible(True)
@@ -696,7 +694,7 @@ def setup_main_menu(window):
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)
     menubar.addMenu(prompt_menu)
-    menubar.addMenu(api_menu)
+    menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
     menubar.addMenu(help_menu)
     window.setMenuBar(menubar)

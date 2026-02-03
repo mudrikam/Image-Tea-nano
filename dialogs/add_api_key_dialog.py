@@ -1,4 +1,4 @@
-from PySide6.QtCore import QThread, Signal, Qt, QPoint, QTimer
+from PySide6.QtCore import QThread, Signal, Qt, QPoint, QTimer, QEvent
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QProgressBar, QSizePolicy, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QApplication, QWidget, QFileDialog, QListWidget, QListWidgetItem, QInputDialog, QPlainTextEdit, QToolTip
 from PySide6.QtGui import QColor, QBrush, QAction
 from database.db_operation import ImageTeaDB
@@ -350,7 +350,7 @@ class ModelManagerDialog(QDialog):
 class AddApiKeyDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Add API Key")
+        self.setWindowTitle("API Key Manager")
         self.setFixedWidth(620)
         self.db = ImageTeaDB()
         self._label_icon_color = theme.get_color('text_dark')
@@ -395,6 +395,7 @@ class AddApiKeyDialog(QDialog):
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_manager_btn)
         layout.addLayout(model_layout)
+        self.model_combo.installEventFilter(self)
         self._refresh_model_combo()
         key_layout = QHBoxLayout()
         _key_label_widget, self.key_label = self._create_icon_label_widget("API Key:", 'fa6s.key', label_width)
@@ -438,12 +439,25 @@ class AddApiKeyDialog(QDialog):
         note_layout.addWidget(self.note_edit)
         layout.addLayout(note_layout)
 
-        csv_btn_layout = QHBoxLayout()
+        csv_btn_layout_top = QHBoxLayout()
         self.test_all_btn = QPushButton()
+        self.test_all_btn.setObjectName('test_all_btn')
         self.test_all_btn.setText("Test All")
-        self.test_all_btn.setIcon(qta.icon('fa6s.list-check'))
+        self.test_all_btn.setIcon(qta.icon('fa6s.list-check', color=theme.get_color('white')))
         self.test_all_btn.setIconSize(self.test_all_btn.iconSize())
         self.test_all_btn.setToolTip("Test all API keys sequentially")
+        self.test_all_btn.setStyleSheet(f"""
+            QPushButton#test_all_btn {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 4px 12px;
+            }}
+            QPushButton#test_all_btn:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+        """)
         self.sort_combo = QComboBox()
         self.sort_combo.setToolTip("Filter / Sort API table")
         try:
@@ -479,6 +493,13 @@ class AddApiKeyDialog(QDialog):
         self.refresh_btn.setToolTip("Refresh table")
         self.refresh_btn.setFixedWidth(32)
         self.refresh_btn.clicked.connect(self._refresh_api_table)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search table...")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.addAction(qta.icon('fa6s.magnifying-glass'), QLineEdit.LeadingPosition)
+        self.search_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.search_edit.textChanged.connect(self._apply_table_search)
+        csv_btn_layout_bottom = QHBoxLayout()
         self.export_csv_btn = QPushButton()
         self.export_csv_btn.setText("Export CSV")
         self.export_csv_btn.setIcon(qta.icon('fa6s.file-csv'))
@@ -489,39 +510,74 @@ class AddApiKeyDialog(QDialog):
         self.import_csv_btn.setIcon(qta.icon('fa6s.file-import'))
         self.import_csv_btn.setIconSize(self.import_csv_btn.iconSize())
         self.import_csv_btn.setToolTip("Import API key list from CSV")
+        self.delete_selected_btn = QPushButton()
+        self.delete_selected_btn.setText("Delete Selected")
+        self.delete_selected_btn.setIcon(qta.icon('fa6s.trash'))
+        self.delete_selected_btn.setToolTip("Delete the selected API key")
+        self.delete_selected_btn.setFixedWidth(120)
+        self.delete_selected_btn.clicked.connect(self._delete_selected_api_key)
         self.delete_all_btn = QPushButton()
         self.delete_all_btn.setText("Delete All")
         self.delete_all_btn.setIcon(qta.icon('fa6s.trash'))
         self.delete_all_btn.setToolTip("Delete all API keys (cannot be undone)")
         self.delete_all_btn.setFixedWidth(100)
         self.delete_all_btn.clicked.connect(self._delete_all_api_keys)
-        csv_btn_layout.addWidget(self.test_all_btn)
-        csv_btn_layout.addWidget(self.sort_combo)
-        csv_btn_layout.addWidget(self.refresh_btn)
-        csv_btn_layout.addWidget(self.export_csv_btn)
-        csv_btn_layout.addWidget(self.import_csv_btn)
-        csv_btn_layout.addWidget(self.delete_all_btn)
-        csv_btn_layout.addStretch()
-        layout.addLayout(csv_btn_layout)
+        csv_btn_layout_bottom.addWidget(self.export_csv_btn)
+        csv_btn_layout_bottom.addWidget(self.import_csv_btn)
+        csv_btn_layout_bottom.addWidget(self.delete_selected_btn)
+        csv_btn_layout_bottom.addWidget(self.delete_all_btn)
+        csv_btn_layout_bottom.addStretch()
+        layout.addLayout(csv_btn_layout_bottom)
 
+        csv_btn_layout_top.addWidget(self.test_all_btn)
+        csv_btn_layout_top.addWidget(self.sort_combo)
+        csv_btn_layout_top.addWidget(self.refresh_btn)
+        csv_btn_layout_top.addWidget(self.search_edit, 1)
+        csv_btn_layout_top.addStretch()
+        layout.addLayout(csv_btn_layout_top)
         self.api_table = QTableWidget()
         self.api_table.setColumnCount(6)
         self.api_table.setHorizontalHeaderLabels(["Service", "API", "Last Tested", "Model", "Note", "Actions"])
         self.api_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.api_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.api_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.api_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.api_table.setMinimumHeight(100)
+        self.api_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.api_table.setMinimumHeight(200)
         self.api_table.setToolTip("List of all API keys you have added")
         header = self.api_table.horizontalHeader()
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         self.api_table.setSortingEnabled(True)
-        layout.addWidget(self.api_table)
+        layout.addWidget(self.api_table, 1)
         self._row_testing = None
         self._blink_timer = QTimer(self)
         self._blink_timer.timeout.connect(self._blink_row)
         self._blink_state = False
+        self.stats_widget = QWidget()
+        stats_layout = QHBoxLayout(self.stats_widget)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(12)
+        icon_size = 12
+        def _add_stat(icon_name, initial_text, color_key='text_dark'):
+            icon_lbl = QLabel()
+            color = theme.get_color(color_key)
+            icon = qta.icon(icon_name, color=color)
+            pix = icon.pixmap(icon_size, icon_size)
+            icon_lbl.setPixmap(pix)
+            text_lbl = QLabel(initial_text)
+            text_lbl.setStyleSheet(f"color: {color};")
+            stats_layout.addWidget(icon_lbl)
+            stats_layout.addWidget(text_lbl)
+            return text_lbl
+        self.stats_models_lbl = _add_stat('fa6s.cubes', 'Models: 0', 'primary')
+        self.stats_apis_lbl = _add_stat('fa6s.server', 'APIs: 0', 'warning')
+        self.stats_valid_lbl = _add_stat('fa6s.check', 'Valid: 0', 'success')
+        self.stats_invalid_lbl = _add_stat('fa6s.xmark', 'Invalid: 0', 'error')
+        self.stats_last_tested_lbl = _add_stat('fa6s.clock', 'Last Tested: Never', 'text_dark')
+        stats_layout.addStretch()
+        self.stats_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.stats_widget.setFixedHeight(28)
+        layout.addWidget(self.stats_widget, 0)
         self._refresh_api_table()
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
@@ -534,7 +590,7 @@ class AddApiKeyDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.test_and_save_btn = QPushButton()
         self.test_and_save_btn.setText("Test and Save")
-        self.test_and_save_btn.setIcon(qta.icon('fa6s.play'))
+        self.test_and_save_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('primary')))
         self.test_and_save_btn.setIconSize(self.test_and_save_btn.iconSize())
         self.test_and_save_btn.setMinimumHeight(32)
         self.test_and_save_btn.setToolTip("Test the API key and save it if valid")
@@ -700,6 +756,79 @@ class AddApiKeyDialog(QDialog):
         if self.model_combo.count() > 0:
             self.model_combo.setCurrentIndex(0)
 
+    def eventFilter(self, obj, event):
+        if obj is self.model_combo and event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
+            if event.type() == QEvent.MouseButtonPress or (event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Down, Qt.Key_Enter, Qt.Key_Return)):
+                self._open_model_search_popup()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _open_model_search_popup(self):
+        service = self.service_combo.currentText().lower()
+        models = self.model_list.get(service, []) if service else []
+        dlg = QDialog(self)
+        dlg.setWindowFlags(Qt.Popup)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        vbox = QVBoxLayout(dlg)
+        search = QLineEdit()
+        search.setPlaceholderText("Search models...")
+        search.setClearButtonEnabled(True)
+        listw = QListWidget()
+        listw.addItems(models)
+        listw.setSelectionMode(QListWidget.SingleSelection)
+        vbox.addWidget(search)
+        vbox.addWidget(listw)
+        def _filter(text):
+            t = text.lower()
+            for i in range(listw.count()):
+                item = listw.item(i)
+                item.setHidden(t not in item.text().lower())
+        search.textChanged.connect(_filter)
+        def _choose():
+            it = listw.currentItem()
+            if not it:
+                for i in range(listw.count()):
+                    item = listw.item(i)
+                    if not item.isHidden():
+                        it = item
+                        break
+            if it:
+                self.model_combo.setCurrentText(it.text())
+                dlg.close()
+        listw.itemActivated.connect(lambda item: (self.model_combo.setCurrentText(item.text()), dlg.close()))
+        search.returnPressed.connect(_choose)
+        def _search_keypress(e):
+            if e.key() == Qt.Key_Down:
+                for i in range(listw.count()):
+                    if not listw.item(i).isHidden():
+                        listw.setCurrentRow(i)
+                        break
+                listw.setFocus()
+            else:
+                QLineEdit.keyPressEvent(search, e)
+        search.keyPressEvent = _search_keypress
+        pos = self.model_combo.mapToGlobal(QPoint(0, self.model_combo.height()))
+        dlg.setFixedWidth(self.model_combo.width())
+        dlg.move(pos)
+        dlg.show()
+        search.setFocus()
+
+    def _apply_table_search(self, text=''):
+        q = (text or '').strip().lower()
+        for r in range(self.api_table.rowCount()):
+            if not q:
+                self.api_table.setRowHidden(r, False)
+                continue
+            serv = self.api_table.item(r, 0).text() if self.api_table.item(r, 0) else ''
+            api_item = self.api_table.item(r, 1)
+            api = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else (api_item.text() if api_item else '')
+            model = self.api_table.item(r, 3).text() if self.api_table.item(r, 3) else ''
+            note = self.api_table.item(r, 4).text() if self.api_table.item(r, 4) else ''
+            last = self.api_table.item(r, 2).text() if self.api_table.item(r, 2) else ''
+            hay = ' '.join([str(serv), str(api), str(model), str(note), str(last)]).lower()
+            hide = q not in hay
+            self.api_table.setRowHidden(r, hide)
+
     def _refresh_api_table(self):
         
         try:
@@ -788,7 +917,13 @@ class AddApiKeyDialog(QDialog):
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
             
-            api_item = QTableWidgetItem(str(api))
+            # Display-only truncation: show last 7 chars with leading '...' when long
+            display_api = (str(api)[-7:] if api and len(str(api)) > 7 else str(api))
+            if display_api and len(str(api)) > 7:
+                display_api = f"...{display_api}"
+            api_item = QTableWidgetItem(display_api)
+            # Store full API in item for selection/actions
+            api_item.setData(Qt.UserRole, api)
             api_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 1, api_item)
             
@@ -841,6 +976,56 @@ class AddApiKeyDialog(QDialog):
         
         self.api_table.setSortingEnabled(True)
         self._stop_blinking()
+        # Update stats line under the table
+        try:
+            self._update_stats(display)
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error updating API stats: {e}")
+        if hasattr(self, 'search_edit'):
+            self._apply_table_search(self.search_edit.text())
+
+    def _update_stats(self, rows):
+        total_api = len(rows)
+        models = set()
+        valid = 0
+        invalid = 0
+        last_dt = None
+        for r in rows:
+            model = r[5] if len(r) > 5 else ''
+            if model:
+                models.add(model)
+            status = str(r[4]).lower() if r[4] is not None else ''
+            if status == 'active':
+                valid += 1
+            elif status == 'invalid':
+                invalid += 1
+            lt = r[3]
+            if lt:
+                if isinstance(lt, (tuple, list)):
+                    lt_str = " ".join(str(x) for x in lt)
+                else:
+                    lt_str = str(lt)
+                dt = None
+                try:
+                    dt = datetime.datetime.fromisoformat(lt_str)
+                except Exception:
+                    try:
+                        dt = datetime.datetime.strptime(lt_str, '%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        try:
+                            dt = datetime.datetime.strptime(lt_str, '%Y/%m/%d %H:%M:%S')
+                        except Exception:
+                            print(f"Failed to parse last_tested '{lt_str}' for stats")
+                            dt = None
+                if dt and (last_dt is None or dt > last_dt):
+                    last_dt = dt
+        models_count = len(models)
+        last_tested_str = last_dt.strftime('%Y-%m-%d %H:%M:%S') if last_dt else 'Never'
+        self.stats_models_lbl.setText(f"Models: {models_count}")
+        self.stats_apis_lbl.setText(f"APIs: {total_api}")
+        self.stats_valid_lbl.setText(f"Valid: {valid}")
+        self.stats_invalid_lbl.setText(f"Invalid: {invalid}")
+        self.stats_last_tested_lbl.setText(f"Last Tested: {last_tested_str}")
 
     def _test_api_key_row(self, row):
         if self._row_testing is not None:
@@ -850,7 +1035,7 @@ class AddApiKeyDialog(QDialog):
         if not service_item or not api_item:
             return
         service = service_item.text().lower()
-        api_key = api_item.text().strip()
+        api_key = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text().strip()
         model = None
         
         try:
@@ -940,7 +1125,7 @@ class AddApiKeyDialog(QDialog):
         if not service_item or not api_item:
             return
         service = service_item.text().lower()
-        api_key = api_item.text().strip()
+        api_key = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text().strip()
         if not api_key or not service:
             QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
             return
@@ -962,6 +1147,94 @@ class AddApiKeyDialog(QDialog):
             self.key_edit.clear()
             self.note_edit.clear()
 
+    def _delete_selected_api_key(self):
+        # Gather selected rows (support multi-select). If none, use current row.
+        sel = self.api_table.selectionModel().selectedRows()
+        rows_to_delete = []
+        if sel:
+            for idx in sel:
+                r = idx.row()
+                service_item = self.api_table.item(r, 0)
+                api_item = self.api_table.item(r, 1)
+                note_item = self.api_table.item(r, 4)
+                if not service_item or not api_item:
+                    continue
+                service = service_item.text().lower()
+                api = api_item.text().strip()
+                note = note_item.text().strip() if note_item else ''
+                rows_to_delete.append((service, api, note))
+        else:
+            row = self.api_table.currentRow()
+            if row < 0:
+                QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
+                return
+            service_item = self.api_table.item(row, 0)
+            api_item = self.api_table.item(row, 1)
+            note_item = self.api_table.item(row, 4)
+            if not service_item or not api_item:
+                QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
+                return
+            service = service_item.text().lower()
+            api = api_item.text().strip()
+            note = note_item.text().strip() if note_item else ''
+            rows_to_delete.append((service, api, note))
+
+        if not rows_to_delete:
+            QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
+            return
+
+        def _trunc_api(a: object) -> str:
+            s = str(a) if a is not None else ''
+            if len(s) > 7:
+                return f"...{s[-7:]}"
+            return s
+
+        preview_lines = []
+        for svc, api, note in rows_to_delete[:10]:
+            svc_cap = (svc or '').capitalize()
+            line = f"{_trunc_api(api)} ({svc_cap}"
+            if note:
+                line += f" - {note}"
+            line += ")"
+            preview_lines.append(line)
+        remaining = max(0, len(rows_to_delete) - 10)
+        if remaining:
+            preview_lines.append(f"...and {remaining} other API{'s' if remaining > 1 else ''}")
+
+        total = len(rows_to_delete)
+        preview_text = "\n".join(preview_lines)
+        title = f"Delete {total} API Key{'s' if total > 1 else ''}"
+        main = f"Delete {total} selected API key{'s' if total > 1 else ''}?\n\nThis action cannot be undone."
+        mb = QMessageBox(self)
+        mb.setWindowTitle(title)
+        mb.setText(main)
+        if preview_text:
+            mb.setInformativeText(preview_text)
+        mb.setIcon(QMessageBox.Warning)
+        btn_yes = QPushButton("Delete")
+        btn_yes.setIcon(qta.icon('fa6s.trash'))
+        btn_no = QPushButton("Cancel")
+        btn_no.setIcon(qta.icon('fa6s.xmark'))
+        mb.addButton(btn_yes, QMessageBox.AcceptRole)
+        mb.addButton(btn_no, QMessageBox.RejectRole)
+        mb.setDefaultButton(btn_no)
+        mb.exec()
+        if mb.clickedButton() == btn_yes:
+            failed = 0
+            for svc, api, _ in rows_to_delete:
+                try:
+                    self.db.delete_api_key(svc, api)
+                except Exception as e:
+                    print(f"Error deleting selected API key ({svc}, {api}): {e}")
+                    failed += 1
+            self._refresh_api_table()
+            self.key_edit.clear()
+            self.note_edit.clear()
+            if failed == 0:
+                QMessageBox.information(self, "Delete API Key", f"Deleted {total} API key{'s' if total > 1 else ''}.")
+            else:
+                QMessageBox.critical(self, "Delete API Key", f"Failed to delete {failed} of {total} selected API key{'s' if total > 1 else ''}.")
+
     def _on_api_table_row_clicked(self, row, column):
         if column == 5:
             return
@@ -971,7 +1244,7 @@ class AddApiKeyDialog(QDialog):
         note_item = self.api_table.item(row, 4)
         if service_item and api_item:
             service_text = service_item.text()
-            api_text = api_item.text()
+            api_text = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text()
             model_text = model_item.text() if model_item else ""
             note_text = note_item.text() if note_item else ""
             self.key_edit.setText(api_text)
@@ -1262,9 +1535,41 @@ class AddApiKeyDialog(QDialog):
         if not rows:
             QMessageBox.information(self, "Delete All API Keys", "No API keys saved.")
             return
+        # Build a concise list (max 10) of APIs to show in the confirmation dialog.
+        def _trunc_api(a: object) -> str:
+            s = str(a) if a is not None else ''
+            if len(s) > 7:
+                return f"...{s[-7:]}"
+            return s
+        preview_lines = []
+        for r in rows[:10]:
+            if isinstance(r, dict):
+                svc = (r.get('service') or '').capitalize()
+                api = r.get('api') or ''
+                note = r.get('note') or ''
+            else:
+                if len(r) == 6:
+                    svc, api, note, _, _, _ = r
+                elif len(r) == 5:
+                    svc, api, note, _, _ = r
+                else:
+                    svc, api, note = r[0], r[1], r[2] if len(r) > 2 else ''
+                svc = (svc or '').capitalize()
+                api = api or ''
+                note = note or ''
+            line = f"{_trunc_api(api)} ({svc}"
+            if note:
+                line += f" - {note}"
+            line += ")"
+            preview_lines.append(line)
+        remaining = max(0, len(rows) - 10)
+        if remaining:
+            preview_lines.append(f"...and {remaining} other API{'s' if remaining > 1 else ''}")
+        message = "Delete ALL API keys?\n\nThis action cannot be undone.\n\n" + "\n".join(preview_lines)
         mb = QMessageBox(self)
         mb.setWindowTitle("Delete All API Keys")
-        mb.setText("Delete ALL API keys?\n\nThis action cannot be undone.")
+        mb.setText(message)
+        mb.setIcon(QMessageBox.Warning)
         btn_yes = QPushButton("Delete")
         btn_yes.setIcon(qta.icon('fa6s.trash'))
         btn_no = QPushButton("Cancel")
