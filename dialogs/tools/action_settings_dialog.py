@@ -8,6 +8,7 @@ from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+from ui.theme_system import theme
 from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper import ActionSequencerConfig
 
 
@@ -404,7 +405,7 @@ class ActionSettingsDialog(QDialog):
                 f"The following records will be PERMANENTLY DELETED:\n"
                 f"This action CANNOT be undone."
             )
-            warning_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 10px;")
+            warning_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold; padding: 10px;")
             warning_label.setWordWrap(True)
             dialog_layout.addWidget(warning_label)
             

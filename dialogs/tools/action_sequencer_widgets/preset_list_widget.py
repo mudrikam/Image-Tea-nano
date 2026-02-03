@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QPushButton, QListWidget, QListWidgetItem, QComboBox, QTabWidget, QSizePolicy, QMenu, QMessageBox, QFileDialog)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
 import os
 import json
 import qtawesome as qta
@@ -10,6 +10,8 @@ from helpers.tools.action_sequencer_helpers.action_sequencer_import_export_helpe
 from dialogs.tools.add_action_set_dialog import AddActionSetDialog
 from dialogs.tools.free_presets_dialog import FreePresetsDialog
 from datetime import datetime
+
+from ui.theme_system import theme
 
 class PresetListWidget(QWidget):
     preset_selected = Signal(dict)
@@ -63,14 +65,16 @@ class PresetListWidget(QWidget):
         self.preset_list = QListWidget()
         self.preset_list.setAlternatingRowColors(True)
         self.preset_list.setSpacing(2)
-        self.preset_list.setStyleSheet("""
-            QListWidget::item:selected {
-                background-color: #4e9e20;
-                color: white;
-            }
-            QListWidget::item:hover {
-                background-color: rgba(78, 158, 32, 150);
-            }
+        _prim_q = QColor(theme.get_color('primary'))
+        _prim_rgb = f"{_prim_q.red()},{_prim_q.green()},{_prim_q.blue()}"
+        self.preset_list.setStyleSheet(f"""
+            QListWidget::item:selected {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+            }}
+            QListWidget::item:hover {{
+                background-color: rgba({_prim_rgb},0.12);
+            }}
         """)
         self.preset_list.currentItemChanged.connect(self.on_preset_selection_changed)
         self.preset_list.itemDoubleClicked.connect(self.on_preset_double_clicked)
@@ -111,14 +115,16 @@ class PresetListWidget(QWidget):
         self.action_set_list = QListWidget()
         self.action_set_list.setAlternatingRowColors(True)
         self.action_set_list.setSpacing(2)
-        self.action_set_list.setStyleSheet("""
-            QListWidget::item:selected {
-                background-color: #4e9e20;
-                color: white;
-            }
-            QListWidget::item:hover {
-                background-color: rgba(78, 158, 32, 150);
-            }
+        _prim_q2 = QColor(theme.get_color('primary'))
+        _prim_rgb2 = f"{_prim_q2.red()},{_prim_q2.green()},{_prim_q2.blue()}"
+        self.action_set_list.setStyleSheet(f"""
+            QListWidget::item:selected {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+            }}
+            QListWidget::item:hover {{
+                background-color: rgba({_prim_rgb2},0.12);
+            }}
         """)
         self.action_set_list.currentItemChanged.connect(self.on_action_set_selection_changed)
         self.action_set_list.itemDoubleClicked.connect(self.on_action_set_double_clicked)
@@ -251,14 +257,14 @@ class PresetListWidget(QWidget):
             pill = QLabel(preset_type)
             pill.setObjectName("presetTypePill")
             pill.setFixedHeight(18)
-            pill.setStyleSheet("""
-                #presetTypePill {
-                    background-color: #4e9e20;
-                    color: white;
+            pill.setStyleSheet(f"""
+                #presetTypePill {{
+                    background-color: {theme.get_color('primary')};
+                    color: {theme.get_color('white')};
                     border-radius: 5px;
                     padding: 2px 8px;
                     font-size: 10px;
-                }
+                }}
             """)
             info_h.addWidget(pill)
         
@@ -297,14 +303,14 @@ class PresetListWidget(QWidget):
             if prev_widget:
                 for label in prev_widget.findChildren(QLabel):
                     if label.objectName() == "presetTypePill":
-                        label.setStyleSheet("""
-                            #presetTypePill {
-                                background-color: #4e9e20;
-                                color: white;
+                        label.setStyleSheet(f"""
+                            #presetTypePill {{
+                                background-color: {theme.get_color('primary')};
+                                color: {theme.get_color('white')};
                                 border-radius: 5px;
                                 padding: 2px 8px;
                                 font-size: 10px;
-                            }
+                            }}
                         """)
                     else:
                         label.setStyleSheet("")
@@ -322,17 +328,17 @@ class PresetListWidget(QWidget):
             if curr_widget:
                 for label in curr_widget.findChildren(QLabel):
                     if label.objectName() == "presetTypePill":
-                        label.setStyleSheet("""
-                            #presetTypePill {
-                                background-color: white;
-                                color: #4e9e20;
+                        label.setStyleSheet(f"""
+                            #presetTypePill {{
+                                background-color: {theme.get_color('white')};
+                                color: {theme.get_color('primary')};
                                 border-radius: 5px;
                                 padding: 2px 8px;
                                 font-size: 10px;
-                            }
+                            }}
                         """)
                     else:
-                        label.setStyleSheet("color: white;")
+                        label.setStyleSheet(f"color: {theme.get_color('white')};")
             
             self.preset_selected.emit(preset_data)
         else:
@@ -572,7 +578,7 @@ class PresetListWidget(QWidget):
             curr_widget = self.action_set_list.itemWidget(current)
             if curr_widget:
                 for label in curr_widget.findChildren(QLabel):
-                    label.setStyleSheet("color: white;")
+                    label.setStyleSheet(f"color: {theme.get_color('white')};")
             
             self.action_set_selected.emit(action_set_data)
         else:

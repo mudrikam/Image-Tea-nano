@@ -6,6 +6,7 @@ from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
+from ui.theme_system import theme
 
 
 class AddPresetDialog(QDialog):
@@ -43,7 +44,7 @@ class AddPresetDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.list-check', color='#4A90E2')
+        dialog_icon = qta.icon('fa6s.list-check', color=theme.get_color('primary'))
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(24, 24))
         header_layout.addWidget(icon_label)

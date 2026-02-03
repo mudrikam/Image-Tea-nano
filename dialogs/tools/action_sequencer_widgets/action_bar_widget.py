@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QL
 from PySide6.QtCore import Signal
 import qtawesome as qta
 
+from ui.theme_system import theme
+
 
 class ActionBarWidget(QWidget):
     load_from_database_requested = Signal()
@@ -46,7 +48,7 @@ class ActionBarWidget(QWidget):
         self.reset_button.clicked.connect(self.on_reset_clicked)
         buttons_layout.addWidget(self.reset_button)
 
-        self.get_free_button = QPushButton(qta.icon('fa6s.cloud-arrow-down', color='#4e9e20'), " Get FREE Presets")
+        self.get_free_button = QPushButton(qta.icon('fa6s.cloud-arrow-down', color=theme.get_color('primary')), " Get FREE Presets")
         self.get_free_button.setToolTip("Get free presets from remote repository")
         self.get_free_button.clicked.connect(self.on_get_free_presets_clicked)
         buttons_layout.addWidget(self.get_free_button)
@@ -58,7 +60,7 @@ class ActionBarWidget(QWidget):
         source_layout = QHBoxLayout()
         source_layout.setSpacing(8)
         source_icon = QLabel()
-        source_icon.setPixmap(qta.icon('fa6s.folder-open', color='#888').pixmap(16, 16))
+        source_icon.setPixmap(qta.icon('fa6s.folder-open', color=theme.get_color('gray')).pixmap(16, 16))
         source_layout.addWidget(source_icon)
         source_label = QLabel("Source:")
         source_label.setStyleSheet("font-weight: bold;")
@@ -77,7 +79,7 @@ class ActionBarWidget(QWidget):
         file_layout = QHBoxLayout()
         file_layout.setSpacing(8)
         file_icon = QLabel()
-        file_icon.setPixmap(qta.icon('fa6s.file', color='#888').pixmap(16, 16))
+        file_icon.setPixmap(qta.icon('fa6s.file', color=theme.get_color('gray')).pixmap(16, 16))
         file_layout.addWidget(file_icon)
         file_label = QLabel("File:")
         file_label.setStyleSheet("font-weight: bold;")
@@ -98,7 +100,7 @@ class ActionBarWidget(QWidget):
         output_layout.setSpacing(8)
         
         output_icon = QLabel()
-        output_icon.setPixmap(qta.icon('fa6s.folder', color='#888').pixmap(16, 16))
+        output_icon.setPixmap(qta.icon('fa6s.folder', color=theme.get_color('gray')).pixmap(16, 16))
         output_layout.addWidget(output_icon)
         
         output_label = QLabel("Output:")

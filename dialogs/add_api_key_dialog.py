@@ -12,6 +12,8 @@ import webbrowser
 import urllib.parse
 import base64
 
+from ui.theme_system import theme
+
 class ApiKeyTestThread(QThread):
     result = Signal(str, str, object)
     def __init__(self, api_key, service=None, model=None):
@@ -91,6 +93,28 @@ class ApiKeyTestThread(QThread):
                         err_text = "<failed to stringify error>"
                     self.result.emit('fail', 'groq', err_text)
                     return
+        if self.service == 'blackbox' or self.service is None:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=self.api_key, base_url="https://api.blackbox.ai")
+                if not self.model:
+                    raise RuntimeError("No model selected for Blackbox API key test.")
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "Just say OK."}]
+                )
+                if response and hasattr(response, 'choices') and response.choices:
+                    self.result.emit('success', 'blackbox', 'OK')
+                    return
+            except Exception as e:
+                print(f"Blackbox API Key test error: {e}")
+                if self.service == 'blackbox':
+                    try:
+                        err_text = str(e)
+                    except Exception:
+                        err_text = "<failed to stringify error>"
+                    self.result.emit('fail', 'blackbox', err_text)
+                    return
         self.result.emit('fail', None, None)
 
 
@@ -103,7 +127,7 @@ class ModelManagerDialog(QDialog):
         layout = QVBoxLayout()
         openrouter_hint = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
         openrouter_hint.setWordWrap(True)
-        openrouter_hint.setStyleSheet("font-size:10px; color: #696969;")
+        openrouter_hint.setStyleSheet(f"font-size:10px; color: {theme.get_color('text_dark')};")
         layout.addWidget(openrouter_hint)
         top_layout = QHBoxLayout()
         self.service_list = QListWidget()
@@ -329,7 +353,7 @@ class AddApiKeyDialog(QDialog):
         self.setWindowTitle("Add API Key")
         self.setFixedWidth(620)
         self.db = ImageTeaDB()
-        self._label_icon_color = "#666"
+        self._label_icon_color = theme.get_color('text_dark')
         layout = QVBoxLayout()
         label_width = 80
         self.model_list = {}
@@ -349,6 +373,7 @@ class AddApiKeyDialog(QDialog):
         self.service_combo.addItem("OpenAI")
         self.service_combo.addItem("OpenRouter")
         self.service_combo.addItem("Groq")
+        self.service_combo.addItem("Blackbox")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
         service_layout.addWidget(_service_label_widget)
@@ -516,19 +541,19 @@ class AddApiKeyDialog(QDialog):
         self.get_api_key_btn = QPushButton()
         self.get_api_key_btn.setObjectName("get_api_key_btn")
         self.get_api_key_btn.setText("Get API Key")
-        self.get_api_key_btn.setIcon(qta.icon('fa6s.cart-shopping', color='white'))
+        self.get_api_key_btn.setIcon(qta.icon('fa6s.cart-shopping', color=theme.get_color('white')))
         self.get_api_key_btn.setIconSize(self.get_api_key_btn.iconSize())
         self.get_api_key_btn.setMinimumHeight(32)
-        self.get_api_key_btn.setStyleSheet("""
-            QPushButton#get_api_key_btn {
-                background-color: #4e9e20;
-                color: white;
+        self.get_api_key_btn.setStyleSheet(f"""
+            QPushButton#get_api_key_btn {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 font-weight: bold;
                 border-radius: 4px;
-            }
-            QPushButton#get_api_key_btn:hover {
-                background-color: #3f8a18;
-            }
+            }}
+            QPushButton#get_api_key_btn:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
         """)
         self.get_api_key_btn.setToolTip("Open API key purchase page")
         self.get_api_key_btn.clicked.connect(self._open_buy_api_key_page)
@@ -666,6 +691,8 @@ class AddApiKeyDialog(QDialog):
             models = self.model_list.get("openrouter", [])
         elif service == "groq":
             models = self.model_list.get("groq", [])
+        elif service == "blackbox":
+            models = self.model_list.get("blackbox", [])
         else:
             models = []
         for m in models:
@@ -755,7 +782,7 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
             
-            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq'}
+            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox'}
             svc_display = display_service_map.get(str(service).lower(), str(service))
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
@@ -797,9 +824,13 @@ class AddApiKeyDialog(QDialog):
             action_layout.addStretch()
             self.api_table.setCellWidget(row_idx, 5, action_widget)
             if status == "active":
-                brush = QBrush(QColor(91, 184, 16, int(0.4 * 255)))
+                color = QColor(theme.get_color('success'))
+                color.setAlpha(int(0.4 * 255))
+                brush = QBrush(color)
             elif status == "invalid":
-                brush = QBrush(QColor(255, 41, 41, int(0.4 * 255)))
+                color = QColor(theme.get_color('error'))
+                color.setAlpha(int(0.4 * 255))
+                brush = QBrush(color)
             else:
                 brush = None
             if brush:
@@ -875,8 +906,10 @@ class AddApiKeyDialog(QDialog):
     def _blink_row(self):
         if self._row_testing is None:
             return
-        color1 = QColor(255, 255, 128, 180)
-        color2 = QColor(255, 255, 255, 0)
+        color1 = QColor(theme.get_color('warning'))
+        color1.setAlpha(180)
+        color2 = QColor(theme.get_color('white'))
+        color2.setAlpha(0)
         color = color1 if self._blink_state else color2
         for col in range(5):
             item = self.api_table.item(self._row_testing, col)
@@ -999,6 +1032,8 @@ class AddApiKeyDialog(QDialog):
                 self._detected_service = "gemini"
             elif service_text.lower() == "groq":
                 self._detected_service = "groq"
+            elif service_text.lower() == "blackbox":
+                self._detected_service = "blackbox"
             else:
                 self._detected_service = None
 
@@ -1026,6 +1061,8 @@ class AddApiKeyDialog(QDialog):
             self.service_combo.setCurrentText("Gemini")
         elif service == 'groq':
             self.service_combo.setCurrentText("Groq")
+        elif service == 'blackbox':
+            self.service_combo.setCurrentText("Blackbox")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1039,6 +1076,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = 'gemini'
         elif self.service_combo.currentText() == "Groq":
             self._detected_service = 'groq'
+        elif self.service_combo.currentText() == "Blackbox":
+            self._detected_service = 'blackbox'
         else:
             self._detected_service = None
         self._refresh_model_combo()
@@ -1310,6 +1349,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = "gemini"
         elif service_text.lower() == "groq":
             self._detected_service = "groq"
+        elif service_text.lower() == "blackbox":
+            self._detected_service = "blackbox"
         else:
             self._detected_service = None
         menu = QMenu(self)
@@ -1523,9 +1564,13 @@ class AddApiKeyDialog(QDialog):
 
     def _set_row_status_color(self, row_idx, status):
         if status == "success":
-            brush = QBrush(QColor(91, 184, 16, int(0.4 * 255)))
+            color = QColor(theme.get_color('success'))
+            color.setAlpha(int(0.4 * 255))
+            brush = QBrush(color)
         elif status == "invalid" or status == "fail":
-            brush = QBrush(QColor(255, 41, 41, int(0.4 * 255)))
+            color = QColor(theme.get_color('error'))
+            color.setAlpha(int(0.4 * 255))
+            brush = QBrush(color)
         else:
             brush = None
         if brush:

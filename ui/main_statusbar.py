@@ -4,6 +4,7 @@ import os
 import json
 from config import BASE_PATH
 import qtawesome as qta
+from ui.theme_system import theme
 
 class MainStatusBar(QStatusBar):
     def __init__(self, parent=None):
@@ -13,8 +14,8 @@ class MainStatusBar(QStatusBar):
         self.version_btn.setCursor(Qt.PointingHandCursor)
         self.version_btn.setFlat(True)
         self.version_btn.setStyleSheet(
-            "QPushButton { border-radius: 4px; padding: 2px 8px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #4e9e20; color: white; }"
+            f"QPushButton {{ border-radius: 4px; padding: 2px 8px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; }}"
         )
         self.version_btn.installEventFilter(self)
         
@@ -25,18 +26,18 @@ class MainStatusBar(QStatusBar):
         self.commit_btn.setCursor(Qt.PointingHandCursor)
         self.commit_btn.setFlat(True)
         self.commit_btn.setStyleSheet(
-            "QPushButton { border-radius: 4px; padding: 2px 8px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #4e9e20; color: white; }"
+            f"QPushButton {{ border-radius: 4px; padding: 2px 8px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; }}"
         )
         self.commit_btn.installEventFilter(self)
         self.commit_btn.clicked.connect(self._on_commit_clicked)
         self.update_btn = QPushButton()
         self.update_btn.setCursor(Qt.PointingHandCursor)
         self.update_btn.setFlat(True)
-        download_icon = qta.icon("fa6s.download", color="white")
+        download_icon = qta.icon("fa6s.download", color=theme.get_color('white'))
         self.update_btn.setStyleSheet(
-            "QPushButton { color: white; background-color: #4e9e20; font-weight: bold; }"
-            "QPushButton:hover { background-color: #3d7307; }"
+            f"QPushButton {{ color: {theme.get_color('white')}; background-color: {theme.get_color('primary')}; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}"
         )
         self.update_btn.setIcon(download_icon)
         self.update_btn.clicked.connect(self._on_update_now_clicked)
@@ -69,8 +70,8 @@ class MainStatusBar(QStatusBar):
             except Exception:
                 pass
         if is_development:
-            self.setStyleSheet("QStatusBar { background-color: #FF0000; }")
-            self.status_label.setText('<span style="color:white;font-weight:bold;">Development!</span>')
+            self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('error')}; }}")
+            self.status_label.setText(f'<span style="color:{theme.get_color('white')};font-weight:bold;">Development!</span>')
         else:
             self.setStyleSheet("")
             self.status_label.setText("")
@@ -86,14 +87,14 @@ class MainStatusBar(QStatusBar):
             leave_type = 11
         if obj == self.version_btn:
             if event.type() == enter_type:
-                tag_icon_white = qta.icon("fa6s.tag", color="white")
+                tag_icon_white = qta.icon("fa6s.tag", color=theme.get_color('white'))
                 self.version_btn.setIcon(tag_icon_white)
             elif event.type() == leave_type:
                 tag_icon_default = qta.icon("fa6s.tag")
                 self.version_btn.setIcon(tag_icon_default)
         elif obj == self.commit_btn:
             if event.type() == enter_type:
-                commit_icon_white = qta.icon("fa6s.code-commit", color="white")
+                commit_icon_white = qta.icon("fa6s.code-commit", color=theme.get_color('white'))
                 self.commit_btn.setIcon(commit_icon_white)
             elif event.type() == leave_type:
                 commit_icon_default = qta.icon("fa6s.code-commit")

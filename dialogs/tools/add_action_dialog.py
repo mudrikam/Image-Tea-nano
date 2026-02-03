@@ -7,6 +7,7 @@ from config import BASE_PATH
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
 from dialogs.tools.icon_picker_dialog import IconPickerDialog
+from ui.theme_system import theme
 
 
 class AddActionDialog(QDialog):
@@ -49,7 +50,7 @@ class AddActionDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.bolt', color='#E67E22')
+        dialog_icon = qta.icon('fa6s.bolt', color=theme.get_color('warning'))
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(24, 24))
         header_layout.addWidget(icon_label)
@@ -67,7 +68,7 @@ class AddActionDialog(QDialog):
         type_layout = QHBoxLayout()
         type_layout.setSpacing(6)
         type_icon_label = QLabel()
-        type_icon_label.setPixmap(qta.icon('fa6s.list', color='#888').pixmap(16, 16))
+        type_icon_label.setPixmap(qta.icon('fa6s.list', color=theme.get_color('gray')).pixmap(16, 16))
         type_layout.addWidget(type_icon_label)
         type_label = QLabel("Type:")
         type_label.setMinimumWidth(70)
@@ -81,7 +82,7 @@ class AddActionDialog(QDialog):
         name_layout = QHBoxLayout()
         name_layout.setSpacing(6)
         name_icon_label = QLabel()
-        name_icon_label.setPixmap(qta.icon('fa6s.signature', color='#888').pixmap(16, 16))
+        name_icon_label.setPixmap(qta.icon('fa6s.signature', color=theme.get_color('gray')).pixmap(16, 16))
         name_layout.addWidget(name_icon_label)
         name_label = QLabel("Name:")
         name_label.setMinimumWidth(70)
@@ -95,7 +96,7 @@ class AddActionDialog(QDialog):
         icon_row_layout = QHBoxLayout()
         icon_row_layout.setSpacing(6)
         icon_icon_label = QLabel()
-        icon_icon_label.setPixmap(qta.icon('fa6s.icons', color='#888').pixmap(16, 16))
+        icon_icon_label.setPixmap(qta.icon('fa6s.icons', color=theme.get_color('gray')).pixmap(16, 16))
         icon_row_layout.addWidget(icon_icon_label)
         icon_text_label = QLabel("Icon:")
         icon_text_label.setMinimumWidth(70)
@@ -124,7 +125,7 @@ class AddActionDialog(QDialog):
         color_layout = QHBoxLayout()
         color_layout.setSpacing(6)
         color_icon_label = QLabel()
-        color_icon_label.setPixmap(qta.icon('fa6s.palette', color='#888').pixmap(16, 16))
+        color_icon_label.setPixmap(qta.icon('fa6s.palette', color=theme.get_color('gray')).pixmap(16, 16))
         color_layout.addWidget(color_icon_label)
         color_text_label = QLabel("Color:")
         color_text_label.setMinimumWidth(70)
@@ -154,7 +155,7 @@ class AddActionDialog(QDialog):
         delay_layout = QHBoxLayout()
         delay_layout.setSpacing(6)
         delay_icon_label = QLabel()
-        delay_icon_label.setPixmap(qta.icon('fa6s.clock', color='#888').pixmap(16, 16))
+        delay_icon_label.setPixmap(qta.icon('fa6s.clock', color=theme.get_color('gray')).pixmap(16, 16))
         delay_layout.addWidget(delay_icon_label)
         delay_label = QLabel("Delay (ms):")
         delay_label.setMinimumWidth(70)
@@ -170,7 +171,7 @@ class AddActionDialog(QDialog):
         export_format_layout = QHBoxLayout()
         export_format_layout.setSpacing(6)
         export_icon_label = QLabel()
-        export_icon_label.setPixmap(qta.icon('fa6s.file-export', color='#888').pixmap(16, 16))
+        export_icon_label.setPixmap(qta.icon('fa6s.file-export', color=theme.get_color('gray')).pixmap(16, 16))
         export_format_layout.addWidget(export_icon_label)
         export_label = QLabel("Export:")
         export_label.setMinimumWidth(70)
@@ -186,7 +187,7 @@ class AddActionDialog(QDialog):
         self.compression_layout = QHBoxLayout()
         self.compression_layout.setSpacing(6)
         self.compression_icon_label = QLabel()
-        self.compression_icon_label.setPixmap(qta.icon('fa6s.gauge', color='#888').pixmap(16, 16))
+        self.compression_icon_label.setPixmap(qta.icon('fa6s.gauge', color=theme.get_color('gray')).pixmap(16, 16))
         self.compression_layout.addWidget(self.compression_icon_label)
         self.compression_label = QLabel("Quality:")
         self.compression_label.setMinimumWidth(70)
@@ -209,7 +210,7 @@ class AddActionDialog(QDialog):
         self.eps_version_layout = QHBoxLayout()
         self.eps_version_layout.setSpacing(6)
         self.eps_icon_label = QLabel()
-        self.eps_icon_label.setPixmap(qta.icon('fa6s.file-code', color='#888').pixmap(16, 16))
+        self.eps_icon_label.setPixmap(qta.icon('fa6s.file-code', color=theme.get_color('gray')).pixmap(16, 16))
         self.eps_version_layout.addWidget(self.eps_icon_label)
         self.eps_label = QLabel("Version:")
         self.eps_label.setMinimumWidth(70)
@@ -341,8 +342,8 @@ class AddActionDialog(QDialog):
             self.icon_input.setEnabled(False)
             self.icon_picker_button.setEnabled(False)
 
-            self.selected_color = "#03a5fc"
-            self.color_input.setText("#03a5fc")
+            self.selected_color = theme.get_color('primary')
+            self.color_input.setText(theme.get_color('primary'))
             self.color_input.setEnabled(False)
             self.color_picker_button.setEnabled(False)
             self.update_color_preview()
@@ -363,8 +364,8 @@ class AddActionDialog(QDialog):
             self.icon_input.setEnabled(False)
             self.icon_picker_button.setEnabled(False)
 
-            self.selected_color = "#f44336"
-            self.color_input.setText("#f44336")
+            self.selected_color = theme.get_color('error')
+            self.color_input.setText(theme.get_color('error'))
             self.color_input.setEnabled(False)
             self.color_picker_button.setEnabled(False)
             self.update_color_preview()
@@ -467,7 +468,7 @@ class AddActionDialog(QDialog):
                 full_name = icon_name
             
             try:
-                icon = qta.icon(full_name, color='#fcb103')
+                icon = qta.icon(full_name, color=theme.get_color('warning'))
                 self.icon_preview.setPixmap(icon.pixmap(24, 24))
             except:
                 self.icon_preview.clear()

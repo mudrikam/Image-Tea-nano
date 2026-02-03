@@ -14,6 +14,9 @@ from dialogs.ai_helper_error_code_dialog import invoker
 from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
 from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
+from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, track_blackbox_generation_time
+
+from ui.theme_system import theme
 
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
@@ -382,6 +385,53 @@ class BatchWorker(QThread):
         self._errors = [e for e in all_errors if e is not None]
         self.signals.finished.emit(self._errors)
 
+def create_parallel_rounds(files, api_keys_list, batch_size):
+    """
+    Create parallel processing rounds where multiple APIs work simultaneously.
+    
+    Example: 10 files, 2 API keys, batch_size=3
+    - Round 1: API1 processes files 1-3, API2 processes files 4-6 (SIMULTANEOUSLY)
+    - Round 2: API1 processes files 7-9, API2 processes file 10 (SIMULTANEOUSLY)
+    
+    Returns: List of rounds, each round contains list of tasks [{api_info, files}, ...]
+    """
+    if not api_keys_list or not files:
+        return []
+    
+    num_apis = len(api_keys_list)
+    num_files = len(files)
+    files_per_round = batch_size * num_apis  # Total files processed per round
+    
+    rounds = []
+    round_start = 0
+    
+    while round_start < num_files:
+        round_tasks = []
+        task_start = round_start
+        
+        for api_idx, api_info in enumerate(api_keys_list):
+            if task_start >= num_files:
+                break
+            
+            task_end = min(task_start + batch_size, num_files)
+            task_files = files[task_start:task_end]
+            
+            if task_files:
+                round_tasks.append({
+                    'api_info': api_info,
+                    'files': task_files,
+                    'api_index': api_idx
+                })
+            
+            task_start = task_end
+        
+        if round_tasks:
+            rounds.append(round_tasks)
+        
+        round_start += files_per_round
+    
+    return rounds
+
 def batch_generate_metadata(window):
     if getattr(window, 'is_generating', False):
         return
@@ -389,13 +439,14 @@ def batch_generate_metadata(window):
     # Clean up any stuck processing files from previous runs
     cleanup_stuck_processing_files(window)
 
-    # Detect Rolling APIs mode
+    # Detect Rolling APIs mode and Parallel API Processing mode
     is_rolling_mode = False
+    is_parallel_mode = False
     api_keys_list = []
     
     if hasattr(window, "gen_mode_combo"):
         mode_text = window.gen_mode_combo.currentText().lower()
-        if "rolling" in mode_text:
+        if "rolling" in mode_text and "parallel" not in mode_text:
             is_rolling_mode = True
             # Get all API keys from database
             all_api_keys = window.db.get_all_api_keys()
@@ -415,19 +466,43 @@ def batch_generate_metadata(window):
                 return
             
             print(f"[ROLLING] Found {len(api_keys_list)} API keys for rolling mode")
+        
+        elif "parallel" in mode_text:
+            is_parallel_mode = True
+            # Get all API keys from database
+            all_api_keys = window.db.get_all_api_keys()
+            for row in all_api_keys:
+                service, api_key, note, last_tested, status, model = row
+                if api_key and model and service:  # Only include complete API key entries
+                    api_keys_list.append({
+                        'service': service.lower(),
+                        'api_key': api_key,
+                        'model': model,
+                        'note': note,
+                        'status': status
+                    })
+            
+            if not api_keys_list:
+                QMessageBox.warning(window, "Parallel API Processing", "No valid API keys found in database for Parallel API Processing mode.")
+                return
+            
+            print(f"[PARALLEL] Found {len(api_keys_list)} API keys for parallel mode")
 
     # Always fetch API key, model, and service from api_key_section if available
     api_key = None
     model = None
     service = None
     
-    if is_rolling_mode and api_keys_list:
-        # Use first API key from list for rolling mode
+    if (is_rolling_mode or is_parallel_mode) and api_keys_list:
+        # Use first API key from list for rolling/parallel mode
         first_api = api_keys_list[0]
         api_key = first_api['api_key']
         service = first_api['service']
         model = first_api['model']
-        print(f"[ROLLING] Starting with API: {service} - {model}")
+        if is_rolling_mode:
+            print(f"[ROLLING] Starting with API: {service} - {model}")
+        else:
+            print(f"[PARALLEL] Starting with {len(api_keys_list)} API keys for parallel processing")
     elif hasattr(window, "api_key_section"):
         api_key = window.api_key_section.get_current_api_key()
         service = window.api_key_section.get_current_service()
@@ -459,8 +534,8 @@ def batch_generate_metadata(window):
             mode = "draft"
         elif "stopped" in mode_text or "resume" in mode_text:
             mode = "stopped"
-        elif "rolling" in mode_text and "failed" not in mode_text and "selected" not in mode_text and "draft" not in mode_text:
-            mode = "all"  # Pure rolling APIs processes all files
+        elif ("rolling" in mode_text or "parallel" in mode_text) and "failed" not in mode_text and "selected" not in mode_text and "draft" not in mode_text:
+            mode = "all"  # Pure rolling/parallel APIs processes all files
         else:
             mode = "all"
     
@@ -653,11 +728,11 @@ def batch_generate_metadata(window):
     # --- END FILE EXISTENCE CHECK ---
 
     # --- VIDEO COMPATIBILITY CHECK ---
-    if service in ['groq', 'openai'] and not is_rolling_mode:
+    if service in ['groq', 'openai', 'blackbox'] and not is_rolling_mode:
         video_exts = {'.mp4', '.mpeg', '.mpg', '.mov', '.webm'}
         video_files = [row for row in rows if os.path.splitext(row[1])[1].lower() in video_exts]
         if video_files:
-            service_name = "Groq" if service == 'groq' else "OpenAI"
+            service_name = "Groq" if service == 'groq' else "Blackbox" if service == 'blackbox' else "OpenAI"
             QMessageBox.warning(
                 window,
                 "Video Not Supported",
@@ -685,6 +760,16 @@ def batch_generate_metadata(window):
                         "This may consume a significant amount of API credits.\n\n"
                         "Do you want to continue?"
                     )
+            elif is_parallel_mode:
+                # Custom message for parallel APIs mode
+                dialog = ApiCallWarningDialog(window, file_count=len(rows))
+                if hasattr(dialog, 'label'):
+                    dialog.label.setText(
+                        f"You are about to generate metadata for {len(rows)} files using Parallel API Processing.\n\n"
+                        f"This will use {len(api_keys_list)} API keys in parallel, distributing files across them.\n"
+                        "This may consume a significant amount of API credits.\n\n"
+                        "Do you want to continue?"
+                    )
             else:
                 dialog = ApiCallWarningDialog(window, file_count=len(rows))
             result = dialog.exec()
@@ -706,7 +791,12 @@ def batch_generate_metadata(window):
     window.table.progress_bar.setValue(0)
     
     # Show initial progress with API info
-    if is_rolling_mode and api_keys_list:
+    if is_parallel_mode and api_keys_list:
+        batch_size = get_batch_size()
+        files_per_round = batch_size * len(api_keys_list)
+        total_rounds = (len(rows) + files_per_round - 1) // files_per_round
+        initial_text = f"Parallel API Processing - {len(api_keys_list)} APIs, {batch_size} files/API, ~{total_rounds} rounds"
+    elif is_rolling_mode and api_keys_list:
         first_api = api_keys_list[0]
         initial_text = window.table.get_progress_format_text("rolling", first_api['service'], first_api['api_key'])
     else:
@@ -717,8 +807,83 @@ def batch_generate_metadata(window):
 
     stop_flag = {'stop': False}
     
+    # For parallel mode, create a universal metadata function that can handle all services
+    if is_parallel_mode:
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            
+            # Determine which service to use (from parallel API info)
+            target_service = service_override if service_override else service
+            target_service = target_service.lower() if target_service else 'gemini'
+            
+            if target_service == "gemini":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Gemini ERROR] {error_message}")
+            elif target_service == "openai" or target_service == "openrouter":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    service_name = "OpenRouter" if target_service == "openrouter" else "OpenAI"
+                    print(f"[{service_name} ERROR] {error_message}")
+            elif target_service == "groq":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Groq ERROR] {error_message}")
+            elif target_service == "blackbox":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Blackbox ERROR] {error_message}")
+            else:
+                print(f"[ERROR] Unknown service in parallel mode: {target_service}")
+                title = ""
+                description = ""
+                tags = ""
+                category = {}
+                filetype = ""
+                error_message = f"Unknown service: {target_service}"
+                token_input = 0
+                token_output = 0
+                token_total = 0
+            
+            return {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "category": category,
+                "filetype": filetype,
+                "token_input": token_input,
+                "token_output": token_output,
+                "token_total": token_total,
+                "image_path": image_path,
+                "error_message": error_message
+            }
     # For rolling mode, create a universal metadata function that can handle all services
-    if is_rolling_mode:
+    elif is_rolling_mode:
         def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
@@ -758,6 +923,16 @@ def batch_generate_metadata(window):
                     window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
                 if error_message:
                     print(f"[Groq ERROR] {error_message}")
+            elif target_service == "blackbox":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Blackbox ERROR] {error_message}")
             else:
                 print(f"[ERROR] Unknown service in rolling mode: {target_service}")
                 title = ""
@@ -858,6 +1033,31 @@ def batch_generate_metadata(window):
                 "image_path": image_path,
                 "error_message": error_message
             }
+    elif service == "blackbox":
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            t0 = time.perf_counter()
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+            t1 = time.perf_counter()
+            duration_ms = int((t1 - t0) * 1000)
+            gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
+            if hasattr(window, "stats_section"):
+                window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+            if error_message:
+                print(f"[Blackbox ERROR] {error_message}")
+            return {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "category": category,
+                "filetype": filetype,
+                "token_input": token_input,
+                "token_output": token_output,
+                "token_total": token_total,
+                "image_path": image_path,
+                "error_message": error_message
+            }
     else:
         print(f"[DEBUG] Unknown service: {service}")
         QMessageBox.warning(window, "API Service", f"Unknown service: {service}")
@@ -868,7 +1068,23 @@ def batch_generate_metadata(window):
 
     batch_size = get_batch_size()
     total_files = len(rows)
-    batches = [rows[i:i+batch_size] for i in range(0, total_files, batch_size)]
+    
+    # Create batches based on mode
+    if is_parallel_mode and api_keys_list:
+        # For parallel mode, create rounds where multiple APIs work simultaneously
+        # Each round contains tasks for each API key working in parallel
+        parallel_rounds = create_parallel_rounds(rows, api_keys_list, batch_size)
+        
+        # Use rounds as batches - each "batch" is actually a round with multiple parallel tasks
+        batches = parallel_rounds
+        
+        total_tasks = sum(len(round_tasks) for round_tasks in parallel_rounds)
+        print(f"[PARALLEL] Created {len(parallel_rounds)} round(s) with {total_tasks} total tasks from {len(api_keys_list)} API key(s)")
+        print(f"[PARALLEL] Each round processes up to {batch_size * len(api_keys_list)} files ({batch_size} per API)")
+    else:
+        # Standard batching for non-parallel modes
+        batches = [rows[i:i+batch_size] for i in range(0, total_files, batch_size)]
+    
     # Note: Configuration settings (batch_size, delay, prompt params, etc.) will be refreshed from JSON
     # at the start of each batch run in _run_next_batch(), so users can change settings on-the-fly
     window._batch_processing_state = {
@@ -885,6 +1101,7 @@ def batch_generate_metadata(window):
         'worker': None,
         'stop_flag': stop_flag,
         'is_rolling_mode': is_rolling_mode,
+        'is_parallel_mode': is_parallel_mode,
         'api_keys_list': api_keys_list,
         'mode': mode,
         'current_api_index': 0,  # Track current API across batches
@@ -905,7 +1122,7 @@ def batch_generate_metadata(window):
 
 def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_color=None):
     color_line = f"color: {text_color};\n        " if text_color is not None else ""
-    pressed = pressed_color if pressed_color is not None else '#376006'
+    pressed = pressed_color if pressed_color is not None else theme.get_color('primary_pressed')
     hover = hover_color if hover_color is not None else pressed
     return f"""
     QPushButton {{
@@ -920,7 +1137,7 @@ def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_c
     }}
     QPushButton:hover {{ background-color: {hover}; }}
     QPushButton:pressed {{ background-color: {pressed}; }}
-    QPushButton:disabled {{ background-color: #9fbf9a; color: #f2f2f2; }}
+    QPushButton:disabled {{ background-color: {theme.get_color('button_disabled_bg')}; color: {theme.get_color('button_disabled_fg')}; }}
     """
 
 
@@ -937,9 +1154,12 @@ def _set_gen_btn_blinking(window, blinking, color=None, text=None):
             style = _gen_btn_style_string(bg_color, text_color=None, hover_color=bg_color)
             btn.setStyleSheet(style)
 
-        # Use thin yellow and thin grey for blinking to support light/dark themes
-        color1 = color if color else "rgba(255,220,28,0.22)"
-        color2 = "rgba(128,128,128,0.12)"
+        _warn_q = QColor(theme.get_color('warning'))
+        _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
+        _gray_q = QColor(theme.get_color('gray'))
+        _gray_rgb = f"{_gray_q.red()},{_gray_q.green()},{_gray_q.blue()}"
+        color1 = color if color else f"rgba({_warn_rgb},0.22)"
+        color2 = f"rgba({_gray_rgb},0.12)"
         window._gen_btn_blink_state = True
 
         # Keep the full last stylesheet so it can be restored exactly
@@ -979,22 +1199,352 @@ def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
     if is_stopping:
         btn.setText("Stopping process")
         btn.setIcon(qta.icon('fa6s.stop'))
-        _set_gen_btn_blinking(window, True, "rgba(255, 220, 28, 0.3)", "Stopping process")
+        _warn_q2 = QColor(theme.get_color('warning'))
+        _warn_rgb2 = f"{_warn_q2.red()},{_warn_q2.green()},{_warn_q2.blue()}"
+        _set_gen_btn_blinking(window, True, f"rgba({_warn_rgb2},0.3)", "Stopping process")
     elif is_stop:
         btn.setText("Stop Processes")
-        btn.setIcon(qta.icon('fa6s.stop', color='white'))
+        btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
         _set_gen_btn_blinking(window, False)
         # Semi-opaque red (lighter) with white text for contrast; provide a slightly darker pressed color
-        style = _gen_btn_style_string('rgba(179,0,0,0.60)', text_color='white', pressed_color='rgba(140,0,0,0.80)', hover_color='rgba(179,0,0,0.75)')
+        style = _gen_btn_style_string(theme.get_color('secondary'), text_color='white', pressed_color=theme.get_color('secondary_pressed'), hover_color=theme.get_color('secondary_hover'))
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
     else:
         btn.setText("Generate Metadata")
-        btn.setIcon(qta.icon('fa6s.wand-magic-sparkles', color='white'))
+        btn.setIcon(qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white')))
         _set_gen_btn_blinking(window, False)
-        style = _gen_btn_style_string('#4e9e20', 'white', pressed_color='#376006', hover_color='#3d7307')
+        style = _gen_btn_style_string(theme.get_color('primary'), theme.get_color('white'), pressed_color=theme.get_color('primary_pressed'), hover_color=theme.get_color('primary_hover'))
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
+
+def _run_parallel_round(window, state, round_tasks):
+    """
+    Run a parallel round where multiple API keys process their tasks simultaneously.
+    
+    round_tasks: List of dicts [{api_info, files, api_index}, ...]
+    """
+    stop_flag = state.get('stop_flag')
+    metadata_func = state['metadata_func']
+    row_map = state['row_map']
+    rows = state['rows']
+    api_keys_list = state.get('api_keys_list', [])
+    table_widget = window.table.table
+    
+    # Build API info string for progress display
+    api_info_parts = []
+    total_files_in_round = 0
+    for task in round_tasks:
+        api_info = task['api_info']
+        files = task['files']
+        total_files_in_round += len(files)
+        masked_key = f"***{api_info['api_key'][-5:]}" if len(api_info['api_key']) >= 5 else f"***{api_info['api_key']}"
+        api_info_parts.append(f"{api_info['service'].upper()}({masked_key}): {len(files)} files")
+    
+    # Update progress label to show up to two API entries, then truncate with "and N others"
+    round_num = state['current'] + 1
+    total_rounds = len(state['batches'])
+    max_display = 2
+    display_parts = api_info_parts[:max_display]
+    remaining = len(api_info_parts) - max_display
+    if remaining > 0:
+        display_parts.append(f"and {remaining} others")
+    progress_text = f"Round {round_num}/{total_rounds} - Parallel: {' | '.join(display_parts)}"
+    window.table.set_progress_info(progress_text)
+    
+    # Update status bar with parallel processing info (concise)
+    if hasattr(window, 'statusbar'):
+        status_preview = ' | '.join(display_parts)
+        statusbar_text = f"Parallel: {len(round_tasks)} APIs, {total_files_in_round} files ({status_preview})"
+        window.statusbar.showMessage(statusbar_text, 0)  # 0 means don't auto-hide
+    
+    print(f"[PARALLEL ROUND {round_num}] Starting with {len(round_tasks)} API(s): {', '.join(api_info_parts)}")
+    
+    # Mark all files in this round as "processing"
+    all_files_in_round = []
+    for task in round_tasks:
+        for row in task['files']:
+            filepath = row[1]
+            all_files_in_round.append(row)
+            window.db.update_file_status(filepath, "processing")
+            
+            # Update UI
+            for row_idx in range(table_widget.rowCount()):
+                item = table_widget.item(row_idx, 1)
+                if item and item.data(Qt.UserRole) == filepath:
+                    window.table.set_row_status_color(row_idx, "processing")
+                    break
+    
+    QApplication.processEvents()
+    
+    # Create workers for each task in the round
+    workers = []
+    worker_results = {}  # Store results from each worker
+    completed_workers = {'count': 0}  # Track completed workers
+    
+    def create_worker_finished_handler(task_idx, task, worker):
+        def on_worker_finished(errors):
+            nonlocal completed_workers
+            
+            if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                completed_workers['count'] += 1
+                return
+            
+            # Store results from this worker
+            cache_results = worker._results
+            worker_results[task_idx] = {
+                'task': task,
+                'results': cache_results,
+                'errors': errors
+            }
+            
+            # Process results immediately
+            api_info = task['api_info']
+            batch_files = task['files']
+            current_service = api_info['service']
+            current_model = api_info['model']
+            
+            for idx, result in cache_results:
+                if not isinstance(result, dict):
+                    continue
+                image_path = result.get("image_path")
+                title = result.get("title")
+                description = result.get("description")
+                tags = result.get("tags")
+                token_input = result.get("token_input")
+                token_output = result.get("token_output")
+                token_total = result.get("token_total")
+                category = result.get("category")
+                filetype = result.get("filetype")
+                result_service = result.get("service", current_service)
+                result_model = result.get("model", current_model)
+                error_message = result.get("error_message", "")
+                
+                if category is not None:
+                    file_id = None
+                    for row in batch_files:
+                        if row[1] == image_path:
+                            file_id = row[0]
+                            break
+                    if file_id is not None and isinstance(category, dict) and len(category) > 0:
+                        window.db.save_category_mapping(file_id, category)
+                
+                if filetype and filetype in ["Photo", "Illustration"]:
+                    file_id = None
+                    for row in batch_files:
+                        if row[1] == image_path:
+                            file_id = row[0]
+                            break
+                    if file_id is not None:
+                        window.db.delete_file_types_for_file(file_id)
+                        window.db.add_file_type(file_id, filetype)
+                
+                final_status = "success" if title and not error_message else "failed"
+                window.db.update_metadata(image_path, title, description, tags, status=final_status)
+                
+                if token_total > 0 and title:
+                    window.db.insert_api_token_stats(image_path, result_service, result_model, token_input, token_output, token_total)
+                
+                # Update UI row colors
+                for row_idx in range(table_widget.rowCount()):
+                    item = table_widget.item(row_idx, 1)
+                    if item and item.data(Qt.UserRole) == image_path:
+                        window.table.set_row_status_color(row_idx, final_status)
+                        break
+            
+            completed_workers['count'] += 1
+            
+            # Check if all workers completed
+            if completed_workers['count'] >= len(round_tasks):
+                _on_parallel_round_completed(window, state, round_tasks, worker_results)
+        
+        return on_worker_finished
+    
+    def create_worker_progress_handler(task_idx, task):
+        def on_worker_progress(cur, total):
+            if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                return
+            
+            # Update progress bar based on total progress across all rounds
+            total_files = len(rows)
+            
+            # Count files completed in previous rounds
+            files_before_this_round = 0
+            for i in range(state['current']):
+                batch_item = state['batches'][i]
+                if isinstance(batch_item, list) and len(batch_item) > 0:
+                    if isinstance(batch_item[0], dict) and 'files' in batch_item[0]:
+                        # It's a parallel round
+                        for t in batch_item:
+                            files_before_this_round += len(t.get('files', []))
+                    else:
+                        # Regular batch (list of rows)
+                        files_before_this_round += len(batch_item)
+            
+            # For current round, estimate progress based on completed results
+            current_round_completed = 0
+            for wr_data in worker_results.values():
+                current_round_completed += len(wr_data.get('results', []))
+            
+            total_completed = files_before_this_round + current_round_completed
+            window.table.progress_bar.setMinimum(0)
+            window.table.progress_bar.setMaximum(total_files)
+            window.table.progress_bar.setValue(min(total_completed, total_files))
+            
+            QApplication.processEvents()
+        
+        return on_worker_progress
+    
+    # Start all workers for this round
+    for task_idx, task in enumerate(round_tasks):
+        api_info = task['api_info']
+        batch_files = task['files']
+        
+        api_key = api_info['api_key']
+        service = api_info['service']
+        model = api_info['model']
+        
+        worker = BatchWorker(
+            api_key, model, batch_files, service, metadata_func, row_map,
+            stop_flag=stop_flag, api_keys_list=api_keys_list, 
+            is_rolling_mode=False, current_api_index=task.get('api_index', task_idx)
+        )
+        worker.is_parallel_mode = True
+        
+        # Connect signals
+        worker.signals.finished.connect(create_worker_finished_handler(task_idx, task, worker))
+        worker.signals.progress.connect(create_worker_progress_handler(task_idx, task))
+        
+        workers.append(worker)
+    
+    # Store workers in state for potential stop handling
+    state['parallel_workers'] = workers
+    
+    # Start all workers simultaneously
+    for worker in workers:
+        worker.start()
+
+def _on_parallel_round_completed(window, state, round_tasks, worker_results):
+    """Called when all workers in a parallel round have completed."""
+    stop_flag = state.get('stop_flag')
+    rows = state['rows']
+    api_keys_list = state.get('api_keys_list', [])
+    
+    if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+        _on_generation_finished(window, state['errors'], stopped=True)
+        return
+    
+    # Count successes and failures across all tasks in this round
+    total_in_round = sum(len(task['files']) for task in round_tasks)
+    failed_count = 0
+    failed_files = []
+    
+    for task_idx, result_data in worker_results.items():
+        task = result_data['task']
+        results = result_data['results']
+        
+        for idx, result in results:
+            if isinstance(result, dict) and (not result.get("title") or result.get("error_message")):
+                failed_count += 1
+                # Find original file row
+                image_path = result.get("image_path")
+                for row in task['files']:
+                    if row[1] == image_path:
+                        failed_files.append({
+                            'row': row,
+                            'api_info': task['api_info'],
+                            'error': result.get("error_message", "Unknown error")
+                        })
+                        break
+    
+    success_count = total_in_round - failed_count
+    print(f"[PARALLEL ROUND {state['current'] + 1}] Completed: {success_count} success, {failed_count} failed")
+    
+    # Handle failures with fallback (try other APIs)
+    if failed_files and len(api_keys_list) > 1:
+        retry_count = state.get('parallel_retry_count', 0)
+        max_retries = 2  # Max retry attempts per round
+        
+        if retry_count < max_retries:
+            # Find APIs that haven't been tried for failed files
+            used_apis = set()
+            for failed_file in failed_files:
+                used_apis.add(failed_file['api_info']['api_key'])
+            
+            available_apis = [api for api in api_keys_list if api['api_key'] not in used_apis]
+            
+            if available_apis:
+                print(f"[PARALLEL] Retrying {len(failed_files)} failed files with fallback API(s)")
+                state['parallel_retry_count'] = retry_count + 1
+                
+                # Create retry tasks for failed files with available APIs
+                retry_round = []
+                for i, failed_file in enumerate(failed_files):
+                    api_idx = i % len(available_apis)
+                    retry_round.append({
+                        'api_info': available_apis[api_idx],
+                        'files': [failed_file['row']],
+                        'api_index': api_idx
+                    })
+                
+                # Replace current batch with retry tasks
+                state['batches'][state['current']] = retry_round
+                
+                # Delay before retry
+                delay_seconds = get_delay_interval()
+                if delay_seconds > 0:
+                    window.table.set_progress_info(f"Retrying {len(failed_files)} failed files with fallback API(s)...")
+                    def _retry_cb():
+                        if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                            _on_generation_finished(window, state['errors'], stopped=True)
+                            window._batch_delay_timer = None
+                            return
+                        window._batch_delay_timer = None
+                        _run_parallel_round(window, state, retry_round)
+                    timer = QTimer(window)
+                    timer.setSingleShot(True)
+                    timer.timeout.connect(_retry_cb)
+                    timer.start(int(delay_seconds * 1000))
+                    window._batch_delay_timer = timer
+                else:
+                    _run_parallel_round(window, state, retry_round)
+                return
+    
+    # Reset retry counter for next round
+    state['parallel_retry_count'] = 0
+    
+    # Update UI
+    update_token_stats_ui(window)
+    window.table.refresh_table()
+    
+    if hasattr(window.table, '_emit_stats'):
+        window.table._emit_stats()
+    
+    # Move to next round
+    state['current'] += 1
+    
+    if state['current'] < len(state['batches']):
+        # Get fresh delay from config before next round
+        delay_seconds = get_delay_interval()
+        if delay_seconds > 0:
+            if hasattr(window, 'statusbar'):
+                window.statusbar.showMessage(f"Waiting {delay_seconds:.1f}s before next round...", int(delay_seconds * 1000))
+            def _delayed_cb():
+                if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                    _on_generation_finished(window, state['errors'], stopped=True)
+                    window._batch_delay_timer = None
+                    return
+                window._batch_delay_timer = None
+                _run_next_batch(window)
+            timer = QTimer(window)
+            timer.setSingleShot(True)
+            timer.timeout.connect(_delayed_cb)
+            timer.start(int(delay_seconds * 1000))
+            window._batch_delay_timer = timer
+        else:
+            _run_next_batch(window)
+    else:
+        _on_generation_finished(window, state['errors'])
 
 def _run_next_batch(window):
     state = window._batch_processing_state
@@ -1009,20 +1559,6 @@ def _run_next_batch(window):
     try:
         fresh_config = get_fresh_ai_config()
         print(f"[BATCH {state['current'] + 1}] Loading fresh config from JSON...")
-        
-        # Update batch_size and re-split if necessary
-        new_batch_size = int(fresh_config.get('batch_size', 5))
-        old_batch_size = len(state['batches'][0]) if state['batches'] and len(state['batches']) > 0 else new_batch_size
-        
-        # If batch size changed, re-split remaining batches
-        if new_batch_size != old_batch_size:
-            print(f"[BATCH {state['current'] + 1}] Batch size changed from {old_batch_size} to {new_batch_size}, re-splitting batches...")
-            remaining_rows = []
-            for i in range(state['current'], len(state['batches'])):
-                remaining_rows.extend(state['batches'][i])
-            new_batches = [remaining_rows[i:i+new_batch_size] for i in range(0, len(remaining_rows), new_batch_size)]
-            state['batches'] = state['batches'][:state['current']] + new_batches
-            
     except Exception as e:
         print(f"[ERROR] Failed to load fresh config: {e}")
     
@@ -1030,10 +1566,28 @@ def _run_next_batch(window):
     
     # Get variables from state first
     is_rolling_mode = state.get('is_rolling_mode', False)
+    is_parallel_mode = state.get('is_parallel_mode', False)
     api_keys_list = state.get('api_keys_list', [])
     
+    # Handle PARALLEL mode - batch is a list of parallel tasks (a "round")
+    if is_parallel_mode and isinstance(batch, list) and len(batch) > 0 and isinstance(batch[0], dict) and 'api_info' in batch[0]:
+        _run_parallel_round(window, state, batch)
+        return
+    
+    # Extract batch data - could be dict (single parallel task fallback) or list (normal)
+    if is_parallel_mode and isinstance(batch, dict) and 'api_info' in batch:
+        batch_files = batch['files']
+        batch_api_info = batch['api_info']
+        api_key = batch_api_info['api_key']
+        service = batch_api_info['service']
+        model = batch_api_info['model']
+        state['api_key'] = api_key
+        state['service'] = service
+        state['model'] = model
+        print(f"[BATCH {state['current'] + 1}] [PARALLEL] Using API: {service} - {model} (***{api_key[-5:] if len(api_key) >= 5 else api_key}) with {len(batch_files)} files")
+        batch = batch_files
     # For rolling mode, use current API from api_keys_list based on current_api_index
-    if is_rolling_mode and api_keys_list:
+    elif is_rolling_mode and api_keys_list:
         current_api_index = state.get('current_api_index', 0)
         if current_api_index < len(api_keys_list):
             current_api_info = api_keys_list[current_api_index]
@@ -1069,10 +1623,10 @@ def _run_next_batch(window):
             service = state['service']
             model = state['model']
     else:
-        # Non-rolling mode, use original API
+        # Normal mode (non-parallel, non-rolling) - use API from state
         api_key = state['api_key']
-        model = state['model']
         service = state['service']
+        model = state['model']
     
     row_map = state['row_map']
     metadata_func = state['metadata_func']
@@ -1097,6 +1651,9 @@ def _run_next_batch(window):
     worker = BatchWorker(api_key, model, batch, service, metadata_func, row_map, 
                         stop_flag=stop_flag, api_keys_list=api_keys_list, is_rolling_mode=is_rolling_mode, 
                         current_api_index=state.get('current_api_index', 0))
+    # Set parallel mode flag if applicable
+    if is_parallel_mode:
+        worker.is_parallel_mode = True
     state['worker'] = worker
     
     def on_api_rolled(new_api_key, new_service, new_model):
@@ -1146,9 +1703,14 @@ def _run_next_batch(window):
             window.table.progress_bar.setMaximum(0)
             _set_gen_btn_stop_state(window, False, is_stopping=True)
         else:
-            rolling_text = " (Rolling APIs)" if is_rolling_mode else ""
             current_mode = state.get('mode', 'all')
-            if is_rolling_mode:
+            if is_parallel_mode:
+                # Show parallel API processing progress
+                num_apis = len(api_keys_list) if api_keys_list else 1
+                label_text = f"Parallel API Processing ({num_apis} APIs) - {cur}/{total} files"
+                if hasattr(window, 'statusbar'):
+                    window.statusbar.showMessage(f"Processing {cur}/{total} files in parallel across {num_apis} API keys", 3000)
+            elif is_rolling_mode:
                 # Show more detailed progress for rolling mode
                 current_api_index = state.get('current_api_index', 0)
                 api_count = len(api_keys_list)
@@ -1273,8 +1835,93 @@ def _run_next_batch(window):
         batch_completely_failed = (failed_count == total_batch and total_batch > 0)
         batch_partially_failed = (failed_count > 0 and success_count > 0)
         
+        # Handle parallel API processing fallback logic
+        if is_parallel_mode and api_keys_list:
+            # For parallel mode, if a specific API fails, we have fallback options
+            if batch_completely_failed:
+                print(f"[PARALLEL] Batch completely failed ({failed_count}/{total_batch}). Using fallback API from pool.")
+                
+                # Build list of failed files
+                failed_files_batch = []
+                for idx, result in cache_results:
+                    if isinstance(result, dict) and (not result.get("title") or result.get("error_message")):
+                        image_path = result.get("image_path")
+                        for row in batch:
+                            if row[1] == image_path:
+                                failed_files_batch.append(row)
+                                break
+                
+                current_api_index = state.get('current_api_index', 0)
+                
+                # Try to find next available API
+                attempted_count = state.get('batch_retry_count', 0)
+                max_retries = len(api_keys_list) - 1  # We already tried the first API
+                
+                if attempted_count < max_retries and failed_files_batch:
+                    next_api_index = (current_api_index + 1) % len(api_keys_list)
+                    if next_api_index >= len(api_keys_list):
+                        next_api_index = 0
+                    
+                    # Skip current API index, try next
+                    state['batch_retry_count'] = attempted_count + 1
+                    state['current_api_index'] = next_api_index
+                    
+                    next_api_info = api_keys_list[next_api_index]
+                    next_service = next_api_info.get('service', '')
+                    next_api_key = next_api_info.get('api_key', '')
+                    
+                    print(f"[PARALLEL] Retrying {len(failed_files_batch)} failed files with API #{next_api_index + 1}: {next_service}")
+                    
+                    # Update display
+                    label_text = window.table.get_progress_format_text("parallel", next_service, next_api_key)
+                    window.table.set_progress_info(f"{label_text} (Retrying {len(failed_files_batch)} failed files with fallback API...)")
+                    
+                    # Replace current batch with failed files only and retry
+                    state['batches'][state['current']] = {
+                        'files': failed_files_batch,
+                        'api_info': next_api_info,
+                        'is_parallel_task': True
+                    }
+                    
+                    QApplication.processEvents()
+                    
+                    # Delay before retry
+                    delay_seconds = get_delay_interval()
+                    if delay_seconds > 0:
+                        if hasattr(window, 'statusbar'):
+                            window.statusbar.showMessage(f"Waiting {delay_seconds:.1f} seconds before retrying with fallback API...")
+                        def _retry_parallel_cb():
+                            state2 = getattr(window, '_batch_processing_state', {})
+                            stop_flag2 = state2.get('stop_flag')
+                            if state2.get('should_stop', False) or (stop_flag2 and stop_flag2.get('stop')):
+                                if hasattr(window, 'statusbar'):
+                                    window.statusbar.clearMessage()
+                                _on_generation_finished(window, state2.get('errors', []), stopped=True)
+                                window._batch_delay_timer = None
+                                return
+                            window._batch_delay_timer = None
+                            _run_next_batch(window)
+                        timer = QTimer(window)
+                        timer.setSingleShot(True)
+                        timer.timeout.connect(_retry_parallel_cb)
+                        timer.start(int(delay_seconds * 1000))
+                        window._batch_delay_timer = timer
+                    else:
+                        if hasattr(window, 'statusbar'):
+                            window.statusbar.clearMessage()
+                        _run_next_batch(window)
+                    return
+                else:
+                    # All APIs failed for this batch
+                    print(f"[PARALLEL] All fallback APIs exhausted for batch {state.get('current', 0) + 1}")
+                    # Continue with partial results, don't stop completely
+            
+            # Reset parallel retry counter for next batch if successful
+            if not batch_completely_failed:
+                state['batch_retry_count'] = 0
+        
         # Handle rolling API retry logic
-        if is_rolling_mode and api_keys_list:
+        elif is_rolling_mode and api_keys_list:
             # Case 1: Partial failure - retry failed files only with SAME API (parsing errors)
             if batch_partially_failed:
                 retry_count = state.get('batch_same_api_retry', 0)
@@ -1453,7 +2100,13 @@ def _run_next_batch(window):
         
         # Update progress display
         current_mode = state.get('mode', 'all')
-        if is_rolling_mode:
+        if is_parallel_mode:
+            # For parallel mode, show that we're using parallel processing
+            num_apis = len(api_keys_list) if api_keys_list else 1
+            label_text = window.table.get_progress_format_text("parallel", "", "")
+            if "parallel" not in label_text.lower():
+                label_text = f"Parallel API Processing ({num_apis} APIs)"
+        elif is_rolling_mode:
             current_api_index = state.get('current_api_index', 0)
             if current_api_index < len(api_keys_list):
                 current_api_info = api_keys_list[current_api_index]
@@ -1549,11 +2202,18 @@ def stop_generate_metadata(window):
     _set_gen_btn_stop_state(window, False, is_stopping=True)
     QApplication.processEvents()
 
-    # Stop running worker if present
+    # Stop running worker if present (single worker mode)
     worker = state.get('worker')
     if worker and worker.isRunning():
         print("[STOP] Stopping batch worker thread...")
         worker.stop()
+    
+    # Stop parallel workers if present (parallel mode)
+    parallel_workers = state.get('parallel_workers', [])
+    for pw in parallel_workers:
+        if pw and pw.isRunning():
+            print("[STOP] Stopping parallel worker thread...")
+            pw.stop()
 
     # Cancel any pending inter-batch delay timer immediately
     if hasattr(window, '_batch_delay_timer') and window._batch_delay_timer:
@@ -1686,9 +2346,15 @@ def _on_generation_finished(window, errors, stopped=False):
         for err in errors:
             print(err)
     
-    # Show completion message for rolling mode
-    if is_rolling_mode and not stopped:
-        if hasattr(window, 'statusbar'):
+    # Show completion message for rolling or parallel mode
+    if not stopped:
+        is_parallel_mode = state.get('is_parallel_mode', False)
+        is_rolling_mode = state.get('is_rolling_mode', False)
+        
+        if is_parallel_mode and hasattr(window, 'statusbar'):
+            api_count = len(state.get('api_keys_list', []))
+            window.statusbar.showMessage(f"Parallel API Processing completed using {api_count} API keys", 5000)
+        elif is_rolling_mode and hasattr(window, 'statusbar'):
             api_count = len(state.get('api_keys_list', []))
             window.statusbar.showMessage(f"Rolling APIs completed using {api_count} API keys", 5000)
     

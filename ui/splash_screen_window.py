@@ -2,8 +2,9 @@ import os
 import json
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QApplication, QProgressBar
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QFont
+from PySide6.QtGui import QPixmap, QPainter, QFont, QColor
 from config import BASE_PATH
+from .theme_system import theme
 
 # Flag indicating whether splash screen is currently active (visible)
 splash_active = False
@@ -24,7 +25,7 @@ class SplashScreen(QWidget):
         
         info_widget = QWidget(self)
         info_widget.setGeometry(pixmap.width() // 2, 0, 500, pixmap.height())
-        info_widget.setStyleSheet("background-color: #2b2b2b; color: white;")
+        info_widget.setStyleSheet(f"background-color: {theme.get_color('background_dark')}; color: {theme.get_color('white')};")
         info_layout = QVBoxLayout(info_widget)
         info_layout.setContentsMargins(30, 30, 30, 30)
         info_layout.setSpacing(8)
@@ -42,14 +43,14 @@ class SplashScreen(QWidget):
         name_font.setPointSize(22)
         name_font.setBold(True)
         name_label.setFont(name_font)
-        name_label.setStyleSheet("color: #4e9e20;")
+        name_label.setStyleSheet(f"color: {theme.get_color('primary')};")
         info_layout.addWidget(name_label)
         
         tagline_label = QLabel(self.config["tagline"])
         tagline_font = QFont()
         tagline_font.setPointSize(9)
         tagline_label.setFont(tagline_font)
-        tagline_label.setStyleSheet("color: #cccccc; font-size: 14pt;")
+        tagline_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 14pt;")
         tagline_label.setWordWrap(True)
         info_layout.addWidget(tagline_label)
         
@@ -62,15 +63,15 @@ class SplashScreen(QWidget):
         version_label = QLabel()
         version_label.setTextFormat(Qt.RichText)
         version_label.setText(f"Version: <b>{self.config['version']}</b>")
-        version_label.setStyleSheet("color: #ffffff; margin: 0; padding: 0;")
+        version_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
         meta_layout.addWidget(version_label)
-        
+
         developer_label = QLabel(f"Developer: {self.config['developer']}")
-        developer_label.setStyleSheet("color: #ffffff; margin: 0; padding: 0;")
+        developer_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
         meta_layout.addWidget(developer_label)
-        
+
         license_label = QLabel(f"License: {self.config['license']}")
-        license_label.setStyleSheet("color: #ffffff; margin: 0; padding: 0;")
+        license_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
         meta_layout.addWidget(license_label)
 
         info_layout.addLayout(meta_layout)
@@ -94,44 +95,45 @@ class SplashScreen(QWidget):
                 if isinstance(ch, dict):
                     commit = ch.get("remote") or ch.get("local")
 
-                update_lines = []
-                if tag_remote:
-                    txt = f"Latest: {tag_remote}"
-                    if last_update:
-                        txt += f" ({last_update})"
-                    update_lines.append(txt)
-                if tag_local:
-                    update_lines.append(f"Current: {tag_local}")
-                if commit:
-                    update_lines.append(f"Commit: {commit}")
-
-                if update_lines:
-                    # compact inline display: versions in green, commit in gray, small font
-                    parts = []
+                    update_lines = []
                     if tag_remote:
-                        parts.append(f'<span style="color:#4e9e20; font-weight:600;">Latest: {tag_remote}</span>')
+                        txt = f"Latest: {tag_remote}"
+                        if last_update:
+                            txt += f" ({last_update})"
+                        update_lines.append(txt)
                     if tag_local:
-                        parts.append(f'<span style="color:#aaaaaa; font-weight:600;">Current: {tag_local}</span>')
+                        update_lines.append(f"Current: {tag_local}")
                     if commit:
-                        parts.append(f'<span style="color:#aaaaaa;">Commit: {commit}</span>')
-                    update_html = ' &nbsp;|&nbsp; '.join(parts)
-                    update_label = QLabel(update_html)
-                    update_label.setTextFormat(Qt.RichText)
-                    update_label.setStyleSheet("font-size:8pt;")
-                    update_label.setAlignment(Qt.AlignLeft)
-                    info_layout.addWidget(update_label)
+                        update_lines.append(f"Commit: {commit}")
+
+                    if update_lines:
+                        # compact inline display: versions in primary, current/commit in text_light, small font
+                        parts = []
+                        if tag_remote:
+                            parts.append(f"<span style=\"color:{theme.get_color('primary')}; font-weight:600;\">Latest: {tag_remote}</span>")
+                        if tag_local:
+                            parts.append(f"<span style=\"color:{theme.get_color('text_light')}; font-weight:600;\">Current: {tag_local}</span>")
+                        if commit:
+                            parts.append(f"<span style=\"color:{theme.get_color('text_light')};\">Commit: {commit}</span>")
+                        update_html = ' &nbsp;|&nbsp; '.join(parts)
+                        update_label = QLabel()
+                        update_label.setTextFormat(Qt.RichText)
+                        update_label.setText(update_html)
+                        update_label.setStyleSheet(f"font-size:8pt; color: {theme.get_color('text_light')};")
+                        update_label.setAlignment(Qt.AlignLeft)
+                        info_layout.addWidget(update_label)
             except Exception as e:
                 print(f"Error reading update_config.json: {e}")
         
         description_label = QLabel(self.config["description"])
         description_label.setWordWrap(True)
-        description_label.setStyleSheet("color: #aaaaaa; font-size: 9pt;")
+        description_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 9pt;")
         info_layout.addWidget(description_label)
         
         info_layout.addStretch()
         
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #4e9e20; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
         self.status_label.setAlignment(Qt.AlignLeft)
         info_layout.addWidget(self.status_label)
         
@@ -141,9 +143,11 @@ class SplashScreen(QWidget):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(8)
+        _wht_q = QColor(theme.get_color('white'))
+        _wht_rgb = f"{_wht_q.red()},{_wht_q.green()},{_wht_q.blue()}"
         self.progress_bar.setStyleSheet(
-            "QProgressBar { background-color: rgba(255,255,255,0.08); border-radius: 4px; }"
-            "QProgressBar::chunk { background-color: #4e9e20; border-radius: 4px; }"
+            f"QProgressBar {{ background-color: rgba({_wht_rgb},0.08); border-radius: 4px; }}"
+            f"QProgressBar::chunk {{ background-color: {theme.get_color('primary')}; border-radius: 4px; }}"
         )
         info_layout.addWidget(self.progress_bar)
         

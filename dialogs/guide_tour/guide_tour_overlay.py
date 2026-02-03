@@ -4,12 +4,13 @@ import qtawesome as qta
 import sys
 from pathlib import Path
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QGuiApplication
+from ui.theme_system import theme
 
 
 class GuidePanel(QWidget):
     """A small QWidget that draws a rounded background so it remains visible
     when used as a top-level tool window with translucent background."""
-    def __init__(self, *args, bg_color="#3c8b0e", radius=8, **kwargs):
+    def __init__(self, *args, bg_color=theme.get_color('primary'), radius=8, **kwargs):
         super().__init__(*args, **kwargs)
         self._bg = QColor(bg_color)
         self._radius = radius
@@ -40,53 +41,55 @@ class GuideOverlay(QWidget):
 
         self.panel = GuidePanel(parent or self)
         self.panel.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
-        self.panel.setStyleSheet("""
-            QWidget {
-                background-color: #4e9e20;
+        _wht_q = QColor(theme.get_color('white'))
+        _wht_rgb = f"{_wht_q.red()},{_wht_q.green()},{_wht_q.blue()}"
+        self.panel.setStyleSheet(f"""
+            QWidget {{
+                background-color: {theme.get_color('primary')};
                 border: none;
                 border-radius: 6px;
-                color: white;
+                color: {theme.get_color('white')};
                 padding: 6px;
-            }
-            QLabel {
+            }}
+            QLabel {{
                 background-color: transparent;
-                color: white;
-            }
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                color: white;
+                color: {theme.get_color('white')};
+            }}
+            QPushButton {{
+                background-color: rgba({_wht_rgb}, 0.08);
+                border: 1px solid rgba({_wht_rgb}, 0.12);
+                color: {theme.get_color('white')};
                 border-radius: 4px;
                 padding: 4px 8px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-            }
-            QComboBox {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_wht_rgb}, 0.12);
+            }}
+            QComboBox {{
+                background-color: rgba({_wht_rgb}, 0.08);
+                border: 1px solid rgba({_wht_rgb}, 0.12);
+                color: {theme.get_color('white')};
                 border-radius: 4px;
                 padding: 2px 6px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #4e9e20;
-                color: white;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border: none;
                 outline: none;
-                selection-background-color: rgba(255, 255, 255, 0.12);
-            }
-            QComboBox QAbstractItemView::item {
+                selection-background-color: rgba({_wht_rgb}, 0.12);
+            }}
+            QComboBox QAbstractItemView::item {{
                 border: none;
                 padding: 6px 10px;
-            }
-            QComboBox QAbstractItemView::item:selected {
-                background-color: rgba(255, 255, 255, 0.12);
-                color: white;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: rgba(255, 255, 255, 0.06);
-            }
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: rgba({_wht_rgb}, 0.12);
+                color: {theme.get_color('white')};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: rgba({_wht_rgb}, 0.06);
+            }}
         """)
         self.panel.setVisible(False)
         self.panel.setMinimumWidth(420)
@@ -109,7 +112,7 @@ class GuideOverlay(QWidget):
         ctrl_row = QHBoxLayout()
         self.prev_btn = QPushButton("Previous")
         self.prev_btn.setCursor(Qt.PointingHandCursor)
-        self.prev_btn.setIcon(qta.icon('fa6s.chevron-left', color='white'))
+        self.prev_btn.setIcon(qta.icon('fa6s.chevron-left', color=theme.get_color('white')))
         self.prev_btn.setIconSize(QSize(14, 14))
         self.prev_btn.clicked.connect(lambda: self._on_prev())
         ctrl_row.addWidget(self.prev_btn)
@@ -121,14 +124,14 @@ class GuideOverlay(QWidget):
 
         self.next_btn = QPushButton("Next")
         self.next_btn.setCursor(Qt.PointingHandCursor)
-        self.next_btn.setIcon(qta.icon('fa6s.chevron-right', color='white'))
+        self.next_btn.setIcon(qta.icon('fa6s.chevron-right', color=theme.get_color('white')))
         self.next_btn.setIconSize(QSize(14, 14))
         self.next_btn.clicked.connect(lambda: self._on_next())
         ctrl_row.addWidget(self.next_btn)
 
         self.close_btn = QPushButton("Close")
         self.close_btn.setCursor(Qt.PointingHandCursor)
-        self.close_btn.setIcon(qta.icon('fa6s.xmark', color='white'))
+        self.close_btn.setIcon(qta.icon('fa6s.xmark', color=theme.get_color('white')))
         self.close_btn.setIconSize(QSize(14, 14))
         self.close_btn.clicked.connect(self._on_close)
         self.close_btn.setVisible(False)
@@ -678,7 +681,7 @@ class GuideOverlay(QWidget):
         relative_rect = QRect(overlay_pos, target_global.size())
 
         if target_exists:
-            glow_color = QColor(255, 0, 0)
+            glow_color = QColor(theme.get_color('error'))
             for expand, alpha, pen_width in ((4, 40, 8), (2, 90, 4), (0, 160, 2)):
                 c = QColor(glow_color)
                 c.setAlpha(alpha)
@@ -690,7 +693,7 @@ class GuideOverlay(QWidget):
                 radius = max(6, 6 + expand * 0.5)
                 painter.drawRoundedRect(r, radius, radius)
 
-            pen = QPen(QColor(255, 46, 46), 2)
+            pen = QPen(QColor(theme.get_color('error')), 2)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)

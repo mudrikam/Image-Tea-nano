@@ -5,6 +5,7 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
 import os
 import json
+from ui.theme_system import theme
 
 class ApiKeySectionWidget(QWidget):
     api_key_changed = Signal(str, str, str)  # api_key, service, model
@@ -38,19 +39,19 @@ class ApiKeySectionWidget(QWidget):
         self.get_api_btn.setVisible(False)
         self.get_api_btn.setMinimumWidth(140)
         try:
-            self.get_api_btn.setIcon(qta.icon('fa6s.key', color='#FFFFFF'))
+            self.get_api_btn.setIcon(qta.icon('fa6s.key', color=theme.get_color('white')))
         except Exception:
             pass
-        self.get_api_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4e9e20;
-                color: #ffffff;
+        self.get_api_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
                 border-radius: 4px;
                 padding: 6px 8px;
-            }
-            QPushButton:hover {
-                background-color: #3f8a1a;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
         """)
         self.get_api_btn.setToolTip(
             "This application requires an API key to function."
@@ -118,7 +119,7 @@ class ApiKeySectionWidget(QWidget):
         model_set = []
         for entry in api_keys:
             service, api_key, note, last_tested, status, model = entry
-            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq") else service
+            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox") else service
             if service_disp.capitalize() not in model_set:
                 model_set.append(service_disp.capitalize())
         current_model = self.model_combo.currentText()
@@ -137,7 +138,7 @@ class ApiKeySectionWidget(QWidget):
         self.api_key_map.clear()
         for entry in api_keys:
             service, api_key, note, last_tested, status, model = entry
-            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq") else service
+            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox") else service
             if selected_model is None or service_disp.capitalize() == selected_model:
                 if api_key and len(api_key) > 5:
                     masked_key = '*' * (len(api_key) - 5) + api_key[-5:]
@@ -234,17 +235,15 @@ class ApiKeySectionWidget(QWidget):
 
     def set_current_api_by_details(self, api_key, service, model, skip_refresh=False):
         """Set the current API key selection by matching api_key, service, and model"""
-        # Normalize service name - handle various capitalizations
         if service:
             service_lower = service.lower()
-            if service_lower in ('openai', 'gemini', 'groq'):
+            if service_lower in ('openai', 'gemini', 'groq', 'blackbox'):
                 service_capitalized = service_lower.capitalize()
             else:
                 service_capitalized = service
         else:
             service_capitalized = ""
         
-        # First set the correct service in model combo
         service_found = False
         for i in range(self.model_combo.count()):
             if self.model_combo.itemText(i) == service_capitalized:
@@ -260,7 +259,6 @@ class ApiKeySectionWidget(QWidget):
             print(f"Service '{service_capitalized}' not found in model combo")
             return
         
-        # Then set the correct API key
         api_found = False
         for i in range(self.api_key_combo.count()):
             combo_api_key = self.api_key_combo.itemData(i)

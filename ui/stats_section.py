@@ -5,6 +5,7 @@ import qtawesome as qta
 from PySide6.QtCore import Qt, QTimer
 import time
 from datetime import datetime, timedelta
+from .theme_system import theme
 
 class StatsSectionWidget(QWidget):
     def __init__(self, parent=None):
@@ -20,11 +21,11 @@ class StatsSectionWidget(QWidget):
 
         font = QFont()
         font.setPointSize(8)
-        label_color = "#808080"
+        label_color = theme.get_color('text_dark')
 
         def make_icon_label(icon_name, text):
             icon_label = QLabel()
-            icon_label.setPixmap(qta.icon(icon_name, color="#888").pixmap(12, 12))
+            icon_label.setPixmap(qta.icon(icon_name, color=theme.get_color('gray')).pixmap(12, 12))
             text_label = QLabel(text)
             text_label.setFont(font)
             text_label.setStyleSheet(f"color: {label_color};")
@@ -65,7 +66,7 @@ class StatsSectionWidget(QWidget):
         token_stats_layout.addWidget(token_total_widget)
 
         self.reset_token_btn = QPushButton("Reset")
-        self.reset_token_btn.setIcon(qta.icon("fa6s.rotate-right", color="#888"))
+        self.reset_token_btn.setIcon(qta.icon("fa6s.rotate-right", color=theme.get_color('gray')))
         self.reset_token_btn.setToolTip("Reset token stats")
         self.reset_token_btn.setCursor(Qt.PointingHandCursor)
         token_stats_layout.addWidget(self.reset_token_btn)

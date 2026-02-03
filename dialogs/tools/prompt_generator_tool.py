@@ -15,6 +15,7 @@ from config import BASE_PATH
 import qtawesome as qta
 from ui.api_key_section import ApiKeySectionWidget
 from dialogs.tools.prompt_edit_dialog import PromptEditDialog
+from ui.theme_system import theme
 
 
 class PromptGeneratorWorker(QThread):
@@ -517,7 +518,7 @@ class PromptGeneratorDialog(QDialog):
 		
         
 		self.generating_label = QLabel("Ready to generate")
-		self.generating_label.setStyleSheet("color: #0066cc; font-weight: bold; font-style: normal;")
+		self.generating_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; font-style: normal;")
 		stats_layout.addWidget(self.generating_label)
 		
 		actions_layout.addWidget(stats_widget)
@@ -538,21 +539,21 @@ class PromptGeneratorDialog(QDialog):
 		self.generate_btn.clicked.connect(self.toggle_generation)
 		
         
-		self.generate_btn.setStyleSheet("""
-			QPushButton {
-				background-color: #4e9e20;
-				color: white;
+		self.generate_btn.setStyleSheet(f"""
+			QPushButton {{
+				background-color: {theme.get_color('primary')};
+				color: {theme.get_color('white')};
 				border: none;
 				border-radius: 6px;
 				font-weight: bold;
 				font-size: 12px;
-			}
-			QPushButton:hover {
-				background-color: #3d7307;
-			}
-			QPushButton:pressed {
-				background-color: #1e7e34;
-			}
+			}}
+			QPushButton:hover {{
+				background-color: {theme.get_color('primary_hover')};
+			}}
+			QPushButton:pressed {{
+				background-color: {theme.get_color('primary_pressed')};
+			}}
 		""")
 		
         
@@ -626,25 +627,29 @@ class PromptGeneratorDialog(QDialog):
 				copy_btn.clicked.connect(lambda checked, text=prompt_text, pid=prompt_row[0]: self.copy_prompt_and_update_status(text, pid))
 				self.table.setCellWidget(r, 3, copy_btn)
 				
-				copied_color = QColor(243, 200, 24, int(0.3 * 255))
+				_copied_c = QColor(theme.get_color('success'))
+				_copied_c.setAlpha(int(0.3 * 255))
 				if status == 'copied':
 					for col in range(4):
 						item = self.table.item(r, col)
 						if item:
-							item.setBackground(copied_color)
+							item.setBackground(_copied_c)
 						else:
 							empty_item = QTableWidgetItem("")
-							empty_item.setBackground(copied_color)
+							empty_item.setBackground(_copied_c)
 							self.table.setItem(r, col, empty_item)
-					copy_btn.setStyleSheet("""
-						QPushButton {
-							background-color: rgba(243, 200, 24, 77);
-							border: 1px solid #ccc;
+					_warn_q = QColor(theme.get_color('warning'))
+					_warn_q.setAlpha(int(0.3 * 255))
+					_warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
+					copy_btn.setStyleSheet(f"""
+						QPushButton {{
+							background-color: rgba({_warn_rgb},0.3);
+							border: 1px solid {theme.get_color('gray')};
 							border-radius: 3px;
-						}
-						QPushButton:hover {
-							background-color: rgba(243, 200, 24, 100);
-						}
+						}}
+						QPushButton:hover {{
+							background-color: rgba({_warn_rgb},0.39);
+						}}
 					""")
 				else:
 					copy_btn.setStyleSheet("")
@@ -734,42 +739,44 @@ class PromptGeneratorDialog(QDialog):
 			if self.stop_icon:
 				self.generate_btn.setIcon(self.stop_icon)
 			self.generate_btn.setText("Stop Generation")
-			self.generate_btn.setStyleSheet("""
-				QPushButton {
-					background-color: rgba(204, 0, 0, 0.3);
-					color: white;
+			_err_q = QColor(theme.get_color('error'))
+			_err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+			self.generate_btn.setStyleSheet(f"""
+				QPushButton {{
+					background-color: rgba({_err_rgb},0.3);
+					color: {theme.get_color('white')};
 					border: none;
 					border-radius: 6px;
 					font-weight: bold;
 					font-size: 12px;
-				}
-				QPushButton:hover {
-					background-color: rgba(204, 0, 0, 0.5);
-				}
-				QPushButton:pressed {
-					background-color: rgba(204, 0, 0, 0.7);
-				}
+				}}
+				QPushButton:hover {{
+					background-color: rgba({_err_rgb},0.5);
+				}}
+				QPushButton:pressed {{
+					background-color: rgba({_err_rgb},0.7);
+				}}
 			""")
 		else:
             
 			if self.gen_icon:
 				self.generate_btn.setIcon(self.gen_icon)
 			self.generate_btn.setText("Generate Prompts")
-			self.generate_btn.setStyleSheet("""
-				QPushButton {
-					background-color: #4e9e20;
-					color: white;
+			self.generate_btn.setStyleSheet(f"""
+				QPushButton {{
+					background-color: {theme.get_color('primary')};
+					color: {theme.get_color('white')};
 					border: none;
 					border-radius: 6px;
 					font-weight: bold;
 					font-size: 12px;
-				}
-				QPushButton:hover {
-					background-color: #3d7307;
-				}
-				QPushButton:pressed {
-					background-color: #1e7e34;
-				}
+				}}
+				QPushButton:hover {{
+					background-color: {theme.get_color('primary_hover')};
+				}}
+				QPushButton:pressed {{
+					background-color: {theme.get_color('primary_pressed')};
+				}}
 			""")
 
 	def generate_prompts(self):
