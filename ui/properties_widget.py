@@ -294,7 +294,7 @@ class TagsPillWidget(QWidget):
         edit_action.triggered.connect(lambda: self._edit_tag(tag_text))
         menu.addAction(edit_action)
         menu.addSeparator()
-        delete_action = QAction(qta.icon('fa6s.trash'), 'Hapus Tag', self)
+        delete_action = QAction(qta.icon('fa6s.trash'), 'Delete Tag', self)
         delete_action.triggered.connect(lambda: self._delete_tag(tag_text))
         menu.addAction(delete_action)
         menu.exec(widget.mapToGlobal(pos))

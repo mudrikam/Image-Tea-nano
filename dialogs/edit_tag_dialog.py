@@ -12,9 +12,6 @@ class EditTagDialog(QDialog):
         
         layout = QVBoxLayout(self)
         
-        label = QLabel("Edit Tag:")
-        layout.addWidget(label)
-        
         self.tag_input = QLineEdit()
         self.tag_input.setText(tag_text)
         self.tag_input.selectAll()
