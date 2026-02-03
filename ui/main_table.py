@@ -195,7 +195,7 @@ class GridManager:
                                                                                          
         self._pixmap_cache_size = max(300, self.image_size * 2)
         self.grid_spacing = 10
-        self.active_image = None
+        self.active_images = set()
         self._widget_cache = {}
         self._pixmap_cache = {}
         self._status_color_func = None
@@ -439,18 +439,29 @@ class GridManager:
             _blk_def.setAlpha(int(0.1 * 255))
             color = _blk_def
         border_rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()/255:.2f})"
-        _succ_q_local = QColor(theme.get_color('success'))
-        _succ_rgb_local = f"{_succ_q_local.red()},{_succ_q_local.green()},{_succ_q_local.blue()}"
+        _pr_q_local = QColor(theme.get_color('primary'))
+        _pr_rgb_local = f"{_pr_q_local.red()},{_pr_q_local.green()},{_pr_q_local.blue()}"
+        # determine subtle background opacity based on status
+        status_alpha = 0.0
+        if status == "success":
+            status_alpha = 0.18
+        elif status in ("processing", "stopping"):
+            status_alpha = 0.18
+        elif status == "failed":
+            status_alpha = 0.18
+        elif status == "stopped":
+            status_alpha = 0.18
+        bg_color = f"transparent" if status_alpha == 0 else f"rgba({color.red()}, {color.green()}, {color.blue()}, {status_alpha})"
         label.setStyleSheet(f"""
             QLabel {{
                 border: 2px solid {border_rgba};
                 border-radius: 4px;
                 padding: 2px;
-                background-color: transparent;
+                background-color: {bg_color};
             }}
             QLabel:hover {{
-                border: 2.5px solid rgba({_succ_rgb_local},0.7);
-                background-color: rgba({_succ_rgb_local},0.05);
+                border: 2.5px solid rgba({_pr_rgb_local},0.7);
+                background-color: rgba({_pr_rgb_local},0.12);
             }}
         """)
 
@@ -461,6 +472,7 @@ class GridManager:
             if file_info is not None:
                 file_info['status'] = status
                 widget.setProperty("file_info", file_info)
+            
             label = None
             for child in widget.children():
                 if isinstance(child, QLabel):
@@ -469,12 +481,12 @@ class GridManager:
             if label:
                 self._set_image(label, filepath, status)
 
-    def _update_active_image(self, new_active_widget):
+    def _update_active_images(self, new_active_widgets):
         try:
-            if self.active_image:
-                for child in self.active_image.children():
+            for old_widget in self.active_images:
+                for child in old_widget.children():
                     if isinstance(child, QLabel) and child.objectName() != "filename_label":
-                        file_info = self.active_image.property("file_info")
+                        file_info = old_widget.property("file_info")
                         status = file_info.get('status', '') if file_info else ''
                         color = None
                         if self._status_color_func:
@@ -484,42 +496,52 @@ class GridManager:
                             _blk_def2.setAlpha(int(0.1 * 255))
                             color = _blk_def2
                         border_rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()/255:.2f})"
-                        _succ_q2 = QColor(theme.get_color('success'))
-                        _succ_rgb2 = f"{_succ_q2.red()},{_succ_q2.green()},{_succ_q2.blue()}"
+                        _pr_q2 = QColor(theme.get_color('primary'))
+                        _pr_rgb2 = f"{_pr_q2.red()},{_pr_q2.green()},{_pr_q2.blue()}"
+                        status_alpha = 0.0
+                        if status == "success":
+                            status_alpha = 0.18
+                        elif status in ("processing", "stopping"):
+                            status_alpha = 0.18
+                        elif status == "failed":
+                            status_alpha = 0.18
+                        elif status == "stopped":
+                            status_alpha = 0.18
+                        bg_color = f"transparent" if status_alpha == 0 else f"rgba({color.red()}, {color.green()}, {color.blue()}, {status_alpha})"
                         child.setStyleSheet(f"""
                             QLabel {{
                                 border: 2px solid {border_rgba};
                                 border-radius: 4px;
                                 padding: 2px;
-                                background-color: transparent;
+                                background-color: {bg_color};
                             }}
                             QLabel:hover {{
-                                border: 2.5px solid rgba({_succ_rgb2},0.7);
-                                background-color: rgba({_succ_rgb2},0.05);
+                                border: 2.5px solid rgba({_pr_rgb2},0.7);
+                                background-color: rgba({_pr_rgb2},0.12);
                             }}
                         """)
                         break
-            self.active_image = new_active_widget
-            if self.active_image:
-                for child in self.active_image.children():
+            self.active_images = set(new_active_widgets) if new_active_widgets else set()
+            for active_widget in self.active_images:
+                for child in active_widget.children():
                     if isinstance(child, QLabel) and child.objectName() != "filename_label":
-                        _succ_q3 = QColor(theme.get_color('success'))
-                        _succ_rgb3 = f"{_succ_q3.red()},{_succ_q3.green()},{_succ_q3.blue()}"
+                        _pr_q3 = QColor(theme.get_color('primary'))
+                        _pr_rgb3 = f"{_pr_q3.red()},{_pr_q3.green()},{_pr_q3.blue()}"
                         child.setStyleSheet(f"""
                             QLabel {{
-                                border: 2px solid rgba({_succ_rgb3},0.7);
+                                border: 2px solid rgba({_pr_rgb3},0.7);
                                 border-radius: 4px;
                                 padding: 2px;
-                                background-color: rgba({_succ_rgb3},0.20);
+                                background-color: rgba({_pr_rgb3},0.20);
                             }}
                             QLabel:hover {{
-                                border: 2.5px solid rgba({_succ_rgb3},1.0);
-                                background-color: rgba({_succ_rgb3},0.25);
+                                border: 2.5px solid rgba({_pr_rgb3},1.0);
+                                background-color: rgba({_pr_rgb3},0.30);
                             }}
                         """)
                         break
         except Exception as e:
-            print(f"Error updating active image styling: {e}")
+            print(f"Error updating active images styling: {e}")
 
     def _handle_image_click(self, widget, event):
         try:
@@ -532,7 +554,7 @@ class GridManager:
             file_info = widget.property("file_info")
             if not file_info:
                 return
-            self._update_active_image(widget)
+            self._update_active_images([widget])
             parent_widget = widget.parent()
             while parent_widget and not hasattr(parent_widget, '_callback_function'):
                 parent_widget = parent_widget.parent()
@@ -1041,10 +1063,7 @@ class ImageTableWidget(QWidget):
         self._inject_open_metadata_dialog_for_grid()
         self.thumbnail_scroll.installEventFilter(self)
                                                                    
-        try:
-            self.thumbnail_scroll.viewport().installEventFilter(self)
-        except Exception:
-            pass
+        self.thumbnail_scroll.viewport().installEventFilter(self)
 
                                                                                                
         self._pending_thumb_size = None
@@ -1052,8 +1071,6 @@ class ImageTableWidget(QWidget):
         self._thumb_resize_timer.setSingleShot(True)
         self._thumb_resize_timer.setInterval(300)
         self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
-        if hasattr(self, 'zoom_slider'):
-            self.zoom_slider.setValue(self.grid_manager.image_size)
         
         self._resize_recalc_timer = QTimer(self)
         self._resize_recalc_timer.setSingleShot(True)
@@ -1385,6 +1402,7 @@ class ImageTableWidget(QWidget):
         new_size = self._calculate_thumbnail_size_from_columns(self._current_column_count)
         if new_size != self.grid_manager.image_size:
             self.grid_manager.set_image_size(new_size)
+            self._update_zoom_preset_dropdown(new_size)
             QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
 
     def _update_pagination_ui(self):
@@ -1839,20 +1857,19 @@ class ImageTableWidget(QWidget):
             self.grid_manager.update_thumbnail_status(filepath, status)
                                                   
             self._update_widget_tooltip_for_filepath(filepath)
-        self._highlight_selected_row()
 
     def _status_color(self, status):
         if status == "processing":
             _warn_col = QColor(theme.get_color('warning'))
-            _warn_col.setAlpha(int(0.3 * 255))
+            _warn_col.setAlpha(int(0.45 * 255))
             return _warn_col
         elif status == "success":
             _succ_col = QColor(theme.get_color('success'))
-            _succ_col.setAlpha(int(0.3 * 255))
+            _succ_col.setAlpha(int(0.45 * 255))
             return _succ_col
         elif status == "failed":
             _err_col = QColor(theme.get_color('error'))
-            _err_col.setAlpha(int(0.15 * 255))
+            _err_col.setAlpha(int(0.18 * 255))
             return _err_col
         elif status == "stopping":
             _warn_col2 = QColor(theme.get_color('warning'))
@@ -1928,9 +1945,6 @@ class ImageTableWidget(QWidget):
             self._donation_dialog_shown = False
         
         self.data_refreshed.emit()
-        if self.tab_widget.currentIndex() == 1:
-            self.refresh_thumbnail_grid()
-            self._sync_thumbnail_selection_with_table()
         if self.tab_widget.currentIndex() == 2:
             self._refresh_details_cards()
 
@@ -1942,7 +1956,8 @@ class ImageTableWidget(QWidget):
         self._refreshing_thumbnails = True
         
         try:
-                               
+            self.grid_manager.active_images.clear()
+            
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             self.progress_label.setText("Loading thumbnails...")
@@ -2026,30 +2041,40 @@ class ImageTableWidget(QWidget):
             
         finally:
             self._refreshing_thumbnails = False
+        
+        if self.tab_widget.currentIndex() == 1:
+            QTimer.singleShot(0, self._sync_thumbnail_selection_with_table)
 
     def _sync_thumbnail_selection_with_table(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
-            self.grid_manager._update_active_image(None)
+            self.grid_manager._update_active_images([])
             return
-        idx = selected_rows[0].row()
-        filepath = None
-        item = self.table.item(idx, 1)
-        if item:
-            filepath = item.data(Qt.UserRole)
-            if not filepath:
-                filepath = item.text()
-        if not filepath:
-            self.grid_manager._update_active_image(None)
+        
+        selected_filepaths = set()
+        for selected_idx in selected_rows:
+            row_idx = selected_idx.row()
+            item = self.table.item(row_idx, 1)
+            if item:
+                filepath = item.data(Qt.UserRole)
+                if not filepath:
+                    filepath = item.text()
+                if filepath:
+                    selected_filepaths.add(filepath)
+        
+        if not selected_filepaths:
+            self.grid_manager._update_active_images([])
             return
+        
+        matching_widgets = []
         for i in range(self.thumbnail_flow.count()):
             widget = self.thumbnail_flow.itemAt(i).widget()
             if widget and widget.property("file_info"):
                 file_info = widget.property("file_info")
-                if file_info.get("filepath") == filepath:
-                    self.grid_manager._update_active_image(widget)
-                    return
-        self.grid_manager._update_active_image(None)
+                if file_info.get("filepath") in selected_filepaths:
+                    matching_widgets.append(widget)
+        
+        self.grid_manager._update_active_images(matching_widgets)
 
     def get_selected_row_data(self):
         selected = self.table.selectedItems()
@@ -2232,11 +2257,11 @@ class ImageTableWidget(QWidget):
     def _highlight_selected_row(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
-            _succ_q3 = QColor(theme.get_color('success'))
-            _succ_rgb3 = f"{_succ_q3.red()},{_succ_q3.green()},{_succ_q3.blue()}"
+            _pr_q3 = QColor(theme.get_color('primary'))
+            _pr_rgb3 = f"{_pr_q3.red()},{_pr_q3.green()},{_pr_q3.blue()}"
             self.table.setStyleSheet(
                 f"QTableWidget::item:selected {{"
-                f"background-color: rgba({_succ_rgb3},0.2);"
+                f"background-color: rgba({_pr_rgb3},0.2);"
                 f"color: {theme.get_color('black')};"
                 "}"
             )

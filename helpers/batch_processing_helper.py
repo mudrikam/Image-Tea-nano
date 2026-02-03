@@ -1206,8 +1206,12 @@ def _set_gen_btn_stop_state(window, is_stop, is_stopping=False):
         btn.setText("Stop Processes")
         btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
         _set_gen_btn_blinking(window, False)
-        # Semi-opaque red (lighter) with white text for contrast; provide a slightly darker pressed color
-        style = _gen_btn_style_string(theme.get_color('secondary'), text_color='white', pressed_color=theme.get_color('secondary_pressed'), hover_color=theme.get_color('secondary_hover'))
+        _err_q = QColor(theme.get_color('error'))
+        _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+        bg = f"rgba({_err_rgb},0.90)"
+        hover = f"rgba({_err_rgb},0.85)"
+        pressed = f"rgba({_err_rgb},1.00)"
+        style = _gen_btn_style_string(bg, text_color='white', pressed_color=pressed, hover_color=hover)
         btn.setStyleSheet(style)
         window._gen_btn_last_bg = style
     else:
