@@ -9,54 +9,98 @@ SHARED_FORMATS = {
     "Freepik": {
         "delimiter": ";",
         "header": ['File name', 'Title', 'Keywords', 'Prompt', 'Model'],
-        "fields": ['filename', 'title', 'keywords', 'prompt', 'model']
+        "fields": ['filename', 'title', 'keywords', 'prompt', 'model'],
+        "quote_fields": "all",
+        "quote_header": False
     },
     "Adobe Stock": {
         "delimiter": ',',
         "header": ['Filename', 'Title', 'Keywords', 'Category', 'Releases'],
-        "fields": ['filename', 'title', 'keywords', 'category', 'releases']
+        "fields": ['filename', 'title', 'keywords', 'category', 'releases'],
+        "quote_fields": ['keywords', 'releases'],
+        "quote_header": False
     },
     "Shutterstock": {
         "delimiter": ',',
         "header": ['Filename', 'Description', 'Keywords', 'Categories', 'Editorial', 'Mature content', 'illustration'],
-        "fields": ['filename', 'description', 'keywords', 'categories', 'editorial', 'mature_content', 'illustration']
+        "fields": ['filename', 'description', 'keywords', 'categories', 'editorial', 'mature_content', 'illustration'],
+        "quote_fields": ['description', 'keywords', 'categories'],
+        "quote_header": False
     },
     "123RF": {
         "delimiter": ',',
-        "header": ['Filename', 'Description', 'Keywords', 'Country'],
-        "fields": ['filename', 'description', 'keywords', 'country']
+        "header": ['oldfilename', '123rf_filename', 'description', 'keywords', 'country'],
+        "fields": ['filename', 'title', 'description', 'keywords', 'country'],
+        "quote_fields": "all",
+        "quote_header": True
     },
     "Vecteezy": {
         "delimiter": ',',
         "header": ['Filename', 'Title', 'Description', 'Keywords', 'License'],
-        "fields": ['filename', 'title', 'description', 'keywords', 'license']
+        "fields": ['filename', 'title', 'description', 'keywords', 'license'],
+        "quote_fields": ['keywords'],
+        "quote_header": False
     },
     "iStock": {
         "delimiter": ',',
         "header": ['file name', 'description', 'country', 'title', 'keywords', 'poster timecode', 'shot speed', 'date created'],
-        "fields": ['filename', 'description', 'country', 'title', 'keywords', 'poster_timecode', 'shot_speed', 'date_created']
+        "fields": ['filename', 'description', 'country', 'title', 'keywords', 'poster_timecode', 'shot_speed', 'date_created'],
+        "quote_fields": ['description', 'title', 'keywords', 'poster_timecode', 'shot_speed'],
+        "quote_header": False
     },
     "Pond5": {
         "delimiter": ',',
         "header": ['OriginalFilename', 'Title', 'Description', 'Keywords', 'City', 'Region', 'Country', 'Specifysource', 'Modelreleased', 'Propertyreleased', 'Release', 'Copyright', 'Price', 'Editorial'],
-        "fields": ['filename', 'title', 'description', 'keywords', 'city', 'region', 'country', 'specifysource', 'modelreleased', 'propertyreleased', 'release', 'copyright', 'price', 'editorial']
+        "fields": ['filename', 'title', 'description', 'keywords', 'city', 'region', 'country', 'specifysource', 'modelreleased', 'propertyreleased', 'release', 'copyright', 'price', 'editorial'],
+        "quote_fields": "all",
+        "quote_header": True
     },
     "Depositphotos": {
         "delimiter": ',',
         "header": ['Filename', 'description', 'Keywords', 'Nudity', 'Editorial'],
-        "fields": ['filename', 'description', 'keywords', 'nudity', 'editorial']
+        "fields": ['filename', 'description', 'keywords', 'nudity', 'editorial'],
+        "quote_fields": "all",
+        "quote_header": True
     },
     "Canva": {
         "delimiter": ',',
         "header": ['filename', 'title', 'keywords', 'Artist', 'locale', 'description'],
-        "fields": ['filename', 'title', 'keywords', 'artist', 'locale', 'description']
+        "fields": ['filename', 'title', 'keywords', 'artist', 'locale', 'description'],
+        "quote_fields": ['title', 'keywords', 'description'],
+        "quote_header": False
     },
     "MiriCanvas": {
         "delimiter": ',',
         "header": ['fileName', 'uniqueId', 'elementName', 'keywords', 'tier', 'contentType'],
-        "fields": ['filename', 'uniqueId', 'elementName', 'keywords', 'tier', 'contentType']
+        "fields": ['filename', 'uniqueId', 'elementName', 'keywords', 'tier', 'contentType'],
+        "quote_fields": "all",
+        "quote_header": True
     }
 }
+
+def _write_csv_with_custom_quoting(file_path, header, rows, delimiter, quote_fields, quote_header):
+    with open(file_path, "w", encoding="utf-8", newline='') as f:
+        if quote_header:
+            header_line = delimiter.join([f'"{h}"' for h in header])
+        else:
+            header_line = delimiter.join(header)
+        f.write(header_line + '\n')
+        
+        for row in rows:
+            if quote_fields == "all":
+                line = delimiter.join([f'"{v}"' for v in row])
+            elif quote_fields == "none":
+                line = delimiter.join(row)
+            else:
+                formatted_fields = []
+                for i, v in enumerate(row):
+                    field_key = header[i].lower().replace(' ', '_') if i < len(header) else ""
+                    if isinstance(quote_fields, list) and any(qf in field_key for qf in quote_fields):
+                        formatted_fields.append(f'"{v}"')
+                    else:
+                        formatted_fields.append(v)
+                line = delimiter.join(formatted_fields)
+            f.write(line + '\n')
 
 def get_next_index(base_name, output_path):
     if not os.path.isdir(output_path):
@@ -161,6 +205,7 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
 def _123rf_format(file):
     return {
         'filename': file[2],
+        'title': file[3] if file[3] is not None else "",
         'description': file[4] if file[4] is not None else "",
         'keywords': file[5] if file[5] is not None else "",
         'country': ''
@@ -279,11 +324,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map["Freepik"], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Freepik CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Freepik CSV: {e}")
@@ -302,11 +344,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Adobe Stock CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Adobe Stock CSV: {e}")
@@ -325,11 +364,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Shutterstock CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Shutterstock CSV: {e}")
@@ -348,11 +384,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] 123rf CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting 123rf CSV: {e}")
@@ -371,11 +404,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Vecteezy CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Vecteezy CSV: {e}")
@@ -394,11 +424,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] iStock CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting iStock CSV: {e}")
@@ -417,11 +444,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Pond5 CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Pond5 CSV: {e}")
@@ -440,11 +464,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Depositphotos CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Depositphotos CSV: {e}")
@@ -463,11 +484,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] Canva CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting Canva CSV: {e}")
@@ -486,11 +504,8 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
                 csv_filename = generate_export_filename(name_map[key], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
-                    with open(csv_path, "w", encoding="utf-8", newline='') as f:
-                        writer = csv.writer(f, delimiter=fmt['delimiter'], quoting=csv.QUOTE_ALL)
-                        writer.writerow(fmt['header'])
-                        for row in rows:
-                            writer.writerow([row.get(k, '') for k in fmt['fields']])
+                    row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
+                    _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
                     print(f"[csv_exporter] MiriCanvas CSV exported to: {csv_path}")
                 except Exception as e:
                     print(f"[csv_exporter] Error exporting MiriCanvas CSV: {e}")
