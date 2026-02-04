@@ -138,11 +138,12 @@ class FlowLayout(QLayout):
         return size
 
     def doLayout(self, rect, testOnly):
-        x = rect.x()
-        y = rect.y()
-        lineHeight = 0
-        right = rect.x() + rect.width()
+        # Respect contents margins when positioning items so top/bottom spacing is correct
         margin = self.contentsMargins()
+        x = rect.x() + margin.left()
+        y = rect.y() + margin.top()
+        lineHeight = 0
+        right = rect.x() + rect.width() - margin.right()
         
         if right <= x:
             return 0
@@ -157,14 +158,13 @@ class FlowLayout(QLayout):
             itemSize = item.sizeHint()
             nextX = x + itemSize.width() + spaceX
             
-            if nextX - spaceX > right and x > rect.x():
-                x = rect.x()
+            if nextX - spaceX > right and x > rect.x() + margin.left():
+                x = rect.x() + margin.left()
                 y = y + lineHeight + spaceY
                 nextX = x + itemSize.width() + spaceX
                 lineHeight = 0
                 
             if not testOnly:
-                                                                
                 item.setGeometry(QRect(QtQPoint(x, y), itemSize))
                 if widget:
                     widget.move(x, y)
@@ -173,7 +173,8 @@ class FlowLayout(QLayout):
             x = nextX
             lineHeight = max(lineHeight, itemSize.height())
             
-        return y + lineHeight - rect.y()
+        # include bottom margin in reported height
+        return y + lineHeight + margin.bottom() - rect.y()
 
     def invalidate(self):
         super().invalidate()
@@ -939,18 +940,26 @@ class ImageTableWidget(QWidget):
         self.thumbnail_tab = DragDropThumbnailTab(self)
         self.thumbnail_tab_layout = QVBoxLayout(self.thumbnail_tab)
         self.thumbnail_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.thumbnail_tab_layout.setSpacing(2)
         
         thumbnail_controls_layout = QHBoxLayout()
-        thumbnail_controls_layout.setContentsMargins(4, 4, 4, 4)
+        thumbnail_controls_layout.setContentsMargins(4, 2, 4, 2)
+        thumbnail_controls_layout.setSpacing(8)
+        thumbnail_controls_layout.setAlignment(Qt.AlignVCenter)
+
         zoom_label = QLabel("Columns per Row:")
         zoom_label.setStyleSheet(f"font-size: 9pt; color: {theme.get_color('text_dark')};")
+        zoom_label.setFixedHeight(22)
+        zoom_label.setContentsMargins(0, 0, 0, 0)
         thumbnail_controls_layout.addWidget(zoom_label)
         
         self.zoom_preset_combo = QComboBox(self)
         self.zoom_preset_combo.addItems(["2 Columns", "3 Columns", "4 Columns", "5 Columns", "6 Columns", "7 Columns", "8 Columns"])
         self.zoom_preset_combo.setCurrentText("4 Columns")
         self.zoom_preset_combo.setFixedWidth(120)
+        self.zoom_preset_combo.setFixedHeight(22)
         self.zoom_preset_combo.setToolTip("Select number of thumbnail columns per row (or use Ctrl+Scroll to zoom)")
+        self.zoom_preset_combo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.zoom_preset_combo.currentTextChanged.connect(self._on_zoom_preset_changed)
         thumbnail_controls_layout.addWidget(self.zoom_preset_combo)
         
@@ -959,7 +968,7 @@ class ImageTableWidget(QWidget):
         self.zoom_slider.setSingleStep(4)
         self.zoom_slider.setPageStep(16)
         self.zoom_slider.setFixedWidth(220)
-        self.zoom_slider.setFixedHeight(18)
+        self.zoom_slider.setFixedHeight(22)
         self.zoom_slider.setToolTip("Zoom thumbnails")
         self.zoom_slider.valueChanged.connect(self._on_zoom_slider_changed)
         self.zoom_slider.setStyleSheet(theme.get_slider_style())
@@ -971,15 +980,18 @@ class ImageTableWidget(QWidget):
         self.thumbnail_tab_layout.addLayout(thumbnail_controls_layout)
         
         self.thumbnail_scroll = DragDropScrollArea(self.thumbnail_tab)
+        self.thumbnail_scroll.setContentsMargins(0, 0, 0, 0)
         self.thumbnail_scroll.setWidgetResizable(True)
         self.thumbnail_scroll.setFrameShape(QFrame.NoFrame)
         self.thumbnail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.thumbnail_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.thumbnail_scroll.viewport().setContentsMargins(0, 0, 0, 0)
         self.thumbnail_tab_layout.addWidget(self.thumbnail_scroll)
         self.thumbnail_content = QWidget()
+        self.thumbnail_content.setContentsMargins(0, 0, 0, 0)
         self.thumbnail_content.setAcceptDrops(True)
         self.thumbnail_scroll.setWidget(self.thumbnail_content)
-        self.thumbnail_flow = FlowLayout(margin=10, spacing=2)
+        self.thumbnail_flow = FlowLayout(margin=2, spacing=6)
         self.thumbnail_content.setLayout(self.thumbnail_flow)
         
         self.thumbnail_no_data_overlay = NoDataWidget()
