@@ -636,7 +636,7 @@ def find_latest_backup_with_prefix(prefix, base_path=BASE_PATH):
 	return os.path.join(backups_dir, latest)
 
 
-def _deep_merge_ai_config(remote, local):
+def _deep_merge_ai_config(remote, local, prefer_repo_default=False):
 	print(f"Starting deep merge: remote has {len(remote)} keys, local has {len(local)} keys")
 	merged = copy.deepcopy(remote)
 	
@@ -667,12 +667,28 @@ def _deep_merge_ai_config(remote, local):
 	if 'prompt_presets' in local:
 		user_presets = [p for p in local['prompt_presets'] if p.get('name') != 'Default']
 		if user_presets:
-			remote_default = None
-			for p in merged.get('prompt_presets', []):
-				if p.get('name') == 'Default':
-					remote_default = p
-					break
-			merged['prompt_presets'] = [remote_default] if remote_default else []
+			if prefer_repo_default:
+				local_default = None
+				for p in local.get('prompt_presets', []):
+					if p.get('name') == 'Default':
+						local_default = p
+						break
+				if local_default:
+					merged['prompt_presets'] = [local_default]
+				else:
+					remote_default = None
+					for p in merged.get('prompt_presets', []):
+						if p.get('name') == 'Default':
+							remote_default = p
+							break
+					merged['prompt_presets'] = [remote_default] if remote_default else []
+			else:
+				remote_default = None
+				for p in merged.get('prompt_presets', []):
+					if p.get('name') == 'Default':
+						remote_default = p
+						break
+				merged['prompt_presets'] = [remote_default] if remote_default else []
 			merged['prompt_presets'].extend(user_presets)
 			print(f"Preserved {len(user_presets)} user presets")
 	
@@ -759,7 +775,7 @@ def restore_backup_by_path(zip_path, base_path=BASE_PATH, skip_app_config=False)
 						print(f"Loaded backup config: {len(backup_config)} keys")
 						print(f"Loaded current config: {len(current_config)} keys")
 						
-						merged_config = _deep_merge_ai_config(backup_config, current_config)
+						merged_config = _deep_merge_ai_config(backup_config, current_config, prefer_repo_default=skip_app_config)
 						
 						print(f"Merged config has {len(merged_config)} keys")
 					else:

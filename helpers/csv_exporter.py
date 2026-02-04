@@ -4,7 +4,14 @@ import datetime
 import re
 import csv
 
-# Shared field definitions used by exporter and importer
+def _sanitize_text_for_csv(text):
+    if not text:
+        return text
+    pattern = r'[^a-zA-Z0-9\s]'
+    sanitized = re.sub(pattern, '', text)
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+    return sanitized
+
 SHARED_FORMATS = {
     "Freepik": {
         "delimiter": ";",
@@ -17,14 +24,14 @@ SHARED_FORMATS = {
         "delimiter": ',',
         "header": ['Filename', 'Title', 'Keywords', 'Category', 'Releases'],
         "fields": ['filename', 'title', 'keywords', 'category', 'releases'],
-        "quote_fields": ['keywords', 'releases'],
+        "quote_fields": ['filename', 'keywords', 'releases'],
         "quote_header": False
     },
     "Shutterstock": {
         "delimiter": ',',
         "header": ['Filename', 'Description', 'Keywords', 'Categories', 'Editorial', 'Mature content', 'illustration'],
         "fields": ['filename', 'description', 'keywords', 'categories', 'editorial', 'mature_content', 'illustration'],
-        "quote_fields": ['description', 'keywords', 'categories'],
+        "quote_fields": ['filename', 'description', 'keywords', 'categories'],
         "quote_header": False
     },
     "123RF": {
@@ -38,14 +45,14 @@ SHARED_FORMATS = {
         "delimiter": ',',
         "header": ['Filename', 'Title', 'Description', 'Keywords', 'License'],
         "fields": ['filename', 'title', 'description', 'keywords', 'license'],
-        "quote_fields": ['keywords'],
+        "quote_fields": ['filename', 'keywords'],
         "quote_header": False
     },
     "iStock": {
         "delimiter": ',',
         "header": ['file name', 'description', 'country', 'title', 'keywords', 'poster timecode', 'shot speed', 'date created'],
         "fields": ['filename', 'description', 'country', 'title', 'keywords', 'poster_timecode', 'shot_speed', 'date_created'],
-        "quote_fields": ['description', 'title', 'keywords', 'poster_timecode', 'shot_speed'],
+        "quote_fields": ['filename', 'description', 'title', 'keywords', 'poster_timecode', 'shot_speed'],
         "quote_header": False
     },
     "Pond5": {
@@ -66,7 +73,7 @@ SHARED_FORMATS = {
         "delimiter": ',',
         "header": ['filename', 'title', 'keywords', 'Artist', 'locale', 'description'],
         "fields": ['filename', 'title', 'keywords', 'artist', 'locale', 'description'],
-        "quote_fields": ['title', 'keywords', 'description'],
+        "quote_fields": ['filename', 'title', 'keywords', 'description'],
         "quote_header": False
     },
     "MiriCanvas": {
@@ -141,7 +148,7 @@ def generate_export_filename(base_name, output_path):
 def _freepik_format(file):
     return {
         'filename': file[2],
-        'title': file[3] if file[3] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'prompt': "",
         'model': ""
@@ -156,7 +163,7 @@ def _adobe_stock_format(file, adobe_map, category_mapping):
             break
     return {
         'filename': file[2],
-        'title': file[3] if file[3] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'category': category_text,
         'releases': ""
@@ -194,7 +201,7 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
 
     return {
         'filename': file[2],
-        'description': file[4] if file[4] is not None else "",
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'categories': categories,
         'editorial': 'no',
@@ -205,8 +212,8 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
 def _123rf_format(file):
     return {
         'filename': file[2],
-        'title': file[3] if file[3] is not None else "",
-        'description': file[4] if file[4] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'country': ''
     }
@@ -254,8 +261,8 @@ def _vecteezy_format(file):
     filename = _sanitize_filename_for_vecteezy(file[2])
     return {
         'filename': filename,
-        'title': file[3] if file[3] is not None else "",
-        'description': file[4] if file[4] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'license': 'Pro'
     }
@@ -265,9 +272,9 @@ def _istock_format(file):
     created_date = today.strftime("%m/%d/%Y")
     return {
         'filename': file[2],
-        'description': file[4] if file[4] is not None else "",
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'country': '',
-        'title': file[3] if file[3] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'poster_timecode': '',
         'shot_speed': 'Real Time',
@@ -277,8 +284,8 @@ def _istock_format(file):
 def _pond5_format(file):
     return {
         'filename': file[2],
-        'title': file[3] if file[3] is not None else "",
-        'description': file[4] if file[4] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'city': '',
         'region': '',
@@ -295,7 +302,7 @@ def _pond5_format(file):
 def _depositphotos_format(file):
     return {
         'filename': file[2],
-        'description': file[4] if file[4] is not None else "",
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'nudity': 'no',
         'editorial': 'no'
@@ -304,11 +311,11 @@ def _depositphotos_format(file):
 def _canva_format(file):
     return {
         'filename': file[2],
-        'title': file[3] if file[3] is not None else "",
+        'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'artist': '',
         'locale': 'en',
-        'description': file[4] if file[4] is not None else ""
+        'description': _sanitize_text_for_csv(file[4] if file[4] is not None else "")
     }
 def _miricanvas_format(file):
     filename = file[2]
@@ -316,7 +323,7 @@ def _miricanvas_format(file):
     return {
         'filename': filename_no_ext,
         'uniqueId': '',
-        'elementName': file[3] if file[3] is not None else "",
+        'elementName': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'tier': '',
         'contentType': ''
