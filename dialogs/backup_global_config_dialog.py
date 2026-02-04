@@ -8,6 +8,7 @@ from config import BASE_PATH
 import re
 import shutil
 import json
+import copy
 import qtawesome as qta
 import traceback
 from dialogs.add_api_key_dialog import AddApiKeyDialog
@@ -635,6 +636,83 @@ def find_latest_backup_with_prefix(prefix, base_path=BASE_PATH):
 	return os.path.join(backups_dir, latest)
 
 
+def _deep_merge_ai_config(remote, local):
+	print(f"Starting deep merge: remote has {len(remote)} keys, local has {len(local)} keys")
+	merged = copy.deepcopy(remote)
+	
+	user_fields = [
+		'selected_preset',
+		'min_title_length', 
+		'max_title_length',
+		'max_description_length',
+		'required_tag_count',
+		'compression_quality',
+		'batch_size',
+		'delay_interval',
+		'video_proxy_setting',
+		'category'
+	]
+	preserved_count = 0
+	for field in user_fields:
+		if field in local:
+			merged[field] = local[field]
+			preserved_count += 1
+	print(f"Preserved {preserved_count} user fields")
+	
+	if 'prompt' in merged and 'prompt' in local:
+		if 'custom_prompt' in local['prompt']:
+			merged['prompt']['custom_prompt'] = local['prompt']['custom_prompt']
+			print("Preserved custom_prompt from user")
+	
+	if 'prompt_presets' in local:
+		user_presets = [p for p in local['prompt_presets'] if p.get('name') != 'Default']
+		if user_presets:
+			remote_default = None
+			for p in merged.get('prompt_presets', []):
+				if p.get('name') == 'Default':
+					remote_default = p
+					break
+			merged['prompt_presets'] = [remote_default] if remote_default else []
+			merged['prompt_presets'].extend(user_presets)
+			print(f"Preserved {len(user_presets)} user presets")
+	
+	if 'model_list' in merged and 'model_list' in local:
+		local_models_added = 0
+		for provider, models in local['model_list'].items():
+			if provider not in merged['model_list']:
+				merged['model_list'][provider] = []
+			remote_models = merged['model_list'][provider]
+			for model in models:
+				if model not in remote_models:
+					remote_models.append(model)
+					local_models_added += 1
+		if local_models_added > 0:
+			print(f"Added {local_models_added} local models to merged config")
+	
+	if 'prompt_generator' in merged and 'prompt_generator' in local:
+		if 'settings' in local['prompt_generator']:
+			if 'settings' not in merged['prompt_generator']:
+				merged['prompt_generator']['settings'] = {}
+			merged['prompt_generator']['settings'].update(local['prompt_generator']['settings'])
+			print("Preserved prompt_generator settings from user")
+	
+	if 'imagen_generator' in merged and 'imagen_generator' in local:
+		if 'settings' in local['imagen_generator']:
+			if 'settings' not in merged['imagen_generator']:
+				merged['imagen_generator']['settings'] = {}
+			merged['imagen_generator']['settings'].update(local['imagen_generator']['settings'])
+			print("Preserved imagen_generator settings from user")
+	
+	for key in ['shutterstock_category_map', 'adobe_stock_category_map', 'file_types', 
+				'video_proxy_presets', 'aspect_ratios', 'person_generation_options', 
+				'sample_image_sizes', 'generation_modes']:
+		if key in local and key not in merged:
+			merged[key] = local[key]
+	
+	print(f"Merge complete: result has {len(merged)} top-level keys")
+	return merged
+
+
 def restore_backup_by_path(zip_path, base_path=BASE_PATH, skip_app_config=False):
 	if not os.path.exists(zip_path):
 		raise FileNotFoundError(f"Backup not found: {zip_path}")
@@ -665,6 +743,39 @@ def restore_backup_by_path(zip_path, base_path=BASE_PATH, skip_app_config=False)
 				continue
 			if skip_app_config and os.path.normpath(rel) == os.path.normpath('app_config.json'):
 				continue
+			
+			if os.path.normpath(rel) == os.path.normpath('ai_config.json'):
+				print("Merging ai_config.json...")
+				try:
+					backup_ai_config_path = os.path.join(root, f)
+					current_ai_config_path = os.path.join(cfg_dir, 'ai_config.json')
+					
+					with open(backup_ai_config_path, 'r', encoding='utf-8') as bf:
+						backup_config = json.load(bf)
+					
+					if os.path.exists(current_ai_config_path):
+						with open(current_ai_config_path, 'r', encoding='utf-8') as cf:
+							current_config = json.load(cf)
+						print(f"Loaded backup config: {len(backup_config)} keys")
+						print(f"Loaded current config: {len(current_config)} keys")
+						
+						merged_config = _deep_merge_ai_config(backup_config, current_config)
+						
+						print(f"Merged config has {len(merged_config)} keys")
+					else:
+						print("No existing ai_config.json, using backup as-is")
+						merged_config = backup_config
+					
+					dest = os.path.join(cfg_dir, rel)
+					os.makedirs(os.path.dirname(dest), exist_ok=True)
+					with open(dest, 'w', encoding='utf-8') as out:
+						json.dump(merged_config, out, ensure_ascii=False, indent=2)
+					print("Successfully saved merged ai_config.json")
+					continue
+				except Exception as e:
+					print(f"Error merging ai_config.json: {e}")
+					traceback.print_exc()
+			
 			dest = os.path.join(cfg_dir, rel)
 			abs_dest = os.path.abspath(dest)
 			abs_cfg = os.path.abspath(cfg_dir)
