@@ -14,7 +14,7 @@ import cv2
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
     QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
-    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QCheckBox, QSpinBox
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QCheckBox, QSpinBox, QMenu
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
@@ -107,7 +107,7 @@ class UpscaleWorker(QThread):
 
     def __init__(self, video_paths: List[str], model: str, scale: int, batch_size: int = 10, 
                  encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None, remove_audio: bool = False,
-                 tint_adjustment: tuple = (0, 0, 0)):
+                 tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False):
         super().__init__()
         self.video_paths = video_paths
         self.model = model
@@ -118,6 +118,7 @@ class UpscaleWorker(QThread):
         self.output_dir = output_dir
         self.remove_audio = remove_audio
         self.tint_adjustment = tint_adjustment
+        self.resume_mode = resume_mode
         self._stop_requested = False
         
         self.ffmpeg_bin = get_ffmpeg_path()
@@ -642,8 +643,14 @@ class UpscaleWorker(QThread):
             self.log_signal.emit(f"🚀 PHASE 2/3: UPSCALING FRAMES")
             self.log_signal.emit(f"   🧩 Model: {self.model} (Type: {self.model_type.upper()}) | Scale: {self.scale}x | Batch: {self.batch_size}")
             
-            for f in OUT_FRAMES_DIR.glob("*"):
-                f.unlink()
+            existing_upscaled = set()
+            if self.resume_mode and OUT_FRAMES_DIR.exists():
+                existing_upscaled = {f.name for f in OUT_FRAMES_DIR.glob("*.png")}
+                if existing_upscaled:
+                    self.log_signal.emit(f"   🔄 Resume mode: Found {len(existing_upscaled)} existing upscaled frames")
+            else:
+                for f in OUT_FRAMES_DIR.glob("*"):
+                    f.unlink()
             
             frame_files = sorted(TMP_FRAMES_DIR.glob("*.png"))
             total_frames = len(frame_files)
@@ -656,9 +663,15 @@ class UpscaleWorker(QThread):
                     self.log_signal.emit("❌ Failed to initialize backend")
                     return False
                 
-                self.log_signal.emit(f"   Processing {total_frames} frames with {self.model_type.upper()} backend")
+                frames_to_process = [f for f in frame_files if f.name not in existing_upscaled]
+                skipped_count = len(frame_files) - len(frames_to_process)
+                if skipped_count > 0:
+                    self.log_signal.emit(f"   ⏭️ Skipping {skipped_count} already upscaled frames")
+                    processed = skipped_count
                 
-                for idx, frame_file in enumerate(frame_files):
+                self.log_signal.emit(f"   Processing {len(frames_to_process)} frames with {self.model_type.upper()} backend")
+                
+                for idx, frame_file in enumerate(frames_to_process):
                     if self._stop_requested:
                         return False
                     
@@ -674,24 +687,24 @@ class UpscaleWorker(QThread):
                         self.log_signal.emit(f"   ❌ Failed to upscale frame {frame_file.name}")
                         return False
                     
-                    processed = idx + 1
+                    processed = skipped_count + idx + 1
                     elapsed = time.time() - start_time
                     remaining = max(0, total_frames - processed)
                     eta = 0.0
                     if processed > 0:
-                        rate = elapsed / processed
-                        eta = rate * remaining
+                        rate = elapsed / (idx + 1) if idx >= 0 else 0
+                        eta = rate * (len(frames_to_process) - idx - 1)
                         progress_pct = int((processed / total_frames) * 100)
                         self.progress_signal.emit(min(100, progress_pct))
                     
                     self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
                     
-                    if (idx + 1) % 10 == 0 or (idx + 1) == total_frames:
+                    if (idx + 1) % 10 == 0 or (idx + 1) == len(frames_to_process):
                         self.log_signal.emit(f"   Progress: {processed}/{total_frames} frames ({progress_pct}%)")
                 
                 elapsed = time.time() - start_time
                 self.progress_signal.emit(100)
-                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {total_frames} frames in {elapsed:.2f}s")
+                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_process)} frames (skipped {skipped_count}) in {elapsed:.2f}s")
             
             else:
                 model_to_use = self.model
@@ -716,174 +729,185 @@ class UpscaleWorker(QThread):
                 num_batches = (total_frames + self.batch_size - 1) // self.batch_size
                 self.log_signal.emit(f"   🔁 Processing {num_batches} batches with NCNN backend")
                 
-                for batch_idx in range(num_batches):
-                    if self._stop_requested:
-                        return False
-                    
-                    start_idx = batch_idx * self.batch_size
-                    end_idx = min(start_idx + self.batch_size, total_frames)
-                    batch_frames = frame_files[start_idx:end_idx]
-                    batch_num = batch_idx + 1
-                    batch_frame_count = len(batch_frames)
-                    
-                    if batch_frames:
-                        first_frame = Image.open(batch_frames[0])
-                        input_width, input_height = first_frame.size
-                        output_width = input_width * self.scale
-                        output_height = input_height * self.scale
-                        self.log_signal.emit(f"   📦 Batch {batch_num}/{num_batches}: Processing frames {start_idx+1}-{end_idx} ({batch_frame_count} frames)")
-                        self.log_signal.emit(f"      📐 Input: {input_width}x{input_height} → Output: {output_width}x{output_height}")
-                    
-                    for f in BATCH_INPUT_DIR.glob("*"):
-                        f.unlink()
-                    for f in BATCH_OUTPUT_DIR.glob("*"):
-                        f.unlink()
-                    
-                    for frame_file in batch_frames:
-                        shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
-                    
-                    cmd = [
-                        str(self.realesrgan_bin),
-                        "-i", str(BATCH_INPUT_DIR),
-                        "-o", str(BATCH_OUTPUT_DIR),
-                        "-m", str(self.models_dir),
-                        "-n", model_to_use,
-                        "-s", str(self.scale),
-                        "-t", "0",
-                    "-f", "png",
-                ]
+                frames_to_upscale = [f for f in frame_files if f.name not in existing_upscaled]
+                skipped_frames = len(frame_files) - len(frames_to_upscale)
+                if skipped_frames > 0:
+                    self.log_signal.emit(f"   ⏭️ Skipping {skipped_frames} already upscaled frames")
                 
-                    input_count = len(list(BATCH_INPUT_DIR.glob("*.png")))
-                    self.log_signal.emit(f"   🔁 Running RealESRGAN on batch {batch_num}/{num_batches} ({batch_frame_count} frames)")
-
-                    attempts = 0
-                    max_attempts = 2
-                    produced_count = 0
-                    last_stdout = []
-                    while attempts <= max_attempts:
-                        startupinfo = None
-                        creationflags = 0
-                        if platform.system() == "Windows":
-                            try:
-                                si = subprocess.STARTUPINFO()
-                                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                                si.wShowWindow = subprocess.SW_HIDE
-                                startupinfo = si
-                                creationflags = subprocess.CREATE_NO_WINDOW
-                            except Exception:
-                                startupinfo = None
-                        # Preflight permission check
-                        if not self._preflight_realesrgan():
+                if not frames_to_upscale:
+                    self.log_signal.emit(f"   ✅ All frames already upscaled, skipping to merge phase")
+                    processed = frame_count
+                else:
+                    num_batches = (len(frames_to_upscale) + self.batch_size - 1) // self.batch_size
+                    processed = skipped_frames
+                
+                    for batch_idx in range(num_batches):
+                        if self._stop_requested:
                             return False
+                        
+                        start_idx = batch_idx * self.batch_size
+                        end_idx = min(start_idx + self.batch_size, len(frames_to_upscale))
+                        batch_frames = frames_to_upscale[start_idx:end_idx]
+                        batch_num = batch_idx + 1
+                        batch_frame_count = len(batch_frames)
+                    
+                        if batch_frames:
+                            first_frame = Image.open(batch_frames[0])
+                            input_width, input_height = first_frame.size
+                            output_width = input_width * self.scale
+                            output_height = input_height * self.scale
+                            self.log_signal.emit(f"   📦 Batch {batch_num}/{num_batches}: Processing frames {start_idx+1}-{end_idx} ({batch_frame_count} frames)")
+                            self.log_signal.emit(f"      📐 Input: {input_width}x{input_height} → Output: {output_width}x{output_height}")
+                    
+                        for f in BATCH_INPUT_DIR.glob("*"):
+                            f.unlink()
+                        for f in BATCH_OUTPUT_DIR.glob("*"):
+                            f.unlink()
+                        
+                        for frame_file in batch_frames:
+                            shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
+                        
+                        cmd = [
+                            str(self.realesrgan_bin),
+                            "-i", str(BATCH_INPUT_DIR),
+                            "-o", str(BATCH_OUTPUT_DIR),
+                            "-m", str(self.models_dir),
+                            "-n", model_to_use,
+                            "-s", str(self.scale),
+                            "-t", "0",
+                            "-f", "png",
+                        ]
+                        
+                        input_count = len(list(BATCH_INPUT_DIR.glob("*.png")))
+                        self.log_signal.emit(f"   🔁 Running RealESRGAN on batch {batch_num}/{num_batches} ({batch_frame_count} frames)")
 
-                        try:
-                            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                                    text=True, cwd=str(self.realesrgan_bin.parent),
-                                                    startupinfo=startupinfo, creationflags=creationflags)
-                        except FileNotFoundError as e:
-                            print(f"System Error: RealESRGAN executable not found: {e} - {self.realesrgan_bin}")
-                            self.log_signal.emit(f"❌ Error launching RealESRGAN for batch {batch_num}: {e} (executable not found)")
-                            self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
-                            self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
-                            self.log_signal.emit(f"   Command: {cmd}")
-                            return False
-                        except OSError as e:
-                            print(f"System Error launching RealESRGAN for batch {batch_num}: {e} - Executable: {self.realesrgan_bin}")
-                            self.log_signal.emit(f"❌ OS error launching RealESRGAN for batch {batch_num}: {e}")
-                            self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
-                            self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
-                            self.log_signal.emit(f"   Command: {cmd}")
-                            return False
-
-                        for line in proc.stdout:
-                            if self._stop_requested:
-                                proc.terminate()
+                        attempts = 0
+                        max_attempts = 2
+                        produced_count = 0
+                        last_stdout = []
+                        while attempts <= max_attempts:
+                            startupinfo = None
+                            creationflags = 0
+                            if platform.system() == "Windows":
+                                try:
+                                    si = subprocess.STARTUPINFO()
+                                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                                    si.wShowWindow = subprocess.SW_HIDE
+                                    startupinfo = si
+                                    creationflags = subprocess.CREATE_NO_WINDOW
+                                except Exception:
+                                    startupinfo = None
+                            if not self._preflight_realesrgan():
                                 return False
-                            ll = line.strip()
-                            last_stdout.append(ll)
-                            if not ll:
-                                continue
-                            low = ll.lower()
-                            if 'fail' in low or 'error' in low:
-                                self.log_signal.emit(f"   ❗ ERROR: {ll}")
 
-                        proc.wait()
+                            try:
+                                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                                        text=True, cwd=str(self.realesrgan_bin.parent),
+                                                        startupinfo=startupinfo, creationflags=creationflags)
+                            except FileNotFoundError as e:
+                                print(f"System Error: RealESRGAN executable not found: {e} - {self.realesrgan_bin}")
+                                self.log_signal.emit(f"❌ Error launching RealESRGAN for batch {batch_num}: {e} (executable not found)")
+                                self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
+                                self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
+                                self.log_signal.emit(f"   Command: {cmd}")
+                                return False
+                            except OSError as e:
+                                print(f"System Error launching RealESRGAN for batch {batch_num}: {e} - Executable: {self.realesrgan_bin}")
+                                self.log_signal.emit(f"❌ OS error launching RealESRGAN for batch {batch_num}: {e}")
+                                self.log_signal.emit(f"   Executable: {self.realesrgan_bin}")
+                                self.log_signal.emit(f"   Working dir: {self.realesrgan_bin.parent}")
+                                self.log_signal.emit(f"   Command: {cmd}")
+                                return False
 
-                        time.sleep(0.5)
+                            for line in proc.stdout:
+                                if self._stop_requested:
+                                    proc.terminate()
+                                    return False
+                                ll = line.strip()
+                                last_stdout.append(ll)
+                                if not ll:
+                                    continue
+                                low = ll.lower()
+                                if 'fail' in low or 'error' in low:
+                                    self.log_signal.emit(f"   ❗ ERROR: {ll}")
+
+                            proc.wait()
+
+                            time.sleep(0.5)
+                            produced_files = list(BATCH_OUTPUT_DIR.glob("*.png"))
+                            produced_count = len(produced_files)
+
+                            if proc.returncode == 0 and produced_count >= batch_frame_count:
+                                break
+
+                            attempts += 1
+                            self.log_signal.emit(f"   ⚠️ RealESRGAN produced {produced_count}/{batch_frame_count} outputs (attempt {attempts}/{max_attempts+1})")
+
+                            if last_stdout:
+                                tail = last_stdout[-20:]
+                                self.log_signal.emit("   🔎 Recent RealESRGAN output:")
+                                combined = "\n".join(tail).lower()
+                                for l in tail:
+                                    self.log_signal.emit(f"      {l}")
+
+                                if 'llvmpipe' in combined or 'llvm error' in combined or 'cannot select' in combined or 'fild' in combined:
+                                    hint = ("System Error: Vulkan/driver failure detected in RealESRGAN output (llvmpipe/LLVM). "
+                                            "Ensure proper Vulkan GPU drivers are installed; using software rasterizers will fail.")
+                                    print(hint)
+                                    self.log_signal.emit(f"   ❗ {hint}")
+
+                            if attempts > max_attempts:
+                                self.log_signal.emit(f"   ❌ RealESRGAN failed repeatedly on batch {batch_num}; skipping batch")
+                                overall_success = False
+                                break
+                            else:
+                                time.sleep(1.0)
+                                self.log_signal.emit("   🔁 Retrying batch...")
+
+                        copied_count = 0
                         produced_files = list(BATCH_OUTPUT_DIR.glob("*.png"))
                         produced_count = len(produced_files)
+                        self.log_signal.emit(f"   ℹ️ Batch produced {produced_count} output file(s)")
 
-                        if proc.returncode == 0 and produced_count >= batch_frame_count:
-                            break
-
-                        attempts += 1
-                        self.log_signal.emit(f"   ⚠️ RealESRGAN produced {produced_count}/{batch_frame_count} outputs (attempt {attempts}/{max_attempts+1})")
-
-                        if last_stdout:
-                            tail = last_stdout[-20:]
-                            self.log_signal.emit("   🔎 Recent RealESRGAN output:")
-                            combined = "\n".join(tail).lower()
-                            for l in tail:
-                                self.log_signal.emit(f"      {l}")
-
-                            if 'llvmpipe' in combined or 'llvm error' in combined or 'cannot select' in combined or 'fild' in combined:
-                                hint = ("System Error: Vulkan/driver failure detected in RealESRGAN output (llvmpipe/LLVM). "
-                                        "Ensure proper Vulkan GPU drivers are installed; using software rasterizers will fail.")
-                                print(hint)
-                                self.log_signal.emit(f"   ❗ {hint}")
-
-                        if attempts > max_attempts:
-                            self.log_signal.emit(f"   ❌ RealESRGAN failed repeatedly on batch {batch_num}; skipping batch")
-                            overall_success = False
-                            break
-                        else:
-                            time.sleep(1.0)
-                            self.log_signal.emit("   🔁 Retrying batch...")
-
-                    copied_count = 0
-                    produced_files = list(BATCH_OUTPUT_DIR.glob("*.png"))
-                    produced_count = len(produced_files)
-                    self.log_signal.emit(f"   ℹ️ Batch produced {produced_count} output file(s)")
-
-                    for frame_file in batch_frames:
-                        out_file = BATCH_OUTPUT_DIR / frame_file.name
-                        dest = OUT_FRAMES_DIR / frame_file.name
-                        if out_file.exists():
-                            img = cv2.imread(str(out_file), cv2.IMREAD_UNCHANGED)
-                            if img is None:
-                                try:
-                                    shutil.copy2(out_file, dest)
-                                    copied_count += 1
-                                except Exception as e:
-                                    self.log_signal.emit(f"   ❗ Failed to copy raw output {out_file.name}: {e}")
-                                    overall_success = False
-                            else:
-                                self.log_signal.emit(f"   ℹ️ Frame output means (BGR): {img.mean(axis=(0,1)).tolist() if img.ndim==3 else [img.mean()]} for {out_file.name}")
-                                ok = self._normalize_and_save_frame(img, str(dest))
-                                if ok:
-                                    copied_count += 1
-                                else:
+                        for frame_file in batch_frames:
+                            out_file = BATCH_OUTPUT_DIR / frame_file.name
+                            dest = OUT_FRAMES_DIR / frame_file.name
+                            if out_file.exists():
+                                img = cv2.imread(str(out_file), cv2.IMREAD_UNCHANGED)
+                                if img is None:
                                     try:
                                         shutil.copy2(out_file, dest)
                                         copied_count += 1
                                     except Exception as e:
-                                        self.log_signal.emit(f"   ❗ Failed to copy fallback raw output {out_file.name}: {e}")
+                                        self.log_signal.emit(f"   ❗ Failed to copy raw output {out_file.name}: {e}")
                                         overall_success = False
-                        else:
-                            self.log_signal.emit(f"   ⚠️ Missing upscaled output for: {frame_file.name}")
-                            overall_success = False
+                                else:
+                                    self.log_signal.emit(f"   ℹ️ Frame output means (BGR): {img.mean(axis=(0,1)).tolist() if img.ndim==3 else [img.mean()]} for {out_file.name}")
+                                    ok = self._normalize_and_save_frame(img, str(dest))
+                                    if ok:
+                                        copied_count += 1
+                                    else:
+                                        try:
+                                            shutil.copy2(out_file, dest)
+                                            copied_count += 1
+                                        except Exception as e:
+                                            self.log_signal.emit(f"   ❗ Failed to copy fallback raw output {out_file.name}: {e}")
+                                            overall_success = False
+                            else:
+                                self.log_signal.emit(f"   ⚠️ Missing upscaled output for: {frame_file.name}")
+                                overall_success = False
 
-                    processed += copied_count
-                    elapsed = time.time() - start_time
-                    remaining = max(0, frame_count - processed)
-                    eta = 0.0
-                    if processed > 0:
-                        rate = elapsed / processed
-                        eta = rate * remaining
-                        progress_pct = int((processed / frame_count) * 100)
-                        self.progress_signal.emit(min(100, progress_pct))
+                        processed += copied_count
+                        elapsed = time.time() - start_time
+                        remaining = max(0, frame_count - processed)
+                        eta = 0.0
+                        if processed > 0:
+                            rate = elapsed / processed
+                            eta = rate * remaining
+                            progress_pct = int((processed / frame_count) * 100)
+                            self.progress_signal.emit(min(100, progress_pct))
 
-                    self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
+                        self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
             
                 if self._stop_requested:
                     return False
@@ -1145,6 +1169,9 @@ class VideoUpscalerDialog(QDialog):
         self._elapsed = 0.0
         self._processed = 0
         self._total = 0
+        self._success_count = 0
+        self._failed_count = 0
+        self._failed_files: List[str] = []
         
         self.tint_adjustment = (2, -5, 0)
         
@@ -1313,6 +1340,10 @@ class VideoUpscalerDialog(QDialog):
         self.remove_audio_checkbox.stateChanged.connect(lambda: self._save_config())
         settings_layout_row1.addWidget(self.remove_audio_checkbox)
         
+        self.retry_failed_checkbox = QCheckBox("Retry Failed Only")
+        self.retry_failed_checkbox.setToolTip("Only process files that failed in previous run")
+        settings_layout_row1.addWidget(self.retry_failed_checkbox)
+        
         settings_layout_row1.addWidget(QLabel("Tint R:"))
         self.tint_r_spin = QSpinBox()
         self.tint_r_spin.setRange(-50, 50)
@@ -1387,6 +1418,8 @@ class VideoUpscalerDialog(QDialog):
         self.video_list = FileDropListWidget()
         self.video_list.setMinimumWidth(300)
         self.video_list.files_dropped.connect(self._on_files_dropped)
+        self.video_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.video_list.customContextMenuRequested.connect(self._show_video_context_menu)
         left_layout.addWidget(self.video_list)
         
         left_widget.setLayout(left_layout)
@@ -1451,6 +1484,14 @@ class VideoUpscalerDialog(QDialog):
         self.files_label = QLabel("Files: 0")
         self.files_label.setStyleSheet("font-weight: bold;")
         stats_layout.addWidget(self.files_label)
+        
+        self.success_label = QLabel("Success: 0")
+        self.success_label.setStyleSheet("font-weight: bold; color: green;")
+        stats_layout.addWidget(self.success_label)
+        
+        self.failed_label = QLabel("Failed: 0")
+        self.failed_label.setStyleSheet("font-weight: bold; color: red;")
+        stats_layout.addWidget(self.failed_label)
         
         self.elapsed_label = QLabel("Elapsed: 00:00:00")
         self.elapsed_label.setStyleSheet("font-weight: bold;")
@@ -1684,6 +1725,32 @@ class VideoUpscalerDialog(QDialog):
             self.video_list.addItem(item)
         self.files_label.setText(f"Files: {len(self.video_files)}")
     
+    def _show_video_context_menu(self, pos):
+        item = self.video_list.itemAt(pos)
+        if not item:
+            return
+        video_path = item.data(Qt.UserRole)
+        menu = QMenu(self)
+        retry_action = menu.addAction(qta.icon('fa6s.rotate-right'), "Retry This File")
+        remove_action = menu.addAction(qta.icon('fa6s.trash'), "Remove from List")
+        action = menu.exec(self.video_list.mapToGlobal(pos))
+        if action == retry_action:
+            self._retry_single_file(video_path)
+        elif action == remove_action:
+            if video_path in self.video_files:
+                self.video_files.remove(video_path)
+                self._update_video_list()
+                self.log_viewer.append(f"🗑️ Removed: {Path(video_path).name}")
+    
+    def _retry_single_file(self, video_path: str):
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "Process Running", "Please wait for current process to finish.")
+            return
+        if video_path not in self.video_files:
+            self.video_files.append(video_path)
+            self._update_video_list()
+        self._run_process_with_files([video_path])
+    
     def browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self._last_dir)
         if folder:
@@ -1738,6 +1805,21 @@ class VideoUpscalerDialog(QDialog):
             QMessageBox.warning(self, "No Videos", "Please load some video files first.")
             return
         
+        if self.retry_failed_checkbox.isChecked():
+            if not self._failed_files:
+                QMessageBox.information(self, "No Failed Files", "No failed files to retry. Run upscale first or uncheck 'Retry Failed Only'.")
+                return
+            files_to_process = [f for f in self._failed_files if f in self.video_files]
+            if not files_to_process:
+                QMessageBox.information(self, "No Failed Files", "Failed files are no longer in the list.")
+                return
+            self.log_viewer.append(f"🔄 Retrying {len(files_to_process)} failed file(s)...")
+        else:
+            files_to_process = self.video_files[:]
+        
+        self._run_process_with_files(files_to_process)
+    
+    def _run_process_with_files(self, files_to_process: List[str]):
         model_name = self.model_combo.currentText()
         model_info = self.model_manager.get_model_by_name(model_name)
         if model_info:
@@ -1788,6 +1870,9 @@ class VideoUpscalerDialog(QDialog):
         self._elapsed = 0.0
         self._processed = 0
         self._total = 0
+        self._success_count = 0
+        self._failed_count = 0
+        self._failed_files = []
         self._update_stats_label()
         
         model = self.model_combo.currentText()
@@ -1797,9 +1882,10 @@ class VideoUpscalerDialog(QDialog):
         hwaccel = self.decoder_combo.currentText()
         remove_audio = self.remove_audio_checkbox.isChecked()
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
+        resume_mode = self.retry_failed_checkbox.isChecked()
         
         self.worker = UpscaleWorker(
-            self.video_files, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio, self.tint_adjustment
+            files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio, self.tint_adjustment, resume_mode
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
@@ -1907,6 +1993,8 @@ class VideoUpscalerDialog(QDialog):
         self.eta_label.setText(f"ETA: {remaining_time_s}")
         self.frames_label.setText(f"Frames: {self._processed}/{self._total}")
         self.remaining_label.setText(f"Remaining: {self._remaining_frames}")
+        self.success_label.setText(f"Success: {self._success_count}")
+        self.failed_label.setText(f"Failed: {self._failed_count}")
     
     def _fmt_seconds(self, s: float) -> str:
         if s is None or s <= 0:
@@ -1927,6 +2015,15 @@ class VideoUpscalerDialog(QDialog):
     
     def on_video_completed(self, video_path: str, success: bool):
         self._last_video_had_error = not success
+        if success:
+            self._success_count += 1
+            if video_path in self._failed_files:
+                self._failed_files.remove(video_path)
+        else:
+            self._failed_count += 1
+            if video_path not in self._failed_files:
+                self._failed_files.append(video_path)
+        self._update_stats_label()
         for i in range(self.video_list.count()):
             item = self.video_list.item(i)
             if item.data(Qt.UserRole) == video_path:

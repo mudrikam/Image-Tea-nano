@@ -14,7 +14,7 @@ import cv2
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
     QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
-    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QSpinBox
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QSpinBox, QMenu, QCheckBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
@@ -743,6 +743,9 @@ class ImageUpscalerDialog(QDialog):
         self._elapsed = 0.0
         self._processed = 0
         self._total = 0
+        self._success_count = 0
+        self._failed_count = 0
+        self._failed_files: List[str] = []
         
         self.tint_adjustment = (2, -5, 0)
         
@@ -904,6 +907,10 @@ class ImageUpscalerDialog(QDialog):
         self.format_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout.addWidget(self.format_combo)
         
+        self.retry_failed_checkbox = QCheckBox("Retry Failed Only")
+        self.retry_failed_checkbox.setToolTip("Only process images that failed in previous run")
+        settings_layout.addWidget(self.retry_failed_checkbox)
+        
         settings_layout.addWidget(QLabel("Tint R:"))
         self.tint_r_spin = QSpinBox()
         self.tint_r_spin.setRange(-50, 50)
@@ -943,6 +950,8 @@ class ImageUpscalerDialog(QDialog):
         self.image_list = FileDropListWidget()
         self.image_list.setMinimumWidth(300)
         self.image_list.files_dropped.connect(self._on_image_files_dropped)
+        self.image_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.image_list.customContextMenuRequested.connect(self._show_image_context_menu)
         left_layout.addWidget(self.image_list)
         
         left_widget.setLayout(left_layout)
@@ -1007,6 +1016,14 @@ class ImageUpscalerDialog(QDialog):
         self.files_label = QLabel("Files: 0")
         self.files_label.setStyleSheet("font-weight: bold;")
         stats_layout.addWidget(self.files_label)
+        
+        self.success_label = QLabel("Success: 0")
+        self.success_label.setStyleSheet("font-weight: bold; color: green;")
+        stats_layout.addWidget(self.success_label)
+        
+        self.failed_label = QLabel("Failed: 0")
+        self.failed_label.setStyleSheet("font-weight: bold; color: red;")
+        stats_layout.addWidget(self.failed_label)
         
         self.elapsed_label = QLabel("Elapsed: 00:00:00")
         self.elapsed_label.setStyleSheet("font-weight: bold;")
@@ -1233,6 +1250,32 @@ class ImageUpscalerDialog(QDialog):
             self.image_list.addItem(item)
         self.files_label.setText(f"Files: {len(self.image_files)}")
     
+    def _show_image_context_menu(self, pos):
+        item = self.image_list.itemAt(pos)
+        if not item:
+            return
+        image_path = item.data(Qt.UserRole)
+        menu = QMenu(self)
+        retry_action = menu.addAction(qta.icon('fa6s.rotate-right'), "Retry This File")
+        remove_action = menu.addAction(qta.icon('fa6s.trash'), "Remove from List")
+        action = menu.exec(self.image_list.mapToGlobal(pos))
+        if action == retry_action:
+            self._retry_single_file(image_path)
+        elif action == remove_action:
+            if image_path in self.image_files:
+                self.image_files.remove(image_path)
+                self._update_image_list()
+                self.log_viewer.append(f"🗑️ Removed: {Path(image_path).name}")
+    
+    def _retry_single_file(self, image_path: str):
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "Process Running", "Please wait for current process to finish.")
+            return
+        if image_path not in self.image_files:
+            self.image_files.append(image_path)
+            self._update_image_list()
+        self._run_process_with_files([image_path])
+    
     def browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self._last_dir)
         if folder:
@@ -1287,6 +1330,21 @@ class ImageUpscalerDialog(QDialog):
             QMessageBox.warning(self, "No Images", "Please load some image files first.")
             return
         
+        if self.retry_failed_checkbox.isChecked():
+            if not self._failed_files:
+                QMessageBox.information(self, "No Failed Files", "No failed files to retry. Run upscale first or uncheck 'Retry Failed Only'.")
+                return
+            files_to_process = [f for f in self._failed_files if f in self.image_files]
+            if not files_to_process:
+                QMessageBox.information(self, "No Failed Files", "Failed files are no longer in the list.")
+                return
+            self.log_viewer.append(f"🔄 Retrying {len(files_to_process)} failed file(s)...")
+        else:
+            files_to_process = self.image_files[:]
+        
+        self._run_process_with_files(files_to_process)
+    
+    def _run_process_with_files(self, files_to_process: List[str]):
         model_name = self.model_combo.currentText()
         model_info = self.model_manager.get_model_by_name(model_name)
         if model_info:
@@ -1335,6 +1393,9 @@ class ImageUpscalerDialog(QDialog):
         self._elapsed = 0.0
         self._processed = 0
         self._total = 0
+        self._success_count = 0
+        self._failed_count = 0
+        self._failed_files = []
         self._update_stats_label()
         
         model = self.model_combo.currentText()
@@ -1344,7 +1405,7 @@ class ImageUpscalerDialog(QDialog):
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
         
         self.worker = ImageUpscaleWorker(
-            self.image_files, model, scale, batch_size, output_format, output_dir, self.tint_adjustment
+            files_to_process, model, scale, batch_size, output_format, output_dir, self.tint_adjustment
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
@@ -1449,6 +1510,8 @@ class ImageUpscalerDialog(QDialog):
         self.eta_label.setText(f"ETA: {remaining_time_s}")
         self.images_label.setText(f"Images: {self._processed}/{self._total}")
         self.remaining_label.setText(f"Remaining: {self._remaining_images}")
+        self.success_label.setText(f"Success: {self._success_count}")
+        self.failed_label.setText(f"Failed: {self._failed_count}")
     
     def _fmt_seconds(self, s: float) -> str:
         if s is None or s <= 0:
@@ -1468,6 +1531,15 @@ class ImageUpscalerDialog(QDialog):
             self._rem_timer.stop()
     
     def on_image_completed(self, image_path: str, success: bool):
+        if success:
+            self._success_count += 1
+            if image_path in self._failed_files:
+                self._failed_files.remove(image_path)
+        else:
+            self._failed_count += 1
+            if image_path not in self._failed_files:
+                self._failed_files.append(image_path)
+        self._update_stats_label()
         for i in range(self.image_list.count()):
             item = self.image_list.item(i)
             if item.data(Qt.UserRole) == image_path:
