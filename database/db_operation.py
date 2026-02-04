@@ -2,9 +2,29 @@ import sqlite3
 import json
 from config import BASE_PATH
 import os
+import re
 from database.db_migration_manager import DBMigrationManager
 
 from ui.theme_system import theme
+
+def sanitize_metadata_text(text, allow_commas=False):
+    """
+    Sanitize metadata text by removing special characters.
+    Only allows: letters, numbers, spaces.
+    For tags, also allows commas if allow_commas=True
+    """
+    if not text:
+        return text
+    
+    if allow_commas:
+        pattern = r'[^a-zA-Z0-9\s,]'
+    else:
+        pattern = r'[^a-zA-Z0-9\s]'
+    
+    sanitized = re.sub(pattern, '', text)
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+    
+    return sanitized
 
 def get_db_path():
     config_path = os.path.join(BASE_PATH, 'configs', 'db_config.json')
@@ -96,23 +116,31 @@ class ImageTeaDB:
             conn.commit()
 
     def add_file(self, filepath, filename, title=None, description=None, tags=None, status=None, original_filename=None):
+        title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
+        description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
+        tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
+        
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             if original_filename is None:
                 original_filename = filename
             c.execute('''INSERT OR IGNORE INTO files (filepath, filename, title, description, tags, status, original_filename) VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                      (filepath, filename, title, description, tags, status, original_filename))
+                      (filepath, filename, title_clean, description_clean, tags_clean, status, original_filename))
             conn.commit()
 
     def update_metadata(self, filepath, title, description, tags, status=None):
+        title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
+        description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
+        tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
+        
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             if status is not None:
                 c.execute('''UPDATE files SET title=?, description=?, tags=?, status=? WHERE filepath=?''',
-                          (title, description, tags, status, filepath))
+                          (title_clean, description_clean, tags_clean, status, filepath))
             else:
                 c.execute('''UPDATE files SET title=?, description=?, tags=? WHERE filepath=?''',
-                          (title, description, tags, filepath))
+                          (title_clean, description_clean, tags_clean, filepath))
             conn.commit()
 
     def update_file_status(self, filepath, status):

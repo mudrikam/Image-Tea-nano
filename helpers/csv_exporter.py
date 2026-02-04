@@ -212,12 +212,39 @@ def _123rf_format(file):
     }
 
 def _sanitize_filename_for_vecteezy(filename):
+    """
+    Sanitize filename for Vecteezy export using project rules:
+    - Remove existing underscores from the original name.
+    - Convert spaces to underscores.
+    - Convert any special character (non-alphanumeric, excluding hyphen) to underscore.
+    - Preserve hyphens ("-").
+    - Do not collapse consecutive underscores ("comma + space" -> "__").
+    """
     base, ext = os.path.splitext(filename)
-    sanitized = re.sub(r'[^A-Za-z0-9]', '', base)
+    # Remove existing underscores from original filename
+    base = base.replace('_', '')
+
+    out_chars = []
+    for ch in base:
+        if ch.isalnum():
+            out_chars.append(ch)
+        elif ch == '-':
+            # preserve hyphen
+            out_chars.append(ch)
+        elif ch.isspace():
+            # spaces -> underscore
+            out_chars.append('_')
+        else:
+            # special characters -> underscore
+            out_chars.append('_')
+
+    sanitized = ''.join(out_chars)
+
     if not sanitized:
         print(f"[csv_exporter] _sanitize_filename_for_vecteezy: sanitized name empty for '{filename}'")
         sanitized = 'file'
         print(f"[csv_exporter] _sanitize_filename_for_vecteezy: fallback to '{sanitized}' for '{filename}'")
+
     if ext:
         return sanitized + ext
     return sanitized
