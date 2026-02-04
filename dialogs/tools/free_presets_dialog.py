@@ -84,6 +84,8 @@ class DownloadWorkerThread(QThread):
 
 
 class FreePresetsDialog(QDialog):
+    preset_imported = Signal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("FREE Action Sequencer Presets")
@@ -559,6 +561,7 @@ class FreePresetsDialog(QDialog):
             self.install_status_cache[file_name] = True
             self._save_install_status_cache()
             self.completed_downloads += 1
+            self.preset_imported.emit()
         else:
             self.failed_downloads += 1
         
@@ -632,6 +635,9 @@ class FreePresetsDialog(QDialog):
                 if self.remove_preset(preset_info['name']):
                     removed_count += 1
             
+            if removed_count > 0:
+                self.preset_imported.emit()
+            
             QMessageBox.information(self, "Removal Complete", f"Removed {removed_count} preset(s)")
             self.populate_table()
             self.update_button_states()
@@ -654,11 +660,14 @@ class FreePresetsDialog(QDialog):
         
         if reply == QMessageBox.Yes:
             removed_count = 0
-            for row in selected_rows:
-                name_item = self.table.item(row, 0)
-                if name_item:
-                    if self.remove_preset(name_item.text()):
+            for row in sorted(selected_rows):
+                if row < len(self.presets_data):
+                    preset_info = self.presets_data[row]
+                    if self.remove_preset(preset_info['name']):
                         removed_count += 1
+            
+            if removed_count > 0:
+                self.preset_imported.emit()
             
             QMessageBox.information(self, "Removal Complete", f"Removed {removed_count} preset(s)")
             self.populate_table()

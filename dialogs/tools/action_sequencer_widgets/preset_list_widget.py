@@ -664,6 +664,10 @@ class PresetListWidget(QWidget):
             import_action.setIcon(qta.icon('fa6s.file-import'))
             import_action.triggered.connect(self.on_import_preset)
             
+            refresh_action = menu.addAction("Refresh Presets")
+            refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+            refresh_action.triggered.connect(self.load_presets_from_db)
+            
             get_free_presets_action = menu.addAction("Get FREE Presets")
             get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
             get_free_presets_action.triggered.connect(self.on_get_free_presets)
@@ -691,6 +695,10 @@ class PresetListWidget(QWidget):
         import_action.setIcon(qta.icon('fa6s.file-import'))
         import_action.triggered.connect(self.on_import_preset)
         
+        refresh_action = menu.addAction("Refresh Presets")
+        refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+        refresh_action.triggered.connect(self.load_presets_from_db)
+        
         get_free_presets_action = menu.addAction("Get FREE Presets")
         get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
         get_free_presets_action.triggered.connect(self.on_get_free_presets)
@@ -704,6 +712,10 @@ class PresetListWidget(QWidget):
         export_action.triggered.connect(lambda: self.on_export_preset(preset_data))
         
         menu.addSeparator()
+
+        refresh_action = menu.addAction("Refresh Presets")
+        refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+        refresh_action.triggered.connect(self.load_presets_from_db)
 
         duplicate_action = menu.addAction("Duplicate Preset")
         duplicate_action.setIcon(qta.icon('fa6s.clone'))
@@ -964,6 +976,6 @@ class PresetListWidget(QWidget):
     def on_get_free_presets(self):
         """Open FREE Presets dialog to browse and download presets from GitHub"""
         dialog = FreePresetsDialog(self)
+        dialog.preset_imported.connect(self.load_presets_from_db)
         dialog.exec()
-        self.load_presets_from_db()
 
