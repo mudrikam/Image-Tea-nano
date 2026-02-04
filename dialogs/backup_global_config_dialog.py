@@ -664,33 +664,27 @@ def _deep_merge_ai_config(remote, local, prefer_repo_default=False):
 			merged['prompt']['custom_prompt'] = local['prompt']['custom_prompt']
 			print("Preserved custom_prompt from user")
 	
-	if 'prompt_presets' in local:
-		user_presets = [p for p in local['prompt_presets'] if p.get('name') != 'Default']
-		if user_presets:
-			if prefer_repo_default:
-				local_default = None
-				for p in local.get('prompt_presets', []):
-					if p.get('name') == 'Default':
-						local_default = p
-						break
-				if local_default:
-					merged['prompt_presets'] = [local_default]
-				else:
-					remote_default = None
-					for p in merged.get('prompt_presets', []):
-						if p.get('name') == 'Default':
-							remote_default = p
-							break
-					merged['prompt_presets'] = [remote_default] if remote_default else []
-			else:
-				remote_default = None
-				for p in merged.get('prompt_presets', []):
-					if p.get('name') == 'Default':
-						remote_default = p
-						break
-				merged['prompt_presets'] = [remote_default] if remote_default else []
-			merged['prompt_presets'].extend(user_presets)
-			print(f"Preserved {len(user_presets)} user presets")
+	if 'prompt_presets' in remote:
+		backup_user_presets = [p for p in remote['prompt_presets'] if p.get('name') != 'Default']
+		if prefer_repo_default:
+			local_default = None
+			for p in local.get('prompt_presets', []):
+				if p.get('name') == 'Default':
+					local_default = p
+					break
+			merged['prompt_presets'] = [local_default] if local_default else []
+			print("Using Default preset from repo only")
+		else:
+			remote_default = None
+			for p in remote.get('prompt_presets', []):
+				if p.get('name') == 'Default':
+					remote_default = p
+					break
+			merged['prompt_presets'] = [remote_default] if remote_default else []
+			print("Using Default preset from backup")
+		if backup_user_presets:
+			merged['prompt_presets'].extend(backup_user_presets)
+			print(f"Preserved {len(backup_user_presets)} user presets from backup")
 	
 	if 'model_list' in merged and 'model_list' in local:
 		local_models_added = 0
