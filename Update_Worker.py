@@ -21,6 +21,7 @@ import tempfile
 import zipfile
 import shutil
 import time
+import copy
 from datetime import datetime, timedelta
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -361,12 +362,109 @@ class UpdateWorkerThread(QThread):
                     os.makedirs(dst_dir, exist_ok=True)
                 
                 try:
-                    shutil.copy2(src_file, dst_file)
-                    replaced += 1
+                    if rel_path.replace('\\', '/') == 'configs/ai_config.json':
+                        self.log.emit("Merging ai_config.json with user settings...")
+                        self._merge_ai_config(src_file, dst_file)
+                        replaced += 1
+                    else:
+                        shutil.copy2(src_file, dst_file)
+                        replaced += 1
                 except Exception as e:
                     self.log.emit(f"Failed to copy {rel_path}: {e}")
         
         return replaced
+    
+    def _merge_ai_config(self, remote_config_path, local_config_path):
+        try:
+            with open(remote_config_path, 'r', encoding='utf-8') as f:
+                remote_config = json.load(f)
+            
+            if os.path.exists(local_config_path):
+                with open(local_config_path, 'r', encoding='utf-8') as f:
+                    local_config = json.load(f)
+            else:
+                local_config = {}
+            
+            merged = self._deep_merge_config(remote_config, local_config)
+            
+            with open(local_config_path, 'w', encoding='utf-8') as f:
+                json.dump(merged, f, indent=2, ensure_ascii=False)
+            
+            self.log.emit("ai_config.json merged successfully (user settings preserved)")
+        except Exception as e:
+            self.log.emit(f"Failed to merge ai_config.json: {e}, using remote version")
+            shutil.copy2(remote_config_path, local_config_path)
+    
+    def _deep_merge_config(self, remote, local):
+        merged = copy.deepcopy(remote)
+        
+        user_fields = [
+            'selected_preset',
+            'min_title_length', 
+            'max_title_length',
+            'max_description_length',
+            'required_tag_count',
+            'compression_quality',
+            'batch_size',
+            'delay_interval',
+            'video_proxy_setting',
+            'category'
+        ]
+        for field in user_fields:
+            if field in local:
+                merged[field] = copy.deepcopy(local[field])
+        
+        if 'prompt' in merged and 'prompt' in local:
+            if 'custom_prompt' in local['prompt']:
+                merged['prompt']['custom_prompt'] = local['prompt']['custom_prompt']
+        
+        if 'prompt_presets' in local:
+            remote_presets = {p['name']: p for p in merged.get('prompt_presets', [])}
+            local_presets = {p['name']: p for p in local.get('prompt_presets', [])}
+            
+            for name, preset in local_presets.items():
+                if name != 'Default':
+                    remote_presets[name] = copy.deepcopy(preset)
+            
+            merged['prompt_presets'] = list(remote_presets.values())
+        
+        if 'model_list' in merged and 'model_list' in local:
+            for provider in merged['model_list']:
+                if provider in local['model_list']:
+                    remote_models = set(merged['model_list'][provider])
+                    local_models = set(local['model_list'][provider])
+                    merged['model_list'][provider] = sorted(list(remote_models | local_models))
+            
+            for provider in local['model_list']:
+                if provider not in merged['model_list']:
+                    merged['model_list'][provider] = local['model_list'][provider]
+        
+        if 'prompt_generator' in merged and 'prompt_generator' in local:
+            if 'settings' in local['prompt_generator']:
+                if 'settings' not in merged['prompt_generator']:
+                    merged['prompt_generator']['settings'] = {}
+                for key, value in local['prompt_generator']['settings'].items():
+                    merged['prompt_generator']['settings'][key] = value
+        
+        if 'imagen_generator' in merged and 'imagen_generator' in local:
+            if 'settings' in local['imagen_generator']:
+                if 'settings' not in merged['imagen_generator']:
+                    merged['imagen_generator']['settings'] = {}
+                for key, value in local['imagen_generator']['settings'].items():
+                    merged['imagen_generator']['settings'][key] = value
+        
+        for key in ['shutterstock_category_map', 'adobe_stock_category_map', 'file_types', 
+                    'video_proxy_presets', 'aspect_ratios', 'person_generation_options', 
+                    'sample_image_sizes', 'generation_modes']:
+            if key in merged and key in local:
+                local_items = set(str(k) for k in (local[key].keys() if isinstance(local[key], dict) else local[key]))
+                remote_items = set(str(k) for k in (merged[key].keys() if isinstance(merged[key], dict) else merged[key]))
+                if isinstance(merged[key], dict):
+                    for k in local[key]:
+                        if str(k) not in remote_items:
+                            merged[key][k] = copy.deepcopy(local[key][k])
+        
+        return merged
     
     def _verify_self_update(self, owner, repo, tag):
         self.log.emit("Checking if Update_Worker.py needs updating...")
