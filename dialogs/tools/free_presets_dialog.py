@@ -105,10 +105,39 @@ class FreePresetsDialog(QDialog):
         self.dev_token = self._load_dev_token()
         self.preset_contents_cache = {}
         self.install_status_cache = self._load_install_status_cache()
+        self.pending_downloads = 0
+        self.completed_downloads = 0
+        self.failed_downloads = 0
+        self.is_batch_download = False
         
         self.setup_ui()
         self.resize(700, 500)
         self.load_presets_with_cache()
+    
+    def _clean_preset_name(self, filename):
+        """Clean preset name for display: remove prefix, timestamp, extension, and underscores"""
+        name = filename
+        
+        # Remove .json extension
+        if name.lower().endswith('.json'):
+            name = name[:-5]
+        
+        # Remove common prefix
+        prefix = 'Image_Tea_Action_Sequencer_Preset_'
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+        
+        # Remove timestamp pattern _YYYYMMDD_HHMMSS
+        import re
+        name = re.sub(r'_\d{8}_\d{6}$', '', name)
+        
+        # Replace underscores with spaces
+        name = name.replace('_', ' ')
+        
+        # Capitalize each word
+        name = ' '.join(word.capitalize() for word in name.split())
+        
+        return name
     
     def _load_dev_token(self):
         """Load development GitHub token if in development mode"""
@@ -214,7 +243,8 @@ class FreePresetsDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setVisible(True)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         layout.addWidget(self.table)
         
         self.progress_bar = QProgressBar()
@@ -336,12 +366,11 @@ class FreePresetsDialog(QDialog):
     
     def populate_table(self):
         self.table.setRowCount(0)
-        
-        for preset_info in self.presets_data:
+        for idx, preset_info in enumerate(self.presets_data):
             row = self.table.rowCount()
             self.table.insertRow(row)
-            
-            name_item = QTableWidgetItem(preset_info['name'])
+            clean_name = self._clean_preset_name(preset_info['name'])
+            name_item = QTableWidgetItem(clean_name)
             self.table.setItem(row, 0, name_item)
             
             if preset_info['name'] in self.install_status_cache:
@@ -467,9 +496,18 @@ class FreePresetsDialog(QDialog):
         return None
     
     def on_download_single(self, preset_info):
+        self.is_batch_download = False
+        self.pending_downloads = 1
+        self.completed_downloads = 0
+        self.failed_downloads = 0
         self.download_preset(preset_info)
     
     def on_download_all(self):
+        self.is_batch_download = True
+        self.pending_downloads = len(self.presets_data)
+        self.completed_downloads = 0
+        self.failed_downloads = 0
+        
         for preset_info in self.presets_data:
             self.download_preset(preset_info)
     
@@ -481,6 +519,11 @@ class FreePresetsDialog(QDialog):
         if not selected_rows:
             QMessageBox.warning(self, "No Selection", "Please select presets to download")
             return
+        
+        self.is_batch_download = len(selected_rows) > 1
+        self.pending_downloads = len(selected_rows)
+        self.completed_downloads = 0
+        self.failed_downloads = 0
         
         for row in selected_rows:
             name_item = self.table.item(row, 0)
@@ -507,8 +550,6 @@ class FreePresetsDialog(QDialog):
         download_thread.start()
     
     def on_download_completed(self, file_name, file_path):
-        self.progress_bar.setVisible(False)
-        
         success, message, count = self.import_export_helper.import_presets(file_path)
         
         if success:
@@ -517,12 +558,61 @@ class FreePresetsDialog(QDialog):
             
             self.install_status_cache[file_name] = True
             self._save_install_status_cache()
-            
-            QMessageBox.information(self, "Import Successful", f"{file_name}:\n{message}")
+            self.completed_downloads += 1
+        else:
+            self.failed_downloads += 1
+        
+        # Check if all downloads completed
+        total_processed = self.completed_downloads + self.failed_downloads
+        
+        if total_processed >= self.pending_downloads:
+            self.progress_bar.setVisible(False)
             self.populate_table()
             self.update_button_states()
+            
+            # Show summary dialog
+            if self.is_batch_download:
+                if self.failed_downloads > 0:
+                    QMessageBox.warning(
+                        self, 
+                        "Batch Import Completed",
+                        f"Import completed:\n\n"
+                        f"✓ Successfully imported: {self.completed_downloads} preset(s)\n"
+                        f"✗ Failed: {self.failed_downloads} preset(s)"
+                    )
+                else:
+                    QMessageBox.information(
+                        self, 
+                        "Batch Import Successful",
+                        f"Successfully imported {self.completed_downloads} preset(s)!"
+                    )
+            else:
+                # Single download - show individual message
+                if success:
+                    clean_name = self._clean_preset_name(file_name)
+                    QMessageBox.information(
+                        self, 
+                        "Import Successful", 
+                        f"{clean_name}:\n{message}"
+                    )
+                else:
+                    clean_name = self._clean_preset_name(file_name)
+                    QMessageBox.warning(
+                        self, 
+                        "Import Failed", 
+                        f"{clean_name}:\n{message}"
+                    )
+            
+            # Reset counters
+            self.is_batch_download = False
+            self.pending_downloads = 0
+            self.completed_downloads = 0
+            self.failed_downloads = 0
         else:
-            QMessageBox.warning(self, "Import Failed", f"{file_name}:\n{message}")
+            # Update progress for batch downloads
+            if self.is_batch_download:
+                self.progress_bar.setVisible(True)
+                self.progress_bar.setFormat(f"Importing {total_processed}/{self.pending_downloads}...")
     
     def on_download_failed(self, file_name, error_msg):
         self.progress_bar.setVisible(False)
