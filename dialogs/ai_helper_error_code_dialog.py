@@ -225,6 +225,51 @@ GROQ_ERRORS = {
     }
 }
 
+MAIA_ERRORS = {
+    "400": {
+        "status": "BAD_REQUEST",
+        "description": "The server could not understand the request due to invalid syntax.",
+        "example": "Review the request format and ensure it is correct.",
+        "solution": "Check your request parameters and format according to MAIA Router API documentation."
+    },
+    "401": {
+        "status": "UNAUTHORIZED",
+        "description": "Invalid authentication or API key provided.",
+        "example": "Ensure the correct API key is being used.",
+        "solution": "Verify your API key at https://dash.maiarouter.ai/dashboard/api-keys and regenerate if necessary."
+    },
+    "402": {
+        "status": "INSUFFICIENT_CREDITS",
+        "description": "Your account has insufficient credits.",
+        "example": "Add more credits and retry the request.",
+        "solution": "Check your account balance at MAIA Router dashboard and add credits."
+    },
+    "429": {
+        "status": "RATE_LIMITED",
+        "description": "You are being rate limited.",
+        "example": "Too many requests sent in a short period.",
+        "solution": "Implement request throttling and respect rate limits. Wait before retrying."
+    },
+    "500": {
+        "status": "INTERNAL_SERVER_ERROR",
+        "description": "An unexpected error occurred on the server.",
+        "example": "Issue on MAIA Router servers.",
+        "solution": "Retry after a brief wait. Contact cs@maiarouter.ai if the issue persists."
+    },
+    "502": {
+        "status": "BAD_GATEWAY",
+        "description": "The server received an invalid response from an upstream model provider.",
+        "example": "The upstream model is temporarily unavailable.",
+        "solution": "Try switching to another model or wait and retry later."
+    },
+    "503": {
+        "status": "SERVICE_UNAVAILABLE",
+        "description": "The service is temporarily overloaded or down.",
+        "example": "The service is experiencing high traffic.",
+        "solution": "Wait a few minutes and retry. The service may be under maintenance or experiencing high load."
+    }
+}
+
 PREDEFINED_ERRORS = {}
 for k, v in GEMINI_ERRORS.items():
     PREDEFINED_ERRORS[k] = v
@@ -235,6 +280,9 @@ for k, v in OPENROUTER_ERRORS.items():
     if k not in PREDEFINED_ERRORS:
         PREDEFINED_ERRORS[k] = v
 for k, v in GROQ_ERRORS.items():
+    if k not in PREDEFINED_ERRORS:
+        PREDEFINED_ERRORS[k] = v
+for k, v in MAIA_ERRORS.items():
     if k not in PREDEFINED_ERRORS:
         PREDEFINED_ERRORS[k] = v
 
@@ -331,6 +379,8 @@ class AIHelperErrorCodeDialog(QDialog):
             error_definitions = OPENROUTER_ERRORS
         elif self._service == 'groq':
             error_definitions = GROQ_ERRORS
+        elif self._service == 'maia':
+            error_definitions = MAIA_ERRORS
         else:
             error_definitions = PREDEFINED_ERRORS
         
@@ -702,6 +752,8 @@ Solution: {entry.get('solution', '')}"""
                         error_definitions = OPENROUTER_ERRORS
                     elif self._service == 'groq':
                         error_definitions = GROQ_ERRORS
+                    elif self._service == 'maia':
+                        error_definitions = MAIA_ERRORS
                     else:
                         error_definitions = PREDEFINED_ERRORS
                     
@@ -772,7 +824,18 @@ Solution: {entry.get('solution', '')}"""
                         try:
                             entry = PREDEFINED_ERRORS.get(str(ec)) if ec else None
                             if not entry:
-                                entry = (GEMINI_ERRORS if self._service == 'gemini' else OPENAI_ERRORS).get(str(ec)) if ec else None
+                                if self._service == 'gemini':
+                                    entry = GEMINI_ERRORS.get(str(ec)) if ec else None
+                                elif self._service == 'openai':
+                                    entry = OPENAI_ERRORS.get(str(ec)) if ec else None
+                                elif self._service == 'openrouter':
+                                    entry = OPENROUTER_ERRORS.get(str(ec)) if ec else None
+                                elif self._service == 'groq':
+                                    entry = GROQ_ERRORS.get(str(ec)) if ec else None
+                                elif self._service == 'maia':
+                                    entry = MAIA_ERRORS.get(str(ec)) if ec else None
+                                else:
+                                    entry = None
 
                             if isinstance(entry, dict):
                                 status = entry.get('status', '')

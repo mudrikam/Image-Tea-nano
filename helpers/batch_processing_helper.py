@@ -15,6 +15,7 @@ from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemi
 from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
 from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, track_blackbox_generation_time
+from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_generation_time
 
 from ui.theme_system import theme
 
@@ -858,6 +859,16 @@ def batch_generate_metadata(window):
                     window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
                 if error_message:
                     print(f"[Blackbox ERROR] {error_message}")
+            elif target_service == "maia":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Maia ERROR] {error_message}")
             else:
                 print(f"[ERROR] Unknown service in parallel mode: {target_service}")
                 title = ""
@@ -933,6 +944,16 @@ def batch_generate_metadata(window):
                     window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
                 if error_message:
                     print(f"[Blackbox ERROR] {error_message}")
+            elif target_service == "maia":
+                t0 = time.perf_counter()
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                t1 = time.perf_counter()
+                duration_ms = int((t1 - t0) * 1000)
+                gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
+                if hasattr(window, "stats_section"):
+                    window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+                if error_message:
+                    print(f"[Maia ERROR] {error_message}")
             else:
                 print(f"[ERROR] Unknown service in rolling mode: {target_service}")
                 title = ""
@@ -1046,6 +1067,31 @@ def batch_generate_metadata(window):
                 window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
             if error_message:
                 print(f"[Blackbox ERROR] {error_message}")
+            return {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "category": category,
+                "filetype": filetype,
+                "token_input": token_input,
+                "token_output": token_output,
+                "token_total": token_total,
+                "image_path": image_path,
+                "error_message": error_message
+            }
+    elif service == "maia":
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            t0 = time.perf_counter()
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+            t1 = time.perf_counter()
+            duration_ms = int((t1 - t0) * 1000)
+            gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
+            if hasattr(window, "stats_section"):
+                window.stats_section.update_generation_times(gen_time, avg_time, longest_time, last_time)
+            if error_message:
+                print(f"[Maia ERROR] {error_message}")
             return {
                 "title": title,
                 "description": description,

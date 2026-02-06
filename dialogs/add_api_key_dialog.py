@@ -115,6 +115,28 @@ class ApiKeyTestThread(QThread):
                         err_text = "<failed to stringify error>"
                     self.result.emit('fail', 'blackbox', err_text)
                     return
+        if self.service == 'maia' or self.service is None:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=self.api_key, base_url="https://api.maiarouter.ai/v1")
+                if not self.model:
+                    raise RuntimeError("No model selected for Maia Router API key test.")
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "Just say OK."}]
+                )
+                if response and hasattr(response, 'choices') and response.choices:
+                    self.result.emit('success', 'maia', 'OK')
+                    return
+            except Exception as e:
+                print(f"Maia Router API Key test error: {e}")
+                if self.service == 'maia':
+                    try:
+                        err_text = str(e)
+                    except Exception:
+                        err_text = "<failed to stringify error>"
+                    self.result.emit('fail', 'maia', err_text)
+                    return
         self.result.emit('fail', None, None)
 
 
@@ -374,6 +396,7 @@ class AddApiKeyDialog(QDialog):
         self.service_combo.addItem("OpenRouter")
         self.service_combo.addItem("Groq")
         self.service_combo.addItem("Blackbox")
+        self.service_combo.addItem("Maia")
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
         service_layout.addWidget(_service_label_widget)
@@ -467,7 +490,7 @@ class AddApiKeyDialog(QDialog):
             print(f"Error fetching services for sort combo: {e}")
             services = []
         sort_items = ["All"]
-        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox'}
+        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia'}
         for s in services:
             try:
                 svc_display = display_service_map.get(str(s).lower(), str(s).capitalize())
@@ -749,6 +772,8 @@ class AddApiKeyDialog(QDialog):
             models = self.model_list.get("groq", [])
         elif service == "blackbox":
             models = self.model_list.get("blackbox", [])
+        elif service == "maia":
+            models = self.model_list.get("maia", [])
         else:
             models = []
         for m in models:
@@ -911,7 +936,7 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
             
-            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox'}
+            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia'}
             svc_display = display_service_map.get(str(service).lower(), str(service))
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
@@ -1307,6 +1332,8 @@ class AddApiKeyDialog(QDialog):
                 self._detected_service = "groq"
             elif service_text.lower() == "blackbox":
                 self._detected_service = "blackbox"
+            elif service_text.lower() == "maia":
+                self._detected_service = "maia"
             else:
                 self._detected_service = None
 
@@ -1336,6 +1363,8 @@ class AddApiKeyDialog(QDialog):
             self.service_combo.setCurrentText("Groq")
         elif service == 'blackbox':
             self.service_combo.setCurrentText("Blackbox")
+        elif service == 'maia':
+            self.service_combo.setCurrentText("Maia")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1351,6 +1380,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = 'groq'
         elif self.service_combo.currentText() == "Blackbox":
             self._detected_service = 'blackbox'
+        elif self.service_combo.currentText() == "Maia":
+            self._detected_service = 'maia'
         else:
             self._detected_service = None
         self._refresh_model_combo()
@@ -1423,7 +1454,7 @@ class AddApiKeyDialog(QDialog):
             elif model and 'blackboxai' in model.lower():
                 service = 'blackbox'
         if not service:
-            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, Groq, or Blackbox.")
+            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, Groq, Blackbox, or Maia.")
             return
         if not model:
             QMessageBox.warning(self, "Input Error", "Model must be selected.")
@@ -1658,6 +1689,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = "groq"
         elif service_text.lower() == "blackbox":
             self._detected_service = "blackbox"
+        elif service_text.lower() == "maia":
+            self._detected_service = "maia"
         else:
             self._detected_service = None
         menu = QMenu(self)

@@ -119,7 +119,7 @@ class ApiKeySectionWidget(QWidget):
         model_set = []
         for entry in api_keys:
             service, api_key, note, last_tested, status, model = entry
-            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox") else service
+            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox", "maia") else service
             if service_disp.capitalize() not in model_set:
                 model_set.append(service_disp.capitalize())
         current_model = self.model_combo.currentText()
@@ -138,7 +138,7 @@ class ApiKeySectionWidget(QWidget):
         self.api_key_map.clear()
         for entry in api_keys:
             service, api_key, note, last_tested, status, model = entry
-            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox") else service
+            service_disp = service.lower() if service.lower() in ("openai", "gemini", "openrouter", "groq", "blackbox", "maia") else service
             if selected_model is None or service_disp.capitalize() == selected_model:
                 if api_key and len(api_key) > 5:
                     masked_key = '*' * (len(api_key) - 5) + api_key[-5:]
@@ -237,7 +237,7 @@ class ApiKeySectionWidget(QWidget):
         """Set the current API key selection by matching api_key, service, and model"""
         if service:
             service_lower = service.lower()
-            if service_lower in ('openai', 'gemini', 'groq', 'blackbox'):
+            if service_lower in ('openai', 'gemini', 'groq', 'blackbox', 'maia'):
                 service_capitalized = service_lower.capitalize()
             else:
                 service_capitalized = service

@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QListWidget, QListWidgetItem, QPushButton, QWidget)
+                               QListWidget, QListWidgetItem, QPushButton, QWidget, QLineEdit)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QIcon
 import os
@@ -68,7 +68,7 @@ class SelectActionDialog(QDialog):
         self.action_set_list.setAlternatingRowColors(True)
         self.action_set_list.setSpacing(2)
         self.action_set_list.setCurrentRow(0)
-        self.action_set_list.currentTextChanged.connect(self.filter_actions)
+        self.action_set_list.currentTextChanged.connect(self.apply_filters)
         self.action_set_list.setMinimumWidth(150)
         self.action_set_list.setMaximumWidth(200)
         left_layout.addWidget(self.action_set_list, 1)
@@ -83,6 +83,22 @@ class SelectActionDialog(QDialog):
         action_label_font.setBold(True)
         action_label.setFont(action_label_font)
         right_layout.addWidget(action_label, 0)
+        
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(4)
+        
+        search_icon_label = QLabel()
+        search_icon = qta.icon('fa6s.magnifying-glass', color=theme.get_color('gray'))
+        search_icon_label.setPixmap(search_icon.pixmap(16, 16))
+        search_layout.addWidget(search_icon_label)
+        
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search actions...")
+        self.search_edit.textChanged.connect(self.apply_filters)
+        self.search_edit.setClearButtonEnabled(True)
+        search_layout.addWidget(self.search_edit)
+        
+        right_layout.addLayout(search_layout, 0)
         
         self.action_list = QListWidget()
         self.action_list.setAlternatingRowColors(True)
@@ -128,16 +144,20 @@ class SelectActionDialog(QDialog):
                 self.action_set_list.addItem(action_set_name)
             
             self.action_set_list.setCurrentRow(0)
-            self.filter_actions("All")
+            self.apply_filters()
         except Exception as e:
             print(f"Failed to load actions: {e}")
     
-    def filter_actions(self, filter_text):
+    def apply_filters(self):
         self.action_list.clear()
+        
+        filter_text = self.action_set_list.currentItem().text() if self.action_set_list.currentItem() else "All"
+        search_text = self.search_edit.text().lower().strip() if hasattr(self, 'search_edit') else ""
         
         for action in self.all_actions:
             if filter_text == "All" or action["action_set"] == filter_text:
-                self.add_action_to_list(action)
+                if not search_text or search_text in action["name"].lower() or search_text in action["action_set"].lower():
+                    self.add_action_to_list(action)
     
     def add_action_to_list(self, action_data):
         item = QListWidgetItem()

@@ -7,6 +7,7 @@ from config import BASE_PATH
 from helpers.ai_helper.gemini_helper import generate_metadata_gemini
 from helpers.ai_helper.openai_helper import generate_metadata_openai
 from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox
+from helpers.ai_helper.maia_helper import generate_metadata_maia, create_maia_client
 from helpers.image_compression_helper import compress_and_save_image
 
 def get_delay_interval():
@@ -186,6 +187,8 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
             prompts, token_input, token_output, token_total = generate_prompts_with_groq(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         elif service.lower() == 'blackbox':
             prompts, token_input, token_output, token_total = generate_prompts_with_blackbox(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+        elif service.lower() == 'maia':
+            prompts, token_input, token_output, token_total = generate_prompts_with_maia(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
         else:
             print(f"Unsupported service: {service}")
             return []
@@ -462,6 +465,63 @@ def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ra
         return prompts, token_input, token_output, token_total
     except Exception as e:
         print(f"Blackbox prompt generation error: {e}")
+        return [], 0, 0, 0
+
+def generate_prompts_with_maia(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+    """Generate prompts using MAIA Router API with image analysis"""
+    if stop_flag and stop_flag.get('stop'):
+        return [], 0, 0, 0
+    try:
+        import base64
+
+        client = create_maia_client(api_key)
+
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
+        image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}}
+                ]
+            }
+        ]
+
+        if stop_flag and stop_flag.get('stop'):
+            return [], 0, 0, 0
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.8
+        )
+
+        token_input = 0
+        token_output = 0
+        token_total = 0
+        usage = getattr(response, "usage", None)
+        if usage:
+            token_input = getattr(usage, "prompt_tokens", 0)
+            token_output = getattr(usage, "completion_tokens", 0)
+            token_total = getattr(usage, "total_tokens", 0)
+
+        text = None
+        if hasattr(response, "choices") and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                text = choice.message.content
+        if not text:
+            text = str(response)
+
+        prompts = parse_ai_prompt_response(text, aspect_ratio)
+        return prompts, token_input, token_output, token_total
+    except Exception as e:
+        print(f"Maia prompt generation error: {e}")
         return [], 0, 0, 0
 
 def parse_ai_prompt_response(text, aspect_ratio=None):
