@@ -98,6 +98,7 @@
       "google/gemma-3-27b-it",
       "google/gemma-3-4b-it",
       "google/gemma-3-4b-it:free",
+      "google/gemma-3-27b-it:free",
       "meta-llama/llama-3.2-11b-vision-instruct",
       "meta-llama/llama-3.2-90b-vision-instruct",
       "meta-llama/llama-4-maverick",
@@ -150,7 +151,8 @@
       "x-ai/grok-4-fast",
       "x-ai/grok-4.1-fast",
       "z-ai/glm-4.5v",
-      "z-ai/glm-4.6v"
+      "z-ai/glm-4.6v",
+      "openrouter/free"
     ],
     "groq": [
       "allam-2-7b",
