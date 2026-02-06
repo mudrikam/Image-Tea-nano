@@ -1342,11 +1342,12 @@ class AddApiKeyDialog(QDialog):
         service = None
         ak = api_key or ''
         lower = ak.lower()
-        # Groq keys start with 'gsk_'
         if lower.startswith('gsk_') or lower.startswith('gsk-'):
             service = 'groq'
         elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
             service = 'openrouter'
+        elif ak.startswith('sk-') and len(ak) == 25:
+            service = 'maia'
         elif ak.startswith('sk-') and len(ak) > 40:
             service = 'openai'
         elif len(ak) > 30 and 'AIza' in ak:
@@ -1447,6 +1448,8 @@ class AddApiKeyDialog(QDialog):
                 service = 'groq'
             elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
                 service = 'openrouter'
+            elif ak.startswith('sk-') and len(ak) == 25:
+                service = 'maia'
             elif ak.startswith('sk-') and len(ak) > 40:
                 service = 'openai'
             elif len(ak) > 30 and 'AIza' in ak:
