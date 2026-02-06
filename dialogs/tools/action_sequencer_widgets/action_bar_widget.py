@@ -1,6 +1,9 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QApplication, QMessageBox
 from PySide6.QtCore import Signal
 import qtawesome as qta
+import os
+import subprocess
+import platform
 
 from ui.theme_system import theme
 
@@ -71,9 +74,25 @@ class ActionBarWidget(QWidget):
         self.source_path_input.setReadOnly(False)
         self.source_path_input.editingFinished.connect(self.on_source_edited)
         source_layout.addWidget(self.source_path_input, 1)
-        self.source_browse_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        
+        self.source_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
+        self.source_paste_button.setToolTip("Paste from clipboard")
+        self.source_paste_button.setMaximumWidth(32)
+        self.source_paste_button.clicked.connect(self.on_paste_source)
+        source_layout.addWidget(self.source_paste_button)
+        
+        self.source_browse_button = QPushButton(qta.icon('fa6s.folder-open'), "")
+        self.source_browse_button.setToolTip("Browse folder")
+        self.source_browse_button.setMaximumWidth(32)
         self.source_browse_button.clicked.connect(self.on_select_source)
         source_layout.addWidget(self.source_browse_button)
+        
+        self.source_open_button = QPushButton(qta.icon('fa6s.arrow-up-right-from-square'), "")
+        self.source_open_button.setToolTip("Open folder location")
+        self.source_open_button.setMaximumWidth(32)
+        self.source_open_button.clicked.connect(self.on_open_source)
+        source_layout.addWidget(self.source_open_button)
+        
         main_layout.addLayout(source_layout)
 
         file_layout = QHBoxLayout()
@@ -90,10 +109,28 @@ class ActionBarWidget(QWidget):
         self.file_path_input.setReadOnly(False)
         self.file_path_input.editingFinished.connect(self.on_file_edited)
         file_layout.addWidget(self.file_path_input, 1)
-        self.file_browse_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        
+        self.file_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
+        self.file_paste_button.setToolTip("Paste from clipboard")
+        self.file_paste_button.setMaximumWidth(32)
+        self.file_paste_button.setEnabled(False)
+        self.file_paste_button.clicked.connect(self.on_paste_file)
+        file_layout.addWidget(self.file_paste_button)
+        
+        self.file_browse_button = QPushButton(qta.icon('fa6s.folder-open'), "")
+        self.file_browse_button.setToolTip("Browse file")
+        self.file_browse_button.setMaximumWidth(32)
         self.file_browse_button.setEnabled(False)
         self.file_browse_button.clicked.connect(self.on_select_file)
         file_layout.addWidget(self.file_browse_button)
+        
+        self.file_open_button = QPushButton(qta.icon('fa6s.arrow-up-right-from-square'), "")
+        self.file_open_button.setToolTip("Open file location")
+        self.file_open_button.setMaximumWidth(32)
+        self.file_open_button.setEnabled(False)
+        self.file_open_button.clicked.connect(self.on_open_file)
+        file_layout.addWidget(self.file_open_button)
+        
         main_layout.addLayout(file_layout)
 
         output_layout = QHBoxLayout()
@@ -114,9 +151,23 @@ class ActionBarWidget(QWidget):
         self.output_path_input.editingFinished.connect(self.on_output_edited)
         output_layout.addWidget(self.output_path_input, 1)
         
-        self.select_output_button = QPushButton(qta.icon('fa6s.folder-open'), " Browse")
+        self.output_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
+        self.output_paste_button.setToolTip("Paste from clipboard")
+        self.output_paste_button.setMaximumWidth(32)
+        self.output_paste_button.clicked.connect(self.on_paste_output)
+        output_layout.addWidget(self.output_paste_button)
+        
+        self.select_output_button = QPushButton(qta.icon('fa6s.folder-open'), "")
+        self.select_output_button.setToolTip("Browse folder")
+        self.select_output_button.setMaximumWidth(32)
         self.select_output_button.clicked.connect(self.on_select_output)
         output_layout.addWidget(self.select_output_button)
+        
+        self.output_open_button = QPushButton(qta.icon('fa6s.arrow-up-right-from-square'), "")
+        self.output_open_button.setToolTip("Open folder location")
+        self.output_open_button.setMaximumWidth(32)
+        self.output_open_button.clicked.connect(self.on_open_output)
+        output_layout.addWidget(self.output_open_button)
         
         main_layout.addLayout(output_layout)
         
@@ -171,6 +222,91 @@ class ActionBarWidget(QWidget):
         path = self.output_path_input.text().strip()
         self.output_path = path
         self.output_path_changed.emit(path)
+    
+    def on_paste_source(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if text:
+            self.source_path_input.setText(text)
+            self.source_path = text
+            self.source_path_changed.emit(text)
+    
+    def on_paste_file(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if text:
+            self.file_path_input.setText(text)
+            self.selected_file = text
+            self.file_path_changed.emit(text)
+    
+    def on_paste_output(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if text:
+            self.output_path_input.setText(text)
+            self.output_path = text
+            self.output_path_changed.emit(text)
+    
+    def on_open_source(self):
+        path = self.source_path_input.text().strip()
+        if not path:
+            QMessageBox.information(self, "No Path", "Please select or enter a source folder path first.")
+            return
+        
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Path Not Found", f"The path does not exist:\n{path}")
+            return
+        
+        self._open_file_explorer(path)
+    
+    def on_open_file(self):
+        path = self.file_path_input.text().strip()
+        if not path:
+            QMessageBox.information(self, "No Path", "Please select or enter a file path first.")
+            return
+        
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Path Not Found", f"The file does not exist:\n{path}")
+            return
+        
+        folder_path = os.path.dirname(path)
+        self._open_file_explorer(folder_path, select_file=path)
+    
+    def on_open_output(self):
+        path = self.output_path_input.text().strip()
+        if not path:
+            QMessageBox.information(self, "No Path", "Please select or enter an output folder path first.")
+            return
+        
+        if not os.path.exists(path):
+            reply = QMessageBox.question(
+                self,
+                "Folder Not Found",
+                f"The output folder does not exist:\n{path}\n\nDo you want to create it?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                os.makedirs(path, exist_ok=True)
+                self._open_file_explorer(path)
+            return
+        
+        self._open_file_explorer(path)
+    
+    def _open_file_explorer(self, path, select_file=None):
+        system = platform.system()
+        
+        if system == "Windows":
+            if select_file and os.path.isfile(select_file):
+                subprocess.Popen(['explorer', '/select,', os.path.normpath(select_file)])
+            else:
+                subprocess.Popen(['explorer', os.path.normpath(path)])
+        elif system == "Darwin":
+            if select_file and os.path.isfile(select_file):
+                subprocess.Popen(['open', '-R', select_file])
+            else:
+                subprocess.Popen(['open', path])
+        else:
+            subprocess.Popen(['xdg-open', path])
 
     def set_output_path(self, path):
         self.output_path = path
@@ -195,26 +331,42 @@ class ActionBarWidget(QWidget):
         if preset_type and preset_type.lower() == 'single run':
             self.load_db_button.setEnabled(False)
             self.source_browse_button.setEnabled(False)
+            self.source_paste_button.setEnabled(False)
+            self.source_open_button.setEnabled(False)
             self.file_browse_button.setEnabled(True)
+            self.file_paste_button.setEnabled(True)
+            self.file_open_button.setEnabled(True)
             self.source_path_input.setEnabled(False)
             self.file_path_input.setEnabled(True)
         else:
             self.load_db_button.setEnabled(True)
             self.source_browse_button.setEnabled(True)
+            self.source_paste_button.setEnabled(True)
+            self.source_open_button.setEnabled(True)
             self.file_browse_button.setEnabled(False)
+            self.file_paste_button.setEnabled(False)
+            self.file_open_button.setEnabled(False)
             self.source_path_input.setEnabled(True)
             self.file_path_input.setEnabled(False)
     
     def disable_all_load_buttons(self):
         self.load_db_button.setEnabled(False)
         self.source_browse_button.setEnabled(False)
+        self.source_paste_button.setEnabled(False)
+        self.source_open_button.setEnabled(False)
         self.file_browse_button.setEnabled(False)
+        self.file_paste_button.setEnabled(False)
+        self.file_open_button.setEnabled(False)
         self.source_path_input.setEnabled(False)
         self.file_path_input.setEnabled(False)
     
     def enable_all_load_buttons(self):
         self.load_db_button.setEnabled(True)
         self.source_browse_button.setEnabled(True)
+        self.source_paste_button.setEnabled(True)
+        self.source_open_button.setEnabled(True)
         self.file_browse_button.setEnabled(False)
+        self.file_paste_button.setEnabled(False)
+        self.file_open_button.setEnabled(False)
         self.source_path_input.setEnabled(True)
         self.file_path_input.setEnabled(False)

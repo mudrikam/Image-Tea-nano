@@ -25,6 +25,8 @@ class BatchWorkerThread(QThread):
     status_updated = Signal(str)
     completed = Signal(int, int, bool)
     error_occurred = Signal(str)
+    segment_started = Signal(int, int)
+    delay_countdown = Signal(str)
     
     def __init__(self, files, preset_id, platform_name, platform_exec, output_path, config_data, db):
         super().__init__()
@@ -120,7 +122,7 @@ class BatchWorkerThread(QThread):
                     
                     if self.platform_name == 'Photoshop':
                         generator = PhotoshopJSXGenerator()
-                        jsx_path = generator.generate_jsx(
+                        jsx_result = generator.generate_jsx(
                             self.preset_id, 
                             [file_path], 
                             self.output_path, 
@@ -128,8 +130,7 @@ class BatchWorkerThread(QThread):
                             is_single_run_with_file=False
                         )
                         
-                        process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
-                        process.wait()
+                        self._execute_jsx_with_delays(jsx_result)
                     
                     if self.config_data.get('enable_file_watcher', True):
                         # Build expected filenames for all exports
@@ -168,8 +169,49 @@ class BatchWorkerThread(QThread):
     
     def stop(self):
         self.should_stop = True
+    
+    def _execute_jsx_with_delays(self, jsx_result):
+        """Execute JSX file(s) with delay handling.
+        
+        Args:
+            jsx_result: Either a single JSX path (str) or list of tuples [(jsx_path, delay_ms), ...]
+        """
+        if isinstance(jsx_result, str):
+            self.segment_started.emit(0, 1)
+            self.delay_countdown.emit("-")
+            process = subprocess.Popen([self.platform_exec, jsx_result], shell=False)
+            process.wait()
+        elif isinstance(jsx_result, list):
+            total_segments = len(jsx_result)
+            for idx, (jsx_path, delay_ms) in enumerate(jsx_result):
+                if self.should_stop:
+                    break
+                
+                self.segment_started.emit(idx, total_segments)
+                self.delay_countdown.emit("-")
+                
+                print(f"Executing JSX segment {idx + 1}/{total_segments}: {jsx_path}")
+                process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
+                process.wait()
+                
+                if delay_ms > 0 and idx < total_segments - 1:
+                    delay_seconds = delay_ms / 1000.0
+                    print(f"Waiting {delay_seconds}s before next segment...")
+                    
+                    remaining = delay_seconds
+                    while remaining > 0 and not self.should_stop:
+                        self.delay_countdown.emit(f"{remaining:.1f}s")
+                        sleep_interval = min(0.1, remaining)
+                        time.sleep(sleep_interval)
+                        remaining -= sleep_interval
+                    
+                    self.delay_countdown.emit("-")
 
 class ActionSequencerDialog(QDialog):
+    single_segment_started = Signal(int, int)
+    single_delay_countdown = Signal(str)
+    single_completed = Signal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Action Sequencer")
@@ -307,6 +349,10 @@ class ActionSequencerDialog(QDialog):
         
         self.action_bar_widget.reset_requested.connect(self.on_reset_tool)
         self.action_bar_widget.get_free_presets_requested.connect(self.on_open_free_presets)
+        
+        self.single_segment_started.connect(self.on_segment_started)
+        self.single_delay_countdown.connect(self.on_delay_countdown)
+        self.single_completed.connect(self.on_single_mode_completed)
     
     def on_platform_changed(self, platform_id):
         """Clear all loaded data when platform changes"""
@@ -652,6 +698,8 @@ class ActionSequencerDialog(QDialog):
         self.batch_worker.status_updated.connect(self.on_batch_status)
         self.batch_worker.completed.connect(self.on_batch_completed)
         self.batch_worker.error_occurred.connect(self.on_batch_error)
+        self.batch_worker.segment_started.connect(self.on_segment_started)
+        self.batch_worker.delay_countdown.connect(self.on_delay_countdown)
         
         self.batch_worker.start()
     
@@ -659,7 +707,7 @@ class ActionSequencerDialog(QDialog):
         generator = None
         if platform_name == 'Photoshop':
             generator = PhotoshopJSXGenerator()
-            jsx_path = generator.generate_jsx(
+            jsx_result = generator.generate_jsx(
                 preset_id, 
                 self.loaded_files if is_single_with_file else [], 
                 output_path, 
@@ -667,11 +715,16 @@ class ActionSequencerDialog(QDialog):
                 is_single_run_with_file=is_single_with_file
             )
             
-            if not os.path.exists(jsx_path):
-                raise Exception(f"JSX file not found at: {jsx_path}")
-            
-            print(f"Launching {platform_name} with JSX: {jsx_path}")
-            subprocess.Popen([exec_path, jsx_path], shell=False)
+            if isinstance(jsx_result, str):
+                if not os.path.exists(jsx_result):
+                    raise Exception(f"JSX file not found at: {jsx_result}")
+                print(f"Launching {platform_name} with JSX: {jsx_result}")
+                self.single_segment_started.emit(0, 1)
+                self.single_delay_countdown.emit("-")
+                subprocess.Popen([exec_path, jsx_result], shell=False)
+            elif isinstance(jsx_result, list):
+                print(f"Launching {platform_name} with {len(jsx_result)} JSX segments (delayed execution)")
+                self._run_split_jsx_async(exec_path, jsx_result)
             
         elif platform_name == 'Illustrator':
             generator = IllustratorJSXGenerator(exec_path)
@@ -703,6 +756,43 @@ class ActionSequencerDialog(QDialog):
         
         self.status_bar_widget.update_status("Running")
     
+    def _run_split_jsx_async(self, exec_path, jsx_segments):
+        """Run split JSX files with delays in background thread.
+        
+        Args:
+            exec_path: Path to Photoshop executable
+            jsx_segments: List of tuples [(jsx_path, delay_ms), ...]
+        """
+        def run_segments():
+            total_segments = len(jsx_segments)
+            for idx, (jsx_path, delay_ms) in enumerate(jsx_segments):
+                self.single_segment_started.emit(idx, total_segments)
+                self.single_delay_countdown.emit("-")
+                
+                print(f"Executing JSX segment {idx + 1}/{total_segments}: {jsx_path}")
+                process = subprocess.Popen([exec_path, jsx_path], shell=False)
+                process.wait()
+                
+                if delay_ms > 0 and idx < total_segments - 1:
+                    delay_seconds = delay_ms / 1000.0
+                    print(f"Waiting {delay_seconds}s before next segment...")
+                    
+                    remaining = delay_seconds
+                    while remaining > 0:
+                        self.single_delay_countdown.emit(f"{remaining:.1f}s")
+                        sleep_interval = min(0.1, remaining)
+                        time.sleep(sleep_interval)
+                        remaining -= sleep_interval
+                    
+                    self.single_delay_countdown.emit("-")
+            
+            print("All JSX segments completed")
+            self.single_completed.emit()
+        
+        import threading
+        thread = threading.Thread(target=run_segments, daemon=True)
+        thread.start()
+
     def on_batch_progress(self, processed_files):
         absolute_progress = self.last_processed_index + processed_files
         self.status_bar_widget.update_running_progress(absolute_progress)
@@ -712,6 +802,9 @@ class ActionSequencerDialog(QDialog):
     
     def on_batch_completed(self, processed_count, total_files, was_stopped):
         self.last_processed_index = self.last_processed_index + processed_count
+        
+        self.step_list_widget.clear_all_highlights()
+        self.status_bar_widget.update_delay("-")
         
         if was_stopped:
             self.is_batch_paused = True
@@ -732,10 +825,25 @@ class ActionSequencerDialog(QDialog):
                                   f"Successfully processed: {processed_this_run}/{len(self.loaded_files)} files")
     
     def on_batch_error(self, error_msg):
+        self.step_list_widget.clear_all_highlights()
+        self.status_bar_widget.update_delay("-")
         self.status_bar_widget.update_status("Error")
         self.status_bar_widget.end_running_mode()
         self.status_bar_widget.set_run_button_enabled(True)
         QMessageBox.critical(self, "Batch Error", f"Error during batch processing:\n{error_msg}")
+    
+    def on_segment_started(self, segment_index, total_segments):
+        """Handle saat segment JSX dimulai untuk highlight steps"""
+        self.step_list_widget.highlight_steps_by_segment(segment_index, total_segments)
+    
+    def on_delay_countdown(self, delay_text):
+        """Handle delay countdown untuk update status bar"""
+        self.status_bar_widget.update_delay(delay_text)
+    
+    def on_single_mode_completed(self):
+        """Handle saat single mode selesai"""
+        self.step_list_widget.clear_all_highlights()
+        self.status_bar_widget.update_delay("-")
     
     def load_output_path(self):
         output_path = self.config.get('output_path', '')

@@ -52,6 +52,10 @@ class StatusBarWidget(QWidget):
         self.eta_label.setStyleSheet("font-weight: bold;")
         stats_layout.addWidget(self.eta_label)
         
+        self.delay_label = QLabel("Delay: -")
+        self.delay_label.setStyleSheet("font-weight: bold;")
+        stats_layout.addWidget(self.delay_label)
+        
         self.status_label = QLabel("Status: Idle")
         self.status_label.setStyleSheet("font-weight: bold;")
         stats_layout.addWidget(self.status_label)
@@ -278,6 +282,14 @@ class StatusBarWidget(QWidget):
     def update_progress(self, value):
         if not self.is_running:
             self.progress_bar.setValue(value)
+    
+    def update_delay(self, delay_text):
+        """Update delay countdown display.
+        
+        Args:
+            delay_text: String like '2.5s' or '-' for no delay
+        """
+        self.delay_label.setText(f"Delay: {delay_text}")
     
     def on_run_clicked(self):
         if self.is_running:

@@ -850,3 +850,149 @@ class StepListWidget(QWidget):
             self.action_added_to_preset.emit()
         except Exception as e:
             print(f"Failed to clear steps: {e}")
+
+    def highlight_steps_by_segment(self, segment_index, total_segments):
+        """Highlight steps yang sedang diproses dalam segment tertentu.
+        
+        Args:
+            segment_index: Index segment yang sedang aktif (0-based)
+            total_segments: Total jumlah segment
+        """
+        if total_segments <= 1:
+            self.highlight_all_steps()
+            return
+        
+        steps = []
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if not item or not (item.flags() & Qt.ItemIsDragEnabled):
+                continue
+            step_data = item.data(Qt.UserRole)
+            if step_data:
+                steps.append((i, step_data))
+        
+        if not steps:
+            return
+        
+        delay_indices = []
+        for idx, (list_idx, step_data) in enumerate(steps):
+            action_detail = self.db.get_action_by_id(step_data['action_id'])
+            if action_detail and action_detail.get('type') == 'Delay':
+                delay_indices.append(idx)
+        
+        if not delay_indices:
+            self.highlight_all_steps()
+            return
+        
+        segment_ranges = []
+        start = 0
+        for delay_idx in delay_indices:
+            segment_ranges.append((start, delay_idx + 1))
+            start = delay_idx + 1
+        if start < len(steps):
+            segment_ranges.append((start, len(steps)))
+        
+        if segment_index >= len(segment_ranges):
+            return
+        
+        start_idx, end_idx = segment_ranges[segment_index]
+        
+        for idx, (list_idx, step_data) in enumerate(steps):
+            widget_container = self.step_list.itemWidget(self.step_list.item(list_idx))
+            if not widget_container:
+                continue
+            
+            step_widget = widget_container.findChild(QWidget, f"stepItem_{step_data['id']}")
+            if not step_widget:
+                continue
+            
+            color = step_data.get("color", theme.get_color('gray'))
+            hex_color = color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            
+            if start_idx <= idx < end_idx:
+                step_widget.setStyleSheet(f"""
+                    QWidget#stepItem_{step_data['id']} {{
+                        background-color: rgba({r}, {g}, {b}, 80);
+                        border-radius: 4px;
+                        border: 1px solid rgba({r}, {g}, {b}, 1);
+                    }}
+                """)
+            else:
+                step_widget.setStyleSheet(f"""
+                    QWidget#stepItem_{step_data['id']} {{
+                        background-color: rgba({r}, {g}, {b}, 30);
+                        border-radius: 4px;
+                        border: 1px solid rgba({r}, {g}, {b}, 0);
+                    }}
+                    QWidget#stepItem_{step_data['id']}:hover {{
+                        background-color: rgba({r}, {g}, {b}, 80);
+                        border: 1px solid rgba({r}, {g}, {b}, 1);
+                    }}
+                """)
+    
+    def highlight_all_steps(self):
+        """Highlight semua steps (untuk mode tanpa delay)"""
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if not item or not (item.flags() & Qt.ItemIsDragEnabled):
+                continue
+            
+            step_data = item.data(Qt.UserRole)
+            if not step_data:
+                continue
+            
+            widget_container = self.step_list.itemWidget(item)
+            if not widget_container:
+                continue
+            
+            step_widget = widget_container.findChild(QWidget, f"stepItem_{step_data['id']}")
+            if not step_widget:
+                continue
+            
+            color = step_data.get("color", theme.get_color('gray'))
+            hex_color = color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            
+            step_widget.setStyleSheet(f"""
+                QWidget#stepItem_{step_data['id']} {{
+                    background-color: rgba({r}, {g}, {b}, 80);
+                    border-radius: 4px;
+                    border: 1px solid rgba({r}, {g}, {b}, 1);
+                }}
+            """)
+    
+    def clear_all_highlights(self):
+        """Clear semua highlights, kembalikan ke style normal"""
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if not item or not (item.flags() & Qt.ItemIsDragEnabled):
+                continue
+            
+            step_data = item.data(Qt.UserRole)
+            if not step_data:
+                continue
+            
+            widget_container = self.step_list.itemWidget(item)
+            if not widget_container:
+                continue
+            
+            step_widget = widget_container.findChild(QWidget, f"stepItem_{step_data['id']}")
+            if not step_widget:
+                continue
+            
+            color = step_data.get("color", theme.get_color('gray'))
+            hex_color = color.lstrip('#')
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            
+            step_widget.setStyleSheet(f"""
+                QWidget#stepItem_{step_data['id']} {{
+                    background-color: rgba({r}, {g}, {b}, 30);
+                    border-radius: 4px;
+                    border: 1px solid rgba({r}, {g}, {b}, 0);
+                }}
+                QWidget#stepItem_{step_data['id']}:hover {{
+                    background-color: rgba({r}, {g}, {b}, 80);
+                    border: 1px solid rgba({r}, {g}, {b}, 1);
+                }}
+            """)
