@@ -74,6 +74,7 @@ MENU_TOOLTIPS = {
     "action_sequencer": "Automate actions for Photoshop and Illustrator",
     "video_upscaler": "Upscale videos using RealESRGAN AI",
     "image_upscaler": "Upscale images using RealESRGAN AI",
+    "pngtree_zipper": "Zip asset files to submit to Pngtree",
     
     # Help menu
     "about": "View application information and credits",
@@ -650,6 +651,20 @@ def setup_main_menu(window):
         window._image_upscaler_dialog.activateWindow()
     image_upscaler_action.triggered.connect(open_image_upscaler)
     tools_menu.addAction(image_upscaler_action)
+
+    from dialogs.tools.pngtree_zipper_tool import PngtreeZipperDialog
+    pngtree_zipper_action = QAction(qta.icon('fa6s.file-zipper'), "Pngtree Zipper", window)
+    pngtree_zipper_action.setToolTip(MENU_TOOLTIPS["pngtree_zipper"])
+    pngtree_zipper_action.setStatusTip(MENU_TOOLTIPS["pngtree_zipper"])
+    def open_pngtree_zipper():
+        if not hasattr(window, '_pngtree_zipper_dialog') or not window._pngtree_zipper_dialog:
+            window._pngtree_zipper_dialog = PngtreeZipperDialog(None)
+            window._pngtree_zipper_dialog.destroyed.connect(lambda: setattr(window, '_pngtree_zipper_dialog', None))
+        window._pngtree_zipper_dialog.show()
+        window._pngtree_zipper_dialog.raise_()
+        window._pngtree_zipper_dialog.activateWindow()
+    pngtree_zipper_action.triggered.connect(open_pngtree_zipper)
+    tools_menu.addAction(pngtree_zipper_action)
 
     # Add separator
     tools_menu.addSeparator()
