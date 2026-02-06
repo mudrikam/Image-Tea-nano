@@ -107,7 +107,7 @@ class UpscaleWorker(QThread):
 
     def __init__(self, video_paths: List[str], model: str, scale: int, batch_size: int = 10, 
                  encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None, remove_audio: bool = False,
-                 tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False):
+                 tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False, bitrate_mbps: int = 20):
         super().__init__()
         self.video_paths = video_paths
         self.model = model
@@ -119,6 +119,7 @@ class UpscaleWorker(QThread):
         self.remove_audio = remove_audio
         self.tint_adjustment = tint_adjustment
         self.resume_mode = resume_mode
+        self.bitrate_mbps = bitrate_mbps
         self._stop_requested = False
         
         self.ffmpeg_bin = get_ffmpeg_path()
@@ -968,12 +969,15 @@ class UpscaleWorker(QThread):
             
             self.log_signal.emit(f"   🎛️ Using encoder: {self.encoder} ({video_codec})")
             
+            bitrate_kbps = self.bitrate_mbps * 1000
+            bitrate_str = f"{bitrate_kbps}k"
+            
             enc_opts = {
-                "h264_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "19", "-b:v", "0"],
-                "hevc_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "21", "-b:v", "0"],
-                "h264_amf": ["-quality", "quality", "-rc", "vbr_latency", "-qp_i", "19", "-qp_p", "19"],
-                "h264_qsv": ["-preset", "veryslow", "-global_quality", "19"],
-                "libx264": ["-preset", "medium", "-crf", "18"],
+                "h264_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str],
+                "hevc_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str],
+                "h264_amf": ["-quality", "quality", "-rc", "vbr_latency", "-b:v", bitrate_str],
+                "h264_qsv": ["-preset", "veryslow", "-b:v", bitrate_str],
+                "libx264": ["-preset", "medium", "-b:v", bitrate_str],
             }
 
             detected = self._detect_ffmpeg_encoders()
@@ -1197,6 +1201,46 @@ class VideoUpscalerDialog(QDialog):
         try:
             if CONFIG_FILE.exists():
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                
+                if 'model' in cfg and cfg['model']:
+                    idx = self.model_combo.findText(cfg['model'])
+                    if idx >= 0:
+                        self.model_combo.setCurrentIndex(idx)
+                
+                if 'scale' in cfg:
+                    self.scale_combo.setCurrentText(str(cfg['scale']))
+                
+                if 'batch' in cfg:
+                    self.batch_combo.setCurrentText(str(cfg['batch']))
+                
+                if 'encoder' in cfg:
+                    idx = self.encoder_combo.findText(cfg['encoder'])
+                    if idx >= 0:
+                        self.encoder_combo.setCurrentIndex(idx)
+                
+                if 'decoder' in cfg:
+                    idx = self.decoder_combo.findText(cfg['decoder'])
+                    if idx >= 0:
+                        self.decoder_combo.setCurrentIndex(idx)
+                
+                if 'remove_audio' in cfg:
+                    self.remove_audio_checkbox.setChecked(cfg['remove_audio'])
+                
+                if 'tint_r' in cfg:
+                    self.tint_r_spin.setValue(cfg['tint_r'])
+                if 'tint_g' in cfg:
+                    self.tint_g_spin.setValue(cfg['tint_g'])
+                if 'tint_b' in cfg:
+                    self.tint_b_spin.setValue(cfg['tint_b'])
+                
+                if 'bitrate' in cfg:
+                    self.bitrate_spin.setValue(cfg['bitrate'])
+                
+                if 'output_dir' in cfg and cfg['output_dir']:
+                    self.output_edit.setText(cfg['output_dir'])
+                    self.output_dir = cfg['output_dir']
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     output_dir = config.get('output_dir', '')
                     if output_dir:
@@ -1259,6 +1303,7 @@ class VideoUpscalerDialog(QDialog):
             cfg['tint_r'] = self.tint_r_spin.value()
             cfg['tint_g'] = self.tint_g_spin.value()
             cfg['tint_b'] = self.tint_b_spin.value()
+            cfg['bitrate'] = self.bitrate_spin.value()
 
             if self.output_dir:
                 cfg['output_dir'] = self.output_dir.replace('\\', '/')
@@ -1335,15 +1380,6 @@ class VideoUpscalerDialog(QDialog):
         self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout_row1.addWidget(self.batch_combo)
         
-        self.remove_audio_checkbox = QCheckBox("Remove Audio")
-        self.remove_audio_checkbox.setToolTip("Remove audio track from output video")
-        self.remove_audio_checkbox.stateChanged.connect(lambda: self._save_config())
-        settings_layout_row1.addWidget(self.remove_audio_checkbox)
-        
-        self.retry_failed_checkbox = QCheckBox("Retry Failed Only")
-        self.retry_failed_checkbox.setToolTip("Only process files that failed in previous run")
-        settings_layout_row1.addWidget(self.retry_failed_checkbox)
-        
         settings_layout_row1.addWidget(QLabel("Tint R:"))
         self.tint_r_spin = QSpinBox()
         self.tint_r_spin.setRange(-50, 50)
@@ -1402,6 +1438,24 @@ class VideoUpscalerDialog(QDialog):
         self.decoder_combo.setToolTip("Hardware acceleration for extraction")
         self.decoder_combo.currentTextChanged.connect(lambda: self._save_config())
         settings_layout_row2.addWidget(self.decoder_combo)
+        
+        settings_layout_row2.addWidget(QLabel("Bitrate:"))
+        self.bitrate_spin = QSpinBox()
+        self.bitrate_spin.setRange(1, 200)
+        self.bitrate_spin.setValue(20)
+        self.bitrate_spin.setSuffix(" Mbps")
+        self.bitrate_spin.setToolTip("Output video bitrate in Mbps (1-200)")
+        self.bitrate_spin.valueChanged.connect(lambda: self._save_config())
+        settings_layout_row2.addWidget(self.bitrate_spin)
+        
+        self.remove_audio_checkbox = QCheckBox("Remove Audio")
+        self.remove_audio_checkbox.setToolTip("Remove audio track from output video")
+        self.remove_audio_checkbox.stateChanged.connect(lambda: self._save_config())
+        settings_layout_row2.addWidget(self.remove_audio_checkbox)
+        
+        self.retry_failed_checkbox = QCheckBox("Retry Failed Only")
+        self.retry_failed_checkbox.setToolTip("Only process files that failed in previous run")
+        settings_layout_row2.addWidget(self.retry_failed_checkbox)
         
         settings_layout_row2.addStretch()
         
@@ -1883,9 +1937,10 @@ class VideoUpscalerDialog(QDialog):
         remove_audio = self.remove_audio_checkbox.isChecked()
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
         resume_mode = self.retry_failed_checkbox.isChecked()
+        bitrate_mbps = self.bitrate_spin.value()
         
         self.worker = UpscaleWorker(
-            files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio, self.tint_adjustment, resume_mode
+            files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio, self.tint_adjustment, resume_mode, bitrate_mbps
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
@@ -1908,6 +1963,8 @@ class VideoUpscalerDialog(QDialog):
         self.encoder_combo.setEnabled(not running)
         self.decoder_combo.setEnabled(not running)
         self.remove_audio_checkbox.setEnabled(not running)
+        self.retry_failed_checkbox.setEnabled(not running)
+        self.bitrate_spin.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         self.btn_browse_output.setEnabled(not running)
         self.btn_paste_output.setEnabled(not running)
