@@ -605,6 +605,11 @@ class ActionSequencerDialog(QDialog):
                 self.run_single_mode(preset_id, platform_name, exec_path, output_path, config_data, is_single_with_file)
         except Exception as e:
             print(f"Error running sequences: {e}")
+            QMessageBox.critical(
+                self,
+                "Error Running Sequences",
+                f"Failed to run sequence:\n\n{str(e)}\n\nMake sure the platform application is installed correctly and the executable path is configured."
+            )
     
     def on_stop_process(self):
         print("Stop process requested")
@@ -666,7 +671,6 @@ class ActionSequencerDialog(QDialog):
                 raise Exception(f"JSX file not found at: {jsx_path}")
             
             print(f"Launching {platform_name} with JSX: {jsx_path}")
-            import subprocess
             subprocess.Popen([exec_path, jsx_path], shell=False)
             
         elif platform_name == 'Illustrator':
