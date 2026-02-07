@@ -58,6 +58,74 @@ def get_video_proxy_setting():
         config = json.load(f)
     return config["video_proxy_setting"]
 
+
+def get_video_frame_count():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    return int(config.get("video_frame_count", 5))
+
+
+def extract_video_frames(video_path, frame_count=None, output_dir=None):
+    if frame_count is None:
+        frame_count = get_video_frame_count()
+    
+    if output_dir is None:
+        output_dir = ensure_video_temp_folder()
+    
+    video_info = get_video_info(video_path)
+    if not video_info or not video_info.get('duration'):
+        print(f"[VideoProxy] Cannot get video duration for frame extraction: {video_path}")
+        return []
+    
+    duration = video_info['duration']
+    if duration <= 0:
+        print(f"[VideoProxy] Invalid video duration: {duration}")
+        return []
+    
+    interval = duration / (frame_count + 1)
+    
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    extracted_frames = []
+    
+    ffmpeg_exec = None
+    if platform.system() == "Windows":
+        if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+            ffmpeg_exec = FFMPEG_PATH
+    else:
+        ffmpeg_exec = shutil.which("ffmpeg")
+    
+    if not ffmpeg_exec:
+        print("[VideoProxy] ffmpeg not available for frame extraction")
+        return []
+    
+    for i in range(frame_count):
+        timestamp = interval * (i + 1)
+        output_path = os.path.join(output_dir, f"{base_name}_frame_{i+1:03d}.jpg")
+        
+        cmd = [
+            ffmpeg_exec,
+            "-ss", str(timestamp),
+            "-i", video_path,
+            "-vframes", "1",
+            "-q:v", "2",
+            "-y",
+            output_path
+        ]
+        
+        try:
+            result = _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            if os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
+                extracted_frames.append(output_path)
+                print(f"[VideoProxy] Extracted frame {i+1}/{frame_count} at {timestamp:.2f}s: {output_path}")
+            else:
+                print(f"[VideoProxy] Failed to extract frame {i+1} at {timestamp:.2f}s")
+        except Exception as e:
+            print(f"[VideoProxy] Error extracting frame {i+1}: {e}")
+    
+    return extracted_frames
+
+
 def get_video_info(video_path):
     # Prefer ffprobe for structured metadata parsing if available
     try:

@@ -11,7 +11,7 @@ import threading
 from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
-from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
+from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
 
 _generation_times_openai = []
 
@@ -183,14 +183,20 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         is_video = ext in ['.mp4', '.mpeg', '.mpg', '.mov', '.webm']
         filename = os.path.basename(image_path)
         is_openrouter = _is_openrouter_key(api_key)
+        
+        frame_paths = []
         if is_video and not is_openrouter:
-            error_message = (
-                "OpenAI Vision API does not currently support video input directly. "
-                "Please use images or select the Gemini service for video processing. "
-                "If OpenAI adds video support in the future, this feature will be updated accordingly."
-            )
-            print(f"[OpenAI Video Not Supported] {error_message}")
-            return '', '', '', {}, '', error_message, 0, 0, 0
+            print(f"[OpenAI] Video detected. Extracting frames for processing...")
+            frame_paths = extract_video_frames(image_path)
+            if not frame_paths:
+                error_message = (
+                    "[OpenAI ERROR] Failed to extract frames from video. "
+                    "Please ensure FFmpeg is installed and the video file is valid."
+                )
+                print(error_message)
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            print(f"[OpenAI] Extracted {len(frame_paths)} frames from video")
+        
         client = create_openai_client(api_key)
         if not prompt:
             (
@@ -228,7 +234,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 adobe_map,
                 filename=filename
             )
-        if is_video:
+        if is_video and is_openrouter:
             if proxy_path:
                 video_to_upload = proxy_path
                 print(f"[OpenAI] Using pre-proxied video: {os.path.basename(proxy_path)}")
@@ -329,6 +335,26 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                     ]
                 }
             ]
+        elif is_video and frame_paths:
+            content_items = [{"type": "text", "text": prompt}]
+            for frame_path in frame_paths:
+                compressed_frame = compress_and_save_image(frame_path)
+                if compressed_frame:
+                    with open(compressed_frame, "rb") as f:
+                        frame_bytes = f.read()
+                    frame_b64 = base64.b64encode(frame_bytes).decode("utf-8")
+                    frame_data_url = f"data:image/jpeg;base64,{frame_b64}"
+                    content_items.append({
+                        "type": "image_url",
+                        "image_url": {"url": frame_data_url}
+                    })
+            print(f"[OpenAI] Sending {len(frame_paths)} video frames to API")
+            messages = [
+                {
+                    "role": "user",
+                    "content": content_items,
+                }
+            ]
         else:
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
@@ -349,10 +375,67 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             ]
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
+        
+        use_frames_fallback = False
+        video_error_occurred = False
+        
+        if is_video and is_openrouter:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages
+                )
+            except Exception as video_err:
+                video_err_str = str(video_err).lower()
+                if ('video' in video_err_str or '404' in video_err_str or 
+                    'not supported' in video_err_str or 'no endpoints' in video_err_str or
+                    'base64 video' in video_err_str):
+                    print(f"[OpenRouter] Video not supported by model, falling back to frame extraction...")
+                    print(f"[OpenRouter] Original error: {video_err}")
+                    use_frames_fallback = True
+                    video_error_occurred = True
+                else:
+                    raise
+        
+        if use_frames_fallback:
+            print(f"[OpenRouter] Extracting frames from video for fallback...")
+            fallback_frame_paths = extract_video_frames(image_path)
+            if not fallback_frame_paths:
+                error_message = (
+                    "[OpenRouter ERROR] Video not supported by model and failed to extract frames. "
+                    "Please ensure FFmpeg is installed and the video file is valid."
+                )
+                print(error_message)
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            
+            content_items = [{"type": "text", "text": prompt}]
+            for frame_path in fallback_frame_paths:
+                compressed_frame = compress_and_save_image(frame_path)
+                if compressed_frame:
+                    with open(compressed_frame, "rb") as f:
+                        frame_bytes = f.read()
+                    frame_b64 = base64.b64encode(frame_bytes).decode("utf-8")
+                    frame_data_url = f"data:image/jpeg;base64,{frame_b64}"
+                    content_items.append({
+                        "type": "image_url",
+                        "image_url": {"url": frame_data_url}
+                    })
+            print(f"[OpenRouter] Sending {len(fallback_frame_paths)} video frames as fallback")
+            messages = [
+                {
+                    "role": "user",
+                    "content": content_items,
+                }
+            ]
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+        elif not video_error_occurred:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
         
         print("="*80)
         print("OPENAI RAW RESPONSE:")

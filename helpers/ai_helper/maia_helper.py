@@ -8,10 +8,8 @@ import threading
 import traceback
 from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
-from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
-from dialogs.video_proxy_dialog import VideoProxyDialog
-from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
+from helpers.video_proxy_helper import extract_video_frames
 
 MAIA_BASE_URL = "https://api.maiarouter.ai/v1"
 
@@ -154,7 +152,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None):
+def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -162,6 +160,19 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
         ext = os.path.splitext(image_path)[1].lower()
         is_video = ext in ['.mp4', '.mpeg', '.mpg', '.mov', '.webm']
         filename = os.path.basename(image_path)
+        
+        frame_paths = []
+        if is_video:
+            print(f"[Maia] Video detected. Extracting frames for processing...")
+            frame_paths = extract_video_frames(image_path)
+            if not frame_paths:
+                error_message = (
+                    "[Maia ERROR] Failed to extract frames from video. "
+                    "Please ensure FFmpeg is installed and the video file is valid."
+                )
+                print(error_message)
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            print(f"[Maia] Extracted {len(frame_paths)} frames from video")
         
         client = create_maia_client(api_key)
         
@@ -202,108 +213,21 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
                 filename=filename
             )
         
-        if is_video:
-            if proxy_path:
-                video_to_upload = proxy_path
-                print(f"[Maia] Using pre-proxied video: {os.path.basename(proxy_path)}")
-            else:
-                result_container = [None]
-                finished_event = threading.Event()
-                proxy_setting = get_video_proxy_setting()
-
-                def dialog_factory(video_path, proxy_setting, stop_flag, result_container, finished_event):
-                    try:
-                        parent = QApplication.instance().activeWindow() if QApplication.instance() else None
-                        dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': 1})
-                        dlg.set_current_file(0, os.path.basename(video_path))
-                        proxy_worker = VideoProxyWorker(video_path, proxy_setting)
-
-                        def on_progress(data):
-                            try:
-                                dlg.update_progress(data)
-                                QApplication.processEvents()
-                            except Exception as e:
-                                print(f"[Maia] Dialog progress update error: {e}")
-
-                        def on_finished(result):
-                            if isinstance(result, str) and result:
-                                result_container[0] = (result, None)
-                            else:
-                                result_container[0] = (None, 'proxy failed or cancelled')
-                            try:
-                                if dlg and dlg.isVisible():
-                                    dlg.close()
-                            except Exception as e:
-                                print(f"[Maia] Error closing dialog after proxy finished: {e}")
-                            finished_event.set()
-
-                        proxy_worker.progress_update.connect(on_progress)
-                        proxy_worker.finished.connect(on_finished)
-
-                        def on_cancel_clicked():
-                            proxy_worker.stop()
-                            if stop_flag:
-                                stop_flag['stop'] = True
-                            dlg.request_stop()
-
-                        try:
-                            dlg.cancel_button.clicked.disconnect()
-                        except Exception as e:
-                            print(f"[Maia] Warning: failed to disconnect cancel button: {e}")
-                        dlg.cancel_button.clicked.connect(on_cancel_clicked)
-
-                        proxy_worker.start()
-                        dlg.exec()
-                    except Exception as e:
-                        print(f"[Maia] Dialog factory error: {e}")
-                        try:
-                            result_container[0] = (None, f"dialog factory error: {e}")
-                        except Exception as e2:
-                            print(f"[Maia] Failed to set result container after dialog factory error: {e2}")
-                        try:
-                            finished_event.set()
-                        except Exception as e2:
-                            print(f"[Maia] Failed to set finished_event after dialog factory error: {e2}")
-                        raise
-
-                invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
-                if not invoked:
-                    error_message = f"[Maia ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered."
-                    print(error_message)
-                    return '', '', '', {}, '', error_message, 0, 0, 0
-                else:
-                    if not finished_event.wait(600):
-                        error_message = f"[Maia ERROR] Video proxy dialog timeout"
-                        print(error_message)
-                        return '', '', '', {}, '', error_message, 0, 0, 0
-                    proxy_result, proxy_err = result_container[0]
-                    if proxy_err:
-                        error_message = f"[Maia ERROR] Video proxy failed: {proxy_err}"
-                        print(error_message)
-                        return '', '', '', {}, '', error_message, 0, 0, 0
-                    video_to_upload = proxy_result or image_path
-            
-            video_mime_map = {
-                '.mp4': 'video/mp4',
-                '.mpeg': 'video/mpeg',
-                '.mpg': 'video/mpeg',
-                '.mov': 'video/mov',
-                '.webm': 'video/webm'
-            }
-            mime_type = video_mime_map.get(ext, 'video/mp4')
-            with open(video_to_upload, "rb") as f:
-                video_bytes = f.read()
-            video_b64 = base64.b64encode(video_bytes).decode("utf-8")
-            video_data_url = f"data:{mime_type};base64,{video_b64}"
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "video_url", "video_url": {"url": video_data_url}}
-                    ]
-                }
-            ]
+        content_items = [{"type": "text", "text": prompt}]
+        
+        if is_video and frame_paths:
+            for frame_path in frame_paths:
+                compressed_frame = compress_and_save_image(frame_path)
+                if compressed_frame:
+                    with open(compressed_frame, "rb") as f:
+                        frame_bytes = f.read()
+                    frame_b64 = base64.b64encode(frame_bytes).decode("utf-8")
+                    frame_data_url = f"data:image/jpeg;base64,{frame_b64}"
+                    content_items.append({
+                        "type": "image_url",
+                        "image_url": {"url": frame_data_url}
+                    })
+            print(f"[Maia] Sending {len(frame_paths)} video frames to API")
         else:
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
@@ -314,21 +238,17 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
                 image_bytes = f.read()
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
             image_data_url = f"data:image/jpeg;base64,{image_b64}"
-            
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_data_url,
-                            },
-                        },
-                    ],
-                }
-            ]
+            content_items.append({
+                "type": "image_url",
+                "image_url": {"url": image_data_url}
+            })
+        
+        messages = [
+            {
+                "role": "user",
+                "content": content_items,
+            }
+        ]
         
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0

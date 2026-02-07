@@ -77,10 +77,16 @@ class VideoProxyPromptSettingsDialog(QDialog):
         self.crf_spin.setRange(0, 51)
         self.crf_spin.setToolTip('FFmpeg CRF (quality) value; lower = higher quality (0-51)')
 
+        self.frame_count_spin = QSpinBox()
+        self.frame_count_spin.setRange(1, 30)
+        self.frame_count_spin.setToolTip('Number of frames to extract for AI services that do not support video (e.g., Groq, OpenAI, Blackbox)')
+        self._load_frame_count()
+
         outer.addLayout(row_widget('fa6s.tag', 'Label:', self.label_edit))
         outer.addLayout(row_widget('fa6s.expand', 'Resolution:', self.res_edit))
         outer.addLayout(row_widget('fa6s.gauge', 'Bitrate:', self.bitrate_edit))
         outer.addLayout(row_widget('fa6s.sliders', 'CRF:', self.crf_spin))
+        outer.addLayout(row_widget('fa6s.images', 'Frames:', self.frame_count_spin))
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -106,6 +112,16 @@ class VideoProxyPromptSettingsDialog(QDialog):
         except Exception as e:
             print(f"Failed to load video proxy presets: {e}")
             self.presets = {}
+
+    def _load_frame_count(self):
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            frame_count = cfg.get('video_frame_count', 5)
+            self.frame_count_spin.setValue(int(frame_count))
+        except Exception as e:
+            print(f"Failed to load video frame count: {e}")
+            self.frame_count_spin.setValue(5)
 
     def _on_preset_changed(self, name):
         p = self.presets.get(name, {})
@@ -133,6 +149,7 @@ class VideoProxyPromptSettingsDialog(QDialog):
             'crf': self.crf_spin.value()
         }
         cfg['video_proxy_presets'] = presets
+        cfg['video_frame_count'] = self.frame_count_spin.value()
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)

@@ -11,7 +11,7 @@ from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_t
 from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
-from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
+from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
 
 _generation_times_blackbox = []
 
@@ -158,13 +158,18 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
         is_video = ext in ['.mp4', '.mpeg', '.mpg', '.mov', '.webm']
         filename = os.path.basename(image_path)
         
+        frame_paths = []
         if is_video:
-            error_message = (
-                "BlackboxAI Vision API does not currently support video input directly. "
-                "Please use images or select the Gemini service for video processing."
-            )
-            print(f"[Blackbox Video Not Supported] {error_message}")
-            return '', '', '', {}, '', error_message, 0, 0, 0
+            print(f"[Blackbox] Video detected. Extracting frames for processing...")
+            frame_paths = extract_video_frames(image_path)
+            if not frame_paths:
+                error_message = (
+                    "[Blackbox ERROR] Failed to extract frames from video. "
+                    "Please ensure FFmpeg is installed and the video file is valid."
+                )
+                print(error_message)
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            print(f"[Blackbox] Extracted {len(frame_paths)} frames from video")
         
         client = OpenAI(
             base_url="https://api.blackbox.ai",
@@ -208,28 +213,40 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
                 filename=filename
             )
         
-        compressed_path = compress_and_save_image(image_path)
-        if not compressed_path:
-            error_message = f"[Blackbox ERROR] Failed to compress image: {image_path}"
-            return '', '', '', {}, '', error_message, 0, 0, 0
+        content_items = [{"type": "text", "text": prompt}]
         
-        with open(compressed_path, "rb") as f:
-            image_bytes = f.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+        if is_video and frame_paths:
+            for frame_path in frame_paths:
+                compressed_frame = compress_and_save_image(frame_path)
+                if compressed_frame:
+                    with open(compressed_frame, "rb") as f:
+                        frame_bytes = f.read()
+                    frame_b64 = base64.b64encode(frame_bytes).decode("utf-8")
+                    frame_data_url = f"data:image/jpeg;base64,{frame_b64}"
+                    content_items.append({
+                        "type": "image_url",
+                        "image_url": {"url": frame_data_url}
+                    })
+            print(f"[Blackbox] Sending {len(frame_paths)} video frames to API")
+        else:
+            compressed_path = compress_and_save_image(image_path)
+            if not compressed_path:
+                error_message = f"[Blackbox ERROR] Failed to compress image: {image_path}"
+                return '', '', '', {}, '', error_message, 0, 0, 0
+            
+            with open(compressed_path, "rb") as f:
+                image_bytes = f.read()
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            image_data_url = f"data:image/jpeg;base64,{image_b64}"
+            content_items.append({
+                "type": "image_url",
+                "image_url": {"url": image_data_url}
+            })
         
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_data_url,
-                        },
-                    },
-                ],
+                "content": content_items,
             }
         ]
         
