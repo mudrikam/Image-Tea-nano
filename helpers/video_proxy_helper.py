@@ -560,6 +560,313 @@ class VideoProxyWorker(QThread):
             })
             self.finished.emit(None)
 
+
+class BatchVideoProxyWorker(QThread):
+    progress_update = Signal(dict)
+    file_completed = Signal(int, str, str)
+    all_finished = Signal(dict)
+    
+    def __init__(self, video_files, proxy_setting):
+        super().__init__()
+        self.video_files = video_files
+        self.proxy_setting = proxy_setting
+        self.stop_flag = False
+        self.results = {}
+        
+    def stop(self):
+        self.stop_flag = True
+    
+    def run(self):
+        if self.proxy_setting == "Off":
+            for video_path in self.video_files:
+                self.results[video_path] = video_path
+            self.all_finished.emit(self.results)
+            return
+            
+        ok, err = ensure_ffmpeg_exists()
+        if not ok:
+            self.progress_update.emit({"status": "error", "error": err})
+            self.all_finished.emit({})
+            return
+        
+        cleanup_video_temp_folder()
+        temp_folder = ensure_video_temp_folder()
+        
+        total_files = len(self.video_files)
+        
+        for idx, video_path in enumerate(self.video_files):
+            if self.stop_flag:
+                self.all_finished.emit(self.results)
+                return
+                
+            filename = os.path.basename(video_path)
+            self.progress_update.emit({
+                "status": "file_start",
+                "file_index": idx,
+                "filename": filename,
+                "total_files": total_files
+            })
+            
+            proxy_path = self._process_single_video(video_path, temp_folder, idx, total_files)
+            
+            if proxy_path:
+                self.results[video_path] = proxy_path
+            else:
+                self.results[video_path] = video_path
+                
+            self.file_completed.emit(idx, video_path, proxy_path if proxy_path else video_path)
+            self.progress_update.emit({
+                "status": "file_done",
+                "file_index": idx,
+                "completed_count": idx + 1,
+                "total_files": total_files
+            })
+        
+        self.progress_update.emit({"status": "batch_complete"})
+        self.all_finished.emit(self.results)
+    
+    def _process_single_video(self, video_path, temp_folder, file_idx, total_files):
+        if self.proxy_setting == "Auto":
+            preset_name = determine_auto_proxy_preset(video_path)
+        else:
+            preset_name = self.proxy_setting
+            
+        try:
+            presets = get_video_proxy_presets()
+            preset = presets[preset_name]
+        except Exception as e:
+            self.progress_update.emit({"status": "error", "error": f"Preset error: {e}"})
+            return None
+        
+        crf = preset.get('crf', 23)
+        video_info = get_video_info(video_path)
+        
+        self.progress_update.emit({
+            "status": "starting",
+            "preset": preset_name,
+            "preset_label": preset["label"],
+            "resolution": preset["resolution"],
+            "bitrate": preset["bitrate"],
+            "crf": crf,
+            "input_size": video_info["size"] if video_info else 0,
+            "input_resolution": video_info["resolution"] if video_info else "Unknown",
+            "duration": video_info["duration"] if video_info else 0
+        })
+        
+        output_filename = os.path.splitext(os.path.basename(video_path))[0] + "_proxy.mp4"
+        output_path = os.path.join(temp_folder, output_filename)
+        
+        try:
+            encoder, hw_encoder = choose_video_encoder()
+            print(f"[BatchVideoProxy] File {file_idx + 1}/{total_files}: {os.path.basename(video_path)} using {encoder}")
+            
+            cmd, used_gpu_pipeline = build_ffmpeg_cmd(video_path, output_path, preset, crf, encoder, hw_encoder, prefer_gpu_pipeline=True)
+            if not hw_encoder:
+                cmd[cmd.index("-b:v")+2:cmd.index("-b:v")+2] = ["-crf", str(crf), "-preset", "medium"]
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            
+            duration = video_info["duration"] if video_info and video_info["duration"] else 0
+            tail = []
+            
+            for line in process.stdout:
+                tail.append(line)
+                if self.stop_flag:
+                    process.terminate()
+                    return None
+                
+                if "time=" in line:
+                    try:
+                        time_str = line.split("time=")[1].split()[0]
+                        time_parts = time_str.split(":")
+                        if len(time_parts) == 3:
+                            h, m, s = time_parts
+                            current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                            if duration > 0:
+                                progress = int((current_time / duration) * 100)
+                                self.progress_update.emit({
+                                    "status": "processing",
+                                    "progress": min(progress, 100),
+                                    "current_time": current_time,
+                                    "duration": duration
+                                })
+                    except Exception:
+                        pass
+            
+            process.wait()
+            
+            if process.returncode != 0:
+                err_snippet = "".join(tail[-32:]) if tail else ""
+                print(f"[BatchVideoProxy] FFmpeg error for {os.path.basename(video_path)}: {process.returncode}")
+                
+                if hw_encoder and _is_hw_encoder_error(err_snippet):
+                    print("[BatchVideoProxy] Hardware encoder failed, retrying with libx264")
+                    self.progress_update.emit({"status": "info", "info": "Hardware encoder failed, retrying with CPU encoder"})
+                    return self._retry_with_cpu_encoder(video_path, output_path, preset, crf, duration)
+                
+                self.progress_update.emit({"status": "error", "error": f"FFmpeg error: {err_snippet[:200]}"})
+                return None
+            
+            if os.path.exists(output_path):
+                output_size = os.path.getsize(output_path)
+                self.progress_update.emit({
+                    "status": "completed",
+                    "output_path": output_path,
+                    "output_size": output_size
+                })
+                return output_path
+            else:
+                self.progress_update.emit({"status": "error", "error": "FFmpeg failed to create output file"})
+                return None
+                
+        except Exception as e:
+            print(f"[BatchVideoProxy] Error processing {os.path.basename(video_path)}: {e}")
+            self.progress_update.emit({"status": "error", "error": str(e)})
+            return None
+    
+    def _retry_with_cpu_encoder(self, video_path, output_path, preset, crf, duration):
+        cmd = [
+            FFMPEG_PATH,
+            *get_ffmpeg_thread_args(),
+            "-i", video_path,
+            "-vf", f"scale={preset['resolution']}",
+            "-c:v", "libx264",
+            "-b:v", preset["bitrate"],
+            "-crf", str(crf),
+            "-preset", "medium",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-y",
+            output_path
+        ]
+        
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        
+        tail = []
+        for line in process.stdout:
+            tail.append(line)
+            if self.stop_flag:
+                process.terminate()
+                return None
+            if "time=" in line:
+                try:
+                    time_str = line.split("time=")[1].split()[0]
+                    time_parts = time_str.split(":")
+                    if len(time_parts) == 3:
+                        h, m, s = time_parts
+                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                        if duration > 0:
+                            progress = int((current_time / duration) * 100)
+                            self.progress_update.emit({
+                                "status": "processing",
+                                "progress": min(progress, 100),
+                                "current_time": current_time,
+                                "duration": duration
+                            })
+                except Exception:
+                    pass
+        
+        process.wait()
+        
+        if process.returncode != 0 or not os.path.exists(output_path):
+            return None
+        
+        return output_path
+
+
+def batch_process_videos_with_dialog(video_files, stop_flag=None):
+    if not video_files:
+        return {}
+    
+    proxy_setting = get_video_proxy_setting()
+    if proxy_setting == "Off":
+        return {vf: vf for vf in video_files}
+    
+    result_container = [None]
+    finished_event = threading.Event()
+    
+    def dialog_factory(video_files, proxy_setting, stop_flag, result_container, finished_event):
+        try:
+            from dialogs.video_proxy_dialog import VideoProxyDialog
+            parent = QApplication.instance().activeWindow() if QApplication.instance() else None
+            dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': len(video_files)})
+            
+            worker = BatchVideoProxyWorker(video_files, proxy_setting)
+            
+            def on_progress(data):
+                try:
+                    status = data.get("status")
+                    if status == "file_start":
+                        file_idx = data.get("file_index", 0)
+                        filename = data.get("filename", "")
+                        dlg.set_current_file(file_idx, filename)
+                    elif status == "file_done":
+                        completed = data.get("completed_count", 0)
+                        dlg.update_batch_progress(completed)
+                    else:
+                        dlg.update_progress(data)
+                    QApplication.processEvents()
+                except Exception as e:
+                    print(f"[BatchVideoProxy] Dialog progress update error: {e}")
+            
+            def on_all_finished(results):
+                result_container[0] = results
+                try:
+                    if dlg and dlg.isVisible():
+                        dlg.close()
+                except Exception as e:
+                    print(f"[BatchVideoProxy] Error closing dialog: {e}")
+                finished_event.set()
+            
+            worker.progress_update.connect(on_progress)
+            worker.all_finished.connect(on_all_finished)
+            
+            def on_cancel_clicked():
+                worker.stop()
+                if stop_flag:
+                    stop_flag['stop'] = True
+                dlg.request_stop()
+            
+            try:
+                dlg.cancel_button.clicked.disconnect()
+            except Exception:
+                pass
+            dlg.cancel_button.clicked.connect(on_cancel_clicked)
+            
+            worker.start()
+            dlg.exec()
+            
+        except Exception as e:
+            print(f"[BatchVideoProxy] Dialog factory error: {e}")
+            result_container[0] = {}
+            finished_event.set()
+    
+    invoked = invoke_in_main_thread(dialog_factory, (video_files, proxy_setting, stop_flag, result_container, finished_event))
+    
+    if not invoked:
+        print("[BatchVideoProxy] Could not invoke dialog on main thread")
+        return {vf: vf for vf in video_files}
+    
+    if not finished_event.wait(1800):
+        print("[BatchVideoProxy] Timeout waiting for batch proxy completion")
+        return {vf: vf for vf in video_files}
+    
+    return result_container[0] if result_container[0] else {}
+
+
 def create_video_proxy(video_path, proxy_setting, progress_callback=None, stop_flag=None):
     if proxy_setting == "Off":
         return video_path

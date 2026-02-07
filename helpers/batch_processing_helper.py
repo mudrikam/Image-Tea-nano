@@ -16,6 +16,7 @@ from helpers.ai_helper.openai_helper import generate_metadata_openai, track_open
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
 from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, track_blackbox_generation_time
 from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_generation_time
+from helpers.video_proxy_helper import batch_process_videos_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting
 
 from ui.theme_system import theme
 
@@ -814,13 +815,17 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
-            # Determine which service to use (from parallel API info)
+            proxy_path = None
+            if hasattr(window, '_batch_processing_state'):
+                video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
+                proxy_path = video_proxy_map.get(image_path)
+            
             target_service = service_override if service_override else service
             target_service = target_service.lower() if target_service else 'gemini'
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -830,7 +835,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -861,7 +866,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -899,13 +904,17 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
-            # Determine which service to use (override from rolling, or initial service)
+            proxy_path = None
+            if hasattr(window, '_batch_processing_state'):
+                video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
+                proxy_path = video_proxy_map.get(image_path)
+            
             target_service = service_override if service_override else service
             target_service = target_service.lower() if target_service else 'gemini'
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -915,7 +924,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -946,7 +955,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -983,7 +992,11 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag)
+            proxy_path = None
+            if hasattr(window, '_batch_processing_state'):
+                video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
+                proxy_path = video_proxy_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1008,7 +1021,11 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag)
+            proxy_path = None
+            if hasattr(window, '_batch_processing_state'):
+                video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
+                proxy_path = video_proxy_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1084,7 +1101,11 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+            proxy_path = None
+            if hasattr(window, '_batch_processing_state'):
+                video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
+                proxy_path = video_proxy_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1114,6 +1135,28 @@ def batch_generate_metadata(window):
 
     batch_size = get_batch_size()
     total_files = len(rows)
+    
+    video_proxy_map = {}
+    proxy_setting = get_video_proxy_setting()
+    if proxy_setting != "Off":
+        video_files = []
+        for row in rows:
+            filepath = row[1]
+            ext = os.path.splitext(filepath)[1].lower()
+            if ext in VIDEO_EXTENSIONS:
+                video_files.append(filepath)
+        
+        if video_files:
+            print(f"[BATCH] Pre-processing {len(video_files)} video(s) with proxy setting: {proxy_setting}")
+            video_proxy_map = batch_process_videos_with_dialog(video_files, stop_flag)
+            
+            if stop_flag and stop_flag.get('stop'):
+                print("[BATCH] Video proxy processing cancelled by user")
+                window.table.progress_bar.setVisible(False)
+                window.table.set_progress_info('', visible=False)
+                return
+            
+            print(f"[BATCH] Video proxy pre-processing complete: {len(video_proxy_map)} videos processed")
     
     # Create batches based on mode
     if is_parallel_mode and api_keys_list:
@@ -1150,9 +1193,10 @@ def batch_generate_metadata(window):
         'is_parallel_mode': is_parallel_mode,
         'api_keys_list': api_keys_list,
         'mode': mode,
-        'current_api_index': 0,  # Track current API across batches
-        'batch_retry_count': 0,  # Track how many times batch retried with different API
-        'batch_same_api_retry': 0  # Track how many times failed files retried with same API
+        'current_api_index': 0,
+        'batch_retry_count': 0,
+        'batch_same_api_retry': 0,
+        'video_proxy_map': video_proxy_map
     }
     window.is_generating = True
     
