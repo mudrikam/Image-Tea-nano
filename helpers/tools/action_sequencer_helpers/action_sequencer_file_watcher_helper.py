@@ -1,5 +1,6 @@
 import os
 import time
+import shutil
 from pathlib import Path
 from config import BASE_PATH
 import datetime
@@ -395,41 +396,63 @@ class ActionSequencerFileWatcher:
             *jsx_directories: Variable number of directory paths to clean
         """
         preset_pattern = re.compile(r'^preset_.*\.jsx$', re.IGNORECASE)
+        split_dir_pattern = re.compile(r'^preset_.*_split$', re.IGNORECASE)
 
         for jsx_dir in jsx_directories:
             if not jsx_dir or not os.path.exists(jsx_dir):
                 continue
 
             try:
-                removed_count = 0
+                removed_files = 0
+                removed_dirs = 0
                 skipped = []
-                for root, dirs, files in os.walk(jsx_dir):
-                    for file in files:
-                        if not file.lower().endswith('.jsx'):
+                
+                items = os.listdir(jsx_dir)
+                
+                for item in items:
+                    item_path = os.path.join(jsx_dir, item)
+                    
+                    if os.path.isdir(item_path):
+                        if split_dir_pattern.match(item):
+                            attempts = 0
+                            while attempts < 3:
+                                try:
+                                    shutil.rmtree(item_path)
+                                    print(f"Cleaned up JSX split directory: {item}")
+                                    removed_dirs += 1
+                                    break
+                                except PermissionError:
+                                    attempts += 1
+                                    time.sleep(0.2)
+                                except Exception as e:
+                                    print(f"Failed to remove directory {item}: {e}")
+                                    break
+                    
+                    elif os.path.isfile(item_path):
+                        if not item.lower().endswith('.jsx'):
                             continue
-                        if not preset_pattern.match(file):
-                            skipped.append(file)
+                        if not preset_pattern.match(item):
+                            skipped.append(item)
                             continue
 
-                        file_path = os.path.join(root, file)
                         attempts = 0
                         while attempts < 3:
                             try:
-                                os.remove(file_path)
-                                print(f"Cleaned up JSX file: {file}")
-                                removed_count += 1
+                                os.remove(item_path)
+                                print(f"Cleaned up JSX file: {item}")
+                                removed_files += 1
                                 break
                             except PermissionError:
                                 attempts += 1
                                 time.sleep(0.2)
                             except Exception as e:
-                                print(f"Failed to remove {file}: {e}")
+                                print(f"Failed to remove {item}: {e}")
                                 break
 
-                if removed_count > 0:
-                    print(f"Removed {removed_count} preset JSX file(s) from {jsx_dir}")
+                if removed_files > 0 or removed_dirs > 0:
+                    print(f"Removed {removed_files} preset JSX file(s) and {removed_dirs} split directory(s) from {jsx_dir}")
                 else:
-                    print(f"No preset JSX files removed from {jsx_dir}")
+                    print(f"No preset JSX files or directories removed from {jsx_dir}")
                     if skipped:
                         print(f"Skipped {len(skipped)} non-preset JSX files (e.g. resident files): {skipped}")
             except Exception as e:

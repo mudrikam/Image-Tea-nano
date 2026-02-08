@@ -844,6 +844,10 @@ class ActionSequencerDialog(QDialog):
         """Handle saat single mode selesai"""
         self.step_list_widget.clear_all_highlights()
         self.status_bar_widget.update_delay("-")
+        
+        jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
+        jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')
+        ActionSequencerFileWatcher.cleanup_jsx_files(jsx_illustrator_dir, jsx_photoshop_dir)
     
     def load_output_path(self):
         output_path = self.config.get('output_path', '')
