@@ -297,6 +297,10 @@ class PromptInjector {
         this.onElementPicked(message.pointIndex, message.selector);
         this.addLog(`Element picked for Point ${message.pointIndex}: ${message.selector.substring(0, 50)}...`, 'success');
       } else if (message.type === 'AUTOMATION_PROGRESS') {
+        if (!this.isRunning) {
+          console.log('[Progress] Ignoring progress message - automation not running');
+          return;
+        }
         this.onAutomationProgress(message.done, message.total);
         this.addLog(`Progress: ${message.done}/${message.total} prompts completed`, 'info');
       } else if (message.type === 'AUTOMATION_FINISHED') {
@@ -305,15 +309,27 @@ class PromptInjector {
         this.elements.autoDownload.note.style.color = '';
         this.addLog('Automation finished', 'success');
       } else if (message.type === 'AUTOMATION_STATUS') {
+        if (!this.isRunning) {
+          console.log('[Status] Ignoring status message - automation not running:', message.text);
+          return;
+        }
         this.updateDelayText(message.text);
         this.elements.statStatus.textContent = message.text.substring(0, 40);
         this.addLog(message.text, 'status');
       } else if (message.type === 'DOWNLOAD_COUNTDOWN') {
+        if (!this.isRunning) {
+          console.log('[Countdown] Ignoring countdown message - automation not running');
+          return;
+        }
         const mode = message.mode === 'monitoring' ? 'Monitoring' : 'Waiting';
         this.elements.autoDownload.note.textContent = `${mode}: ${message.seconds}s`;
         this.elements.autoDownload.note.style.color = '#ff8800';
         this.elements.statStatus.textContent = `${mode}: ${message.seconds}s`;
       } else if (message.type === 'DOWNLOAD_SCANNING') {
+        if (!this.isRunning) {
+          console.log('[Scanning] Ignoring scanning message - automation not running');
+          return;
+        }
         this.elements.autoDownload.note.textContent = 'Scanning for new content...';
         this.elements.autoDownload.note.style.color = '#ff8800';
         this.elements.statStatus.textContent = 'Scanning...';
@@ -321,6 +337,10 @@ class PromptInjector {
           this.addLog(`Scanning: found ${message.found}/${message.required} items`, 'info');
         }
       } else if (message.type === 'DOWNLOAD_DONE') {
+        if (!this.isRunning) {
+          console.log('[Download] Ignoring download done message - automation not running');
+          return;
+        }
         this.elements.autoDownload.note.textContent = `Downloaded ${message.count} item(s)`;
         this.elements.autoDownload.note.style.color = '#00cc66';
         this.elements.statStatus.textContent = `Downloaded ${message.count}`;
@@ -583,7 +603,13 @@ class PromptInjector {
     });
 
     this.updatePointNumbers();
-    this.debouncedSaveSettings();
+    
+    if (!this.isLoadingSettings) {
+      console.log(`[Dynamic Point] Auto-saving after adding point ${pointId}`);
+      this.debouncedSaveSettings();
+    } else {
+      console.log(`[Dynamic Point] Skipping auto-save during load for point ${pointId}`);
+    }
   }
 
   deleteDynamicPoint(pointId) {
@@ -1196,10 +1222,24 @@ class PromptInjector {
   onAutomationFinished() {
     this.isRunning = false;
     this.isPaused = false;
+    this.currentIndex = 0;
     this.setRunMode(false);
     this.stopStatsTimer();
+    
+    this.updateProgress(0, 0);
+    this.elements.statEta.textContent = '-';
+    this.elements.statRemaining.textContent = '-';
+    this.elements.statSpeed.textContent = '-';
+    this.elements.statElapsed.textContent = '-';
     this.elements.statStatus.textContent = 'Completed';
     this.updateDelayText('Completed');
+    
+    if (this.elements.autoDownload.note) {
+      this.elements.autoDownload.note.textContent = 'Matches images/videos starting with pattern';
+      this.elements.autoDownload.note.style.color = '';
+    }
+    
+    console.log('[Automation] Finished - all stats and progress reset');
   }
 
   updateProgress(done, total) {
@@ -1382,6 +1422,13 @@ class PromptInjector {
     }
     
     this.isLoadingSettings = true;
+    
+    if (this.saveSettingsDebounceTimer) {
+      clearTimeout(this.saveSettingsDebounceTimer);
+      this.saveSettingsDebounceTimer = null;
+      console.log('[Settings] Cleared pending save timer before loading');
+    }
+    
     console.log(`[Settings] Loading from ${this.currentUrlKey}`);
 
     // Clear existing dynamic points to avoid duplication when reloading settings
@@ -1401,15 +1448,15 @@ class PromptInjector {
     this.elements.point1.selector.value = '';
     this.elements.point1.delay.value = '1.0';
     this.elements.autoDownload.enabled.checked = true;
-    this.elements.autoDownload.count.value = '2';
+    this.elements.autoDownload.count.value = '4';
     this.elements.autoDownload.delay.value = '5';
-    this.elements.autoDownload.monitoring.checked = false;
+    this.elements.autoDownload.monitoring.checked = true;
     this.elements.autoDownload.pattern.value = '';
     this.elements.autoDownload.extension.value = 'jpg';
     this.elements.autoDownload.prefix.value = 'Generated_Content';
     if (this.elements.randomDelay) this.elements.randomDelay.value = '0';
     if (this.elements.promptDelay) this.elements.promptDelay.value = '0';
-    if (this.elements.autoContinue) this.elements.autoContinue.checked = false;
+    if (this.elements.autoContinue) this.elements.autoContinue.checked = true;
     
     if (settings) {
       if (settings.point1) {
@@ -1419,9 +1466,11 @@ class PromptInjector {
       }
 
       if (settings.dynamicPoints && settings.dynamicPoints.length > 0) {
+        console.log(`[Settings] Loading ${settings.dynamicPoints.length} dynamic points`);
         settings.dynamicPoints.forEach(pointData => {
           this.addDynamicPoint(pointData);
         });
+        console.log(`[Settings] Successfully loaded ${this.dynamicPoints.length} dynamic points`);
       }
 
       if (settings.autoDownload) {

@@ -9,6 +9,7 @@
   }
   window.__PROMPT_INJECTOR_LOADED__ = true;
   console.log('[Prompt Injector] Content script initializing...');
+  console.log('[Prompt Injector] Custom HTML tags support ENABLED (Firefly, Web Components, Shadow DOM)');
 
   let pickerActive = false;
   let pickerPointIndex = null;
@@ -21,13 +22,48 @@
   let automationConfig = null;
   let automationPrompts = [];
   let automationIndex = 0;
+  let currentMonitoringPromptIndex = -1;
 
   const downloadedUrls = new Set();
+
+  function deepQuerySelectorAll(rootElement, selector) {
+    const results = [];
+    
+    const traverse = (element) => {
+      if (element.matches && element.matches(selector)) {
+        results.push(element);
+      }
+      
+      const children = element.querySelectorAll(selector);
+      children.forEach(child => results.push(child));
+      
+      if (element.shadowRoot) {
+        const shadowChildren = element.shadowRoot.querySelectorAll(selector);
+        shadowChildren.forEach(child => results.push(child));
+        
+        element.shadowRoot.querySelectorAll('*').forEach(el => {
+          if (el.shadowRoot) traverse(el);
+        });
+      }
+      
+      element.querySelectorAll('*').forEach(el => {
+        if (el.shadowRoot) traverse(el);
+      });
+    };
+    
+    traverse(rootElement);
+    return results;
+  }
+
+  function deepQuerySelector(rootElement, selector) {
+    const results = deepQuerySelectorAll(rootElement, selector);
+    return results.length > 0 ? results[0] : null;
+  }
 
   function getAllMediaUrls() {
     const allUrls = new Set();
     
-    const images = document.querySelectorAll('img');
+    const images = deepQuerySelectorAll(document, 'img');
     images.forEach(img => {
       let src = img.src || img.currentSrc || img.getAttribute('data-src');
       if (src && !src.startsWith('data:image/svg') && !src.includes('placeholder')) {
@@ -39,7 +75,7 @@
       }
     });
     
-    const videos = document.querySelectorAll('video');
+    const videos = deepQuerySelectorAll(document, 'video');
     videos.forEach(video => {
       const src = video.src || video.currentSrc || video.querySelector('source')?.src;
       if (src) {
@@ -51,7 +87,7 @@
       }
     });
     
-    const canvases = document.querySelectorAll('canvas');
+    const canvases = deepQuerySelectorAll(document, 'canvas');
     canvases.forEach(canvas => {
       if (canvas.width >= 500 || canvas.height >= 500) {
         try {
@@ -61,7 +97,7 @@
       }
     });
     
-    const bgElements = document.querySelectorAll('[style*="background"]');
+    const bgElements = deepQuerySelectorAll(document, '[style*="background"]');
     bgElements.forEach(el => {
       const style = window.getComputedStyle(el);
       const bgImage = style.backgroundImage;
@@ -84,7 +120,12 @@
 
   async function verifyMediaLoaded(media) {
     if (media.type === 'image') {
-      const img = document.querySelector(`img[src="${media.url}"]`);
+      let img = document.querySelector(`img[src="${media.url}"]`);
+      
+      if (!img) {
+        img = deepQuerySelector(document, `img[src="${media.url}"]`);
+      }
+      
       if (!img) return false;
       
       if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
@@ -116,7 +157,7 @@
       return url.startsWith(urlPattern);
     };
     
-    const images = document.querySelectorAll('img');
+    const images = deepQuerySelectorAll(document, 'img');
     images.forEach(img => {
       let src = img.src || img.currentSrc || img.getAttribute('data-src');
       if (!src || excludeUrls.has(src) || downloadedUrls.has(src)) return;
@@ -131,7 +172,7 @@
       }
     });
     
-    const videos = document.querySelectorAll('video');
+    const videos = deepQuerySelectorAll(document, 'video');
     videos.forEach(video => {
       const src = video.src || video.currentSrc || video.querySelector('source')?.src;
       if (!src || excludeUrls.has(src) || downloadedUrls.has(src)) return;
@@ -145,7 +186,7 @@
       }
     });
     
-    const canvases = document.querySelectorAll('canvas');
+    const canvases = deepQuerySelectorAll(document, 'canvas');
     canvases.forEach(canvas => {
       if (canvas.width >= 500 || canvas.height >= 500) {
         try {
@@ -159,7 +200,7 @@
       }
     });
     
-    const bgElements = document.querySelectorAll('[style*="background"]');
+    const bgElements = deepQuerySelectorAll(document, '[style*="background"]');
     bgElements.forEach(el => {
       const style = window.getComputedStyle(el);
       const bgImage = style.backgroundImage;
@@ -277,6 +318,18 @@
       return null;
     }
 
+    const tagName = element.tagName.toLowerCase();
+    
+    if (tagName.includes('-')) {
+      const customSelector = tagName;
+      try {
+        if (document.querySelectorAll(customSelector).length === 1) {
+          console.log('[Prompt Injector] Custom tag is unique:', customSelector);
+          return customSelector;
+        }
+      } catch (e) {}
+    }
+
     if (element.id && !element.id.includes(':') && !element.id.includes(' ')) {
       const idSelector = `#${CSS.escape(element.id)}`;
       try {
@@ -318,7 +371,6 @@
       }
     }
 
-    const tagName = element.tagName.toLowerCase();
     if (tagName === 'button' || tagName === 'a' || tagName === 'input' || tagName === 'textarea') {
       const textContent = element.textContent?.trim();
       if (textContent && textContent.length < 50 && textContent.length > 0) {
@@ -461,6 +513,13 @@
         element.id !== 'prompt-injector-highlight' && 
         element.id !== 'prompt-injector-label') {
       
+      const tagName = element.tagName.toLowerCase();
+      const isCustomElement = tagName.includes('-');
+      
+      if (isCustomElement) {
+        console.log('[Prompt Injector] Custom element detected:', tagName, element);
+      }
+      
       const selector = generateSelector(element);
       console.log('[Prompt Injector] Element picked:', element.tagName, '-> Selector:', selector);
       
@@ -488,7 +547,11 @@
   function onKeyDown(e) {
     if (pickerActive && e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.log('[Prompt Injector] ESC pressed - cancelling picker');
       stopPicker();
+      return false;
     }
   }
 
@@ -506,6 +569,7 @@
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('click', onMouseClick, true);
     document.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
 
     document.body.style.cursor = 'crosshair';
 
@@ -520,6 +584,7 @@
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('click', onMouseClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('keydown', onKeyDown, true);
 
     document.body.style.cursor = '';
     
@@ -579,7 +644,14 @@
   async function executePoint(point, promptText) {
     if (!point.enabled || !point.selector) return true;
 
-    const element = document.querySelector(point.selector);
+    let element = document.querySelector(point.selector);
+    let foundViaShadowDOM = false;
+    
+    if (!element) {
+      element = deepQuerySelector(document, point.selector);
+      foundViaShadowDOM = !!element;
+    }
+    
     if (!element) {
       consecutiveElementNotFound++;
       console.warn(`[Prompt Injector] Element not found: ${point.selector} (consecutive: ${consecutiveElementNotFound})`);
@@ -602,6 +674,10 @@
     }
     
     consecutiveElementNotFound = 0;
+    
+    if (foundViaShadowDOM) {
+      console.log(`[Prompt Injector] Element found via Shadow DOM: ${point.selector}`);
+    }
 
     if (point.type === 'paste' && promptText) {
       simulateInput(element, promptText);
@@ -622,6 +698,7 @@
     automationConfig = config;
     automationPrompts = prompts;
     automationIndex = 0;
+    currentMonitoringPromptIndex = -1;
 
     const enabledPoints = config.points.filter(p => p.enabled && p.selector);
     const promptDelay = (config.promptDelay || 0) * 1000;
@@ -657,6 +734,11 @@
 
     for (automationIndex = 0; automationIndex < prompts.length; automationIndex++) {
       console.log(`[Prompt Injector] ===== PROMPT ${automationIndex + 1}/${prompts.length} =====`);
+      
+      if (currentMonitoringPromptIndex >= 0 && currentMonitoringPromptIndex !== automationIndex) {
+        console.log(`[Prompt Injector] Invalidating previous monitoring for prompt ${currentMonitoringPromptIndex + 1}`);
+        currentMonitoringPromptIndex = -1;
+      }
       
       consecutiveElementNotFound = 0;
       
@@ -738,7 +820,8 @@
         const monitoring = config.autoDownload.monitoring || false;
         const waitSeconds = config.autoDownload.delay || 5;
         
-        const timeoutSeconds = monitoring ? Math.max(60, waitSeconds) : waitSeconds;
+        const baseTimeout = (extension.toLowerCase() === 'mp4') ? 180 : 60;
+        const timeoutSeconds = monitoring ? Math.max(baseTimeout, waitSeconds) : waitSeconds;
         
         downloadSuccess = false;
         let newMedia = [];
@@ -746,6 +829,9 @@
         console.log(`[Prompt Injector] Auto download: need ${requiredCount} items, monitoring=${monitoring}, timeout=${timeoutSeconds}s`);
         
         if (monitoring) {
+          currentMonitoringPromptIndex = automationIndex;
+          console.log(`[Prompt Injector] Started monitoring for prompt ${automationIndex + 1}`);
+          
           const maxWaitMs = timeoutSeconds * 1000;
           const startTime = Date.now();
           let scanCount = 0;
@@ -753,8 +839,16 @@
           sendStatus(`Monitoring for ${requiredCount} new items (max ${timeoutSeconds}s)...`);
           
           while (automationRunning && Date.now() - startTime < maxWaitMs) {
+            if (currentMonitoringPromptIndex !== automationIndex) {
+              console.log(`[Prompt Injector] Monitoring loop EXPIRED: prompt ${automationIndex + 1} is no longer active (current: ${currentMonitoringPromptIndex + 1})`);
+              break;
+            }
+            
             await waitWhilePaused();
-            if (!automationRunning) break;
+            if (!automationRunning) {
+              console.log('[Prompt Injector] Monitoring loop ABORT: automation stopped');
+              break;
+            }
             
             scanCount++;
             newMedia = findNewMediaContent(requiredCount, pattern, beforePromptSnapshot);
@@ -762,32 +856,68 @@
             console.log(`[Prompt Injector] Scan #${scanCount}: found ${newMedia.length}/${requiredCount}`);
             
             if (newMedia.length >= requiredCount) {
-              console.log(`[Prompt Injector] Target reached! Found ${newMedia.length} items`);
-              sendStatus(`Found ${newMedia.length}/${requiredCount} items!`);
+              console.log(`[Prompt Injector] Monitoring loop EXIT: Target reached! Found ${newMedia.length} items`);
+              if (automationRunning && currentMonitoringPromptIndex === automationIndex) {
+                sendStatus(`Found ${newMedia.length}/${requiredCount} items!`);
+              }
+              if (currentMonitoringPromptIndex === automationIndex) {
+                currentMonitoringPromptIndex = -1;
+                console.log(`[Prompt Injector] Monitoring completed successfully, reset tracking`);
+              }
               break;
             }
             
-            sendStatus(`Monitoring: ${newMedia.length}/${requiredCount} found (scan #${scanCount})`);
+            if (automationRunning && currentMonitoringPromptIndex === automationIndex) {
+              sendStatus(`Monitoring: ${newMedia.length}/${requiredCount} found (scan #${scanCount})`);
+            }
             
-            if (!automationRunning) break;
+            if (currentMonitoringPromptIndex !== automationIndex) {
+              console.log(`[Prompt Injector] Monitoring loop EXPIRED: prompt changed during scan`);
+              break;
+            }
+            
+            if (!automationRunning) {
+              console.log('[Prompt Injector] Monitoring loop ABORT: automation stopped during scan');
+              break;
+            }
             await sleep(1500);
-            if (!automationRunning) break;
+            
+            if (currentMonitoringPromptIndex !== automationIndex) {
+              console.log(`[Prompt Injector] Monitoring loop EXPIRED: prompt changed after sleep`);
+              break;
+            }
+            
+            if (!automationRunning) {
+              console.log('[Prompt Injector] Monitoring loop ABORT: automation stopped after sleep');
+              break;
+            }
           }
           
-          if (newMedia.length < requiredCount && automationRunning) {
-            console.log(`[Prompt Injector] Monitoring loop EXIT: Timeout reached, found ${newMedia.length}/${requiredCount}`);
-            sendStatus(`Timeout: found ${newMedia.length}/${requiredCount} items`);
+          if (currentMonitoringPromptIndex === automationIndex) {
+            if (newMedia.length < requiredCount && automationRunning) {
+              console.log(`[Prompt Injector] Monitoring loop EXIT: Timeout reached, found ${newMedia.length}/${requiredCount}`);
+              sendStatus(`Timeout: found ${newMedia.length}/${requiredCount} items`);
+            }
+          } else {
+            console.log(`[Prompt Injector] Monitoring loop was EXPIRED - skipping timeout message`);
           }
           
-          console.log(`[Prompt Injector] Monitoring loop COMPLETELY ENDED for prompt ${automationIndex + 1}`);
+          console.log(`[Prompt Injector] Monitoring loop ENDED for prompt ${automationIndex + 1}, resetting tracking`);
+          if (currentMonitoringPromptIndex === automationIndex) {
+            currentMonitoringPromptIndex = -1;
+          }
         } else {
-          sendStatus(`Waiting ${waitSeconds}s for content generation...`);
+          if (automationRunning) {
+            sendStatus(`Waiting ${waitSeconds}s for content generation...`);
+          }
           
           for (let remaining = waitSeconds; remaining > 0 && automationRunning; remaining--) {
             await waitWhilePaused();
             if (!automationRunning) break;
             
-            sendStatus(`Waiting ${remaining}s before scanning...`);
+            if (automationRunning) {
+              sendStatus(`Waiting ${remaining}s before scanning...`);
+            }
             await sleep(1000);
             if (!automationRunning) break;
           }
@@ -802,9 +932,12 @@
         if (!automationRunning) break;
         
         console.log(`[Prompt Injector] Monitoring/waiting phase completed, moving to verification`);
-        sendStatus(`Preparing to verify ${newMedia.length} items...`);
         
-        if (newMedia.length > 0) {
+        if (automationRunning) {
+          sendStatus(`Preparing to verify ${newMedia.length} items...`);
+        }
+        
+        if (newMedia.length > 0 && automationRunning) {
           sendStatus(`Verifying ${newMedia.length} items are fully loaded...`);
           console.log(`[Prompt Injector] Verifying ${newMedia.length} items...`);
           
@@ -832,10 +965,12 @@
         
         console.log(`[Prompt Injector] Final verified count: ${newMedia.length}/${requiredCount}`);
         
-        if (newMedia.length < requiredCount) {
+        if (newMedia.length < requiredCount && automationRunning) {
           console.log(`[Prompt Injector] Retry detection: attempting up to 3 retries...`);
           for (let retry = 1; retry <= 3 && newMedia.length < requiredCount; retry++) {
-            sendStatus(`Retry ${retry}/3: rescanning for ${requiredCount} items...`);
+            if (automationRunning) {
+              sendStatus(`Retry ${retry}/3: rescanning for ${requiredCount} items...`);
+            }
             console.log(`[Prompt Injector] Retry ${retry}: waiting 2s then rescanning...`);
             await sleep(2000);
             
@@ -864,7 +999,7 @@
         
         if (!automationRunning) break;
         
-        if (newMedia.length === 0) {
+        if (newMedia.length === 0 && automationRunning) {
           const warnMsg = `Prompt ${automationIndex + 1}: No items found after timeout. Skipping to next prompt...`;
           console.warn(`[Prompt Injector] ${warnMsg}`);
           sendStatus(warnMsg);
@@ -874,17 +1009,17 @@
           } catch (e) {}
           
           downloadSuccess = false;
-        } else if (newMedia.length < requiredCount) {
+        } else if (newMedia.length < requiredCount && automationRunning) {
           const partialMsg = `Prompt ${automationIndex + 1}: Found ${newMedia.length}/${requiredCount} items. Downloading available...`;
           console.log(`[Prompt Injector] ${partialMsg}`);
           sendStatus(partialMsg);
         }
         
-        if (newMedia.length > 0) {
+        if (newMedia.length > 0 && automationRunning) {
           sendStatus(`Downloading ${newMedia.length} items...`);
           console.log(`[Prompt Injector] Starting download of ${newMedia.length} items`);
           
-          if (automationIndex === 0) {
+          if (automationIndex === 0 && automationRunning) {
             sendStatus(`First run: waiting 3s for full render before download...`);
             console.log(`[Prompt Injector] First run delay: waiting 3s to ensure content is fully rendered`);
             await sleep(3000);
@@ -900,7 +1035,9 @@
             const media = newMedia[i];
             downloadedUrls.add(media.url);
             
-            sendStatus(`Downloading ${i + 1}/${newMedia.length}...`);
+            if (automationRunning) {
+              sendStatus(`Downloading ${i + 1}/${newMedia.length}...`);
+            }
             console.log(`[Prompt Injector] Download ${i + 1}/${newMedia.length}: ${media.type} - ${media.url.substring(0, 50)}...`);
             
             chrome.runtime.sendMessage({
@@ -929,17 +1066,19 @@
             chrome.runtime.sendMessage({ type: 'DOWNLOAD_DONE', count: downloadedCount });
           } catch (e) {}
           
-          sendStatus(`Completed prompt ${automationIndex + 1}: Downloaded ${downloadedCount} items`);
+          if (automationRunning) {
+            sendStatus(`Completed prompt ${automationIndex + 1}: Downloaded ${downloadedCount} items`);
+          }
           console.log(`[Prompt Injector] Download complete: ${downloadedCount} items for prompt ${automationIndex + 1}`);
           
           await sleep(1000);
           if (!automationRunning) break;
-        } else {
+        } else if (automationRunning) {
           console.log(`[Prompt Injector] No items to download for prompt ${automationIndex + 1}, continuing to next...`);
           sendStatus(`Prompt ${automationIndex + 1}: No items found, continuing...`);
           await sleep(500);
         }
-      } else {
+      } else if (automationRunning) {
         console.log('[Prompt Injector] Auto-download is DISABLED, skipping download phase');
         sendStatus(`Prompt ${automationIndex + 1}: Completed (auto-download disabled)`);
       }
@@ -953,7 +1092,7 @@
       sendProgress(automationIndex + 1, prompts.length);
       console.log(`[Prompt Injector] Progress sent: ${automationIndex + 1}/${prompts.length}`);
       
-      if (automationIndex + 1 === prompts.length) {
+      if (automationIndex + 1 === prompts.length && automationRunning) {
         console.log('[Prompt Injector] Last prompt completed, will finish after delay check');
         sendStatus(`All ${prompts.length} prompts completed!`);
       }
@@ -968,10 +1107,12 @@
         for (let remaining = delaySeconds; remaining > 0; remaining--) {
           await waitWhilePaused();
           if (!automationRunning) break;
-          sendStatus(`Next prompt in ${remaining}s...`);
+          if (automationRunning) {
+            sendStatus(`Next prompt in ${remaining}s...`);
+          }
           await sleep(1000);
         }
-      } else if (canAutoContinue && automationIndex < prompts.length - 1) {
+      } else if (canAutoContinue && automationIndex < prompts.length - 1 && automationRunning) {
         sendStatus(`Auto continuing to next prompt...`);
         console.log('[Prompt Injector] Auto continuing (download success, skipping delay)');
         await sleep(500);
@@ -985,10 +1126,10 @@
     console.log('[Prompt Injector] Reason:', automationRunning ? 'Completed all prompts' : 'Stopped by user');
     
     automationRunning = false;
-    console.log('[Prompt Injector] automationRunning set to FALSE - no more monitoring loops can run');
+    currentMonitoringPromptIndex = -1;
+    console.log('[Prompt Injector] automationRunning set to FALSE - blocking all status messages and invalidating monitoring');
     
-    sendStatus('Finalizing automation...');
-    await sleep(500);
+    await sleep(200);
     
     console.log('[Prompt Injector] Sending AUTOMATION_FINISHED...');
     sendFinished();
@@ -996,6 +1137,10 @@
   }
 
   function sendProgress(done, total) {
+    if (!automationRunning) {
+      console.log('[Prompt Injector] Skipping sendProgress - automation not running');
+      return;
+    }
     try {
       chrome.runtime.sendMessage({
         type: 'AUTOMATION_PROGRESS',
@@ -1008,6 +1153,10 @@
   }
 
   function sendStatus(text) {
+    if (!automationRunning) {
+      console.log('[Prompt Injector] Skipping sendStatus - automation not running');
+      return;
+    }
     try {
       chrome.runtime.sendMessage({
         type: 'AUTOMATION_STATUS',
@@ -1031,7 +1180,8 @@
   function stopAutomation() {
     automationRunning = false;
     automationPaused = false;
-    console.log('[Prompt Injector] Automation stopped');
+    currentMonitoringPromptIndex = -1;
+    console.log('[Prompt Injector] Automation stopped - all monitoring invalidated');
   }
 
   function togglePause(paused) {
