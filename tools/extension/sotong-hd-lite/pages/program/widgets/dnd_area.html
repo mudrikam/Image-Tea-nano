@@ -1,0 +1,13 @@
+<div class="card shadow-sm">
+  <div class="card-body">
+    <div id="dnd-dropzone" class="border border-2 border-primary rounded p-4 text-center" style="cursor:pointer;">
+      <i class="fa-solid fa-cloud-arrow-up fa-2x text-primary mb-2"></i>
+      <div class="fw-semibold mb-2">Drag &amp; drop files here</div>
+      <div class="text-muted small mb-3">or use the buttons below</div>
+  <button id="btn-select-files" type="button" class="btn btn-primary me-2"><i class="fa-solid fa-file-arrow-up me-1"></i>Select Files</button>
+  <button id="btn-select-folder" type="button" class="btn btn-secondary"><i class="fa-solid fa-folder-open me-1"></i>Select Folder</button>
+      <input type="file" id="dnd-file-input" multiple style="display:none;" />
+      <input type="file" id="dnd-folder-input" webkitdirectory directory style="display:none;" />
+    </div>
+  </div>
+</div>

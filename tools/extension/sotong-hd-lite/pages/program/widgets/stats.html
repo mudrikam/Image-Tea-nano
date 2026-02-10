@@ -1,0 +1,56 @@
+<!-- Stats Section -->
+<div class="card shadow-sm mb-4" id="stats-section">
+  <div class="card-body">
+    <h6 class="card-title mb-3">Processing Statistics</h6>
+    
+    <!-- File Status Stats -->
+    <div class="row mb-3">
+      <div class="col-md-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-muted"><i class="fa-solid fa-folder me-1"></i>Total Files:</span>
+          <span id="stats-total" class="fw-bold">0</span>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-secondary"><i class="fa-solid fa-pencil me-1"></i>Draft:</span>
+          <span id="stats-draft-text" class="fw-bold">0/0</span>
+        </div>
+        <div class="progress" style="height: 10px;">
+          <div id="stats-draft-progress" class="progress-bar bg-secondary" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-success"><i class="fa-solid fa-check me-1"></i>Completed:</span>
+          <span id="stats-completed-text" class="fw-bold">0/0</span>
+        </div>
+        <div class="progress" style="height: 10px;">
+          <div id="stats-completed-progress" class="progress-bar bg-success" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-danger"><i class="fa-solid fa-xmark me-1"></i>Failed:</span>
+          <span id="stats-failed-text" class="fw-bold">0/0</span>
+        </div>
+        <div class="progress" style="height: 10px;">
+          <div id="stats-failed-progress" class="progress-bar bg-danger" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overall Batch Progress -->
+    <div class="mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+  <span class="fw-semibold"><i class="fa-solid fa-chart-line me-1"></i>Overall Progress:</span>
+        <span id="overall-progress-text" class="fw-bold">0/0</span>
+      </div>
+      <div class="progress" style="height: 25px;">
+        <div id="overall-progress-bar" class="progress-bar progress-bar-striped" style="width: 0%">
+          <span id="overall-progress-percentage">0%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

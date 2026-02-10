@@ -1,0 +1,11 @@
+body {
+	width: 300px;
+	min-width: 300px;
+	max-width: 300px;
+	margin: 0 auto;
+}
+
+.popup-logo {
+	width: 32px;
+	height: 32px;
+}

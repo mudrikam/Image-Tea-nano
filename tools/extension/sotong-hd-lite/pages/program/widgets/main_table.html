@@ -1,0 +1,35 @@
+<div class="card shadow-sm mt-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <input type="text" id="file-table-search" class="form-control w-50" placeholder="Search files...">
+      <div>
+        <label for="file-table-pagesize" class="me-2">Show</label>
+        <select id="file-table-pagesize" class="form-select d-inline-block w-auto">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+        <span class="ms-2">entries</span>
+  <button id="btn-clear-all" type="button" class="btn btn-danger ms-3"><i class="fa-solid fa-trash me-1"></i>Clear All</button>
+      </div>
+    </div>
+    <table id="main-file-table" class="table table-bordered table-hover align-middle">
+      <thead>
+        <tr>
+          <th scope="col" data-sort="name" class="sortable"><i class="fa-solid fa-file me-1"></i>Filename <span class="fa fa-sort"></span></th>
+          <th scope="col">Status</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+    </table>
+    <nav>
+      <ul class="pagination mt-3 mb-0 justify-content-center" id="file-table-pagination">
+        <!-- Pagination items will be rendered by JS -->
+      </ul>
+    </nav>
+  </div>
+</div>

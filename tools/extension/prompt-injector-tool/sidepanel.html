@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Desainia Prompt Injector</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo-title">
+        <img src="icons/logo_256.png" alt="Logo" class="header-logo">
+        <h1>Desainia Prompt Injector</h1>
+      </div>
+    </header>
+
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="control">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+        Control
+      </button>
+      <button class="tab-btn" data-tab="prompts">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Zm4,18H6V4h7V9h5Z"/></svg>
+        Prompts
+      </button>
+      <button class="tab-btn" data-tab="logs">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M13,13V17H16L12,21L8,17H11V13H13Z"/></svg>
+        Logs
+      </button>
+      <button class="tab-btn" data-tab="help">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M11,18H13V16H11V18M12,2A10,10,0,0,0,2,12A10,10,0,0,0,12,22A10,10,0,0,0,22,12A10,10,0,0,0,12,2M12,20A8,8,0,0,1,4,12A8,8,0,0,1,12,4A8,8,0,0,1,20,12A8,8,0,0,1,12,20M12,6A4,4,0,0,0,8,10H10A2,2,0,0,1,12,8A2,2,0,0,1,14,10C14,12,11,11.75,11,15H13C13,12.75,16,12.5,16,10A4,4,0,0,0,12,6Z"/></svg>
+        Help
+      </button>
+    </nav>
+
+    <div class="tabs-content">
+      <div class="tab-panel active" data-panel="control">
+        <section class="url-section">
+          <div class="url-display">
+            <span class="url-label">Page:</span>
+            <span class="url-text" id="current-url" title="">No page loaded</span>
+            <button id="btn-refresh-url" class="btn-icon" title="Refresh URL">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <section class="points-section">
+          <div class="point-row point-fixed">
+            <div class="point-header">
+              <input type="checkbox" id="point1-enabled" checked>
+              <span class="point-label point-1">Point 1</span>
+              <span class="point-note">(paste)</span>
+            </div>
+            <div class="point-controls">
+              <input type="text" id="point1-selector" class="selector-input" placeholder="CSS selector...">
+              <button class="picker-btn" data-point="1" title="Pick element from page">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.71,5.63l-2.34-2.34a1,1,0,0,0-1.41,0L3,17.25V21H6.75L20.71,7a1,1,0,0,0,0-1.41ZM6.17,19H5V17.83L16.93,5.9l1.17,1.17Z"/></svg>
+              </button>
+              <button class="html-btn" data-point="1" title="Selector from HTML">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12,17.56L16.07,16.43L16.62,10.33H9.38L9.2,8.3H16.8L17,6.31H7L7.56,12.32H14.45L14.22,14.9L12,15.5L9.78,14.9L9.64,13.24H7.64L7.93,16.43L12,17.56M4.07,3H19.93L18.5,19.2L12,21L5.5,19.2L4.07,3Z"/></svg>
+              </button>
+            </div>
+            <div class="delay-row">
+              <label>Delay:</label>
+              <input type="number" id="point1-delay" class="delay-input" value="1.0" min="0" step="0.1">
+              <span class="unit">s</span>
+            </div>
+          </div>
+
+          <div class="auto-download-section">
+            <div class="auto-download-header">
+              <input type="checkbox" id="auto-download-enabled">
+              <label for="auto-download-enabled">Auto Download Content</label>
+            </div>
+            <div class="auto-download-options">
+              <select id="auto-download-count" class="download-count-select">
+                <option value="1">1 item</option>
+                <option value="2" selected>2 items</option>
+                <option value="3">3 items</option>
+                <option value="4">4 items</option>
+              </select>
+              <div class="download-delay-row">
+                <label>Wait:</label>
+                <input type="number" id="auto-download-delay" class="delay-input" value="5" min="1" max="60" step="1">
+                <span class="unit">s</span>
+              </div>
+            </div>
+            <div class="auto-monitoring-row">
+              <input type="checkbox" id="auto-download-monitoring">
+              <label for="auto-download-monitoring">Auto monitoring (scan every 500ms instead of fixed wait)</label>
+            </div>
+            <div class="url-pattern-row">
+              <label>URL pattern:</label>
+              <input type="text" id="auto-download-pattern" class="pattern-input" placeholder="e.g. https://lh3.googleusercontent.com/">
+            </div>
+            <div class="extension-row">
+              <label>File extension:</label>
+              <select id="auto-download-extension" class="extension-select">
+                <option value="jpg" selected>JPG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WEBP</option>
+                <option value="mp4">MP4</option>
+              </select>
+            </div>
+            <div class="prefix-row">
+              <label>File prefix:</label>
+              <input type="text" id="auto-download-prefix" class="prefix-input" placeholder="Generated_Content">
+            </div>
+            <span class="download-note" id="download-note">Matches images/videos starting with pattern</span>
+          </div>
+
+          <div id="dynamic-points-container"></div>
+
+          <button id="btn-add-point" class="btn btn-add-point">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
+            Add Click Point
+          </button>
+        </section>
+
+        <section class="delays-section">
+          <div class="delay-option">
+            <label>Random extra delay:</label>
+            <input type="number" id="random-delay" class="delay-input" value="0" min="0" step="0.05">
+            <span class="unit">s</span>
+          </div>
+          <div class="delay-option">
+            <label>Delay between prompts:</label>
+            <input type="number" id="prompt-delay" class="delay-input" value="0" min="0" step="0.5">
+            <span class="unit">s</span>
+          </div>
+          <div class="auto-continue-row">
+            <input type="checkbox" id="auto-continue-enabled">
+            <label for="auto-continue-enabled">Auto continue after each download (no delay)</label>
+          </div>
+        </section>
+
+        <section class="progress-section">
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+            <span class="progress-text" id="progress-text">0 / 0</span>
+          </div>
+        </section>
+
+        <section class="stats-section">
+          <div class="stats-grid">
+            <div class="stat-item">
+              <span class="stat-label">ETA:</span>
+              <span class="stat-value" id="stat-eta">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Progress:</span>
+              <span class="stat-value" id="stat-progress">0/0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Remaining:</span>
+              <span class="stat-value" id="stat-remaining">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Speed:</span>
+              <span class="stat-value" id="stat-speed">0.00/m</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Elapsed:</span>
+              <span class="stat-value" id="stat-elapsed">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Status:</span>
+              <span class="stat-value" id="stat-status">Idle</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <button id="btn-run" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
+            Run
+          </button>
+          <button id="btn-pause" class="btn btn-secondary" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
+            Pause
+          </button>
+          <button id="btn-stop" class="btn btn-danger" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M18,18H6V6H18V18Z"/></svg>
+            Stop
+          </button>
+        </section>
+
+        <section class="delay-display">
+          <span id="delay-text"></span>
+        </section>
+      </div>
+
+      <div class="tab-panel" data-panel="prompts">
+        <section class="file-section">
+          <div class="file-buttons">
+            <button id="btn-load-csv" class="btn btn-file">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H18a2,2,0,0,0,2-2V8Zm4,18H6V4h7V9h5Z"/></svg>
+              Load CSV/TXT
+            </button>
+            <button id="btn-clear" class="btn btn-clear">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19,4H15.5l-1-1h-5l-1,1H5V6H19M6,19a2,2,0,0,0,2,2h8a2,2,0,0,0,2-2V7H6Z"/></svg>
+              Clear
+            </button>
+          </div>
+          <div class="file-info">
+            <span id="file-label">No file loaded</span>
+          </div>
+          <div class="drop-zone" id="drop-zone">
+            <span>Drop CSV/TXT file here</span>
+          </div>
+          <div class="manual-input-section">
+            <div class="manual-header">
+              <label>Manual Input:</label>
+              <button id="btn-load-manual" class="btn-small btn-primary-small">
+                <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M9,16.17L4.83,12l-1.42,1.41L9,19L21,7l-1.41-1.41Z"/></svg>
+                Load
+              </button>
+            </div>
+            <textarea id="manual-prompt-input" class="manual-textarea" placeholder="Type prompts here...
+
+Formats supported:
+• Separate with --- for multi-line prompts
+• Blank line separates prompts
+• #1 prompt #2 prompt
+• 1. prompt 2. prompt"></textarea>
+            <div class="manual-info">
+              <span id="manual-count">0 prompts</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tab-panel" data-panel="logs">
+        <section class="logs-section">
+          <div class="logs-header">
+            <h2>Activity Logs</h2>
+            <button id="btn-clear-logs" class="btn-icon btn-clear-logs" title="Clear Logs" aria-label="Clear Logs">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M9,3V4H4V6H20V4H15V3H9M6,7V19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6Z"/></svg>
+            </button>
+          </div>
+          <div class="logs-container" id="logs-container">
+            <div class="log-entry log-info">
+              <span class="log-time">--:--:--</span>
+              <span class="log-message">Logs will appear here when automation runs...</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="tab-panel" data-panel="help">
+        <section class="help-section">
+          <h2>Desainia Prompt Injector Tool - Documentation</h2>
+          
+          <div class="help-block">
+            <h3>Overview</h3>
+            <p>Automate prompt injection and content download for AI image generation websites. Perfect for tools like ChatGPT Image Generation, Whisk, Midjourney web, and similar AI generators.</p>
+            <p><strong>Key Features:</strong></p>
+            <ul>
+              <li>Smart auto-download with content verification</li>
+              <li>Per-website settings storage (auto-switches when you change sites)</li>
+              <li>Monitoring mode with 60-second timeout for slow generations</li>
+              <li>Auto-continue to skip delays after successful downloads</li>
+              <li>Activity logs for debugging and monitoring</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>Per-Website Settings</h3>
+            <p>Settings are automatically saved per website domain:</p>
+            <ul>
+              <li>When you switch to a different site, settings for that site are loaded</li>
+              <li>Selectors, prompts, and all configurations are stored separately</li>
+              <li>No limit on number of sites - settings persist in browser storage</li>
+              <li>Settings auto-save on every change</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>Points System</h3>
+            <div class="help-item">
+              <strong>Point 1 (Orange - Paste):</strong>
+              <p>The input field where your prompt will be pasted. The tool will:</p>
+              <ul>
+                <li>Focus the element</li>
+                <li>Select all existing content</li>
+                <li>Insert the new prompt text</li>
+                <li>Trigger input/change events</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Additional Points (Click):</strong>
+              <p>Buttons or elements to click after pasting. Examples:</p>
+              <ul>
+                <li>Generate/Submit button</li>
+                <li>Send message button</li>
+                <li>Any action buttons in sequence</li>
+              </ul>
+              <p>Each point has its own delay setting.</p>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Auto Download Content</h3>
+            <p>Automatically download generated images/videos:</p>
+            <ul>
+              <li><strong>Item count (1-4):</strong> Required number of items per prompt. Automation stops if not met.</li>
+              <li><strong>Wait time:</strong> Used for Fixed Wait mode countdown</li>
+              <li><strong>Auto monitoring:</strong> Scans every 500ms for new content (min 60s timeout)</li>
+              <li><strong>URL pattern:</strong> Only download URLs starting with this prefix (e.g., <code>blob:https://</code> or <code>https://cdn.</code>)</li>
+              <li><strong>Extension:</strong> Force file extension (jpg, png, webp, mp4)</li>
+              <li><strong>Prefix:</strong> Filename prefix (default: Generated_Content)</li>
+            </ul>
+            <div class="help-item">
+              <strong>Smart Detection:</strong>
+              <p>The tool tracks existing content before each prompt and only downloads NEW items that appear after. This prevents re-downloading old content.</p>
+            </div>
+            <div class="help-item">
+              <strong>Strict Count Enforcement:</strong>
+              <p>If the required item count is not reached (e.g., 4 items requested but only 3 found), automation stops with an error. This ensures complete downloads before continuing.</p>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Monitoring vs Fixed Wait Mode</h3>
+            <div class="help-item">
+              <strong>Fixed Wait Mode (checkbox OFF):</strong>
+              <ul>
+                <li>Waits exactly N seconds (from Wait field)</li>
+                <li>Shows countdown: "Waiting Xs before scanning..."</li>
+                <li>Scans once after countdown completes</li>
+                <li>Good for predictable generation times</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Monitoring Mode (checkbox ON):</strong>
+              <ul>
+                <li>Scans every 500ms for new content</li>
+                <li>Minimum 60-second timeout (or Wait field if higher)</li>
+                <li>Shows: "Monitoring: X/Y found (scan #N)"</li>
+                <li>Stops early when target count reached</li>
+                <li>Best for variable generation times</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Auto Continue</h3>
+            <p>When enabled (checkbox in Delay section):</p>
+            <ul>
+              <li>Skips delay between prompts after successful downloads</li>
+              <li>Only triggers if all required items were downloaded</li>
+              <li>Disables the "Delay between prompts" input</li>
+              <li>Maximizes throughput for batch operations</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>Delay Settings</h3>
+            <ul>
+              <li><strong>Point delay:</strong> Wait time before each point action (prevents too-fast clicking)</li>
+              <li><strong>Random extra delay:</strong> Adds random 0-N seconds to point delays</li>
+              <li><strong>Delay between prompts:</strong> Wait after completing all points (disabled by Auto Continue)</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>How to Select Elements</h3>
+            <div class="help-item">
+              <strong>Method 1: Element Picker (Recommended)</strong>
+              <ol>
+                <li>Click the pencil icon button</li>
+                <li>Page dims and you can hover over elements</li>
+                <li>Orange highlight shows current selection</li>
+                <li>Click to confirm selection</li>
+                <li>Press ESC to cancel</li>
+              </ol>
+            </div>
+            <div class="help-item">
+              <strong>Method 2: HTML to Selector</strong>
+              <ol>
+                <li>Open DevTools (F12)</li>
+                <li>Right-click element in Elements panel</li>
+                <li>Copy → Copy element</li>
+                <li>Click the code icon in the extension</li>
+                <li>Paste the HTML</li>
+              </ol>
+            </div>
+            <div class="help-item">
+              <strong>Method 3: Manual CSS Selector</strong>
+              <p>Type directly in the input field:</p>
+              <ul>
+                <li><code>#submit-btn</code> - by ID</li>
+                <li><code>.generate-button</code> - by class</li>
+                <li><code>[data-testid="send"]</code> - by attribute</li>
+                <li><code>button[type="submit"]</code> - combined</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Prompt Input Formats</h3>
+            <div class="help-item">
+              <strong>Triple dash separator (multi-line prompts):</strong>
+              <pre>A beautiful sunset
+over the mountains
+---
+A cat playing piano
+---
+Abstract art</pre>
+            </div>
+            <div class="help-item">
+              <strong>Blank line separator:</strong>
+              <pre>First prompt
+
+Second prompt
+
+Third prompt</pre>
+            </div>
+            <div class="help-item">
+              <strong>Numbered formats:</strong>
+              <pre>#1 First prompt
+#2 Second prompt</pre>
+              <pre>1. First prompt
+2. Second prompt</pre>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Loading Files</h3>
+            <ul>
+              <li><strong>CSV:</strong> Each row becomes one prompt</li>
+              <li><strong>TXT:</strong> Each non-empty line becomes one prompt</li>
+              <li>Drag & drop files into the Prompts tab drop zone</li>
+              <li>Multiple files can be loaded and combined</li>
+              <li>Prompts are saved per-website automatically</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>Logs Tab</h3>
+            <p>The Logs tab shows real-time activity:</p>
+            <ul>
+              <li><span style="color:#8ac4ff">Blue</span> - Info messages</li>
+              <li><span style="color:#00cc66">Green</span> - Success/download complete</li>
+              <li><span style="color:#ff8800">Orange</span> - Status updates</li>
+              <li><span style="color:#ff4444">Red</span> - Errors</li>
+            </ul>
+            <p>Use logs to debug issues and monitor progress.</p>
+          </div>
+
+          <div class="help-block">
+            <h3>Troubleshooting</h3>
+            <div class="help-item">
+              <strong>"First prompt failed" error:</strong>
+              <ul>
+                <li>Increase Wait time or enable Monitoring mode</li>
+                <li>Check URL pattern matches the generated content</li>
+                <li>Verify the website actually generates the expected content</li>
+                <li>Check Logs tab for detailed error info</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Picker not working:</strong>
+              <ul>
+                <li>Refresh the target page first</li>
+                <li>Cannot work on chrome:// or extension pages</li>
+                <li>Wait for page to fully load</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Downloads not appearing:</strong>
+              <ul>
+                <li>Check browser download folder</li>
+                <li>URL pattern may be too restrictive</li>
+                <li>Generated content may be smaller than 500px</li>
+                <li>CORS restrictions may block canvas export</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Settings not saving:</strong>
+              <ul>
+                <li>Browser storage may be full</li>
+                <li>Try clearing browser cache</li>
+                <li>Ensure extension has storage permission</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="help-block">
+            <h3>Filename Format</h3>
+            <p>Downloaded files are named:</p>
+            <code>{prefix}_{first-5-words}_{timestamp}.{ext}</code>
+            <p>Example: <code>Generated_Content_beautiful_sunset_over_the_mountains_1707580234567.jpg</code></p>
+          </div>
+
+          <div class="help-block">
+            <h3>Keyboard Shortcuts</h3>
+            <ul>
+              <li><strong>ESC:</strong> Cancel element picker</li>
+            </ul>
+          </div>
+
+          <div class="help-block">
+            <h3>Version</h3>
+            <p>Desainia Prompt Injector Tool v1.1.0</p>
+            <p>Per-URL settings storage, smart download detection, activity logging.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer class="footer-section">
+      <span class="version">v1.1.0</span>
+    </footer>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

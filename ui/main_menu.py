@@ -666,6 +666,52 @@ def setup_main_menu(window):
     pngtree_zipper_action.triggered.connect(open_pngtree_zipper)
     tools_menu.addAction(pngtree_zipper_action)
 
+    extension_menu = QMenu("Extension", menubar)
+    extension_menu.setToolTipsVisible(True)
+    
+    def populate_extension_menu():
+        extension_menu.clear()
+        extensions_path = os.path.join(BASE_PATH, "tools", "extension")
+        
+        if not os.path.exists(extensions_path):
+            no_ext_action = QAction("No extensions found", window)
+            no_ext_action.setEnabled(False)
+            extension_menu.addAction(no_ext_action)
+            return
+        
+        extension_folders = [
+            d for d in os.listdir(extensions_path) 
+            if os.path.isdir(os.path.join(extensions_path, d))
+        ]
+        
+        if not extension_folders:
+            no_ext_action = QAction("No extensions found", window)
+            no_ext_action.setEnabled(False)
+            extension_menu.addAction(no_ext_action)
+            return
+        
+        from dialogs.extension_install_dialog import ExtensionInstallDialog
+        
+        for folder in sorted(extension_folders):
+            display_name = folder.replace('-', ' ').replace('_', ' ').title()
+            ext_path = os.path.join(extensions_path, folder)
+            
+            action = QAction(qta.icon('fa6b.chrome'), display_name, window)
+            action.setToolTip(f"Install {display_name} Chrome extension")
+            action.setStatusTip(f"Install {display_name} Chrome extension")
+            
+            def create_open_extension_handler(name, path):
+                def open_extension():
+                    dlg = ExtensionInstallDialog(name, path, window)
+                    dlg.exec()
+                return open_extension
+            
+            action.triggered.connect(create_open_extension_handler(display_name, ext_path))
+            extension_menu.addAction(action)
+    
+    extension_menu.aboutToShow.connect(populate_extension_menu)
+    populate_extension_menu()
+
     # Add separator
     tools_menu.addSeparator()
 
@@ -679,25 +725,18 @@ def setup_main_menu(window):
         return config.get("additional_tools", {})
 
     additional_tools = get_additional_tools()
+
     for tool_key, tool_config in additional_tools.items():
         tool_name = tool_config.get("tool_name", tool_key)
         description = tool_config.get("description", "")
         tool_url = tool_config.get("tool_url", "")
         fa_icon_name = tool_config.get("fa_icon_name", "external-link")
-        
-        # Try fa6s first, fallback to fa5b
-        try:
-            icon = qta.icon(f'fa6s.{fa_icon_name}')
-        except:
-            try:
-                icon = qta.icon(f'fa5b.{fa_icon_name}')
-            except:
-                icon = qta.icon('fa6s.link')
-        
+        icon_name = fa_icon_name if '.' in fa_icon_name else f'fa6s.{fa_icon_name}'
+        icon = qta.icon(icon_name)
+
         action = QAction(icon, tool_name, window)
         action.setToolTip(description)
         action.setStatusTip(description)
-        # Use closure to capture the URL properly
         def create_open_url_handler(url):
             def open_url():
                 if url and isinstance(url, str):
@@ -711,5 +750,6 @@ def setup_main_menu(window):
     menubar.addMenu(prompt_menu)
     menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
+    menubar.addMenu(extension_menu)
     menubar.addMenu(help_menu)
     window.setMenuBar(menubar)

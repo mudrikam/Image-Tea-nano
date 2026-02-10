@@ -1,0 +1,108 @@
+<div class="mb-3">
+  <!-- Drag & Drop Area -->
+  <div id="start-dnd-dropzone" class="card border-2 border-dashed text-center p-3 mb-3" style="min-height: 180px; border-color: #dee2e6; cursor: pointer; transition: all 0.3s ease;">
+    <div class="d-flex flex-column justify-content-center align-items-center h-100">
+      <i class="fa-solid fa-cloud-arrow-up fa-2x text-muted mb-2"></i>
+      <h6 class="card-title text-muted mb-1">Drag & Drop Files Here</h6>
+      <p class="card-text text-muted small mb-2">or click to browse</p>
+      <div class="d-grid gap-1 w-100">
+        <button id="start-btn-select-files" type="button" class="btn btn-outline-primary btn-sm">
+          <i class="fa-solid fa-file-image me-1"></i>Select Files
+        </button>
+        <button id="start-btn-select-folder" type="button" class="btn btn-outline-secondary btn-sm">
+          <i class="fa-solid fa-folder me-1"></i>Select Folder
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Process Controls -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-body p-3">
+      <!-- Batch Size -->
+      <div class="mb-3">
+        <label for="start-batch-size-spinner" class="form-label fw-semibold mb-2"><i class="fa-solid fa-layer-group me-1"></i>Batch Size:</label>
+        <input type="number" id="start-batch-size-spinner" class="form-control form-control-sm" style="width:100px;" min="1" max="10000" value="5">
+      </div>
+      
+      <!-- Start Process Buttons -->
+      <div class="d-grid gap-2">
+        <button id="start-btn-start-process" type="button" class="btn btn-success"><i class="fa-solid fa-play me-1"></i>Start Process</button>
+        <button id="start-btn-stop-process" type="button" class="btn btn-danger" style="display: none;"><i class="fa-solid fa-stop me-1"></i>Stop Process</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Statistics -->
+  <div class="card">
+    <div class="card-header bg-primary text-white p-2">
+      <h6 class="mb-0 small"><i class="fa-solid fa-chart-simple me-1"></i>Statistics</h6>
+    </div>
+    <div class="card-body p-3">
+      <!-- Total Files -->
+      <div class="mb-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="fw-semibold small"><i class="fa-solid fa-folder me-1"></i>Total Files:</span>
+          <span id="start-stats-total" class="badge bg-secondary">0</span>
+        </div>
+      </div>
+      
+      <!-- Draft Files -->
+      <div class="mb-2">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-muted small"><i class="fa-solid fa-pencil me-1"></i>Draft:</span>
+          <span id="start-stats-draft-text" class="small">0/0</span>
+        </div>
+        <div class="progress" style="height: 6px;">
+          <div id="start-stats-draft-progress" class="progress-bar bg-secondary" style="width: 0%"></div>
+        </div>
+      </div>
+      
+      <!-- Completed Files -->
+      <div class="mb-2">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-success small"><i class="fa-solid fa-check me-1"></i>Completed:</span>
+          <span id="start-stats-completed-text" class="small">0/0</span>
+        </div>
+        <div class="progress" style="height: 6px;">
+          <div id="start-stats-completed-progress" class="progress-bar bg-success" style="width: 0%"></div>
+        </div>
+      </div>
+      
+      <!-- Failed Files -->
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-danger small"><i class="fa-solid fa-xmark me-1"></i>Failed:</span>
+          <span id="start-stats-failed-text" class="small">0/0</span>
+        </div>
+        <div class="progress" style="height: 6px;">
+          <div id="start-stats-failed-progress" class="progress-bar bg-danger" style="width: 0%"></div>
+        </div>
+      </div>
+      
+      <!-- Overall Progress -->
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="fw-bold small"><i class="fa-solid fa-chart-line me-1"></i>Overall:</span>
+          <span id="start-overall-progress-text" class="fw-bold small">0/0</span>
+        </div>
+        <div class="progress" style="height: 16px;">
+          <div id="start-overall-progress-bar" class="progress-bar bg-primary progress-bar-striped" style="width: 0%">
+            <span id="start-overall-progress-percentage" class="small fw-bold">0%</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Clear All Button -->
+      <div class="d-grid">
+        <button id="start-btn-clear-all" type="button" class="btn btn-outline-danger btn-sm">
+          <i class="fa-solid fa-trash me-1"></i>Clear All Files
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file inputs -->
+<input type="file" id="start-dnd-file-input" multiple accept="image/*" style="display: none;">
+<input type="file" id="start-dnd-folder-input" webkitdirectory multiple style="display: none;">
