@@ -1074,6 +1074,11 @@ header h1 {
   border: 1px solid var(--border-color);
 }
 
+.developer {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .version {
   font-size: 10px;
   color: var(--text-muted);

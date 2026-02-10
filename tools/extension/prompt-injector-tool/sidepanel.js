@@ -662,10 +662,6 @@ class PromptInjector {
           target: { tabId: tabId },
           files: ['content.js']
         });
-        await chrome.scripting.insertCSS({
-          target: { tabId: tabId },
-          files: ['picker.css']
-        });
         console.log('[Inject] Successfully injected content script');
         return true;
       } catch (err) {
