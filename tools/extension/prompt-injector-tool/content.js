@@ -79,11 +79,7 @@
     videos.forEach(video => {
       const src = video.src || video.currentSrc || video.querySelector('source')?.src;
       if (src) {
-        const width = video.videoWidth || 0;
-        const height = video.videoHeight || 0;
-        if (width >= 500 || height >= 500) {
-          allUrls.add(src);
-        }
+        allUrls.add(src);
       }
     });
     
@@ -167,7 +163,12 @@
       const naturalWidth = img.naturalWidth || 0;
       const naturalHeight = img.naturalHeight || 0;
       
-      if (naturalWidth > 0 && naturalHeight > 0 && (naturalWidth >= 500 || naturalHeight >= 500)) {
+      if (urlPattern && urlPattern.trim() !== '') {
+        if (naturalWidth > 0 && naturalHeight > 0) {
+          newMedia.push({ url: src, type: 'image', width: naturalWidth, height: naturalHeight });
+          console.log(`[Prompt Injector] Image matched by URL pattern: ${src.substring(0, 60)}...`);
+        }
+      } else if (naturalWidth > 0 && naturalHeight > 0 && (naturalWidth >= 500 || naturalHeight >= 500)) {
         newMedia.push({ url: src, type: 'image', width: naturalWidth, height: naturalHeight });
       }
     });
@@ -181,7 +182,10 @@
       const width = video.videoWidth || 0;
       const height = video.videoHeight || 0;
       
-      if (width >= 500 || height >= 500) {
+      if (urlPattern && urlPattern.trim() !== '') {
+        newMedia.push({ url: src, type: 'video', width: width, height: height });
+        console.log(`[Prompt Injector] Video matched by URL pattern: ${src.substring(0, 60)}...`);
+      } else if (width >= 500 || height >= 500) {
         newMedia.push({ url: src, type: 'video', width: width, height: height });
       }
     });
