@@ -240,7 +240,11 @@
 
   function createHighlightOverlay() {
     if (highlightOverlay) return;
-    
+    if (!document.body) {
+      document.addEventListener('DOMContentLoaded', () => createHighlightOverlay(), { once: true });
+      return;
+    }
+
     highlightOverlay = document.createElement('div');
     highlightOverlay.id = 'prompt-injector-highlight';
     highlightOverlay.style.cssText = `
@@ -573,10 +577,21 @@
 
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('click', onMouseClick, true);
+    document.addEventListener('pointerdown', onMouseClick, true);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keydown', onKeyDown, true);
 
     document.body.style.cursor = 'crosshair';
+
+    const cx = Math.floor(window.innerWidth / 2);
+    const cy = Math.floor(window.innerHeight / 2);
+    try {
+      const el = document.elementFromPoint(cx, cy);
+      if (el) {
+        highlightedElement = el;
+        updateHighlight(el);
+      }
+    } catch (e) {}
 
     console.log('[Prompt Injector] Picker started for point', pointIndex);
   }
@@ -588,11 +603,12 @@
 
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('click', onMouseClick, true);
+    document.removeEventListener('pointerdown', onMouseClick, true);
     document.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('keydown', onKeyDown, true);
 
-    document.body.style.cursor = '';
-    
+    try { document.body.style.cursor = ''; } catch (e) {}
+
     hideHighlight();
     removeHighlightOverlay();
 
@@ -1205,9 +1221,9 @@
     console.log('[Prompt Injector] Received message:', message.type);
 
     const isTopFrame = (window.top === window.self);
-    if ((message.type === 'START_AUTOMATION' || message.type === 'START_PICKER') && !isTopFrame) {
-      console.log('[Prompt Injector] Ignoring automation/picker start in subframe');
-      sendResponse({ success: true });
+    if (message.type === 'START_AUTOMATION' && !isTopFrame) {
+      console.log('[Prompt Injector] Ignoring automation start in subframe');
+      sendResponse({ success: true, started: false });
       return true;
     }
 
@@ -1219,7 +1235,7 @@
 
       case 'START_PICKER':
         startPicker(message.pointIndex);
-        sendResponse({ success: true });
+        sendResponse({ success: true, started: true });
         break;
 
       case 'START_AUTOMATION':

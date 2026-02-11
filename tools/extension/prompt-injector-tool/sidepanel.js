@@ -320,6 +320,14 @@ class PromptInjector {
     });
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      // ELEMENT_PICKED must be handled immediately and not blocked by session/origin checks
+      if (message && message.type === 'ELEMENT_PICKED') {
+        if (message.pointIndex !== undefined && message.selector) {
+          this.onElementPicked(message.pointIndex, message.selector);
+        }
+        return;
+      }
+
       const originTab = sender && sender.tab ? sender.tab.id : null;
       const relayTypes = ['ELEMENT_PICKED','AUTOMATION_PROGRESS','AUTOMATION_FINISHED','AUTOMATION_STATUS','AUTOMATION_ERROR','DOWNLOAD_COUNTDOWN','DOWNLOAD_SCANNING','DOWNLOAD_DONE'];
       if (originTab && originTab !== this.currentTabId) return;
@@ -334,10 +342,7 @@ class PromptInjector {
       if (now - last < 700) return;
       this._lastMessageTimestamps.set(key, now);
 
-      if (message.type === 'ELEMENT_PICKED') {
-        this.onElementPicked(message.pointIndex, message.selector);
-        this.addLog(`Element picked for Point ${message.pointIndex}: ${message.selector.substring(0, 50)}...`, 'success');
-      } else if (message.type === 'AUTOMATION_PROGRESS') {
+      if (message.type === 'AUTOMATION_PROGRESS') {
         if (!this.isRunning) return;
         this.onAutomationProgress(message.done, message.total);
         this.addLog(`Progress: ${message.done}/${message.total} prompts completed`, 'info');
@@ -778,6 +783,13 @@ class PromptInjector {
           console.error('START_PICKER error:', chrome.runtime.lastError);
           picker.classList.remove('active');
           alert('Failed to start picker.\n\nTry refreshing the page first.');
+          return;
+        }
+
+        if (response && response.started === false) {
+          console.warn('START_PICKER explicitly not started in frame, response:', response);
+          picker.classList.remove('active');
+          alert('Picker could not start in the main page frame. Try focusing the page, reloading, or opening the page in a normal tab (not an internal/embedded frame).');
         }
       });
     } catch (err) {
