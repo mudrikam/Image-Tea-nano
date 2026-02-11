@@ -81,6 +81,17 @@ class PromptInjector {
     });
   }
 
+  async deleteFromIndexedDB(key) {
+    if (!this.db) return false;
+    return new Promise((resolve) => {
+      const transaction = this.db.transaction(['settings'], 'readwrite');
+      const store = transaction.objectStore('settings');
+      const request = store.delete(key);
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => resolve(false);
+    });
+  }
+
   async savePromptsToStorage() {
     if (!this.currentUrlKey) {
       await this.updateCurrentUrl();
@@ -110,9 +121,22 @@ class PromptInjector {
     if (isMonitoring) {
       monitoringLabel.style.color = '#ff8800';
       this.elements.autoDownload.delay.style.opacity = '0.5';
+      if (this.elements && this.elements.statStatus) {
+        if (this.isRunning) {
+          this.elements.statStatus.textContent = 'Monitoring';
+          this.elements.statStatus.style.color = '#ff8800';
+        } else if (this.elements.statStatus.textContent === 'Monitoring') {
+          this.elements.statStatus.textContent = 'Idle';
+          this.elements.statStatus.style.color = '';
+        }
+      }
     } else {
       monitoringLabel.style.color = '';
       this.elements.autoDownload.delay.style.opacity = '1';
+      if (this.elements && this.elements.statStatus) {
+        this.elements.statStatus.style.color = '';
+        if (!this.isRunning) this.elements.statStatus.textContent = 'Idle';
+      }
     }
   }
 
@@ -138,12 +162,11 @@ class PromptInjector {
     console.log(`[Prompts] Loading from ${this.currentUrlKey}`);
     const savedPrompts = await this.loadFromIndexedDB(`prompts:${this.currentUrlKey}`);
     console.log(`[Prompts] Loaded ${savedPrompts ? savedPrompts.length : 0} chars`);
-    if (savedPrompts) {
+    if (savedPrompts !== null && savedPrompts !== undefined) {
       this.elements.manualPromptInput.value = savedPrompts;
       this.updateManualCount();
     } else {
-      this.elements.manualPromptInput.value = '';
-      this.updateManualCount();
+      console.log('[Prompts] No saved prompts for this site; leaving textarea unchanged');
     }
   }
 
@@ -177,6 +200,7 @@ class PromptInjector {
       btnStop: document.getElementById('btn-stop'),
       btnLoadCsv: document.getElementById('btn-load-csv'),
       btnLoadManual: document.getElementById('btn-load-manual'),
+      btnClearManual: document.getElementById('btn-clear-manual'),
       btnClear: document.getElementById('btn-clear'),
       btnHelp: document.getElementById('btn-help'),
       btnRefreshUrl: document.getElementById('btn-refresh-url'),
@@ -220,6 +244,9 @@ class PromptInjector {
     this.elements.btnStop.addEventListener('click', () => this.stop());
     this.elements.btnLoadCsv.addEventListener('click', () => this.loadFile());
     this.elements.btnLoadManual.addEventListener('click', () => this.loadManualInput());
+    if (this.elements.btnClearManual) {
+      this.elements.btnClearManual.addEventListener('click', () => this.clearData());
+    }
     this.elements.btnClear.addEventListener('click', () => this.clearData());
     this.elements.btnRefreshUrl.addEventListener('click', () => this.forceRefreshUrl());
     this.elements.btnAddPoint.addEventListener('click', () => this.addDynamicPoint());
@@ -314,7 +341,10 @@ class PromptInjector {
           return;
         }
         this.updateDelayText(message.text);
-        this.elements.statStatus.textContent = message.text.substring(0, 40);
+        if (!this.elements.autoDownload.monitoring.checked) {
+          this.elements.statStatus.textContent = 'Running';
+          this.elements.statStatus.style.color = '';
+        }
         this.addLog(message.text, 'status');
       } else if (message.type === 'DOWNLOAD_COUNTDOWN') {
         if (!this.isRunning) {
@@ -324,7 +354,10 @@ class PromptInjector {
         const mode = message.mode === 'monitoring' ? 'Monitoring' : 'Waiting';
         this.elements.autoDownload.note.textContent = `${mode}: ${message.seconds}s`;
         this.elements.autoDownload.note.style.color = '#ff8800';
-        this.elements.statStatus.textContent = `${mode}: ${message.seconds}s`;
+        if (!this.elements.autoDownload.monitoring.checked) {
+          this.elements.statStatus.textContent = 'Waiting';
+          this.elements.statStatus.style.color = '#ff8800';
+        }
       } else if (message.type === 'DOWNLOAD_SCANNING') {
         if (!this.isRunning) {
           console.log('[Scanning] Ignoring scanning message - automation not running');
@@ -332,7 +365,9 @@ class PromptInjector {
         }
         this.elements.autoDownload.note.textContent = 'Scanning for new content...';
         this.elements.autoDownload.note.style.color = '#ff8800';
-        this.elements.statStatus.textContent = 'Scanning...';
+        if (!this.elements.autoDownload.monitoring.checked) {
+          this.elements.statStatus.textContent = 'Scanning...';
+        }
         if (message.found !== undefined) {
           this.addLog(`Scanning: found ${message.found}/${message.required} items`, 'info');
         }
@@ -343,7 +378,10 @@ class PromptInjector {
         }
         this.elements.autoDownload.note.textContent = `Downloaded ${message.count} item(s)`;
         this.elements.autoDownload.note.style.color = '#00cc66';
-        this.elements.statStatus.textContent = `Downloaded ${message.count}`;
+        if (!this.elements.autoDownload.monitoring.checked) {
+          this.elements.statStatus.textContent = 'Downloaded';
+          this.elements.statStatus.style.color = '#00cc66';
+        }
         this.addLog(`Downloaded ${message.count} item(s)`, 'download');
       } else if (message.type === 'AUTOMATION_ERROR') {
         this.isRunning = false;
@@ -352,7 +390,8 @@ class PromptInjector {
         this.setRunMode(false);
         this.stopStatsTimer();
         this.resetStats();
-        this.elements.statStatus.textContent = 'Error - Stopped';
+        this.elements.statStatus.textContent = 'Error';
+        this.elements.statStatus.style.color = '#ff3333';
         this.updateDelayText(message.message);
         this.updateProgress(0, this.prompts.length);
         this.elements.autoDownload.note.textContent = message.message;
@@ -816,6 +855,7 @@ class PromptInjector {
       this.elements.manualPromptInput.value = allPrompts.join('\n---\n');
       this.prompts = allPrompts;
       this.loadedFiles = fileInfos;
+      await this.savePromptsToStorage();
     }
 
     this.updateFileLabel();
@@ -823,7 +863,7 @@ class PromptInjector {
     this.updateManualCount();
   }
 
-  loadManualInput() {
+  async loadManualInput() {
     const text = this.elements.manualPromptInput.value.trim();
     if (!text) {
       alert('Textarea is empty. Type some prompts first.');
@@ -846,6 +886,7 @@ class PromptInjector {
     this.updateFileLabel();
     this.updateProgress(0, this.prompts.length);
     this.updateManualCount();
+    await this.savePromptsToStorage();
   }
 
   parseManualInput(text) {
@@ -1000,7 +1041,7 @@ class PromptInjector {
     }
   }
 
-  clearData() {
+  async clearData() {
     this.prompts = [];
     this.loadedFiles = [];
     this.currentIndex = 0;
@@ -1009,6 +1050,10 @@ class PromptInjector {
     this.updateProgress(0, 0);
     this.updateManualCount();
     this.resetStats();
+    if (this.currentUrlKey) {
+      await this.deleteFromIndexedDB(`prompts:${this.currentUrlKey}`);
+      console.log(`[Prompts] Deleted saved prompts for ${this.currentUrlKey}`);
+    }
   }
 
   async run() {
@@ -1166,7 +1211,13 @@ class PromptInjector {
         <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
         Pause
       `;
-      this.elements.statStatus.textContent = 'Running';
+      if (this.elements.autoDownload && this.elements.autoDownload.monitoring && this.elements.autoDownload.monitoring.checked) {
+        this.elements.statStatus.textContent = 'Monitoring';
+        this.elements.statStatus.style.color = '#ff8800';
+      } else {
+        this.elements.statStatus.textContent = 'Running';
+        this.elements.statStatus.style.color = '';
+      }
     }
 
     chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
@@ -1202,10 +1253,18 @@ class PromptInjector {
       `<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg> Run`;
     
     if (running) {
-      this.elements.statStatus.textContent = 'Running';
+      if (this.elements.autoDownload && this.elements.autoDownload.monitoring && this.elements.autoDownload.monitoring.checked) {
+        this.elements.statStatus.textContent = 'Monitoring';
+        this.elements.statStatus.style.color = '#ff8800';
+      } else {
+        this.elements.statStatus.textContent = 'Running';
+        this.elements.statStatus.style.color = '';
+      }
       document.body.classList.add('running');
     } else {
       document.body.classList.remove('running');
+      this.elements.statStatus.textContent = 'Idle';
+      this.elements.statStatus.style.color = '';
     }
   }
 
@@ -1240,7 +1299,15 @@ class PromptInjector {
 
   updateProgress(done, total) {
     const percent = total > 0 ? (done / total) * 100 : 0;
-    this.elements.progressBar.style.width = `${percent}%`;
+    const percentRounded = Math.round(percent * 100) / 100;
+    this.elements.progressBar.style.width = `${percentRounded}%`;
+
+    if (percent > 2 && percent < 100) {
+      this.elements.progressBar.classList.add('progress-active');
+    } else {
+      this.elements.progressBar.classList.remove('progress-active');
+    }
+
     this.elements.progressText.textContent = `${done} / ${total}`;
     this.elements.statProgress.textContent = `${done}/${total}`;
   }
@@ -1336,6 +1403,7 @@ class PromptInjector {
     this.elements.statSpeed.textContent = '0.00/m';
     this.elements.statElapsed.textContent = '-';
     this.elements.statStatus.textContent = 'Idle';
+    this.elements.statStatus.style.color = '';
     this.updateDelayText('');
   }
 
@@ -1427,7 +1495,6 @@ class PromptInjector {
     
     console.log(`[Settings] Loading from ${this.currentUrlKey}`);
 
-    // Clear existing dynamic points to avoid duplication when reloading settings
     if (this.dynamicPoints && this.dynamicPoints.length > 0) {
       console.log('[Settings] Clearing existing dynamic points before applying loaded settings');
       while (this.dynamicPoints.length > 0) {

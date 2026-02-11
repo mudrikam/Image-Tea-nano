@@ -46,6 +46,61 @@
           </div>
         </section>
 
+        <section class="progress-section">
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+            <span class="progress-text" id="progress-text">0 / 0</span>
+          </div>
+        </section>
+
+        <section class="delay-display">
+          <span id="delay-text"></span>
+        </section>
+
+        <section class="stats-section">
+          <div class="stats-grid">
+            <div class="stat-item">
+              <span class="stat-label">ETA:</span>
+              <span class="stat-value" id="stat-eta">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Progress:</span>
+              <span class="stat-value" id="stat-progress">0/0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Remaining:</span>
+              <span class="stat-value" id="stat-remaining">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Speed:</span>
+              <span class="stat-value" id="stat-speed">0.00/m</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Elapsed:</span>
+              <span class="stat-value" id="stat-elapsed">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Status:</span>
+              <span class="stat-value" id="stat-status">Idle</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <button id="btn-run" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
+            Run
+          </button>
+          <button id="btn-pause" class="btn btn-secondary" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
+            Pause
+          </button>
+          <button id="btn-stop" class="btn btn-danger" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M18,18H6V6H18V18Z"/></svg>
+            Stop
+          </button>
+        </section>
+
         <section class="points-section">
           <div class="point-row point-fixed">
             <div class="point-header">
@@ -135,61 +190,6 @@
             <label for="auto-continue-enabled">Auto continue after each download (no delay)</label>
           </div>
         </section>
-
-        <section class="progress-section">
-          <div class="progress-bar-container">
-            <div class="progress-bar" id="progress-bar"></div>
-            <span class="progress-text" id="progress-text">0 / 0</span>
-          </div>
-        </section>
-
-        <section class="stats-section">
-          <div class="stats-grid">
-            <div class="stat-item">
-              <span class="stat-label">ETA:</span>
-              <span class="stat-value" id="stat-eta">-</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Progress:</span>
-              <span class="stat-value" id="stat-progress">0/0</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Remaining:</span>
-              <span class="stat-value" id="stat-remaining">-</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Speed:</span>
-              <span class="stat-value" id="stat-speed">0.00/m</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Elapsed:</span>
-              <span class="stat-value" id="stat-elapsed">-</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Status:</span>
-              <span class="stat-value" id="stat-status">Idle</span>
-            </div>
-          </div>
-        </section>
-
-        <section class="control-section">
-          <button id="btn-run" class="btn btn-primary">
-            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
-            Run
-          </button>
-          <button id="btn-pause" class="btn btn-secondary" disabled>
-            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
-            Pause
-          </button>
-          <button id="btn-stop" class="btn btn-danger" disabled>
-            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M18,18H6V6H18V18Z"/></svg>
-            Stop
-          </button>
-        </section>
-
-        <section class="delay-display">
-          <span id="delay-text"></span>
-        </section>
       </div>
 
       <div class="tab-panel" data-panel="prompts">
@@ -213,10 +213,16 @@
           <div class="manual-input-section">
             <div class="manual-header">
               <label>Manual Input:</label>
-              <button id="btn-load-manual" class="btn-small btn-primary-small">
-                <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M9,16.17L4.83,12l-1.42,1.41L9,19L21,7l-1.41-1.41Z"/></svg>
-                Load
-              </button>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button id="btn-load-manual" class="btn-small btn-primary-small">
+                  <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M9,16.17L4.83,12l-1.42,1.41L9,19L21,7l-1.41-1.41Z"/></svg>
+                  Load
+                </button>
+                <button id="btn-clear-manual" class="btn-clear btn-small" title="Clear manual input">
+                  <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M19,4H15.5l-1-1h-5l-1,1H5V6H19M6,19a2,2,0,0,0,2,2h8a2,2,0,0,0,2-2V7H6Z"/></svg>
+                  Clear
+                </button>
+              </div>
             </div>
             <textarea id="manual-prompt-input" class="manual-textarea" placeholder="Type prompts here...
 

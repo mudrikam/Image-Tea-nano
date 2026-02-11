@@ -956,6 +956,62 @@ header h1 {
   width: 0%;
   transition: width 0.3s ease;
   box-shadow: 0 0 10px var(--accent-glow);
+  position: relative;
+  overflow: visible;
+}
+
+/* Right-edge glowing/pulse indicator that hints activity when automation runs */
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%) scale(1);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  /* Transparent center, outer orange glow to avoid a solid dot */
+  background: radial-gradient(circle at center, rgba(255,136,0,0.02) 0%, rgba(255,136,0,0.12) 28%, rgba(255,136,0,0.28) 58%, rgba(255,136,0,0.48) 100%);
+  /* much stronger layered orange glow */
+  box-shadow: 0 0 40px 20px rgba(255,136,0,0.18), 0 0 36px 12px rgba(255,136,0,0.28), 0 0 24px 6px rgba(255,136,0,0.36), 0 0 20px var(--accent-glow);
+  filter: blur(4px) saturate(1.2);
+  opacity: 0;
+  transition: opacity 0.08s ease, transform 0.08s ease, filter 0.08s ease;
+  pointer-events: none;
+}
+
+/* Only show when automation running AND there is a measurable filled area */
+.running .progress-bar.progress-active::after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.4);
+  filter: blur(5px) saturate(1.5);
+  animation: pulse-glow 0.8s cubic-bezier(.2,.9,.3,1.2) infinite;
+}
+
+/* Subtle glint that sweeps near the end of the filled area */
+.progress-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -36px;
+  width: 36px;
+  background: linear-gradient(270deg, rgba(255,255,255,0.00), rgba(255,255,255,0.08), rgba(255,255,255,0.00));
+  opacity: 0;
+  transform: translateX(0);
+  pointer-events: none;
+}
+
+.running .progress-bar.progress-active::before {
+  opacity: 0.95;
+  animation: slide-glint 1.2s linear infinite;
+}
+
+/* Hide indicator unless explicitly marked active */
+.progress-bar:not(.progress-active)::after,
+.progress-bar:not(.progress-active)::before {
+  opacity: 0 !important;
+  animation: none !important;
 }
 
 .progress-text {
@@ -1053,6 +1109,13 @@ header h1 {
   border-color: var(--danger);
 }
 
+.running .btn-danger:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 18px rgba(255,68,68,0.45), 0 0 30px rgba(255,68,68,0.18);
+}
+
 .btn-danger:hover:not(:disabled) {
   background: var(--danger);
   color: white;
@@ -1142,12 +1205,16 @@ header h1 {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 10px var(--accent-glow); }
-  50% { box-shadow: 0 0 20px var(--accent-glow), 0 0 30px var(--accent-glow); }
+  0% { box-shadow: 0 0 20px rgba(255,136,0,0.28); transform: translateY(-50%) scale(1.05); opacity: 0.9; filter: saturate(1.05) blur(3px); }
+  40% { box-shadow: 0 0 88px rgba(255,136,0,0.62), 0 0 56px rgba(255,136,0,0.48), 0 0 36px rgba(255,136,0,0.32); transform: translateY(-50%) scale(1.6); opacity: 1; filter: saturate(1.6) blur(6px); }
+  100% { box-shadow: 0 0 20px rgba(255,136,0,0.28); transform: translateY(-50%) scale(1.05); opacity: 0.9; filter: saturate(1.05) blur(3px); }
 }
 
-.running .btn-primary {
-  animation: pulse-glow 1.5s ease-in-out infinite;
+@keyframes slide-glint {
+  0% { transform: translateX(-120%); opacity: 0; }
+  40% { transform: translateX(-20%); opacity: 1; }
+  80% { transform: translateX(20%); opacity: 0.6; }
+  100% { transform: translateX(120%); opacity: 0; }
 }
 
 ::-webkit-scrollbar {
