@@ -26,7 +26,11 @@ class ExtensionInstallDialog(QDialog):
         layout.setSpacing(16)
         layout.setContentsMargins(24, 24, 24, 24)
         
+        fg = theme.get_color('foreground')
+        self.setStyleSheet(f"QDialog {{ color: {fg}; }}")
+        
         title_label = QLabel(f"How to Install: {self.extension_name}")
+        title_label.setStyleSheet(f"color: {theme.get_color('primary')};")
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
@@ -77,7 +81,6 @@ class ExtensionInstallDialog(QDialog):
         # Make path frame borderless so it visually belongs to the step card
         path_frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {theme.get_color('background_light')};
                 border: none;
                 border-radius: 6px;
                 padding: 8px 0px;
@@ -125,7 +128,7 @@ class ExtensionInstallDialog(QDialog):
         
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: #444444;")
+        separator.setStyleSheet(f"background-color: {theme.get_color('text_dark')}; height: 1px; border: none;")
         layout.addWidget(separator)
         
         button_layout = QHBoxLayout()
@@ -133,6 +136,7 @@ class ExtensionInstallDialog(QDialog):
         
         close_btn = QPushButton("Close")
         close_btn.setMinimumWidth(100)
+        close_btn.setStyleSheet(f"color: {theme.get_color('foreground')}; background: transparent;")
         close_btn.clicked.connect(self.accept)
         button_layout.addWidget(close_btn)
         
@@ -145,16 +149,15 @@ class ExtensionInstallDialog(QDialog):
         frame.setObjectName(obj_name)
         frame.setStyleSheet(f"""
             #{obj_name} {{
-                background-color: {theme.get_color('background_light')};
                 border: none;
                 border-radius: 8px;
             }}
-            /* Prevent child QLabel from showing borders or backgrounds (avoid style leakage) */
             #{obj_name} QLabel {{
                 background: transparent;
                 border: none;
                 margin: 0;
                 padding: 0;
+                color: {theme.get_color('foreground')};
             }}
         """)
         
@@ -172,6 +175,7 @@ class ExtensionInstallDialog(QDialog):
                 font-weight: bold;
                 font-size: 14px;
                 border-radius: 16px;
+                border: none;
             }}
         """)
         layout.addWidget(number_label)
@@ -183,7 +187,7 @@ class ExtensionInstallDialog(QDialog):
         title_font = QFont()
         title_font.setBold(True)
         title_label.setFont(title_font)
-        title_label.setStyleSheet(f"color: {theme.get_color('foreground')}; background: transparent; border: none;")
+        title_label.setStyleSheet(f"color: {theme.get_color('primary')}; background: transparent; border: none;")
         content_layout.addWidget(title_label)
         
         desc_label = QLabel(description)
@@ -193,23 +197,47 @@ class ExtensionInstallDialog(QDialog):
         
         if button_text and button_action:
             icon_name = 'fa6s.copy' if 'Copy' in button_text else 'fa6s.link'
-            btn = QPushButton(qta.icon(icon_name), button_text)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {theme.get_color('primary')};
-                    color: {theme.get_color('white')};
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }}
-                QPushButton:hover {{
-                    background-color: {theme.get_color('primary_hover')};
-                }}
-                QPushButton:pressed {{
-                    background-color: {theme.get_color('primary_pressed')};
-                }}
-            """)
+            emphasized = any(k in button_text for k in ('Open', 'Copy'))
+            if emphasized:
+                btn = QPushButton(qta.icon(icon_name, color=theme.get_color('white')), button_text)
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {theme.get_color('primary')};
+                        color: {theme.get_color('white')};
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 6px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {theme.get_color('primary_hover')};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {theme.get_color('primary_pressed')};
+                    }}
+                """)
+            else:
+                btn = QPushButton(qta.icon(icon_name, color=theme.get_color('primary')), button_text)
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        color: {theme.get_color('primary')};
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        color: {theme.get_color('primary_hover')};
+                    }}
+                    QPushButton:pressed {{
+                        color: {theme.get_color('primary_pressed')};
+                    }}
+                """)
+            if 'Copy' in button_text:
+                btn.setToolTip('Copy extension path to clipboard')
+            elif 'Open' in button_text:
+                btn.setToolTip('Open chrome://extensions (URL copied to clipboard)')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(button_action)
             content_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -238,3 +266,5 @@ class ExtensionInstallDialog(QDialog):
         if os.path.exists(self.extension_path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.extension_path))
             print(f"[Extension Install] Opened extension folder: {self.extension_path}")
+        else:
+            print(f"[Extension Install] Extension folder not found: {self.extension_path}")

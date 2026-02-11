@@ -3,7 +3,7 @@
     "tagline": "BEST FREE Alternative Metadata Generator",
     "developer": "Desainia Studio",
     "license": "MIT",
-    "version": "1.0.107",
+    "version": "1.0.108",
     "description": "Image Tea is a Metadata Generator for images and videos, thoughtfully built and maintained by Desainia Studio together with the community. Licensed under MIT.",
     "disclaimer_text_en": "NOTICE:\nYou are solely responsible for any risks, damages, or consequences that may arise from using this application. The developer is not responsible for any loss, damage, or consequences resulting from your use of this application.",
     "disclaimer_text_id": "PERHATIAN:\nKamu sepenuhnya bertanggung jawab atas segala risiko, kerusakan, atau konsekuensi yang mungkin timbul dari penggunaan aplikasi ini. Pengembang tidak bertanggung jawab atas kehilangan, kerusakan, atau konsekuensi apa pun yang diakibatkan oleh penggunaan aplikasi ini.",
@@ -12,7 +12,7 @@
     "api_key_info_en": "Image Tea is FREE software!\n\nTo generate metadata with AI, Image Tea requires your own API key from one of the supported providers: Google Gemini, OpenAI, OpenRouter, Groq, or MAIA Router. Image Tea does NOT provide or rely on shared API keys — you must obtain a real API key tied to your account.\n\nSupported Services:\n- Google Gemini: Direct access to Google's AI models (free tier available)\n- OpenAI: Official OpenAI models (GPT-4o, GPT-4o-mini, etc.)\n- OpenRouter: Unified API to access multiple AI providers including Gemini, OpenAI, Claude, and more\n- Groq: Fast inference with various open models\n- Blackbox: Blackbox AI (OpenAI-compatible endpoint)\n- MAIA Router: OpenAI-compatible router for accessing multiple AI models (https://maiarouter.ai)\n\nIf you want a free Gemini key, Google AI Studio offers free API keys for Gemini (click 'Get FREE API Key'). If you prefer a paid or premium key instead, click 'Get API Key' to visit the provider/purchase page.\n\nAfter you obtain an API key, add it in the main window using the 'Add API Key' dialog so the application can use it.",
     "api_key_info_id": "Image Tea adalah software GRATIS!\n\nUntuk menghasilkan metadata menggunakan AI, Image Tea membutuhkan API Key milikmu sendiri dari penyedia yang didukung: Google Gemini, OpenAI, OpenRouter, Groq, atau MAIA Router. Image Tea TIDAK menyediakan atau menggunakan API Key bersama — kamu harus mendapatkan API Key yang nyata dan terikat ke akunmu sendiri.\n\nLayanan yang Didukung:\n- Google Gemini: Akses langsung ke model AI Google (tersedia tier gratis)\n- OpenAI: Model resmi OpenAI (GPT-4o, GPT-4o-mini, dll.)\n- OpenRouter: API terpadu untuk mengakses berbagai provider AI termasuk Gemini, OpenAI, Claude, dan lainnya\n- Groq: Inference cepat dengan berbagai model terbuka\n- Blackbox: Blackbox AI (endpoint OpenAI-compatible)\n- MAIA Router: Router OpenAI-compatible untuk mengakses berbagai model AI (https://maiarouter.ai)\n\nJika kamu ingin API Key Gemini gratis, Google AI Studio menyediakan API Key gratis untuk Gemini (klik 'Get FREE API Key'). Jika kamu ingin versi berbayar/premium, klik 'Get API Key' untuk mengunjungi halaman penyedia atau pembelian.\n\nSetelah mendapatkan API Key, tambahkan melalui dialog 'Add API Key' di jendela utama agar aplikasi dapat menggunakannya.",
     "chunk_size": 20,
-    "fallback_version": "1.0.107",
+    "fallback_version": "1.0.108",
     "links": {
         "whatsapp": "https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3",
         "tiktok": "https://www.tiktok.com/@desainia",
