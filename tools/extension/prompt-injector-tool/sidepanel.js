@@ -320,26 +320,35 @@ class PromptInjector {
     });
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      const originTab = sender && sender.tab ? sender.tab.id : null;
+      const relayTypes = ['ELEMENT_PICKED','AUTOMATION_PROGRESS','AUTOMATION_FINISHED','AUTOMATION_STATUS','AUTOMATION_ERROR','DOWNLOAD_COUNTDOWN','DOWNLOAD_SCANNING','DOWNLOAD_DONE'];
+      if (originTab && originTab !== this.currentTabId) return;
+      if (!originTab && relayTypes.includes(message.type)) return;
+      if (relayTypes.includes(message.type)) {
+        if (!message.sessionId || message.sessionId !== this.currentSessionId) return;
+      }
+      if (!this._lastMessageTimestamps) this._lastMessageTimestamps = new Map();
+      const key = message.type + '::' + JSON.stringify(message);
+      const now = Date.now();
+      const last = this._lastMessageTimestamps.get(key) || 0;
+      if (now - last < 700) return;
+      this._lastMessageTimestamps.set(key, now);
+
       if (message.type === 'ELEMENT_PICKED') {
         this.onElementPicked(message.pointIndex, message.selector);
         this.addLog(`Element picked for Point ${message.pointIndex}: ${message.selector.substring(0, 50)}...`, 'success');
       } else if (message.type === 'AUTOMATION_PROGRESS') {
-        if (!this.isRunning) {
-          console.log('[Progress] Ignoring progress message - automation not running');
-          return;
-        }
+        if (!this.isRunning) return;
         this.onAutomationProgress(message.done, message.total);
         this.addLog(`Progress: ${message.done}/${message.total} prompts completed`, 'info');
       } else if (message.type === 'AUTOMATION_FINISHED') {
         this.onAutomationFinished();
+        this.currentSessionId = null;
         this.elements.autoDownload.note.textContent = 'Matches images/videos starting with pattern';
         this.elements.autoDownload.note.style.color = '';
         this.addLog('Automation finished', 'success');
       } else if (message.type === 'AUTOMATION_STATUS') {
-        if (!this.isRunning) {
-          console.log('[Status] Ignoring status message - automation not running:', message.text);
-          return;
-        }
+        if (!this.isRunning) return;
         this.updateDelayText(message.text);
         if (!this.elements.autoDownload.monitoring.checked) {
           this.elements.statStatus.textContent = 'Running';
@@ -347,10 +356,7 @@ class PromptInjector {
         }
         this.addLog(message.text, 'status');
       } else if (message.type === 'DOWNLOAD_COUNTDOWN') {
-        if (!this.isRunning) {
-          console.log('[Countdown] Ignoring countdown message - automation not running');
-          return;
-        }
+        if (!this.isRunning) return;
         const mode = message.mode === 'monitoring' ? 'Monitoring' : 'Waiting';
         this.elements.autoDownload.note.textContent = `${mode}: ${message.seconds}s`;
         this.elements.autoDownload.note.style.color = '#ff8800';
@@ -359,23 +365,16 @@ class PromptInjector {
           this.elements.statStatus.style.color = '#ff8800';
         }
       } else if (message.type === 'DOWNLOAD_SCANNING') {
-        if (!this.isRunning) {
-          console.log('[Scanning] Ignoring scanning message - automation not running');
-          return;
-        }
+        if (!this.isRunning) return;
         this.elements.autoDownload.note.textContent = 'Scanning for new content...';
         this.elements.autoDownload.note.style.color = '#ff8800';
         if (!this.elements.autoDownload.monitoring.checked) {
-          this.elements.statStatus.textContent = 'Scanning...';
+          this.elements.statStatus.textContent = 'Scanning';
+          this.elements.statStatus.style.color = '#ff8800';
         }
-        if (message.found !== undefined) {
-          this.addLog(`Scanning: found ${message.found}/${message.required} items`, 'info');
-        }
+        if (message.found !== undefined) this.addLog(`Scanning: found ${message.found}/${message.required} items`, 'info');
       } else if (message.type === 'DOWNLOAD_DONE') {
-        if (!this.isRunning) {
-          console.log('[Download] Ignoring download done message - automation not running');
-          return;
-        }
+        if (!this.isRunning) return;
         this.elements.autoDownload.note.textContent = `Downloaded ${message.count} item(s)`;
         this.elements.autoDownload.note.style.color = '#00cc66';
         if (!this.elements.autoDownload.monitoring.checked) {
@@ -390,6 +389,7 @@ class PromptInjector {
         this.setRunMode(false);
         this.stopStatsTimer();
         this.resetStats();
+        this.currentSessionId = null;
         this.elements.statStatus.textContent = 'Error';
         this.elements.statStatus.style.color = '#ff3333';
         this.updateDelayText(message.message);
@@ -1122,13 +1122,18 @@ class PromptInjector {
         throw new Error('Content script not responding.\n\nRefresh the page first.');
       }
 
+      const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      this.currentSessionId = sessionId;
+
       chrome.tabs.sendMessage(tab.id, {
         type: 'START_AUTOMATION',
         config: config,
-        prompts: this.prompts
+        prompts: this.prompts,
+        sessionId: sessionId
       }, (response) => {
         if (chrome.runtime.lastError) {
           console.error('START_AUTOMATION error:', chrome.runtime.lastError);
+          this.currentSessionId = null;
           this.stop();
           alert('Failed to start automation.\n\nTry refreshing the page first.');
         }
@@ -1240,7 +1245,8 @@ class PromptInjector {
     this.updateDelayText('Stopped - Ready to start from prompt 1');
 
     chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
-      chrome.tabs.sendMessage(tab.id, { type: 'STOP_AUTOMATION' });
+      chrome.tabs.sendMessage(tab.id, { type: 'STOP_AUTOMATION', sessionId: this.currentSessionId });
+      this.currentSessionId = null;
     }).catch(() => {});
   }
 

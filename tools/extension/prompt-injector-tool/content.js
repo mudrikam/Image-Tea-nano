@@ -23,6 +23,7 @@
   let automationPrompts = [];
   let automationIndex = 0;
   let currentMonitoringPromptIndex = -1;
+  let automationSessionId = null;
 
   const downloadedUrls = new Set();
 
@@ -691,7 +692,7 @@
     return true;
   }
 
-  async function runAutomation(config, prompts) {
+  async function runAutomation(config, prompts, sessionId) {
     if (automationRunning) {
       console.warn('[Prompt Injector] Automation already running, ignoring duplicate start request');
       return;
@@ -703,6 +704,8 @@
     automationPrompts = prompts;
     automationIndex = 0;
     currentMonitoringPromptIndex = -1;
+    automationSessionId = sessionId || null;
+    console.log('[Prompt Injector] Automation session:', automationSessionId);
 
     const enabledPoints = config.points.filter(p => p.enabled && p.selector);
     const promptDelay = (config.promptDelay || 0) * 1000;
@@ -1067,7 +1070,7 @@
           downloadSuccess = true;
           
           try {
-            chrome.runtime.sendMessage({ type: 'DOWNLOAD_DONE', count: downloadedCount });
+            chrome.runtime.sendMessage({ type: 'DOWNLOAD_DONE', count: downloadedCount, sessionId: automationSessionId });
           } catch (e) {}
           
           if (automationRunning) {
@@ -1149,7 +1152,8 @@
       chrome.runtime.sendMessage({
         type: 'AUTOMATION_PROGRESS',
         done: done,
-        total: total
+        total: total,
+        sessionId: automationSessionId
       });
     } catch (e) {
       console.warn('[Prompt Injector] Failed to send progress:', e);
@@ -1164,7 +1168,8 @@
     try {
       chrome.runtime.sendMessage({
         type: 'AUTOMATION_STATUS',
-        text: text
+        text: text,
+        sessionId: automationSessionId
       });
     } catch (e) {
       console.warn('[Prompt Injector] Failed to send status:', e);
@@ -1174,17 +1179,20 @@
   function sendFinished() {
     try {
       chrome.runtime.sendMessage({
-        type: 'AUTOMATION_FINISHED'
+        type: 'AUTOMATION_FINISHED',
+        sessionId: automationSessionId
       });
     } catch (e) {
       console.warn('[Prompt Injector] Failed to send finished:', e);
     }
+    automationSessionId = null;
   }
 
   function stopAutomation() {
     automationRunning = false;
     automationPaused = false;
     currentMonitoringPromptIndex = -1;
+    automationSessionId = null;
     console.log('[Prompt Injector] Automation stopped - all monitoring invalidated');
   }
 
@@ -1195,7 +1203,14 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[Prompt Injector] Received message:', message.type);
-    
+
+    const isTopFrame = (window.top === window.self);
+    if ((message.type === 'START_AUTOMATION' || message.type === 'START_PICKER') && !isTopFrame) {
+      console.log('[Prompt Injector] Ignoring automation/picker start in subframe');
+      sendResponse({ success: true });
+      return true;
+    }
+
     switch (message.type) {
       case 'PING':
         console.log('[Prompt Injector] Responding to PING');
@@ -1208,16 +1223,28 @@
         break;
 
       case 'START_AUTOMATION':
-        runAutomation(message.config, message.prompts);
+        if (!isTopFrame) {
+          sendResponse({ success: true });
+          break;
+        }
+        runAutomation(message.config, message.prompts, message.sessionId);
         sendResponse({ success: true });
         break;
 
       case 'STOP_AUTOMATION':
+        if (message.sessionId && message.sessionId !== automationSessionId) {
+          sendResponse({ success: true });
+          break;
+        }
         stopAutomation();
         sendResponse({ success: true });
         break;
 
       case 'TOGGLE_PAUSE':
+        if (message.sessionId && message.sessionId !== automationSessionId) {
+          sendResponse({ success: true });
+          break;
+        }
         togglePause(message.paused);
         sendResponse({ success: true });
         break;
