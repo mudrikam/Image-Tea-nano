@@ -1,8 +1,8 @@
 body {
-	width: 300px;
 	min-width: 300px;
-	max-width: 300px;
-	margin: 0 auto;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
 }
 
 .popup-logo {

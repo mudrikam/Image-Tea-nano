@@ -1,4 +1,4 @@
-// Display extension version from manifest.json in the popup footer
+// Display extension version from manifest.json in the footer
 // Show/hide Start button based on active tab URL
 document.addEventListener('DOMContentLoaded', function() {
 	const root = document.getElementById('app-root');

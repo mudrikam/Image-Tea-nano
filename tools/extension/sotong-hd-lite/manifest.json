@@ -4,12 +4,14 @@
   "description": "Upscale images using Picsart AI",
   "version": "0.1.0",
   "action": {
-    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   },
   "background": {
     "service_worker": "pages/program/scripts/background_workers.js"
@@ -29,7 +31,8 @@
     "scripting",
     "storage",
     "activeTab",
-    "downloads"
+    "downloads",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://picsart.com/*"
