@@ -51,10 +51,10 @@
             <div class="progress-bar" id="progress-bar"></div>
             <span class="progress-text" id="progress-text">0 / 0</span>
           </div>
-        </section>
 
-        <section class="delay-display">
-          <span id="delay-text"></span>
+          <div class="delay-display">
+            <span id="delay-text"></span>
+          </div>
         </section>
 
         <section class="stats-section">
@@ -102,28 +102,6 @@
         </section>
 
         <section class="points-section">
-          <div class="point-row point-fixed">
-            <div class="point-header">
-              <input type="checkbox" id="point1-enabled" checked>
-              <span class="point-label point-1">Point 1</span>
-              <span class="point-note">(paste)</span>
-            </div>
-            <div class="point-controls">
-              <input type="text" id="point1-selector" class="selector-input" placeholder="CSS selector...">
-              <button class="picker-btn" data-point="1" title="Pick element from page">
-                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.71,5.63l-2.34-2.34a1,1,0,0,0-1.41,0L3,17.25V21H6.75L20.71,7a1,1,0,0,0,0-1.41ZM6.17,19H5V17.83L16.93,5.9l1.17,1.17Z"/></svg>
-              </button>
-              <button class="html-btn" data-point="1" title="Selector from HTML">
-                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12,17.56L16.07,16.43L16.62,10.33H9.38L9.2,8.3H16.8L17,6.31H7L7.56,12.32H14.45L14.22,14.9L12,15.5L9.78,14.9L9.64,13.24H7.64L7.93,16.43L12,17.56M4.07,3H19.93L18.5,19.2L12,21L5.5,19.2L4.07,3Z"/></svg>
-              </button>
-            </div>
-            <div class="delay-row">
-              <label>Delay:</label>
-              <input type="number" id="point1-delay" class="delay-input" value="1.0" min="0" step="0.1">
-              <span class="unit">s</span>
-            </div>
-          </div>
-
           <div class="auto-download-section">
             <div class="auto-download-header">
               <input type="checkbox" id="auto-download-enabled">
@@ -166,6 +144,47 @@
             <span class="download-note" id="download-note">Matches images/videos starting with pattern</span>
           </div>
 
+          <div class="delays-section">
+            <div class="delay-option">
+              <label>Random extra delay:</label>
+              <input type="number" id="random-delay" class="delay-input" value="0" min="0" step="0.05">
+              <span class="unit">s</span>
+            </div>
+
+            <div class="auto-continue-row">
+              <input type="checkbox" id="auto-continue-enabled">
+              <label for="auto-continue-enabled">Auto continue after each download (no delay)</label>
+            </div>
+
+            <div class="delay-option">
+              <label>Delay between prompts:</label>
+              <input type="number" id="prompt-delay" class="delay-input" value="0" min="0" step="0.5">
+              <span class="unit">s</span>
+            </div>
+          </div>
+
+          <div class="point-row point-fixed">
+            <div class="point-header">
+              <input type="checkbox" id="point1-enabled" checked>
+              <span class="point-label point-1">Point 1</span>
+              <span class="point-note">(paste)</span>
+            </div>
+            <div class="point-controls">
+              <input type="text" id="point1-selector" class="selector-input" placeholder="CSS selector...">
+              <button class="picker-btn" data-point="1" title="Pick element from page">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.71,5.63l-2.34-2.34a1,1,0,0,0-1.41,0L3,17.25V21H6.75L20.71,7a1,1,0,0,0,0-1.41ZM6.17,19H5V17.83L16.93,5.9l1.17,1.17Z"/></svg>
+              </button>
+              <button class="html-btn" data-point="1" title="Selector from HTML">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12,17.56L16.07,16.43L16.62,10.33H9.38L9.2,8.3H16.8L17,6.31H7L7.56,12.32H14.45L14.22,14.9L12,15.5L9.78,14.9L9.64,13.24H7.64L7.93,16.43L12,17.56M4.07,3H19.93L18.5,19.2L12,21L5.5,19.2L4.07,3Z"/></svg>
+              </button>
+            </div>
+            <div class="delay-row">
+              <label>Delay:</label>
+              <input type="number" id="point1-delay" class="delay-input" value="1.0" min="0" step="0.1">
+              <span class="unit">s</span>
+            </div>
+          </div>
+
           <div id="dynamic-points-container"></div>
 
           <button id="btn-add-point" class="btn btn-add-point">
@@ -174,22 +193,6 @@
           </button>
         </section>
 
-        <section class="delays-section">
-          <div class="delay-option">
-            <label>Random extra delay:</label>
-            <input type="number" id="random-delay" class="delay-input" value="0" min="0" step="0.05">
-            <span class="unit">s</span>
-          </div>
-          <div class="delay-option">
-            <label>Delay between prompts:</label>
-            <input type="number" id="prompt-delay" class="delay-input" value="0" min="0" step="0.5">
-            <span class="unit">s</span>
-          </div>
-          <div class="auto-continue-row">
-            <input type="checkbox" id="auto-continue-enabled">
-            <label for="auto-continue-enabled">Auto continue after each download (no delay)</label>
-          </div>
-        </section>
       </div>
 
       <div class="tab-panel" data-panel="prompts">

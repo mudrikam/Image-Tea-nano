@@ -313,6 +313,20 @@ header h1 {
   border: 1px solid var(--border-color);
 }
 
+.progress-section {
+  background: var(--bg-secondary);
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.delay-display {
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .url-display {
   display: flex;
   align-items: center;
@@ -744,9 +758,9 @@ header h1 {
 }
 
 .delays-section {
-  background: var(--bg-secondary);
-  padding: 10px 12px;
-  border-radius: 10px;
+  background: var(--bg-tertiary);
+  padding: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -960,7 +974,6 @@ header h1 {
   overflow: visible;
 }
 
-/* Right-edge glowing/pulse indicator that hints activity when automation runs */
 .progress-bar::after {
   content: '';
   position: absolute;
@@ -970,9 +983,7 @@ header h1 {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  /* Transparent center, outer orange glow to avoid a solid dot */
   background: radial-gradient(circle at center, rgba(255,136,0,0.02) 0%, rgba(255,136,0,0.12) 28%, rgba(255,136,0,0.28) 58%, rgba(255,136,0,0.48) 100%);
-  /* much stronger layered orange glow */
   box-shadow: 0 0 40px 20px rgba(255,136,0,0.18), 0 0 36px 12px rgba(255,136,0,0.28), 0 0 24px 6px rgba(255,136,0,0.36), 0 0 20px var(--accent-glow);
   filter: blur(4px) saturate(1.2);
   opacity: 0;
@@ -980,7 +991,6 @@ header h1 {
   pointer-events: none;
 }
 
-/* Only show when automation running AND there is a measurable filled area */
 .running .progress-bar.progress-active::after {
   opacity: 1;
   transform: translateY(-50%) scale(1.4);
@@ -988,7 +998,6 @@ header h1 {
   animation: pulse-glow 0.8s cubic-bezier(.2,.9,.3,1.2) infinite;
 }
 
-/* Subtle glint that sweeps near the end of the filled area */
 .progress-bar::before {
   content: '';
   position: absolute;
@@ -1007,7 +1016,6 @@ header h1 {
   animation: slide-glint 1.2s linear infinite;
 }
 
-/* Hide indicator unless explicitly marked active */
 .progress-bar:not(.progress-active)::after,
 .progress-bar:not(.progress-active)::before {
   opacity: 0 !important;
