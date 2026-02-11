@@ -509,29 +509,38 @@
     }
   }
 
+  function onContextMenu(e) {
+    if (!pickerActive) return;
+    try { e.preventDefault(); } catch (ex) {}
+    try { e.stopPropagation(); } catch (ex) {}
+    stopPicker();
+    return false;
+  }
+
   function onMouseClick(e) {
     if (!pickerActive) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
+
+    // If right-click (button 2), treat as cancel (context menu handled separately)
+    if (typeof e.button === 'number' && e.button === 2) {
+      stopPicker();
+      return false;
+    }
+
+    // Only accept primary (left) button
+    if (typeof e.button === 'number' && e.button !== 0) return;
+
+    try { e.preventDefault(); } catch (ex) {}
+    try { e.stopPropagation(); } catch (ex) {}
+    try { e.stopImmediatePropagation(); } catch (ex) {}
 
     let element = highlightedElement || document.elementFromPoint(e.clientX, e.clientY);
-    
+
     if (element && 
         element.id !== 'prompt-injector-highlight' && 
         element.id !== 'prompt-injector-label') {
-      
-      const tagName = element.tagName.toLowerCase();
-      const isCustomElement = tagName.includes('-');
-      
-      if (isCustomElement) {
-        console.log('[Prompt Injector] Custom element detected:', tagName, element);
-      }
-      
+
       const selector = generateSelector(element);
-      console.log('[Prompt Injector] Element picked:', element.tagName, '-> Selector:', selector);
-      
+
       if (selector) {
         chrome.runtime.sendMessage({
           type: 'ELEMENT_PICKED',
@@ -539,7 +548,6 @@
           selector: selector
         });
       } else {
-        console.warn('[Prompt Injector] Could not generate selector for element:', element);
         const fallbackSelector = element.tagName.toLowerCase();
         chrome.runtime.sendMessage({
           type: 'ELEMENT_PICKED',
@@ -578,6 +586,9 @@
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('click', onMouseClick, true);
     document.addEventListener('pointerdown', onMouseClick, true);
+    document.addEventListener('pointerup', onMouseClick, true);
+    document.addEventListener('mouseup', onMouseClick, true);
+    document.addEventListener('contextmenu', onContextMenu, true);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keydown', onKeyDown, true);
 
@@ -604,6 +615,9 @@
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('click', onMouseClick, true);
     document.removeEventListener('pointerdown', onMouseClick, true);
+    document.removeEventListener('pointerup', onMouseClick, true);
+    document.removeEventListener('mouseup', onMouseClick, true);
+    document.removeEventListener('contextmenu', onContextMenu, true);
     document.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('keydown', onKeyDown, true);
 
