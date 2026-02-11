@@ -32,7 +32,6 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["sidepanel.css"],
       "run_at": "document_end",
       "all_frames": true,
       "match_about_blank": true
