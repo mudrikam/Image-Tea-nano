@@ -1314,6 +1314,12 @@ class PromptInjector {
       this.elements.progressBar.classList.remove('progress-active');
     }
 
+    if (percentRounded > 50 && percentRounded < 100) {
+      this.elements.progressText.classList.add('progress-text-dark');
+    } else {
+      this.elements.progressText.classList.remove('progress-text-dark');
+    }
+
     this.elements.progressText.textContent = `${done} / ${total}`;
     this.elements.statProgress.textContent = `${done}/${total}`;
   }
