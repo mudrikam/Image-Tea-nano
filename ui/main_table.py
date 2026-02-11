@@ -16,6 +16,7 @@ import qtawesome as qta
 import os
 
 from ui.theme_system import theme
+from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 
 class NoDataWidget(QWidget):
     """Widget to display 'No files to load' message consistently across all tabs"""
@@ -2476,16 +2477,21 @@ class ImageTableWidget(QWidget):
         status = row[6] if len(row) > 6 and row[6] is not None else ""
 
         db = self.db
-        shutterstock_map = {}
+        shutterstock_image_map = {}
+        shutterstock_video_map = {}
         adobe_map = {}
         primary_val = "-"
         secondary_val = "-"
         adobe_val = "-"
         if db:
-            shutterstock_map, adobe_map = db.get_category_maps()
+            shutterstock_image_map, shutterstock_video_map, adobe_map = db.get_category_maps()
             file_id = row[0]
             if file_id is not None:
                 mapping = db.get_category_mapping_for_file(file_id)
+                filepath = row[1]
+                ext = os.path.splitext(filepath)[1].lower()
+                is_video = ext in VIDEO_EXTENSIONS
+                shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
                 for m in mapping:
                     if m["platform"] == "shutterstock":
                         cat_name = str(m["category_name"])
@@ -2584,16 +2590,21 @@ class ImageTableWidget(QWidget):
         tags = row[5] if len(row) > 5 and row[5] is not None else ""
         status = row[6] if len(row) > 6 and row[6] is not None else ""
         db = self.db
-        shutterstock_map = {}
+        shutterstock_image_map = {}
+        shutterstock_video_map = {}
         adobe_map = {}
         primary_val = "-"
         secondary_val = "-"
         adobe_val = "-"
         if db:
-            shutterstock_map, adobe_map = db.get_category_maps()
+            shutterstock_image_map, shutterstock_video_map, adobe_map = db.get_category_maps()
             file_id = row[0]
             if file_id is not None:
                 mapping = db.get_category_mapping_for_file(file_id)
+                filepath = row[1]
+                ext = os.path.splitext(filepath)[1].lower()
+                is_video = ext in VIDEO_EXTENSIONS
+                shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
                 for m in mapping:
                     if m["platform"] == "shutterstock":
                         cat_name = str(m["category_name"])

@@ -380,9 +380,10 @@ class ImageTeaDB:
         config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-        shutterstock_map = config["shutterstock_category_map"]
+        shutterstock_image_map = config["shutterstock_category_map"]
+        shutterstock_video_map = config.get("shutterstock_video_category_map", {})
         adobe_map = config["adobe_stock_category_map"]
-        return shutterstock_map, adobe_map
+        return shutterstock_image_map, shutterstock_video_map, adobe_map
 
     def get_category_mapping(self):
         with sqlite3.connect(self.db_path) as conn:

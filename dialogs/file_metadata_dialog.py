@@ -3,6 +3,7 @@ from PySide6.QtGui import QPixmap, QImage, QGuiApplication
 from PySide6.QtCore import Qt, QTimer
 import qtawesome as qta
 import os
+from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 
 class FileMetadataDialog(QDialog):
     def __init__(self, filepath, parent=None):
@@ -31,10 +32,9 @@ class FileMetadataDialog(QDialog):
 
         img_label = QLabel()
         img_label.setAlignment(Qt.AlignCenter)
-        video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'}
         ext = os.path.splitext(filepath)[1].lower()
         if os.path.exists(filepath):
-            if ext in video_exts:
+            if ext in VIDEO_EXTENSIONS:
                 try:
                     import cv2
                     cap = cv2.VideoCapture(filepath)
@@ -125,16 +125,20 @@ class FileMetadataDialog(QDialog):
         self.shutterstock_secondary_combo.setEditable(False)
         self.adobe_combo.setEditable(False)
 
-        shutterstock_map = {}
+        shutterstock_image_map = {}
+        shutterstock_video_map = {}
         adobe_map = {}
         primary_val = None
         secondary_val = None
         adobe_val = None
         if self.db:
-            shutterstock_map, adobe_map = self.db.get_category_maps()
+            shutterstock_image_map, shutterstock_video_map, adobe_map = self.db.get_category_maps()
             file_id = file_data[0]
             if file_id is not None:
                 mapping = self.db.get_category_mapping_for_file(file_id)
+                ext = os.path.splitext(filepath)[1].lower()
+                is_video = ext in VIDEO_EXTENSIONS
+                shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
                 for m in mapping:
                     if m["platform"] == "shutterstock":
                         cat_name = str(m["category_name"]).lower()

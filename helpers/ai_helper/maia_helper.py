@@ -33,7 +33,8 @@ def load_maia_prompt_vars():
     with open(prompt_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     prompt_data = data["prompt"]
-    shutterstock_map = data["shutterstock_category_map"]
+    shutterstock_image_map = data["shutterstock_category_map"]
+    shutterstock_video_map = data["shutterstock_video_category_map"]
     adobe_map = data["adobe_stock_category_map"]
     return (
         prompt_data["title_requirements"],
@@ -49,7 +50,8 @@ def load_maia_prompt_vars():
         data["max_title_length"],
         data["max_description_length"],
         data["required_tag_count"],
-        shutterstock_map,
+        shutterstock_image_map,
+        shutterstock_video_map,
         adobe_map
     )
 
@@ -67,15 +69,18 @@ def format_maia_prompt(
     max_title_length,
     max_description_length,
     required_tag_count,
-    shutterstock_map,
+    shutterstock_image_map,
+    shutterstock_video_map,
     adobe_map,
-    filename=None
+    filename=None,
+    is_video=False
 ):
     title_reqs = title_requirements.replace("_MIN_LEN_", str(min_title_length)).replace("_MAX_LEN_", str(max_title_length))
     desc_reqs = description_requirements.replace("_MAX_DESC_LEN_", str(max_description_length))
     keywords_reqs = keywords_requirements.replace("_TAGS_COUNT_", str(required_tag_count))
     uniqueness = unique_token.replace("_TIMESTAMP_", generate_timestamp()).replace("_TOKEN_", generate_token())
     
+    shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
     shutterstock_categories = {num: name for num, name in shutterstock_map.items()}
     adobe_categories = {num: name for num, name in adobe_map.items()}
     
@@ -191,7 +196,8 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
                 max_title_length,
                 max_description_length,
                 required_tag_count,
-                shutterstock_map,
+                shutterstock_image_map,
+                shutterstock_video_map,
                 adobe_map
             ) = load_maia_prompt_vars()
             prompt = format_maia_prompt(
@@ -208,9 +214,11 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
                 max_title_length,
                 max_description_length,
                 required_tag_count,
-                shutterstock_map,
+                shutterstock_image_map,
+                shutterstock_video_map,
                 adobe_map,
-                filename=filename
+                filename=filename,
+                is_video=is_video
             )
         
         content_items = [{"type": "text", "text": prompt}]

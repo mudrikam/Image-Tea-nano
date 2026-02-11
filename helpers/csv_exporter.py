@@ -3,6 +3,7 @@ import os
 import datetime
 import re
 import csv
+from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 
 def _sanitize_text_for_csv(text):
     if not text:
@@ -169,16 +170,25 @@ def _adobe_stock_format(file, adobe_map, category_mapping):
         'releases': ""
     }
 
-def _shutterstock_format(file, shutterstock_map, category_mapping, db):
+def _shutterstock_format(file, shutterstock_image_map, shutterstock_video_map, category_mapping, db):
     file_id = file[0]
+    filepath = file[1]
+    filename = file[2]
+
+    # Choose map deterministically based on extension
+    ext = os.path.splitext(filepath)[1].lower()
+    is_video = ext in VIDEO_EXTENSIONS
+    shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
+
     primary = None
     secondary = None
     for mapping in category_mapping:
         if mapping['file_id'] == file_id and mapping['platform'] == 'shutterstock':
-            if mapping['category_name'].endswith('(primary)'):
+            if str(mapping['category_name']).lower().endswith('(primary)'):
                 primary = mapping['category_id']
-            elif mapping['category_name'].endswith('(secondary)'):
+            elif str(mapping['category_name']).lower().endswith('(secondary)'):
                 secondary = mapping['category_id']
+
     categories = ""
     if primary and secondary:
         categories = f"{shutterstock_map.get(str(primary), '')},{shutterstock_map.get(str(secondary), '')}"
@@ -187,20 +197,18 @@ def _shutterstock_format(file, shutterstock_map, category_mapping, db):
     elif secondary:
         categories = shutterstock_map.get(str(secondary), '')
 
+    # Determine illustration flag from stored file types
     illustration = "yes"
-    try:
-        file_types = db.get_file_types(file_id)
-        if file_types:
-            file_type = file_types[0][1]
-            if file_type.lower() == "photo":
-                illustration = "no"
-            elif file_type.lower() == "illustration":
-                illustration = "yes"
-    except Exception as e:
-        print(f"Error getting file type for file {file_id}: {e}")
+    file_types = db.get_file_types(file_id)
+    if file_types:
+        file_type = file_types[0][1]
+        if file_type.lower() == "photo":
+            illustration = "no"
+        elif file_type.lower() == "illustration":
+            illustration = "yes"
 
     return {
-        'filename': file[2],
+        'filename': filename,
         'description': _sanitize_text_for_csv(file[4] if file[4] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'categories': categories,
@@ -340,7 +348,7 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
         return
     db = ImageTeaDB()
     files = db.get_all_files()
-    shutterstock_map, adobe_map = db.get_category_maps()
+    shutterstock_image_map, shutterstock_video_map, adobe_map = db.get_category_maps()
     category_mapping = db.get_category_mapping()
 
 
@@ -387,7 +395,7 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
         fmt = SHARED_FORMATS['Shutterstock']
         rows = []
         for file in files:
-            rows.append(_shutterstock_format(file, shutterstock_map, category_mapping, db))
+            rows.append(_shutterstock_format(file, shutterstock_image_map, shutterstock_video_map, category_mapping, db))
             if progress_callback:
                 progress_callback()
         if rows:

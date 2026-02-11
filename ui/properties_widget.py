@@ -7,6 +7,7 @@ import qtawesome as qta
 
 from ui.theme_system import theme
 from dialogs.edit_tag_dialog import EditTagDialog
+from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 
 try:
     from PIL import Image
@@ -641,7 +642,7 @@ class PropertiesWidget(QWidget):
         if db is not None:
             try:
                 category_mapping = db.get_category_mapping_for_file(file_id)
-                shutterstock_map, adobe_map = db.get_category_maps()
+                shutterstock_image_map, shutterstock_video_map, adobe_map = db.get_category_maps()
                 primary = None
                 secondary = None
                 for mapping in category_mapping:
@@ -651,6 +652,11 @@ class PropertiesWidget(QWidget):
                             primary = mapping['category_id']
                         elif cat_name.endswith('(secondary)'):
                             secondary = mapping['category_id']
+                # Determine whether file is a video by extension
+                filepath = row_data[1] if len(row_data) > 1 else ""
+                ext = os.path.splitext(filepath)[1].lower()
+                is_video = ext in VIDEO_EXTENSIONS
+                shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
                 if primary and secondary:
                     shutterstock_cat_text = f"{shutterstock_map.get(str(primary), str(primary))}, {shutterstock_map.get(str(secondary), str(secondary))}"
                 elif primary:

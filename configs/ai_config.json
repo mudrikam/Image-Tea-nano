@@ -248,6 +248,27 @@
     "25": "Transportation",
     "26": "Vintage"
   },
+  "shutterstock_video_category_map": {
+    "1": "Animals/Wildlife",
+    "2": "Arts",
+    "3": "Backgrounds/Textures",
+    "4": "Buildings/Landmarks",
+    "5": "Business/Finance",
+    "6": "Education",
+    "7": "Food and drink",
+    "8": "Healthcare/Medical",
+    "9": "Holidays",
+    "10": "Industrial",
+    "11": "Nature",
+    "12": "Objects",
+    "13": "People",
+    "14": "Religion",
+    "15": "Science",
+    "16": "Signs/Symbols",
+    "17": "Sports/Recreation",
+    "18": "Technology",
+    "19": "Transportation"
+  },
   "prompt_generator": {
     "instructions": {
       "image_generation": "Analyze this image and generate creative, detailed prompts for AI image generation. Create unique variations based on visual content, including subject, setting, mood, style, and observed details. Ensure diverse themes without repetition. Focus on prompts that would generate similar or related images.",
