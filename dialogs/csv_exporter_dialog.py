@@ -193,7 +193,8 @@ class CSVExporterDialog(QDialog):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         if text:
-            self.output_lineedit.setText(text)
+            sanitized = self._sanitize_path_text(text)
+            self.output_lineedit.setText(sanitized)
             self.update_suffixes()
 
     def select_output_path(self):
@@ -291,7 +292,21 @@ class CSVExporterDialog(QDialog):
         except Exception as e:
             print(f"[CSVExporterDialog] Error toggling platform {platform}: {e}")
 
+    def _sanitize_path_text(self, text):
+        if not isinstance(text, str):
+            return text
+        t = text.strip()
+        if len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'")):
+            return t[1:-1]
+        return t
+
     def on_output_path_changed(self, text):
+        sanitized = self._sanitize_path_text(text)
+        if sanitized != text:
+            self.output_lineedit.blockSignals(True)
+            self.output_lineedit.setText(sanitized)
+            self.output_lineedit.blockSignals(False)
+            text = sanitized
         self.update_suffixes()
         self.validate_output_and_buttons()
 
@@ -358,7 +373,7 @@ class CSVExporterDialog(QDialog):
             print(f"[CSVExporterDialog] Error in uncheck_all: {e}")
 
     def validate_output_and_buttons(self):
-        path = self.output_lineedit.text()
+        path = self._sanitize_path_text(self.output_lineedit.text())
         valid = False
         try:
             valid = os.path.isdir(path)
@@ -381,7 +396,7 @@ class CSVExporterDialog(QDialog):
 
     def export_csv(self):
         selected = [p for p, cb in self.checkbox_map.items() if cb.isChecked()]
-        output_path = self.output_lineedit.text()
+        output_path = self._sanitize_path_text(self.output_lineedit.text())
         if not selected:
             print("[CSVExporterDialog] No platforms selected for export")
             return
@@ -425,7 +440,7 @@ class CSVExporterDialog(QDialog):
         self.accept()
 
     def update_suffixes(self):
-        path = self.output_lineedit.text()
+        path = self._sanitize_path_text(self.output_lineedit.text())
         if not path or not os.path.isdir(path):
             for p, (w, e, s) in self.rename_rows.items():
                 if w.isVisible():

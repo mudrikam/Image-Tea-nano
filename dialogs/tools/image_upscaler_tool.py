@@ -984,7 +984,7 @@ class ImageUpscalerDialog(QDialog):
         self.output_edit.setPlaceholderText("Default: temp/image_upscaler/results")
         self.output_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.output_edit.setMinimumWidth(0)
-        self.output_edit.textChanged.connect(lambda text: setattr(self, 'output_dir', text.strip() if text.strip() else None))
+        self.output_edit.textChanged.connect(self._on_output_text_changed)
         self.output_edit.editingFinished.connect(self._save_config)
         output_layout.addWidget(self.output_edit, 1)
         
@@ -1275,25 +1275,44 @@ class ImageUpscalerDialog(QDialog):
             self.image_files.append(image_path)
             self._update_image_list()
         self._run_process_with_files([image_path])
-    
+
+    def _sanitize_path_text(self, text):
+        if not isinstance(text, str):
+            return text
+        t = text.strip()
+        if len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'")):
+            return t[1:-1]
+        return t
+
+    def _on_output_text_changed(self, text):
+        sanitized = self._sanitize_path_text(text)
+        if sanitized != text:
+            self.output_edit.blockSignals(True)
+            self.output_edit.setText(sanitized)
+            self.output_edit.blockSignals(False)
+            text = sanitized
+        self.output_dir = text.strip() if text.strip() else None
+
     def browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self._last_dir)
         if folder:
+            folder = self._sanitize_path_text(folder)
             self._last_dir = folder
             self.output_edit.setText(folder)
             self.output_dir = folder
             self._save_config()
-    
+
     def paste_output(self):
         clipboard = QApplication.clipboard()
-        text = clipboard.text().strip()
-        if text:
-            self.output_edit.setText(text)
-            self.output_dir = text
+        text = clipboard.text()
+        sanitized = self._sanitize_path_text(text)
+        if sanitized:
+            self.output_edit.setText(sanitized)
+            self.output_dir = sanitized
             self._save_config()
 
     def open_output_folder(self):
-        path = self.output_edit.text().strip()
+        path = self._sanitize_path_text(self.output_edit.text())
         if not path:
             p = RESULTS_DIR
             p.mkdir(parents=True, exist_ok=True)

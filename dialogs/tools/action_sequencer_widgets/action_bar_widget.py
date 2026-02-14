@@ -202,53 +202,57 @@ class ActionBarWidget(QWidget):
     def on_select_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_path)
         if folder:
+            folder = self._sanitize_path_text(folder)
             self.output_path = folder
             self.output_path_input.setText(folder)
             self.output_path_changed.emit(folder)
 
     def on_source_edited(self):
-        path = self.source_path_input.text().strip()
+        path = self._sanitize_path_text(self.source_path_input.text())
         self.source_path = path
         self.source_path_changed.emit(path)
-        self.clear_source_button.setEnabled(bool(path or getattr(self, 'selected_file', '')))
+        self.clear_source_button.setEnabled(bool(path or getattr(self, 'selected_file', ''))) 
 
     def on_file_edited(self):
-        path = self.file_path_input.text().strip()
+        path = self._sanitize_path_text(self.file_path_input.text())
         self.selected_file = path
         self.file_path_changed.emit(path)
         self.clear_source_button.setEnabled(bool(self.source_path_input.text() or path))
 
     def on_output_edited(self):
-        path = self.output_path_input.text().strip()
+        path = self._sanitize_path_text(self.output_path_input.text())
         self.output_path = path
         self.output_path_changed.emit(path)
     
     def on_paste_source(self):
         clipboard = QApplication.clipboard()
-        text = clipboard.text().strip()
-        if text:
-            self.source_path_input.setText(text)
-            self.source_path = text
-            self.source_path_changed.emit(text)
+        text = clipboard.text()
+        sanitized = self._sanitize_path_text(text)
+        if sanitized:
+            self.source_path_input.setText(sanitized)
+            self.source_path = sanitized
+            self.source_path_changed.emit(sanitized)
     
     def on_paste_file(self):
         clipboard = QApplication.clipboard()
-        text = clipboard.text().strip()
-        if text:
-            self.file_path_input.setText(text)
-            self.selected_file = text
-            self.file_path_changed.emit(text)
+        text = clipboard.text()
+        sanitized = self._sanitize_path_text(text)
+        if sanitized:
+            self.file_path_input.setText(sanitized)
+            self.selected_file = sanitized
+            self.file_path_changed.emit(sanitized)
     
     def on_paste_output(self):
         clipboard = QApplication.clipboard()
-        text = clipboard.text().strip()
-        if text:
-            self.output_path_input.setText(text)
-            self.output_path = text
-            self.output_path_changed.emit(text)
+        text = clipboard.text()
+        sanitized = self._sanitize_path_text(text)
+        if sanitized:
+            self.output_path_input.setText(sanitized)
+            self.output_path = sanitized
+            self.output_path_changed.emit(sanitized)
     
     def on_open_source(self):
-        path = self.source_path_input.text().strip()
+        path = self._sanitize_path_text(self.source_path_input.text())
         if not path:
             QMessageBox.information(self, "No Path", "Please select or enter a source folder path first.")
             return
@@ -260,7 +264,7 @@ class ActionBarWidget(QWidget):
         self._open_file_explorer(path)
     
     def on_open_file(self):
-        path = self.file_path_input.text().strip()
+        path = self._sanitize_path_text(self.file_path_input.text())
         if not path:
             QMessageBox.information(self, "No Path", "Please select or enter a file path first.")
             return
@@ -273,7 +277,7 @@ class ActionBarWidget(QWidget):
         self._open_file_explorer(folder_path, select_file=path)
     
     def on_open_output(self):
-        path = self.output_path_input.text().strip()
+        path = self._sanitize_path_text(self.output_path_input.text())
         if not path:
             QMessageBox.information(self, "No Path", "Please select or enter an output folder path first.")
             return
@@ -307,6 +311,14 @@ class ActionBarWidget(QWidget):
                 subprocess.Popen(['open', path])
         else:
             subprocess.Popen(['xdg-open', path])
+
+    def _sanitize_path_text(self, text):
+        if not isinstance(text, str):
+            return text
+        t = text.strip()
+        if len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'")):
+            return t[1:-1]
+        return t
 
     def set_output_path(self, path):
         self.output_path = path
