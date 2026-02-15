@@ -798,7 +798,7 @@ class PromptGenerator {
     // Use per-API-key model if available, otherwise use global model
     const effectiveModel = customModel || globalCustomModel || '';
 
-    let systemPrompt = `You are a creative prompt generator. Generate exactly ${count} unique, creative prompts for image generation. Each prompt should be between ${minLength} and ${maxLength} characters.`;
+    let systemPrompt = `You are a creative prompt generator. Generate exactly ${count} unique, creative prompts for image generation. Each prompt should be between ${minLength} and ${maxLength} characters. Avoid starting prompts with "A" or "An".`;
     
     if (theme) {
       systemPrompt += ` Style: ${theme}.`;
