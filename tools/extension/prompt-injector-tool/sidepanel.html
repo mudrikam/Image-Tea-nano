@@ -238,6 +238,185 @@ Formats supported:
               <span id="manual-count">0 prompts</span>
             </div>
           </div>
+
+          <div class="generator-section">
+            <div class="generator-header" style="justify-content: space-between;">
+              <label>AI Prompt Generator:</label>
+              <div style="display: flex; gap: 4px;">
+                <button id="btn-generator-clear" class="btn-icon" title="Reset to Default">
+                  <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>
+                </button>
+                <button id="btn-generator-settings" class="btn-icon" title="API Settings">
+                  <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="gen-progress-section">
+              <div class="gen-progress-bar-container">
+                <div class="gen-progress-bar" id="gen-progress-bar"></div>
+                <span class="gen-progress-text" id="gen-progress-text">0 / 0</span>
+              </div>
+            </div>
+
+            <div class="gen-stats-section">
+              <div class="gen-stats-grid">
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">API Key:</span>
+                  <span class="gen-stat-value" id="gen-stat-apikey">-</span>
+                </div>
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">Model:</span>
+                  <span class="gen-stat-value" id="gen-stat-model">-</span>
+                </div>
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">Requests:</span>
+                  <span class="gen-stat-value" id="gen-stat-current">0</span>
+                </div>
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">Target:</span>
+                  <span class="gen-stat-value" id="gen-stat-target">0</span>
+                </div>
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">In Entry:</span>
+                  <span class="gen-stat-value" id="gen-stat-entry">0</span>
+                </div>
+                <div class="gen-stat-item">
+                  <span class="gen-stat-label">Status:</span>
+                  <span class="gen-stat-value" id="gen-stat-status">Idle</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="generator-controls">
+              <div class="generator-row">
+                <label>Length:</label>
+                <input type="number" id="gen-min-length" class="gen-input" value="50" min="10" max="500" placeholder="Min">
+                <span class="gen-separator">-</span>
+                <input type="number" id="gen-max-length" class="gen-input" value="150" min="10" max="500" placeholder="Max">
+                <span class="unit">chars</span>
+              </div>
+              <div class="generator-row">
+                <label>Total requests:</label>
+                <input type="number" id="gen-total-prompts" class="gen-input-wide" value="10" min="1" max="1000">
+                <span class="unit">(API calls)</span>
+              </div>
+              <div class="generator-row">
+                <label>Prompts per request:</label>
+                <input type="number" id="gen-prompts-per-call" class="gen-input-wide" value="5" min="1" max="50">
+              </div>
+              <div class="generator-row">
+                <label>Provider:</label>
+                <select id="gen-provider" class="gen-select">
+                  <option value="maiarouter">MaiaRouter</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="groq">Groq</option>
+                  <option value="blackbox">Blackbox AI</option>
+                </select>
+              </div>
+              <div class="generator-row">
+                <label>Model:</label>
+                <input type="text" id="gen-custom-model" class="gen-model-input" placeholder="Leave empty for default">
+                <button id="btn-paste-model" class="btn-paste" title="Paste from clipboard">
+                  <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M19,20H5V4H7V7H17V4H19M12,2A1,1 0 0,1 13,3A1,1 0 0,1 12,4A1,1 0 0,1 11,3A1,1 0 0,1 12,2M19,2H14.82C14.4,0.84 13.3,0 12,0C10.7,0 9.6,0.84 9.18,2H5A2,2 0 0,0 3,4V20A2,2 0 0,0 5,22H19A2,2 0 0,0 21,20V4A2,2 0 0,0 19,2Z"/></svg>
+                </button>
+              </div>
+              <div class="generator-row">
+                <label>Theme:</label>
+                <select id="gen-theme-1" class="gen-theme-select-full">
+                  <option value="">None</option>
+                  <option value="realistic">Realistic</option>
+                  <option value="artistic">Artistic</option>
+                  <option value="fantasy">Fantasy</option>
+                  <option value="scifi">Sci-Fi</option>
+                  <option value="horror">Horror</option>
+                  <option value="nature">Nature</option>
+                  <option value="urban">Urban</option>
+                  <option value="abstract">Abstract</option>
+                  <option value="minimalist">Minimalist</option>
+                  <option value="surreal">Surreal</option>
+                  <option value="cyberpunk">Cyberpunk</option>
+                  <option value="steampunk">Steampunk</option>
+                </select>
+              </div>
+              <div class="generator-row">
+                <label>Mood:</label>
+                <select id="gen-theme-2" class="gen-theme-select-full">
+                  <option value="">None</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="dramatic">Dramatic</option>
+                  <option value="peaceful">Peaceful</option>
+                  <option value="dynamic">Dynamic</option>
+                  <option value="elegant">Elegant</option>
+                  <option value="gritty">Gritty</option>
+                  <option value="ethereal">Ethereal</option>
+                  <option value="atmospheric">Atmospheric</option>
+                  <option value="moody">Moody</option>
+                  <option value="whimsical">Whimsical</option>
+                  <option value="dark">Dark</option>
+                  <option value="bright">Bright</option>
+                  <option value="mysterious">Mysterious</option>
+                  <option value="joyful">Joyful</option>
+                  <option value="melancholic">Melancholic</option>
+                  <option value="serene">Serene</option>
+                  <option value="tense">Tense</option>
+                  <option value="romantic">Romantic</option>
+                  <option value="nostalgic">Nostalgic</option>
+                </select>
+              </div>
+              <div class="generator-row">
+                <label>Color:</label>
+                <select id="gen-theme-3" class="gen-theme-select-full">
+                  <option value="">None</option>
+                  <option value="vibrant">Vibrant</option>
+                  <option value="muted">Muted</option>
+                  <option value="monochrome">Monochrome</option>
+                  <option value="pastel">Pastel</option>
+                  <option value="neon">Neon</option>
+                  <option value="warm">Warm</option>
+                  <option value="cool">Cool</option>
+                  <option value="saturated">Saturated</option>
+                  <option value="desaturated">Desaturated</option>
+                  <option value="high-contrast">High Contrast</option>
+                  <option value="low-contrast">Low Contrast</option>
+                  <option value="sepia">Sepia</option>
+                  <option value="colorful">Colorful</option>
+                  <option value="black-and-white">Black and White</option>
+                  <option value="duotone">Duotone</option>
+                </select>
+              </div>
+              <div class="generator-row">
+                <label>Human Model:</label>
+                <select id="gen-human-model" class="gen-theme-select-full">
+                  <option value="">Any</option>
+                  <option value="true">Yes (Human)</option>
+                  <option value="false">No (Non-human)</option>
+                </select>
+              </div>
+              <div class="generator-custom-prompt">
+                <label>Custom Instructions (optional):</label>
+                <textarea id="gen-custom-instructions" class="gen-custom-textarea" placeholder="Add your own rules or style preferences here...
+Example: Focus on landscapes, avoid people, use warm colors"></textarea>
+              </div>
+            </div>
+
+            <div class="gen-control-section">
+              <button id="btn-gen-run" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></svg>
+                Run
+              </button>
+              <button id="btn-gen-pause" class="btn btn-secondary" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14,19H18V5H14M6,19H10V5H6V19Z"/></svg>
+                <span id="btn-gen-pause-text">Pause</span>
+              </button>
+              <button id="btn-gen-stop" class="btn btn-danger" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M18,18H6V6H18V18Z"/></svg>
+                Stop
+              </button>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -526,6 +705,45 @@ Third prompt</pre>
     </footer>
   </div>
 
+  <div id="api-settings-dialog" class="modal-overlay" style="display:none;">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <h2>API Settings</h2>
+        <button id="btn-close-settings" class="btn-icon">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="api-provider-tabs">
+          <button class="api-tab-btn active" data-provider="maiarouter">MaiaRouter</button>
+          <button class="api-tab-btn" data-provider="openrouter">OpenRouter</button>
+          <button class="api-tab-btn" data-provider="gemini">Gemini</button>
+          <button class="api-tab-btn" data-provider="openai">OpenAI</button>
+          <button class="api-tab-btn" data-provider="groq">Groq</button>
+          <button class="api-tab-btn" data-provider="blackbox">Blackbox</button>
+        </div>
+
+        <div class="api-tab-content">
+          <div class="api-keys-list" id="api-keys-container"></div>
+          <button id="btn-add-api-key" class="btn-add-key">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
+            Add API Key
+          </button>
+        </div>
+
+        <div class="api-test-section">
+          <button id="btn-test-all" class="btn btn-secondary">Test All Keys</button>
+          <span class="api-test-result" id="test-all-result"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="btn btn-primary">Save</button>
+        <button id="btn-cancel-settings" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="generator.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

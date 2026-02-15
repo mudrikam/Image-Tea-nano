@@ -22,6 +22,7 @@ class PromptInjector {
       await this.updateCurrentUrl();
       this.initEventListeners();
       this.updateManualCount();
+      this.generator = new PromptGenerator(this);
     });
   }
 
