@@ -209,6 +209,7 @@ class PromptInjector {
       fileLabel: document.getElementById('file-label'),
       dropZone: document.getElementById('drop-zone'),
       manualPromptInput: document.getElementById('manual-prompt-input'),
+      promptDisplay: document.getElementById('prompt-display'),
       manualCount: document.getElementById('manual-count'),
       progressBar: document.getElementById('progress-bar'),
       progressText: document.getElementById('progress-text'),
@@ -395,6 +396,7 @@ class PromptInjector {
         this.setRunMode(false);
         this.stopStatsTimer();
         this.resetStats();
+        this.resetPromptDisplay();
         this.currentSessionId = null;
         this.elements.statStatus.textContent = 'Error';
         this.elements.statStatus.style.color = '#ff3333';
@@ -1108,6 +1110,7 @@ class PromptInjector {
 
     this.setRunMode(true);
     this.startStatsTimer();
+    this.updatePromptDisplay(0, this.prompts.length);
     
     this.addLog(`Starting automation with ${this.prompts.length} prompts`, 'info');
     this.addLog(`Config: ${config.points.filter(p => p.enabled).length} points, autoDownload=${config.autoDownload.enabled}, monitoring=${config.autoDownload.monitoring}`, 'info');
@@ -1238,6 +1241,9 @@ class PromptInjector {
       }
     }
 
+    // Update prompt display to reflect paused state
+    this.updatePromptDisplay(this.currentIndex, this.prompts.length);
+
     chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
       chrome.tabs.sendMessage(tab.id, {
         type: 'TOGGLE_PAUSE',
@@ -1254,6 +1260,7 @@ class PromptInjector {
     this.stopStatsTimer();
     this.updateProgress(0, this.prompts.length);
     this.resetStats();
+    this.resetPromptDisplay();
     this.elements.statStatus.textContent = 'Stopped';
     this.updateDelayText('Stopped - Ready to start from prompt 1');
 
@@ -1301,6 +1308,7 @@ class PromptInjector {
     this.stopStatsTimer();
     
     this.updateProgress(0, 0);
+    this.resetPromptDisplay();
     this.elements.statEta.textContent = '-';
     this.elements.statRemaining.textContent = '-';
     this.elements.statSpeed.textContent = '-';
@@ -1335,6 +1343,63 @@ class PromptInjector {
 
     this.elements.progressText.textContent = `${done} / ${total}`;
     this.elements.statProgress.textContent = `${done}/${total}`;
+    
+    // Update prompt display highlighting
+    this.updatePromptDisplay(done, total);
+  }
+
+  // Update prompt display with color coding based on status
+  updatePromptDisplay(currentIndex, total) {
+    if (!this.elements.promptDisplay || !this.prompts || this.prompts.length === 0) {
+      return;
+    }
+
+    // Show the prompt display container when running
+    if (this.isRunning || this.isPaused) {
+      this.elements.promptDisplay.classList.add('visible');
+      this.elements.manualPromptInput.style.display = 'none';
+    } else {
+      this.elements.promptDisplay.classList.remove('visible');
+      this.elements.manualPromptInput.style.display = '';
+      return;
+    }
+
+    // Build the display HTML
+    let html = '';
+    this.prompts.forEach((prompt, index) => {
+      let statusClass = 'prompt-pending';
+      
+      if (index < currentIndex) {
+        // Completed prompts - darker color
+        statusClass = 'prompt-completed';
+      } else if (index === currentIndex) {
+        // Active prompt - orange with glow
+        statusClass = 'prompt-active';
+      }
+      
+      // Escape HTML to prevent XSS
+      const escapedPrompt = this.escapeHtml(prompt);
+      html += `<div class="prompt-line ${statusClass}">${escapedPrompt}</div>`;
+    });
+
+    this.elements.promptDisplay.innerHTML = html;
+    
+    // Scroll to active prompt
+    const activePrompt = this.elements.promptDisplay.querySelector('.prompt-active');
+    if (activePrompt) {
+      activePrompt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  // Reset prompt display when automation stops
+  resetPromptDisplay() {
+    if (this.elements.promptDisplay) {
+      this.elements.promptDisplay.classList.remove('visible');
+      this.elements.promptDisplay.innerHTML = '';
+    }
+    if (this.elements.manualPromptInput) {
+      this.elements.manualPromptInput.style.display = '';
+    }
   }
 
   updateDelayText(text) {
