@@ -413,7 +413,7 @@ class PromptGenerator {
       
       switch (provider) {
         case 'maiarouter':
-          response = await fetch('https://api.maiarouter.com/v1/chat/completions', {
+          response = await fetch('https://api.maiarouter.ai/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -481,7 +481,7 @@ class PromptGenerator {
               'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-              model: customModel || 'llama-3.3-70b-versatile',
+              model: customModel || 'meta-llama/llama-4-scout-17b-16e-instruct',
               messages: [{ role: 'user', content: 'test' }],
               max_tokens: 5
             }),
@@ -586,7 +586,7 @@ class PromptGenerator {
           model = 'gpt-5-nano-2025-08-07';
           break;
         case 'groq':
-          model = 'llama-3.3-70b-versatile';
+          model = 'meta-llama/llama-4-scout-17b-16e-instruct';
           break;
         case 'blackbox':
           model = 'blackboxai';
@@ -834,13 +834,8 @@ class PromptGenerator {
 
       switch (provider) {
         case 'maiarouter':
-          response = await fetch('https://api.maiarouter.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
+          console.log('MAIA Router - effectiveModel:', effectiveModel, 'customModel:', customModel, 'globalCustomModel:', globalCustomModel);
+          const maiaBody = {
               model: effectiveModel || 'maia/gemini-2.0-flash',
               messages: [
                 { role: 'system', content: systemPrompt },
@@ -848,7 +843,15 @@ class PromptGenerator {
               ],
               temperature: 0.9,
               max_tokens: 2000
-            }),
+            };
+          console.log('MAIA Router Request:', maiaBody);
+          response = await fetch('https://api.maiarouter.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(maiaBody),
             signal: controller.signal
           });
           data = await response.json();
@@ -930,7 +933,7 @@ class PromptGenerator {
               'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-              model: effectiveModel || 'llama-3.3-70b-versatile',
+              model: effectiveModel || 'meta-llama/llama-4-scout-17b-16e-instruct',
               messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: `Generate ${count} creative image prompts now.` }
@@ -978,7 +981,13 @@ class PromptGenerator {
         const errorData = data || {};
         console.log('API Error Response - Provider:', provider, 'Error:', errorData);
         // Try different error message formats
-        const errorMessage = errorData.error?.message || errorData.message || errorData.detail || `HTTP ${response.status}: ${JSON.stringify(errorData)}`;
+        let errorMessage = errorData.error?.message || errorData.message || errorData.detail || `HTTP ${response.status}: ${JSON.stringify(errorData)}`;
+        
+        // Check for network/DNS errors
+        if (!response.ok && !data) {
+          errorMessage = `Network error: Could not connect to ${provider} API. This may be a DNS or connectivity issue.`;
+        }
+        
         throw new Error(errorMessage);
       }
 
