@@ -35,6 +35,7 @@ class PromptGenerator {
       theme2: document.getElementById('gen-theme-2'),
       theme3: document.getElementById('gen-theme-3'),
       humanModel: document.getElementById('gen-human-model'),
+      genType: document.getElementById('gen-type'),
       customInstructions: document.getElementById('gen-custom-instructions'),
       progressBar: document.getElementById('gen-progress-bar'),
       progressText: document.getElementById('gen-progress-text'),
@@ -100,6 +101,7 @@ class PromptGenerator {
     this.elements.theme2.addEventListener('change', () => this.saveGeneratorSettings());
     this.elements.theme3.addEventListener('change', () => this.saveGeneratorSettings());
     this.elements.humanModel.addEventListener('change', () => this.saveGeneratorSettings());
+    this.elements.genType.addEventListener('change', () => this.saveGeneratorSettings());
     this.elements.customInstructions.addEventListener('input', () => this.saveGeneratorSettings());
 
     document.querySelectorAll('.api-tab-btn').forEach(btn => {
@@ -158,6 +160,7 @@ class PromptGenerator {
       if (genSettings.theme2) this.elements.theme2.value = genSettings.theme2;
       if (genSettings.theme3) this.elements.theme3.value = genSettings.theme3;
       if (genSettings.humanModel) this.elements.humanModel.value = genSettings.humanModel;
+      if (genSettings.genType) this.elements.genType.value = genSettings.genType;
       if (genSettings.customInstructions) this.elements.customInstructions.value = genSettings.customInstructions;
     }
 
@@ -177,6 +180,7 @@ class PromptGenerator {
       theme2: this.elements.theme2.value,
       theme3: this.elements.theme3.value,
       humanModel: this.elements.humanModel.value,
+      genType: this.elements.genType.value,
       customInstructions: this.elements.customInstructions.value
     };
     await this.injector.saveToIndexedDB('gen_settings', settings);
@@ -791,6 +795,7 @@ class PromptGenerator {
     const mood = this.elements.theme2.value;
     const color = this.elements.theme3.value;
     const humanModel = this.elements.humanModel.value;
+    const genType = this.elements.genType.value;
 
     const customInstructions = this.elements.customInstructions.value.trim();
     const globalCustomModel = this.elements.customModel.value.trim();
@@ -799,6 +804,12 @@ class PromptGenerator {
     const effectiveModel = customModel || globalCustomModel || '';
 
     let systemPrompt = `You are a creative prompt generator. Generate exactly ${count} unique, creative prompts for image generation. Each prompt should be between ${minLength} and ${maxLength} characters. Avoid starting prompts with "A" or "An".`;
+    
+    if (genType === 'image') {
+      systemPrompt += ` These are prompts for TEXT TO IMAGE generation.`;
+    } else if (genType === 'video') {
+      systemPrompt += ` These are prompts for TEXT TO VIDEO generation. Include motion, action, and dynamic elements.`;
+    }
     
     if (theme) {
       systemPrompt += ` Style: ${theme}.`;
@@ -824,6 +835,14 @@ class PromptGenerator {
     
     systemPrompt += ` Return ONLY a JSON array of strings, nothing else. Example format: ["prompt 1", "prompt 2", "prompt 3"]`;
 
+    // Dynamic user prompt based on type
+    let userPrompt = '';
+    if (genType === 'video') {
+      userPrompt = `Generate ${count} creative video prompts now.`;
+    } else {
+      userPrompt = `Generate ${count} creative image prompts now.`;
+    }
+
     const timeout = 60000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -839,7 +858,7 @@ class PromptGenerator {
               model: effectiveModel || 'maia/gemini-2.0-flash',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate ${count} creative image prompts now.` }
+                { role: 'user', content: userPrompt }
               ],
               temperature: 0.9,
               max_tokens: 2000
@@ -863,7 +882,7 @@ class PromptGenerator {
               model: effectiveModel || 'google/gemini-2.0-flash-lite-001',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate ${count} creative image prompts now.` }
+                { role: 'user', content: userPrompt }
               ],
               temperature: 0.9,
               max_tokens: 2000
@@ -890,7 +909,7 @@ class PromptGenerator {
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: `${systemPrompt}\n\nGenerate ${count} creative image prompts now.`
+                  text: `${systemPrompt}\n\n${userPrompt}`
                 }]
               }],
               generationConfig: {
@@ -915,7 +934,7 @@ class PromptGenerator {
               model: effectiveModel || 'gpt-4o',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate ${count} creative image prompts now.` }
+                { role: 'user', content: userPrompt }
               ],
               temperature: 0.9,
               max_completion_tokens: 2000
@@ -936,7 +955,7 @@ class PromptGenerator {
               model: effectiveModel || 'meta-llama/llama-4-scout-17b-16e-instruct',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate ${count} creative image prompts now.` }
+                { role: 'user', content: userPrompt }
               ],
               temperature: 0.9,
               max_tokens: 2000
@@ -957,7 +976,7 @@ class PromptGenerator {
               model: effectiveModel || 'blackboxai',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Generate ${count} creative image prompts now.` }
+                { role: 'user', content: userPrompt }
               ],
               temperature: 0.9,
               max_tokens: 2000
