@@ -250,7 +250,14 @@ class EnvatoElementsMetadataDialog(QDialog):
         
         self.api_map = {}
         for row in all_api_keys:
-            service, api_key, note, last_tested, status, model = row
+            # DB row: (service, api_key, note, last_tested, status, model, provider_endpoint)
+            service = row[0] if len(row) > 0 else None
+            api_key = row[1] if len(row) > 1 else None
+            note = row[2] if len(row) > 2 else ''
+            last_tested = row[3] if len(row) > 3 else None
+            status = row[4] if len(row) > 4 else ''
+            model = row[5] if len(row) > 5 else ''
+            endpoint = row[6] if len(row) > 6 else None
             if api_key and model:
                 masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else api_key
                 display_text = f"{service} - {model} ({masked_key})"
@@ -261,7 +268,8 @@ class EnvatoElementsMetadataDialog(QDialog):
                 self.api_map[api_key] = {
                     'service': service,
                     'model': model,
-                    'note': note
+                    'note': note,
+                    'endpoint': endpoint
                 }
         
         saved_api_key = self.config['selected_api_key']

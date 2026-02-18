@@ -50,24 +50,24 @@ class ImageTeaDB:
         migration_manager = DBMigrationManager()
         migration_manager.initialize_database()
 
-    def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None):
+    def set_api_key(self, service, api_key, note=None, last_tested=None, status=None, model=None, provider_endpoint=None):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('SELECT id FROM api_keys WHERE service=? AND api_key=?', (service, api_key))
             row = c.fetchone()
             if row:
-                c.execute('''UPDATE api_keys SET note=?, last_tested=?, status=?, model=? WHERE id=?''',
-                          (note, last_tested, status, model, row[0]))
+                c.execute('''UPDATE api_keys SET note=?, last_tested=?, status=?, model=?, provider_endpoint=? WHERE id=?''',
+                          (note, last_tested, status, model, provider_endpoint, row[0]))
             else:
-                c.execute('''INSERT INTO api_keys (service, api_key, note, last_tested, status, model)
-                             VALUES (?, ?, ?, ?, ?, ?)''',
-                          (service, api_key, note, last_tested, status, model))
+                c.execute('''INSERT INTO api_keys (service, api_key, note, last_tested, status, model, provider_endpoint)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                          (service, api_key, note, last_tested, status, model, provider_endpoint))
             conn.commit()
 
     def get_api_key(self, service):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT api_key, note, last_tested, status, model FROM api_keys WHERE service=? ORDER BY id DESC LIMIT 1', (service,))
+            c.execute('SELECT api_key, note, last_tested, status, model, provider_endpoint FROM api_keys WHERE service=? ORDER BY id DESC LIMIT 1', (service,))
             row = c.fetchone()
             if row:
                 return {
@@ -75,7 +75,8 @@ class ImageTeaDB:
                     'note': row[1],
                     'last_tested': row[2],
                     'status': row[3],
-                    'model': row[4]
+                    'model': row[4],
+                    'provider_endpoint': row[5]
                 }
             return None
 
@@ -101,6 +102,12 @@ class ImageTeaDB:
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             c.execute('UPDATE api_keys SET model=? WHERE api_key=?', (model, api_key))
+            conn.commit()
+
+    def update_api_key_provider_endpoint(self, api_key, provider_endpoint):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE api_keys SET provider_endpoint=? WHERE api_key=?', (provider_endpoint, api_key))
             conn.commit()
 
     def delete_api_key(self, service, api_key):
@@ -240,7 +247,7 @@ class ImageTeaDB:
     def get_all_api_keys(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT service, api_key, note, last_tested, status, model FROM api_keys')
+            c.execute('SELECT service, api_key, note, last_tested, status, model, provider_endpoint FROM api_keys')
             return c.fetchall()
 
     def insert_api_token_stats(self, filepath, service, model, token_input, token_output, token_total):

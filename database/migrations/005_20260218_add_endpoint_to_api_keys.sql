@@ -1,0 +1,33 @@
+-- Migration ID: 005_20260218_add_endpoint_to_api_keys
+-- Date: 2026-02-18
+-- Author: Mudrikul Hikam
+-- Purpose: Add provider_endpoint column to api_keys table for custom endpoint support
+-- Description:
+--   Adds provider_endpoint column to api_keys table to store custom API endpoints.
+--   This allows users to configure custom endpoints for each API key,
+--   supporting custom providers and self-hosted AI services.
+-- Affected Files:
+--   - database/database.db (SQLite target)
+--   - database/migrations/005_20260218_add_endpoint_to_api_keys.sql
+--   - database/db_operation.py
+--   - dialogs/add_api_key_dialog.py
+--   - helpers/ai_helper/*.py
+-- DDL Summary:
+--   - ALTER TABLE api_keys ADD COLUMN provider_endpoint TEXT
+-- Data Migration: None
+-- Rollback Steps:
+--   Restore the database from the migration backup created before applying
+--   this migration. The migration runner creates a backup automatically.
+-- Backups:
+--   Migration process will create a backup file named like:
+--     backup_{TIMESTAMP}_migration_005_20260218_add_endpoint_to_api_keys.db
+-- Prerequisites:
+--   - Migration 001_20251204_init must be applied first
+-- Testing:
+--   1) Verify schema: `PRAGMA table_info('api_keys');`
+--   2) Insert a test row with provider_endpoint and verify it is stored correctly
+-- Notes:
+--   - provider_endpoint field stores the base URL for API requests
+--   - NULL provider_endpoint means use default endpoint from ai_config.json
+
+ALTER TABLE api_keys ADD COLUMN provider_endpoint TEXT;

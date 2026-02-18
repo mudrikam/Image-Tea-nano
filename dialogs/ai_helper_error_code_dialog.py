@@ -371,16 +371,20 @@ class AIHelperErrorCodeDialog(QDialog):
         entries = []
         
         # Select error definitions based on service
-        if self._service == 'gemini':
+        svc = (self._service or '').lower()
+        if svc == 'gemini':
             error_definitions = GEMINI_ERRORS
-        elif self._service == 'openai':
+        elif svc == 'openai':
             error_definitions = OPENAI_ERRORS
-        elif self._service == 'openrouter':
+        elif svc == 'openrouter':
             error_definitions = OPENROUTER_ERRORS
-        elif self._service == 'groq':
+        elif svc == 'groq':
             error_definitions = GROQ_ERRORS
-        elif self._service == 'maia':
+        elif svc == 'maia':
             error_definitions = MAIA_ERRORS
+        elif svc in ('custom', 'custom endpoint'):
+            # For custom endpoints, show the aggregated/predefined lookup table
+            error_definitions = PREDEFINED_ERRORS
         else:
             error_definitions = PREDEFINED_ERRORS
         

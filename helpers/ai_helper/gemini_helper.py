@@ -156,7 +156,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None):
+def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -205,6 +205,16 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 filename=filename,
                 is_video=is_video
             )
+        # if a provider_endpoint is supplied, use the universal HTTP helper (works for text and data-URL images)
+        used_custom_endpoint = False
+        if provider_endpoint:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            try:
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, image_path if not is_video else None)
+                used_custom_endpoint = True
+            except Exception as e:
+                print(f"[Gemini][CustomEndpoint] {e}")
+                raise
         if is_video:
             if proxy_path:
                 video_to_upload = proxy_path
@@ -316,37 +326,46 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             contents = [myfile, prompt]
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', '', '', 0, 0, 0
-        response = client.models.generate_content(
-            model=model,
-            contents=contents
-        )
-        
-        print("="*80)
-        print("GEMINI RAW RESPONSE:")
-        print("="*80)
-        print(response)
-        print("="*80)
-        
-        token_input = 0
-        token_output = 0
-        token_total = 0
-        usage = getattr(response, "usage_metadata", None)
-        if usage:
-            token_input = getattr(usage, "prompt_token_count", 0)
-            token_output = getattr(usage, "candidates_token_count", 0)
-            token_total = getattr(usage, "total_token_count", 0)
-        text = None
-        if hasattr(response, "candidates") and response.candidates:
-            try:
-                text = response.candidates[0].content.parts[0].text
-            except Exception:
+        if not used_custom_endpoint:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents
+            )
+
+            print("="*80)
+            print("GEMINI RAW RESPONSE:")
+            print("="*80)
+            print(response)
+            print("="*80)
+
+            token_input = 0
+            token_output = 0
+            token_total = 0
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                token_input = getattr(usage, "prompt_token_count", 0)
+                token_output = getattr(usage, "candidates_token_count", 0)
+                token_total = getattr(usage, "total_token_count", 0)
+            text = None
+            if hasattr(response, "candidates") and response.candidates:
+                try:
+                    text = response.candidates[0].content.parts[0].text
+                except Exception:
+                    text = str(response)
+            elif hasattr(response, "text"):
+                text = response.text
+            elif isinstance(response, dict) and 'text' in response:
+                text = response['text']
+            else:
                 text = str(response)
-        elif hasattr(response, "text"):
-            text = response.text
-        elif isinstance(response, dict) and 'text' in response:
-            text = response['text']
         else:
-            text = str(response)
+            # custom endpoint path: `text` already contains the response body/string
+            token_input = 0
+            token_output = 0
+            token_total = 0
+            if 'text' not in locals():
+                text = ''
+
         
         print("="*80)
         print("GEMINI RAW TEXT:")

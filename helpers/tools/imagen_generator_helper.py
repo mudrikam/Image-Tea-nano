@@ -12,6 +12,9 @@ import time
 import base64
 from config import BASE_PATH
 
+# Optional helper for calling custom endpoints when provider_endpoint is supplied
+from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+
 # Base mapping of OpenRouter supported aspect ratios to recommended base resolution
 _OPENROUTER_ASPECT_RES_BASE = {
     '1:1': '1024x1024',
@@ -175,6 +178,16 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
     
     try:
         results = []
+
+        # Optional override: provider_endpoint can be provided via kwargs
+        provider_endpoint = kwargs.get('provider_endpoint') or None
+        if provider_endpoint:
+            try:
+                CustomEndpointHelper.validate_url(provider_endpoint)
+            except Exception as e:
+                err = f"Invalid provider_endpoint: {e}"
+                print(f"Debug: {err}")
+                return [{'status': 'error', 'error': err}]
 
         if service.lower() in ('google', 'gemini'):
             print(f"Debug: Importing Google GenAI library...")
@@ -382,8 +395,31 @@ def generate_images_from_prompts(prompts, api_key, service, model, **kwargs):
                     'Content-Type': 'application/json'
                 }
 
+                # Resolve OpenRouter URL: prefer explicit provider_endpoint (kwargs), then configs/ai_config.json, else default
+                if provider_endpoint:
+                    # provider_endpoint already validated above
+                    if provider_endpoint.lower().endswith('/chat/completions'):
+                        resolved_url = provider_endpoint
+                    else:
+                        resolved_url = provider_endpoint.rstrip('/') + '/chat/completions'
+                else:
+                    try:
+                        cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+                        with open(cfg_path, 'r', encoding='utf-8') as f:
+                            cfg = json.load(f)
+                        or_base = cfg.get('provider_endpoints', {}).get('openrouter')
+                        if or_base:
+                            if or_base.lower().endswith('/chat/completions'):
+                                resolved_url = or_base
+                            else:
+                                resolved_url = or_base.rstrip('/') + '/chat/completions'
+                        else:
+                            resolved_url = url
+                    except Exception:
+                        resolved_url = url
+
                 try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                    resp = requests.post(resolved_url, headers=headers, json=payload, timeout=60)
                     if resp.status_code != 200:
                         error_msg = f'OpenRouter API error: {resp.status_code} {resp.text}'
                         print(f"Debug: {error_msg}")

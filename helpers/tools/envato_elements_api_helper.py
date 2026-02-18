@@ -3,6 +3,8 @@ import hashlib
 import time
 import json
 import re
+import os
+from config import BASE_PATH
 from google import genai
 from google.genai import types
 from openai import OpenAI
@@ -128,7 +130,16 @@ def process_image_with_openrouter(image_data, api_key, model, title_min, title_m
             
             prompt = unique_prefix + filled_prompt
             
-            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+            # Resolve OpenRouter base URL from config, fallback to built-in
+            try:
+                cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                base_url = cfg.get('provider_endpoints', {}).get('openrouter') or "https://openrouter.ai/api/v1"
+            except Exception:
+                base_url = "https://openrouter.ai/api/v1"
+
+            client = OpenAI(api_key=api_key, base_url=base_url)
             
             response = client.chat.completions.create(
                 model=model,
@@ -233,7 +244,16 @@ def process_image_with_blackbox(image_data, api_key, model, title_min, title_max
 
             prompt = unique_prefix + filled_prompt
 
-            client = OpenAI(api_key=api_key, base_url="https://api.blackbox.ai")
+            # Resolve Blackbox base URL from config if available
+            try:
+                cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                base_url = cfg.get('provider_endpoints', {}).get('blackbox') or "https://api.blackbox.ai"
+            except Exception:
+                base_url = "https://api.blackbox.ai"
+
+            client = OpenAI(api_key=api_key, base_url=base_url)
 
             response = client.chat.completions.create(
                 model=model,
@@ -337,7 +357,16 @@ def process_image_with_maia(image_data, api_key, model, title_min, title_max, ta
 
             prompt = unique_prefix + filled_prompt
 
-            client = OpenAI(api_key=api_key, base_url="https://api.maiarouter.ai/v1")
+            # Resolve MAIA Router base URL from config if available
+            try:
+                cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                base_url = cfg.get('provider_endpoints', {}).get('maia') or "https://api.maiarouter.ai/v1"
+            except Exception:
+                base_url = "https://api.maiarouter.ai/v1"
+
+            client = OpenAI(api_key=api_key, base_url=base_url)
 
             response = client.chat.completions.create(
                 model=model,
