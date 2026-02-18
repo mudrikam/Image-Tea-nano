@@ -16,6 +16,7 @@ from helpers.ai_helper.openai_helper import generate_metadata_openai, track_open
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
 from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, track_blackbox_generation_time
 from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_generation_time
+from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
 from helpers.video_proxy_helper import batch_process_videos_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting
 
 from ui.theme_system import theme
@@ -287,6 +288,62 @@ class BatchWorker(QThread):
                             "image_path": image_path, "error_message": error_message,
                             "service": current_service, "model": current_model
                         }
+                    elif current_service == "custom":
+                        # Custom endpoint - use the same approach as other providers
+                        # Try to detect provider type based on endpoint and use appropriate helper
+                        if not current_provider_endpoint:
+                            print(f"[CUSTOM ERROR] No endpoint URL provided for custom service")
+                            result = {
+                                "title": "", "description": "", "tags": "", "category": {},
+                                "token_input": 0, "token_output": 0, "token_total": 0,
+                                "image_path": image_path, "error_message": "Custom endpoint selected but no endpoint URL provided",
+                                "service": current_service, "model": current_model
+                            }
+                        else:
+                            # Detect provider type from endpoint
+                            prov_type = "openai"  # Default to OpenAI-compatible
+                            ep_lower = current_provider_endpoint.lower()
+                            if "gemini" in ep_lower:
+                                prov_type = "gemini"
+                            elif "groq" in ep_lower:
+                                prov_type = "groq"
+                            elif "blackbox" in ep_lower:
+                                prov_type = "blackbox"
+                            elif "maia" in ep_lower:
+                                prov_type = "maia"
+                            
+                            print(f"[CUSTOM] Using provider type: {prov_type} with endpoint: {current_provider_endpoint}")
+                            
+                            try:
+                                # Use the appropriate helper based on detected type
+                                # These functions are imported at the top of the file
+                                if prov_type == "gemini":
+                                    result_tuple = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                elif prov_type == "groq":
+                                    result_tuple = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                elif prov_type == "blackbox":
+                                    result_tuple = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                elif prov_type == "maia":
+                                    result_tuple = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                else:
+                                    # Default to OpenAI (works for most OpenAI-compatible endpoints)
+                                    result_tuple = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                
+                                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = result_tuple
+                                result = {
+                                    "title": title, "description": description, "tags": tags, "category": category,
+                                    "token_input": token_input, "token_output": token_output, "token_total": token_total,
+                                    "image_path": image_path, "error_message": error_message,
+                                    "service": current_service, "model": current_model
+                                }
+                            except Exception as e:
+                                print(f"[CUSTOM ERROR] Exception: {str(e)}")
+                                result = {
+                                    "title": "", "description": "", "tags": "", "category": {},
+                                    "token_input": 0, "token_output": 0, "token_total": 0,
+                                    "image_path": image_path, "error_message": f"Custom endpoint error: {str(e)}",
+                                    "service": current_service, "model": current_model
+                                }
                     else:
                         result = {
                             "title": "", "description": "", "tags": "", "category": {},
@@ -554,6 +611,8 @@ def batch_generate_metadata(window):
         dlg = GetApiKeyDialog(window)
         dlg.exec()
         return
+
+    print(f"[BATCH] Starting batch generation with service: {service}, model: {model}, endpoint: {provider_endpoint}")
 
     mode = "all"
     if hasattr(window, "gen_mode_combo"):
@@ -1136,6 +1195,84 @@ def batch_generate_metadata(window):
                 "image_path": image_path,
                 "error_message": error_message
             }
+    elif service == "custom":
+        # Custom endpoint - use the same approach as other providers
+        # Try to detect provider type based on endpoint and use appropriate helper
+        if not provider_endpoint:
+            print(f"[DEBUG] Custom service selected but no endpoint URL provided")
+            QMessageBox.warning(window, "API Service", "Custom endpoint selected but no endpoint URL provided. Please add an endpoint URL when adding the API key.")
+            window.table.progress_bar.setVisible(False)
+            window.table.progress_bar.setValue(0)
+            window.table.set_progress_info('', visible=False)
+            return
+        
+        print(f"[BATCH] Custom service detected. Provider endpoint: {provider_endpoint}")
+        
+        # Detect provider type from endpoint
+        prov_type = "openai"  # Default to OpenAI-compatible
+        if provider_endpoint:
+            ep_lower = provider_endpoint.lower()
+            # Detect provider type from endpoint URL
+            if "gemini" in ep_lower:
+                prov_type = "gemini"
+            elif "groq" in ep_lower:
+                prov_type = "groq"
+            elif "blackbox" in ep_lower:
+                prov_type = "blackbox"
+            elif "maia" in ep_lower:
+                prov_type = "maia"
+            # For other endpoints (openai, openrouter, etc.), default to openai
+        
+        print(f"[BATCH] Detected provider type: {prov_type}")
+        
+        # Use the appropriate helper based on detected type
+        # These functions are already imported at the top of the file
+        if prov_type == "gemini":
+            helper_func = generate_metadata_gemini
+        elif prov_type == "groq":
+            helper_func = generate_metadata_groq
+        elif prov_type == "blackbox":
+            helper_func = generate_metadata_blackbox
+        elif prov_type == "maia":
+            helper_func = generate_metadata_maia
+        else:
+            # Default to OpenAI (works for most OpenAI-compatible endpoints)
+            helper_func = generate_metadata_openai
+        
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+            if stop_flag and stop_flag.get('stop'):
+                return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
+            try:
+                # Use the appropriate helper function with the custom endpoint
+                result = helper_func(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
+                # Result is a tuple: (title, description, tags, category, filetype, error_message, token_input, token_output, token_total)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = result
+                return {
+                    "title": title,
+                    "description": description,
+                    "tags": tags,
+                    "category": category,
+                    "filetype": filetype,
+                    "token_input": token_input,
+                    "token_output": token_output,
+                    "token_total": token_total,
+                    "image_path": image_path,
+                    "error_message": error_message
+                }
+            except Exception as e:
+                print(f"[Custom ERROR] {str(e)}")
+                return {
+                    "title": "",
+                    "description": "",
+                    "tags": "",
+                    "category": {},
+                    "filetype": "",
+                    "token_input": 0,
+                    "token_output": 0,
+                    "token_total": 0,
+                    "image_path": image_path,
+                    "error_message": f"Custom endpoint error: {str(e)}"
+                }
     else:
         print(f"[DEBUG] Unknown service: {service}")
         QMessageBox.warning(window, "API Service", f"Unknown service: {service}")

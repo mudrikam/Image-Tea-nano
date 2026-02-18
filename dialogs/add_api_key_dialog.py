@@ -25,7 +25,6 @@ class ApiKeyTestThread(QThread):
         self.model = model
         self.provider_endpoint = provider_endpoint
     def run(self):
-        # If a custom provider endpoint is configured for this key, test it first
         if getattr(self, 'provider_endpoint', None):
             try:
                 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
@@ -197,7 +196,6 @@ class ModelManagerDialog(QDialog):
         self.service_list = QListWidget()
         self.service_list.setFixedWidth(140)
         
-        # Ensure 'custom' service exists so Model Manager can edit models for Custom Endpoint
         if isinstance(self.model_list, dict) and 'custom' not in self.model_list:
             self.model_list.setdefault('custom', [])
 
@@ -433,7 +431,6 @@ class AddApiKeyDialog(QDialog):
         except Exception as e:
             print(f"Failed to load model list: {e}")
             self.model_list = {}
-        # Ensure 'custom' bucket exists so users can manage/add models for Custom Endpoint
         try:
             if isinstance(self.model_list, dict) and 'custom' not in self.model_list:
                 self.model_list.setdefault('custom', [])
@@ -480,7 +477,6 @@ class AddApiKeyDialog(QDialog):
         self.key_edit.setPlaceholderText("Enter API Key")
         self.key_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.key_edit.setToolTip("Enter your API key here")
-        # Mask API key by default and track visibility
         self.key_edit.setEchoMode(QLineEdit.Password)
         self._api_key_visible = False
 
@@ -515,7 +511,6 @@ class AddApiKeyDialog(QDialog):
         note_layout.addWidget(self.note_edit)
         layout.addLayout(note_layout)
 
-        # Endpoint input for custom provider endpoint (optional)
         endpoint_layout = QHBoxLayout()
         _endpoint_label_widget, endpoint_label = self._create_icon_label_widget("Endpoint:", 'fa6s.link', label_width)
         endpoint_label.setToolTip("Optional custom provider endpoint URL (e.g. https://api.myrouter.local/v1)")
@@ -555,7 +550,7 @@ class AddApiKeyDialog(QDialog):
             print(f"Error fetching services for sort combo: {e}")
             services = []
         sort_items = ["All"]
-        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia'}
+        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia', 'custom': 'Custom Endpoint'}
         for s in services:
             try:
                 svc_display = display_service_map.get(str(s).lower(), str(s).capitalize())
@@ -674,7 +669,6 @@ class AddApiKeyDialog(QDialog):
         self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.progress_bar.setToolTip("Shows progress when testing API key")
         layout.addWidget(self.progress_bar)
-        # Raw error display moved to a dedicated dialog; in-line widgets removed
         btn_layout = QHBoxLayout()
         self.test_and_save_btn = QPushButton()
         self.test_and_save_btn.setText("Test and Save")
@@ -828,7 +822,6 @@ class AddApiKeyDialog(QDialog):
         service = (self.service_combo.currentText() or '').lower()
         self.model_combo.clear()
 
-        # Custom Endpoint -> aggregate models from all known services + allow manual entry
         if service in ("custom endpoint", "custom"):
             seen = set()
             aggregated = []
@@ -840,7 +833,6 @@ class AddApiKeyDialog(QDialog):
                             aggregated.append(m)
             except Exception:
                 aggregated = []
-            # include explicitly-configured custom models (if any)
             try:
                 for m in (self.model_list.get('custom', []) or []):
                     if m and m not in seen:
@@ -851,10 +843,8 @@ class AddApiKeyDialog(QDialog):
             aggregated = sorted(aggregated)
             for m in aggregated:
                 self.model_combo.addItem(m)
-            # allow manual typing when using Custom Endpoint
             self.model_combo.setEditable(True)
         else:
-            # non-custom: normal per-service model list, keep combo non-editable
             key_map = {
                 'gemini': 'gemini',
                 'openai': 'openai',
@@ -880,7 +870,6 @@ class AddApiKeyDialog(QDialog):
 
     def _open_model_search_popup(self):
         service = (self.service_combo.currentText() or '').lower()
-        # For Custom Endpoint aggregate models, otherwise use per-service list
         if service in ("custom endpoint", "custom"):
             seen = set()
             models = []
@@ -978,8 +967,6 @@ class AddApiKeyDialog(QDialog):
         
         normalized = []
         for r in rows:
-            # Normalize both dict and tuple row formats into a 7-tuple:
-            # (service, api_key, provider_endpoint, last_tested, status, model, note)
             if isinstance(r, dict):
                 normalized.append((
                     r.get('service'),
@@ -991,7 +978,6 @@ class AddApiKeyDialog(QDialog):
                     r.get('note')
                 ))
             else:
-                # rows from the DB are typically: (service, api_key, note, last_tested, status, model, provider_endpoint)
                 service = r[0] if len(r) > 0 else None
                 api = r[1] if len(r) > 1 else None
                 note = r[2] if len(r) > 2 else ''
@@ -1061,18 +1047,16 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
 
-            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia'}
+            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia', 'custom': 'Custom'}
             svc_display = display_service_map.get(str(service).lower(), str(service))
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
 
-            # Display-only truncation: show last 7 chars with leading '...' when long
             display_api = (str(api)[-7:] if api and len(str(api)) > 7 else str(api))
             if display_api and len(str(api)) > 7:
                 display_api = f"...{display_api}"
             api_item = QTableWidgetItem(display_api)
-            # Store full API in item for selection/actions
             api_item.setData(Qt.UserRole, api)
             api_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 1, api_item)
@@ -1130,7 +1114,6 @@ class AddApiKeyDialog(QDialog):
         
         self.api_table.setSortingEnabled(True)
         self._stop_blinking()
-        # Update stats line under the table
         try:
             self._update_stats(display)
         except Exception as e:
@@ -1301,7 +1284,6 @@ class AddApiKeyDialog(QDialog):
             self.note_edit.clear()
 
     def _delete_selected_api_key(self):
-        # Gather selected rows (support multi-select). If none, use current row.
         sel = self.api_table.selectionModel().selectedRows()
         rows_to_delete = []
         if sel:
@@ -1393,16 +1375,29 @@ class AddApiKeyDialog(QDialog):
             return
         service_item = self.api_table.item(row, 0)
         api_item = self.api_table.item(row, 1)
+        endpoint_item = self.api_table.item(row, 2)
         model_item = self.api_table.item(row, 4)
         note_item = self.api_table.item(row, 5)
         if service_item and api_item:
             service_text = service_item.text()
             api_text = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text()
+            endpoint_text = endpoint_item.text() if endpoint_item else ""
             model_text = model_item.text() if model_item else ""
             note_text = note_item.text() if note_item else ""
             self.key_edit.setText(api_text)
             self.note_edit.setText(note_text)
-            self.service_combo.setCurrentText(service_text.capitalize())
+            self.endpoint_edit.setText(endpoint_text)
+            service_combo_map = {
+                'openai': 'OpenAI',
+                'openrouter': 'OpenRouter',
+                'gemini': 'Gemini',
+                'groq': 'Groq',
+                'blackbox': 'Blackbox',
+                'maia': 'Maia',
+                'custom': 'Custom Endpoint'
+            }
+            combo_text = service_combo_map.get(service_text.lower(), service_text.capitalize())
+            self.service_combo.setCurrentText(combo_text)
             self._refresh_model_combo()
             
             if model_text:
@@ -1462,6 +1457,8 @@ class AddApiKeyDialog(QDialog):
                 self._detected_service = "blackbox"
             elif service_text.lower() == "maia":
                 self._detected_service = "maia"
+            elif service_text.lower() == "custom":
+                self._detected_service = "custom"
             else:
                 self._detected_service = None
 
@@ -1494,6 +1491,8 @@ class AddApiKeyDialog(QDialog):
             self.service_combo.setCurrentText("Blackbox")
         elif service == 'maia':
             self.service_combo.setCurrentText("Maia")
+        elif service == 'custom':
+            self.service_combo.setCurrentText("Custom Endpoint")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1511,6 +1510,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = 'blackbox'
         elif self.service_combo.currentText() == "Maia":
             self._detected_service = 'maia'
+        elif self.service_combo.currentText() == "Custom Endpoint":
+            self._detected_service = 'custom'
         else:
             self._detected_service = None
         self._refresh_model_combo()
@@ -1567,29 +1568,33 @@ class AddApiKeyDialog(QDialog):
     def test_and_save_api_key(self):
         api_key = self.key_edit.text().strip()
         note = self.note_edit.text().strip()
-        service = self._detected_service
+        user_service = self.service_combo.currentText().lower()
+        if user_service in ("custom endpoint", "custom"):
+            service = "custom"
+        else:
+            service = self._detected_service
         model = self.model_combo.currentText() if self.model_combo.count() > 0 else None
         if not api_key:
             QMessageBox.warning(self, "Input Error", "API Key cannot be empty.")
             return
-        # Fallback detection in case _detected_service wasn't set by the live detection
+        if user_service not in ("custom endpoint", "custom"):
+            if not service:
+                ak = api_key.strip()
+                ak_lower = ak.lower()
+                if ak_lower.startswith('gsk_') or ak_lower.startswith('gsk-'):
+                    service = 'groq'
+                elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
+                    service = 'openrouter'
+                elif ak.startswith('sk-') and len(ak) == 25:
+                    service = 'maia'
+                elif ak.startswith('sk-') and len(ak) > 40:
+                    service = 'openai'
+                elif len(ak) > 30 and 'AIza' in ak:
+                    service = 'gemini'
+                elif model and 'blackboxai' in model.lower():
+                    service = 'blackbox'
         if not service:
-            ak = api_key.strip()
-            ak_lower = ak.lower()
-            if ak_lower.startswith('gsk_') or ak_lower.startswith('gsk-'):
-                service = 'groq'
-            elif re.match(r"^sk-?or-", ak, re.IGNORECASE):
-                service = 'openrouter'
-            elif ak.startswith('sk-') and len(ak) == 25:
-                service = 'maia'
-            elif ak.startswith('sk-') and len(ak) > 40:
-                service = 'openai'
-            elif len(ak) > 30 and 'AIza' in ak:
-                service = 'gemini'
-            elif model and 'blackboxai' in model.lower():
-                service = 'blackbox'
-        if not service:
-            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, Groq, Blackbox, or Maia.")
+            QMessageBox.warning(self, "Input Error", "API Key format not recognized as Gemini, OpenAI, OpenRouter, Groq, Blackbox, Maia, or Custom Endpoint.")
             return
         if not model:
             QMessageBox.warning(self, "Input Error", "Model must be selected.")
@@ -1600,7 +1605,6 @@ class AddApiKeyDialog(QDialog):
         if hasattr(self, 'endpoint_edit'):
             ep = self.endpoint_edit.text().strip()
             provider_endpoint = ep if ep else None
-        # remember endpoint while the async test runs so we can persist it on save
         self._pending_provider_endpoint = provider_endpoint
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)
         self._test_thread.result.connect(lambda status, service, text: self._on_test_and_save_result(status, service, text, note, model))
@@ -1711,7 +1715,6 @@ class AddApiKeyDialog(QDialog):
         if not rows:
             QMessageBox.information(self, "Delete All API Keys", "No API keys saved.")
             return
-        # Build a concise list (max 10) of APIs to show in the confirmation dialog.
         def _trunc_api(a: object) -> str:
             s = str(a) if a is not None else ''
             if len(s) > 7:
@@ -1836,6 +1839,8 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = "blackbox"
         elif service_text.lower() == "maia":
             self._detected_service = "maia"
+        elif service_text.lower() == "custom":
+            self._detected_service = "custom"
         else:
             self._detected_service = None
         menu = QMenu(self)
@@ -1903,7 +1908,6 @@ class AddApiKeyDialog(QDialog):
                         status = row.get("status")
                         model = row.get("model")
                     else:
-                        # DB rows: (service, api_key, note, last_tested, status, model, provider_endpoint)
                         service = row[0] if len(row) > 0 else ''
                         api = row[1] if len(row) > 1 else ''
                         note = row[2] if len(row) > 2 else ''
@@ -2038,7 +2042,6 @@ class AddApiKeyDialog(QDialog):
         self._row_testing = self._test_all_index
         self._blink_state = False
         self._blink_timer.start(300)
-        # detect provider_endpoint for this row (if present)
         provider_endpoint = None
         if isinstance(row, dict):
             provider_endpoint = row.get('provider_endpoint') or row.get('endpoint')

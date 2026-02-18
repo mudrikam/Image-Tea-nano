@@ -7,18 +7,8 @@ from urllib.parse import urlparse
 
 
 class CustomEndpointHelper:
-    """Universal helper to call arbitrary AI HTTP endpoints.
-
-    - Validates endpoint URL
-    - Builds common request payloads for OpenAI-compatible, Gemini-like, and Groq-like endpoints
-    - Encodes image files as data URLs when an image path is provided
-    - Parses common response shapes and returns the response text
-
-    NOTE: This helper performs *connectivity and request formation*. It does not
-    attempt to perfectly emulate every provider SDK – it targets common, OpenAI-
-    compatible and GenAI-compatible JSON formats that many routers/bridge services
-    expose.
-    """
+    """Helper for calling arbitrary AI HTTP endpoints: validate URLs, build payloads,
+    encode images, and extract text from common response formats."""
 
     @staticmethod
     def validate_url(url: str) -> None:
@@ -40,23 +30,18 @@ class CustomEndpointHelper:
 
     @staticmethod
     def _extract_text_from_response(resp_json: dict) -> str:
-        # OpenAI Responses API (output / choices)
         if isinstance(resp_json, dict):
-            # new Responses API
             out = resp_json.get("output")
             if isinstance(out, list) and out:
-                # try to find text in the first output
                 first = out[0]
                 if isinstance(first, dict):
                     if "content" in first and isinstance(first["content"], list):
-                        # look for a text part
                         for part in first["content"]:
                             if isinstance(part, dict) and part.get("type") == "output_text":
                                 return part.get("text", "")
-                    # fallback to 'text' or 'string' keys
                     return first.get("text") or str(first)
                 return str(first)
-            # OpenAI "choices" legacy
+
             choices = resp_json.get("choices")
             if isinstance(choices, list) and choices:
                 c0 = choices[0]
@@ -64,67 +49,92 @@ class CustomEndpointHelper:
                     if "message" in c0 and isinstance(c0["message"], dict):
                         return c0["message"].get("content") or c0.get("text") or str(c0["message"])
                     return c0.get("text") or str(c0)
-            # Google GenAI style
+
             candidates = resp_json.get("candidates")
             if isinstance(candidates, list) and candidates:
                 cand = candidates[0]
                 if isinstance(cand, dict):
-                    # genai candidate
                     content = cand.get("content")
                     if isinstance(content, dict):
-                        # try to find text inside
                         for v in ("text", "output_text", "string"):
                             if v in content:
                                 return content[v]
                     return cand.get("content") or cand.get("display") or str(cand)
-            # Fallback: attempt to stringify
+
             if "text" in resp_json:
                 return resp_json.get("text")
-        # Last resort
-        return json.dumps(resp_json)
+        return json.dumps(resp_json) 
 
     @staticmethod
     def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 10) -> str:
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-        # Build payloads for common formats
         payload = None
         prov = (provider or "").lower()
 
         if image_path:
-            # embed image as data URL inside messages/content
             data_url = CustomEndpointHelper._image_path_to_data_url(image_path)
 
         if prov in ("openai", "openrouter", "blackbox", "maia"):
-            # OpenAI "Responses" style preferred
             payload = {"model": model or "", "input": prompt}
-            # if image included, provide a message-like structure with image_url
             if image_path:
                 payload = {
-                    "model": model or "", 
+                    "model": model or "",
                     "messages": [
                         {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
                     ]
                 }
         elif prov == "gemini":
-            # Gemini/GenAI-like payload
             contents = [prompt]
             if image_path:
-                # include data_url as an image_url type inside a single text field (many routers accept it)
                 contents = [data_url, prompt]
             payload = {"model": model or "", "contents": contents}
         elif prov == "groq":
-            # Groq typical chat format
             messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
             if image_path:
                 messages[0]["content"].append({"type": "image_url", "image_url": {"url": data_url}})
             payload = {"model": model or "", "messages": messages}
         else:
-            # Generic: try OpenAI-compatible 'model'/'input' payload with optional image as data URL
-            payload = {"model": model or "", "input": prompt}
+            payloads_to_try = []
+
+            chat_payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
             if image_path:
-                payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            payloads_to_try.append(("chat", chat_payload))
+
+            responses_payload = {"model": model or "", "input": prompt}
+            if image_path:
+                responses_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            payloads_to_try.append(("responses", responses_payload))
+
+            completion_payload = {"model": model or "", "prompt": prompt}
+            payloads_to_try.append(("completion", completion_payload))
+
+            last_error = None
+            for format_name, try_payload in payloads_to_try:
+                try:
+                    resp = requests.post(endpoint, headers=headers, json=try_payload, timeout=timeout)
+                    if resp.status_code < 400:
+                        try:
+                            j = resp.json()
+                            return CustomEndpointHelper._extract_text_from_response(j)
+                        except Exception:
+                            return resp.text or ""
+                    else:
+                        body = resp.text or ""
+                        if "unsupported" in body.lower() or "missing" in body.lower():
+                            last_error = f"Format {format_name} failed: {body}"
+                            continue
+                        else:
+                            raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+
+            raise RuntimeError(f"All payload formats failed. Last error: {last_error}")
 
         try:
             resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
@@ -139,7 +149,6 @@ class CustomEndpointHelper:
             j = resp.json()
             return CustomEndpointHelper._extract_text_from_response(j)
         except Exception:
-            # Not JSON or cannot parse; return raw text
             return resp.text or ""
 
     @staticmethod

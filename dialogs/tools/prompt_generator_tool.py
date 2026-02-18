@@ -55,12 +55,10 @@ class PromptGeneratorWorker(QThread):
 				"""Callback when starting to process a file"""
 				self.file_processing.emit(filename)
 			
-			# Resolve provider_endpoint for the selected API key (if any)
 			provider_endpoint = None
 			try:
 				rows = self.db.get_all_api_keys()
 				for r in rows:
-					# tuple: (service, api_key, note, last_tested, status, model, provider_endpoint)
 					if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
 						provider_endpoint = r[6] if len(r) > 6 else None
 						break
@@ -815,7 +813,6 @@ class PromptGeneratorDialog(QDialog):
         
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.start(1000)
-		# Ensure there are reference images in the database before generating prompts
 		total_files = self.db.get_files_count() if hasattr(self.db, "get_files_count") else 0
 		if total_files == 0:
 			QMessageBox.information(
