@@ -84,8 +84,8 @@ class BatchWorker(QThread):
         if self.is_rolling_mode and self.api_keys_list:
             if self.current_api_index < len(self.api_keys_list):
                 api_info = self.api_keys_list[self.current_api_index]
-                return api_info['api_key'], api_info['service'], api_info['model']
-        return self.api_key, self.service, self.model
+                return api_info['api_key'], api_info['service'], api_info['model'], api_info.get('provider_endpoint')
+        return self.api_key, self.service, self.model, None
 
     def get_current_api_info_detailed(self):
         """Get detailed API info including note and position"""
@@ -96,6 +96,7 @@ class BatchWorker(QThread):
                 service = api_info['service']
                 model = api_info['model']
                 note = api_info.get('note', '')
+                provider_endpoint = api_info.get('provider_endpoint')
                 
                 # Format API key to show last 5 chars
                 masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
@@ -105,6 +106,8 @@ class BatchWorker(QThread):
                 
                 # Build detailed string
                 detail_parts = [f"{service} - {model}", f"({masked_key})", position]
+                if provider_endpoint:
+                    detail_parts.append(f"endpoint={provider_endpoint}")
                 if note and note.strip():
                     detail_parts.append(note.strip())
                 
@@ -212,7 +215,7 @@ class BatchWorker(QThread):
                 time.sleep(3)
                 break
             # Get current API credentials and detailed info
-            current_api_key, current_service, current_model = self.get_current_api_credentials()
+            current_api_key, current_service, current_model, current_provider_endpoint = self.get_current_api_credentials()
             api_detail = self.get_current_api_info_detailed()
             print(f"[ROLLING] Attempt {api_attempt + 1}/{max_api_attempts} using {api_detail}")
             print(f"[ROLLING] Processing {len(remaining_files)} remaining files")
@@ -238,7 +241,7 @@ class BatchWorker(QThread):
                     # Create service-specific metadata function with timing
                     if current_service == "gemini":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -254,7 +257,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "openai":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -270,7 +273,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "groq":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -453,14 +456,22 @@ def batch_generate_metadata(window):
             # Get all API keys from database
             all_api_keys = window.db.get_all_api_keys()
             for row in all_api_keys:
-                service, api_key, note, last_tested, status, model = row
+                # DB row: (service, api_key, note, last_tested, status, model, provider_endpoint)
+                service = row[0] if len(row) > 0 else None
+                api_key = row[1] if len(row) > 1 else None
+                note = row[2] if len(row) > 2 else ''
+                last_tested = row[3] if len(row) > 3 else None
+                status = row[4] if len(row) > 4 else ''
+                model = row[5] if len(row) > 5 else ''
+                endpoint = row[6] if len(row) > 6 else None
                 if api_key and model and service:  # Only include complete API key entries
                     api_keys_list.append({
                         'service': service.lower(),
                         'api_key': api_key,
                         'model': model,
                         'note': note,
-                        'status': status
+                        'status': status,
+                        'provider_endpoint': endpoint
                     })
             
             if not api_keys_list:
@@ -474,14 +485,22 @@ def batch_generate_metadata(window):
             # Get all API keys from database
             all_api_keys = window.db.get_all_api_keys()
             for row in all_api_keys:
-                service, api_key, note, last_tested, status, model = row
+                # DB row: (service, api_key, note, last_tested, status, model, provider_endpoint)
+                service = row[0] if len(row) > 0 else None
+                api_key = row[1] if len(row) > 1 else None
+                note = row[2] if len(row) > 2 else ''
+                last_tested = row[3] if len(row) > 3 else None
+                status = row[4] if len(row) > 4 else ''
+                model = row[5] if len(row) > 5 else ''
+                endpoint = row[6] if len(row) > 6 else None
                 if api_key and model and service:  # Only include complete API key entries
                     api_keys_list.append({
                         'service': service.lower(),
                         'api_key': api_key,
                         'model': model,
                         'note': note,
-                        'status': status
+                        'status': status,
+                        'provider_endpoint': endpoint
                     })
             
             if not api_keys_list:
@@ -509,6 +528,13 @@ def batch_generate_metadata(window):
         api_key = window.api_key_section.get_current_api_key()
         service = window.api_key_section.get_current_service()
         model = window.api_key_section.get_current_model()
+        # detect provider_endpoint for the selected API key (if stored in UI map)
+        provider_endpoint = None
+        try:
+            if api_key and hasattr(window.api_key_section, 'api_key_map') and api_key in window.api_key_section.api_key_map:
+                provider_endpoint = window.api_key_section.api_key_map[api_key].get('endpoint')
+        except Exception:
+            provider_endpoint = None
         if service:
             service = service.lower()
     elif hasattr(window, "api_key_combo") and hasattr(window, "api_key_map"):
@@ -520,6 +546,10 @@ def batch_generate_metadata(window):
             if service:
                 service = service.lower()
     
+    # ensure provider_endpoint is defined for downstream calls
+    if 'provider_endpoint' not in locals():
+        provider_endpoint = None
+
     if not api_key or not model or not service:
         dlg = GetApiKeyDialog(window)
         dlg.exec()
@@ -806,7 +836,7 @@ def batch_generate_metadata(window):
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -895,7 +925,7 @@ def batch_generate_metadata(window):
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -977,7 +1007,7 @@ def batch_generate_metadata(window):
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1006,7 +1036,7 @@ def batch_generate_metadata(window):
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1032,7 +1062,7 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1057,7 +1087,7 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1086,7 +1116,7 @@ def batch_generate_metadata(window):
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)

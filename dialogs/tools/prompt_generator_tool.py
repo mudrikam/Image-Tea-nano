@@ -55,6 +55,18 @@ class PromptGeneratorWorker(QThread):
 				"""Callback when starting to process a file"""
 				self.file_processing.emit(filename)
 			
+			# Resolve provider_endpoint for the selected API key (if any)
+			provider_endpoint = None
+			try:
+				rows = self.db.get_all_api_keys()
+				for r in rows:
+					# tuple: (service, api_key, note, last_tested, status, model, provider_endpoint)
+					if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
+						provider_endpoint = r[6] if len(r) > 6 else None
+						break
+			except Exception as e:
+				print(f"Error resolving provider_endpoint for Prompt Generator: {e}")
+
 			total_generated = generate_prompts_batch(
 				db=self.db,
 				api_key=self.api_key,
@@ -64,7 +76,8 @@ class PromptGeneratorWorker(QThread):
 				stop_flag=self.stop_flag,
 				progress_callback=progress_callback,
 				prompt_saved_callback=prompt_saved_callback,
-				file_callback=file_callback
+				file_callback=file_callback,
+				provider_endpoint=provider_endpoint
 			)
 			
 			self.finished.emit(total_generated)

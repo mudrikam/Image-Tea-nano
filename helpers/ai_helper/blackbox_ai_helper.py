@@ -154,7 +154,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_flag=None):
+def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -176,8 +176,16 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
                 return '', '', '', {}, '', error_message, 0, 0, 0
             print(f"[Blackbox] Extracted {len(frame_paths)} frames from video")
         
+        try:
+            cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            base_url = cfg.get('provider_endpoints', {}).get('blackbox') or "https://api.blackbox.ai"
+        except Exception:
+            base_url = "https://api.blackbox.ai"
+
         client = OpenAI(
-            base_url="https://api.blackbox.ai",
+            base_url=base_url,
             api_key=api_key
         )
         
@@ -258,39 +266,60 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
             }
         ]
         
+        # Support custom HTTP endpoints (user-specified). If provided, use universal helper.
+        used_custom_endpoint = False
+        if provider_endpoint:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            try:
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'blackbox', model, prompt, image_path if not is_video else None)
+                used_custom_endpoint = True
+            except Exception as e:
+                print(f"[Blackbox][CustomEndpoint] {e}")
+                raise
+        
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
         
         print(f"[Blackbox] Sending request: model={model}")
         
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
+        if not used_custom_endpoint:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+        else:
+            # custom endpoint path: `text` already provided by helper
+            response = None
         
-        print("="*80)
-        print("BLACKBOX RAW RESPONSE:")
-        print("="*80)
-        print(response)
-        print("="*80)
-        
-        token_input = 0
-        token_output = 0
-        token_total = 0
-        usage = getattr(response, "usage", None)
-        if usage:
-            token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
-            token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
-            token_total = getattr(usage, "total_tokens", 0)
-        
-        text = None
-        if hasattr(response, "choices") and response.choices:
-            choice = response.choices[0]
-            if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                text = choice.message.content
-        if not text:
-            text = str(response)
-        
+        if not used_custom_endpoint:
+            print("="*80)
+            print("BLACKBOX RAW RESPONSE:")
+            print("="*80)
+            print(response)
+            print("="*80)
+
+            token_input = 0
+            token_output = 0
+            token_total = 0
+            usage = getattr(response, "usage", None)
+            if usage:
+                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+                token_total = getattr(usage, "total_tokens", 0)
+
+            text = None
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    text = choice.message.content
+            if not text:
+                text = str(response)
+        else:
+            # custom endpoint path: text already provided by helper
+            token_input = token_output = token_total = 0
+            if 'text' not in locals():
+                text = ''
+
         print("="*80)
         print("BLACKBOX RAW TEXT:")
         print("="*80)

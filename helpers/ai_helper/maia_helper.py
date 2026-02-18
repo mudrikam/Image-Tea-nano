@@ -11,7 +11,13 @@ from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_t
 from helpers.image_compression_helper import compress_and_save_image
 from helpers.video_proxy_helper import extract_video_frames
 
-MAIA_BASE_URL = "https://api.maiarouter.ai/v1"
+try:
+    _cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+    with open(_cfg_path, 'r', encoding='utf-8') as _f:
+        _cfg = json.load(_f)
+    MAIA_BASE_URL = _cfg.get('provider_endpoints', {}).get('maia') or "https://api.maiarouter.ai/v1"
+except Exception:
+    MAIA_BASE_URL = "https://api.maiarouter.ai/v1"
 
 _generation_times_maia = []
 
@@ -157,7 +163,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=None):
+def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -258,39 +264,59 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
             }
         ]
         
+        # Support custom HTTP endpoints when provided
+        used_custom_endpoint = False
+        if provider_endpoint:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            try:
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path if not is_video else None)
+                used_custom_endpoint = True
+            except Exception as e:
+                print(f"[Maia][CustomEndpoint] {e}")
+                raise
+        
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
         
         print(f"[Maia] Sending request: model={model}")
         
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
+        if not used_custom_endpoint:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+        else:
+            response = None
         
-        print("="*80)
-        print("MAIA ROUTER RAW RESPONSE:")
-        print("="*80)
-        print(response)
-        print("="*80)
-        
-        token_input = 0
-        token_output = 0
-        token_total = 0
-        usage = getattr(response, "usage", None)
-        if usage:
-            token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
-            token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
-            token_total = getattr(usage, "total_tokens", 0)
-        
-        text = None
-        if hasattr(response, "choices") and response.choices:
-            choice = response.choices[0]
-            if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                text = choice.message.content
-        if not text:
-            text = str(response)
-        
+        if not used_custom_endpoint:
+            print("="*80)
+            print("MAIA ROUTER RAW RESPONSE:")
+            print("="*80)
+            print(response)
+            print("="*80)
+
+            token_input = 0
+            token_output = 0
+            token_total = 0
+            usage = getattr(response, "usage", None)
+            if usage:
+                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+                token_total = getattr(usage, "total_tokens", 0)
+
+            text = None
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    text = choice.message.content
+            if not text:
+                text = str(response)
+        else:
+            # custom endpoint path: `text` already provided by helper
+            token_input = token_output = token_total = 0
+            if 'text' not in locals():
+                text = ''
+
         print("="*80)
         print("MAIA ROUTER RAW TEXT:")
         print("="*80)

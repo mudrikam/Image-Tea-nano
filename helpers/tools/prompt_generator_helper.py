@@ -138,7 +138,7 @@ def create_prompt_generation_request(instructions, requirements, response_format
     
     return full_prompt
 
-def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None):
+def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, provider_endpoint=None):
     """Generate prompts for a single file using AI service by analyzing the actual image"""
     if stop_flag and stop_flag.get('stop'):
         return []
@@ -177,18 +177,28 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
         prompt_type, aspect_ratio, variation_level, variation_levels, filename or original_filename, metadata_context
     )
     
+    # If provider_endpoint not explicitly passed, try to read provider default from config
+    if not provider_endpoint:
+        try:
+            cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            provider_endpoint = cfg.get('provider_endpoints', {}).get(service.lower())
+        except Exception:
+            provider_endpoint = None
+
     try:
         if service.lower() == 'gemini':
-            prompts, token_input, token_output, token_total = generate_prompts_with_gemini(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_gemini(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag, provider_endpoint=provider_endpoint)
         elif service.lower() in ('openai', 'openrouter'):
             # Support both OpenAI and OpenRouter through the OpenAI-compatible client
-            prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_openai(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag, provider_endpoint=provider_endpoint)
         elif service.lower() == 'groq':
-            prompts, token_input, token_output, token_total = generate_prompts_with_groq(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_groq(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag, provider_endpoint=provider_endpoint)
         elif service.lower() == 'blackbox':
-            prompts, token_input, token_output, token_total = generate_prompts_with_blackbox(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_blackbox(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag, provider_endpoint=provider_endpoint)
         elif service.lower() == 'maia':
-            prompts, token_input, token_output, token_total = generate_prompts_with_maia(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag)
+            prompts, token_input, token_output, token_total = generate_prompts_with_maia(api_key, model, compressed_path, prompt, aspect_ratio, stop_flag, provider_endpoint=provider_endpoint)
         else:
             print(f"Unsupported service: {service}")
             return []
@@ -210,7 +220,7 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
         print(f"Error generating prompts for file {filename}: {e}")
         return []
 
-def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
     """Generate prompts using Gemini API with actual image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
@@ -224,6 +234,17 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_rati
             from google.genai import types
             import time
             
+            # If caller provided a custom provider endpoint, use the universal HTTP helper
+            if provider_endpoint:
+                try:
+                    from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, image_path=image_path)
+                    prompts = parse_ai_prompt_response(text, aspect_ratio)
+                    return prompts, 0, 0, 0
+                except Exception as e:
+                    print(f"Gemini custom endpoint error: {e}")
+                    return [], 0, 0, 0
+
             client = genai.Client(api_key=api_key)
             
             # Load and prepare image
@@ -291,7 +312,7 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_rati
             if attempt == max_retries - 1:
                 return [], 0, 0, 0
 
-def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
     """Generate prompts using OpenAI API with actual image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
@@ -300,6 +321,17 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
         import base64
         # Use project's OpenAI helper to create a client so OpenRouter keys are supported
         from helpers.ai_helper.openai_helper import create_openai_client
+
+        # If a custom provider endpoint is supplied, use the universal HTTP helper instead of the SDK
+        if provider_endpoint:
+            try:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, image_path=image_path)
+                prompts = parse_ai_prompt_response(text, aspect_ratio)
+                return prompts, 0, 0, 0
+            except Exception as e:
+                print(f"Custom OpenAI endpoint error: {e}")
+                return [], 0, 0, 0
 
         client = create_openai_client(api_key)
         
@@ -349,13 +381,24 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
         return [], 0, 0, 0
 
 
-def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
     """Generate prompts using Groq API with image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
     try:
         import base64
         from groq import Groq
+
+        # If provider_endpoint supplied, use the universal HTTP helper
+        if provider_endpoint:
+            try:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'groq', model, prompt, image_path=image_path)
+                prompts = parse_ai_prompt_response(text, aspect_ratio)
+                return prompts, 0, 0, 0
+            except Exception as e:
+                print(f"Groq custom endpoint error: {e}")
+                return [], 0, 0, 0
 
         client = Groq(api_key=api_key)
 
@@ -408,13 +451,24 @@ def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=
         print(f"Groq prompt generation error: {e}")
         return [], 0, 0, 0
 
-def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
     """Generate prompts using Blackbox API with image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
     try:
         import base64
         from openai import OpenAI
+
+        # Custom endpoint support
+        if provider_endpoint:
+            try:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'blackbox', model, prompt, image_path=image_path)
+                prompts = parse_ai_prompt_response(text, aspect_ratio)
+                return prompts, 0, 0, 0
+            except Exception as e:
+                print(f"Blackbox custom endpoint error: {e}")
+                return [], 0, 0, 0
 
         client = OpenAI(api_key=api_key, base_url="https://api.blackbox.ai")
 
@@ -467,12 +521,23 @@ def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ra
         print(f"Blackbox prompt generation error: {e}")
         return [], 0, 0, 0
 
-def generate_prompts_with_maia(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None):
+def generate_prompts_with_maia(api_key, model, image_path, prompt, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
     """Generate prompts using MAIA Router API with image analysis"""
     if stop_flag and stop_flag.get('stop'):
         return [], 0, 0, 0
     try:
         import base64
+
+        # If provider_endpoint supplied, use custom endpoint
+        if provider_endpoint:
+            try:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path=image_path)
+                prompts = parse_ai_prompt_response(text, aspect_ratio)
+                return prompts, 0, 0, 0
+            except Exception as e:
+                print(f"MAIA custom endpoint error: {e}")
+                return [], 0, 0, 0
 
         client = create_maia_client(api_key)
 
@@ -582,7 +647,7 @@ def parse_ai_prompt_response(text, aspect_ratio=None):
         print(f"Raw response: {text}")
         return []
 
-def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
+def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
     """Generate prompts for all files in the database"""
     if stop_flag and stop_flag.get('stop'):
         return 0
@@ -616,7 +681,7 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
             # Generate prompts for this file
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info, 
-                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
             )
             
             # Save prompts to database with token statistics
@@ -663,7 +728,7 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
         print(f"Error in generate_prompts_for_all_files: {e}")
         return 0
 
-def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None):
+def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
     """Generate prompts for specific files or all files if file_ids is None"""
     if stop_flag and stop_flag.get('stop'):
         return 0
@@ -676,7 +741,7 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
         return generate_prompts_for_all_files(
             db, api_key, service, model, 
             instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels,
-            stop_flag, progress_callback, prompt_saved_callback, file_callback
+            stop_flag, progress_callback, prompt_saved_callback, file_callback, provider_endpoint=provider_endpoint
         )
     else:
         # Generate for specific files
@@ -699,7 +764,7 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
             
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info,
-                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
             )
             
             for prompt_data in prompts_data:

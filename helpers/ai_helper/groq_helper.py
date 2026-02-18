@@ -154,7 +154,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=None):
+def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -255,6 +255,17 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
             }
         ]
         
+        # Support custom HTTP endpoint when provided
+        used_custom_endpoint = False
+        if provider_endpoint:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            try:
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'groq', model, prompt, image_path if not is_video else None)
+                used_custom_endpoint = True
+            except Exception as e:
+                print(f"[Groq][CustomEndpoint] {e}")
+                raise
+
         if stop_flag and stop_flag.get('stop'):
             return '', '', '', {}, '', '', 0, 0, 0
         
@@ -266,49 +277,56 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
         print(f"[Groq] Sending request: model={model}, image_bytes={img_size} bytes")
 
         # Try primary request; on 400-like errors, retry with text-only payload to help diagnose request format issues
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages
-            )
-        except Exception as e:
-            err_str = str(e)
-            print(f"[Groq] API call error: {err_str}")
-            # If server indicates bad request or invalid syntax, try a simpler text-only request (without the image)
-            if '400' in err_str or 'bad request' in err_str.lower() or 'invalid' in err_str.lower():
-                try:
-                    print("[Groq] Retrying with text-only payload (no image) to diagnose 400 error.")
-                    simpler_messages = [{"role": "user", "content": prompt}]
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=simpler_messages
-                    )
-                    print("[Groq] Retry response:", response)
-                except Exception as e2:
-                    print(f"[Groq] Retry failed: {e2}")
-                    raise
-            else:
-                raise
-        print("="*80)
-        print(response)
-        print("="*80)
-        
         token_input = 0
         token_output = 0
         token_total = 0
-        usage = getattr(response, "usage", None)
-        if usage:
-            token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
-            token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
-            token_total = getattr(usage, "total_tokens", 0)
-        
-        text = None
-        if hasattr(response, "choices") and response.choices:
-            choice = response.choices[0]
-            if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                text = choice.message.content
-        if not text:
-            text = str(response)
+
+        if not used_custom_endpoint:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages
+                )
+            except Exception as e:
+                err_str = str(e)
+                print(f"[Groq] API call error: {err_str}")
+                # If server indicates bad request or invalid syntax, try a simpler text-only request (without the image)
+                if '400' in err_str or 'bad request' in err_str.lower() or 'invalid' in err_str.lower():
+                    try:
+                        print("[Groq] Retrying with text-only payload (no image) to diagnose 400 error.")
+                        simpler_messages = [{"role": "user", "content": prompt}]
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=simpler_messages
+                        )
+                        print("[Groq] Retry response:", response)
+                    except Exception as e2:
+                        print(f"[Groq] Retry failed: {e2}")
+                        raise
+                else:
+                    raise
+            print("="*80)
+            print(response)
+            print("="*80)
+            usage = getattr(response, "usage", None)
+            if usage:
+                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+                token_total = getattr(usage, "total_tokens", 0)
+            text = None
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    text = choice.message.content
+            if not text:
+                text = str(response)
+        else:
+            # custom endpoint path: `text` already provided by helper
+            token_input = 0
+            token_output = 0
+            token_total = 0
+            if 'text' not in locals():
+                text = ''
         
         print("="*80)
         print("GROQ RAW TEXT:")
