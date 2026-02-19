@@ -66,7 +66,7 @@ class CustomEndpointHelper:
         return json.dumps(resp_json) 
 
     @staticmethod
-    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 10) -> str:
+    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180) -> str:
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -77,14 +77,32 @@ class CustomEndpointHelper:
             data_url = CustomEndpointHelper._image_path_to_data_url(image_path)
 
         if prov in ("openai", "openrouter", "blackbox", "maia"):
-            payload = {"model": model or "", "input": prompt}
-            if image_path:
-                payload = {
-                    "model": model or "",
-                    "messages": [
-                        {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
-                    ]
-                }
+            use_chat_messages = False
+            try:
+                ep = (endpoint or "").lower()
+                if ep.rstrip('/').endswith('/chat/completions') or ep.rstrip('/').endswith('/v1/chat/completions'):
+                    use_chat_messages = True
+            except Exception:
+                use_chat_messages = False
+
+            if use_chat_messages:
+                payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+                if image_path:
+                    payload = {
+                        "model": model or "",
+                        "messages": [
+                            {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
+                        ]
+                    }
+            else:
+                payload = {"model": model or "", "input": prompt}
+                if image_path:
+                    payload = {
+                        "model": model or "",
+                        "messages": [
+                            {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
+                        ]
+                    }
         elif prov == "gemini":
             contents = [prompt]
             if image_path:

@@ -269,7 +269,7 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
         if provider_endpoint:
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
             try:
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path if not is_video else None)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path if not is_video else None, timeout=180)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[Maia][CustomEndpoint] {e}")

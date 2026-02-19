@@ -218,7 +218,7 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_rati
             if provider_endpoint:
                 try:
                     from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, image_path=image_path)
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, image_path=image_path, timeout=180)
                     prompts = parse_ai_prompt_response(text, aspect_ratio)
                     return prompts, 0, 0, 0
                 except Exception as e:
@@ -300,7 +300,7 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
         if provider_endpoint:
             try:
                 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, image_path=image_path)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, image_path=image_path, timeout=180)
                 prompts = parse_ai_prompt_response(text, aspect_ratio)
                 return prompts, 0, 0, 0
             except Exception as e:
@@ -364,7 +364,7 @@ def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=
         if provider_endpoint:
             try:
                 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'groq', model, prompt, image_path=image_path)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'groq', model, prompt, image_path=image_path, timeout=180)
                 prompts = parse_ai_prompt_response(text, aspect_ratio)
                 return prompts, 0, 0, 0
             except Exception as e:
@@ -432,7 +432,7 @@ def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ra
         if provider_endpoint:
             try:
                 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'blackbox', model, prompt, image_path=image_path)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'blackbox', model, prompt, image_path=image_path, timeout=180)
                 prompts = parse_ai_prompt_response(text, aspect_ratio)
                 return prompts, 0, 0, 0
             except Exception as e:
@@ -500,7 +500,7 @@ def generate_prompts_with_maia(api_key, model, image_path, prompt, aspect_ratio=
         if provider_endpoint:
             try:
                 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path=image_path)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, image_path=image_path, timeout=180)
                 prompts = parse_ai_prompt_response(text, aspect_ratio)
                 return prompts, 0, 0, 0
             except Exception as e:
