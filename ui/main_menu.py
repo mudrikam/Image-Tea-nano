@@ -428,8 +428,22 @@ def setup_main_menu(window):
     api_action.triggered.connect(show_api_dialog)
     menubar.addAction(api_action)
 
+    purchase_menu = QMenu("Purchase", menubar)
+    purchase_menu.setToolTipsVisible(True)
+    config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    for key, url in cfg.get("purchese_links", {}).items():
+        label = key.replace('_', ' ').title()
+        action = QAction(qta.icon('fa6s.link'), label, window)
+        action.setToolTip(url)
+        action.setStatusTip(url)
+        action.triggered.connect(lambda checked, u=url: webbrowser.open(u))
+        purchase_menu.addAction(action)
+
     help_menu = QMenu("Help", menubar)
     help_menu.setToolTipsVisible(True)
+
     about_action = QAction(qta.icon('fa6s.circle-info'), "About", window)
     about_action.setToolTip(MENU_TOOLTIPS["about"])
     about_action.setStatusTip(MENU_TOOLTIPS["about"])
@@ -751,5 +765,6 @@ def setup_main_menu(window):
     menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
     menubar.addMenu(extension_menu)
+    menubar.addMenu(purchase_menu)
     menubar.addMenu(help_menu)
     window.setMenuBar(menubar)

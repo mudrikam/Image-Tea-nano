@@ -15,17 +15,13 @@ except ImportError:
     PILLOW_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp', '.eps', '.svg', '.pdf'}
 
 class DragDropWidget(QWidget):
-	"""
-	Widget drag & drop yang dapat menerima file.
-	Agar dapat digunakan, set 'on_files_dropped' ke fungsi callback yang menerima list path.
-	"""
 	def __init__(self, parent=None):
 		super().__init__(parent)
 		self.setAcceptDrops(True)
 		self.on_files_dropped = None
 		
 		outer_layout = QVBoxLayout(self)
-		outer_layout.setContentsMargins(0, 0, 0, 0)
+		outer_layout.setContentsMargins(10, 10, 10, 10)
 		outer_layout.setSpacing(0)
 		
 		self.inner_widget = QWidget()
