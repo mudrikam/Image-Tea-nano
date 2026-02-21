@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget, QPushButton, QSizePolicy
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QColor
 from helpers.file_importer import import_files
@@ -55,6 +55,28 @@ class DragDropWidget(QWidget):
 		layout.addWidget(self.icon_label)
 		layout.addWidget(self.text_label)
 		layout.addWidget(self.sub_text)
+		# button to invoke file selector
+		self.select_btn = QPushButton(qta.icon("fa6s.folder-plus", color=theme.get_color('white')), "Add Files")
+		self.select_btn.setCursor(Qt.PointingHandCursor)
+		self.select_btn.clicked.connect(self._on_click_select)
+		btn_style = f"""
+		    QPushButton {{
+		        background-color: {theme.get_color('primary')};
+		        color: {theme.get_color('white')};
+		        border-radius: 6px;
+		        padding: 6px 12px;
+		        font-weight: bold;
+		    }}
+		    QPushButton:hover {{
+		        background-color: {theme.get_color('primary_hover')};
+		    }}
+		    QPushButton:pressed {{
+		        background-color: {theme.get_color('primary_pressed')};
+		    }}
+		"""
+		self.select_btn.setStyleSheet(btn_style)
+		self.select_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+		layout.addWidget(self.select_btn, alignment=Qt.AlignCenter)
 		layout.addStretch(1)
 		
 		outer_layout.addWidget(self.inner_widget)
@@ -111,6 +133,12 @@ class DragDropWidget(QWidget):
 		self.inner_widget.setStyleSheet(self._default_style)
 		self.sub_text.setText(self._default_sub_text)
 
+	def _on_click_select(self):
+		mainwin = self.window()
+		if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+			if import_files(mainwin, mainwin.db):
+				mainwin.table.refresh_table()
+
 	def dropEvent(self, event: QDropEvent):
 		self.inner_widget.setStyleSheet(self._default_style)
 		self.sub_text.setText(self._default_sub_text)
@@ -123,6 +151,14 @@ class DragDropWidget(QWidget):
 				if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
 					if import_files(mainwin, mainwin.db, file_paths=paths):
 						mainwin.table.refresh_table()
+
+	def mousePressEvent(self, event):
+		if event.button() == Qt.LeftButton:
+			mainwin = self.window()
+			if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+				if import_files(mainwin, mainwin.db):
+					mainwin.table.refresh_table()
+		super().mousePressEvent(event)
 
 	def _is_supported_file(self, path):
 		ext = os.path.splitext(path)[1].lower()

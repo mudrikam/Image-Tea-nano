@@ -1,13 +1,13 @@
 {
-  "Freepik": false,
-  "Adobe Stock": false,
+  "Freepik": true,
+  "Adobe Stock": true,
   "Shutterstock": true,
-  "iStock": false,
-  "123RF": false,
-  "Vecteezy": false,
-  "Pond5": false,
-  "Depositphotos": false,
-  "Canva": false,
-  "MiriCanvas": false,
+  "iStock": true,
+  "123RF": true,
+  "Vecteezy": true,
+  "Pond5": true,
+  "Depositphotos": true,
+  "Canva": true,
+  "MiriCanvas": true,
   "open_folder_on_export": true
 }

@@ -787,6 +787,42 @@ class DragDropTableTab(QWidget):
                 if import_files(mainwin, mainwin.db, file_paths=paths):
                     mainwin.table.refresh_table()
 
+
+class DragDropDetailsTab(QWidget):
+    """Details tab widget with drag and drop support"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._parent_table = parent
+        
+        video_exts = {
+            ".mp4", ".mpeg", ".mov", ".avi", ".flv",
+            ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
+        }
+        extra_exts = {'.svg', '.eps', '.pdf'}
+        self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in self._supported_exts:
+                    event.ignore()
+                    return
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            mainwin = self.window()
+            if hasattr(mainwin, "db") and hasattr(mainwin, "table"):
+                from helpers.file_importer import import_files
+                if import_files(mainwin, mainwin.db, file_paths=paths):
+                    mainwin.table.refresh_table()
+
 class ImageTableWidget(QWidget):
     stats_changed = Signal(int, int, int, int, int)
     data_refreshed = Signal()
@@ -922,9 +958,25 @@ class ImageTableWidget(QWidget):
         table_container_layout.setContentsMargins(0, 0, 0, 0)
         
         self.table = QTableWidget(0, 9, self)
-        self.table.setHorizontalHeaderLabels([
-            "", "Filepath", "Filename", "Title", "Description", "Tags", "Title Length", "Tag Count", "Status"
-        ])
+        headers = ["", "Filepath", "Filename", "Title", "Description", "Tags", "Title Length", "Tag Count", "Status"]
+        icon_color = theme.get_color('text_dark')
+        icons = [
+            None,
+            qta.icon("fa6s.folder-open", color=icon_color),
+            qta.icon("fa6s.file", color=icon_color),
+            qta.icon("fa6s.heading", color=icon_color),
+            qta.icon("fa6s.align-left", color=icon_color),
+            qta.icon("fa6s.tags", color=icon_color),
+            qta.icon("fa6s.text-height", color=icon_color),
+            qta.icon("fa6s.hashtag", color=icon_color),
+            qta.icon("fa6s.circle-info", color=icon_color),
+        ]
+        for col, text in enumerate(headers):
+            if icons[col] is not None:
+                item = QTableWidgetItem(icons[col], text)
+            else:
+                item = QTableWidgetItem(text)
+            self.table.setHorizontalHeaderItem(col, item)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         for col in range(0, 9):
@@ -948,11 +1000,11 @@ class ImageTableWidget(QWidget):
         thumbnail_controls_layout.setSpacing(8)
         thumbnail_controls_layout.setAlignment(Qt.AlignVCenter)
 
-        zoom_label = QLabel("Columns per Row:")
-        zoom_label.setStyleSheet(f"font-size: 9pt; color: {theme.get_color('text_dark')};")
-        zoom_label.setFixedHeight(22)
-        zoom_label.setContentsMargins(0, 0, 0, 0)
-        thumbnail_controls_layout.addWidget(zoom_label)
+        self.zoom_label = QLabel("Columns per Row:")
+        self.zoom_label.setStyleSheet(f"font-size: 9pt; color: {theme.get_color('text_dark')};")
+        self.zoom_label.setFixedHeight(22)
+        self.zoom_label.setContentsMargins(0, 0, 0, 0)
+        thumbnail_controls_layout.addWidget(self.zoom_label)
         
         self.zoom_preset_combo = QComboBox(self)
         self.zoom_preset_combo.addItems(["2 Columns", "3 Columns", "4 Columns", "5 Columns", "6 Columns", "7 Columns", "8 Columns"])
@@ -999,7 +1051,7 @@ class ImageTableWidget(QWidget):
         self.thumbnail_no_data_overlay.setVisible(False)
         self.thumbnail_tab_layout.addWidget(self.thumbnail_no_data_overlay)
         
-        self.details_tab = QWidget()
+        self.details_tab = DragDropDetailsTab(self)
         self.details_tab_layout = QVBoxLayout(self.details_tab)
         self.details_tab_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -1101,6 +1153,15 @@ class ImageTableWidget(QWidget):
 
         self.refresh_table()
         QTimer.singleShot(0, self._recalculate_thumbnail_size_from_columns)
+
+    def _update_zoom_controls_visibility(self):
+        has_files = self.total_count > 0
+        if hasattr(self, 'zoom_label'):
+            self.zoom_label.setVisible(has_files)
+        if hasattr(self, 'zoom_preset_combo'):
+            self.zoom_preset_combo.setVisible(has_files)
+        if hasattr(self, 'zoom_slider'):
+            self.zoom_slider.setVisible(has_files)
 
     def eventFilter(self, obj, event):
         """Handle resize events to force thumbnail layout refresh and checkbox drag selection"""
@@ -1497,7 +1558,7 @@ class ImageTableWidget(QWidget):
                 for col, val in enumerate(display_values[1:], start=2):
                     item = QTableWidgetItem(str(val) if val is not None else "")
                     if col == 2:
-                        item.setTextAlignment(Qt.AlignCenter)
+                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                     self.table.setItem(row_idx, col, item)
             title_val = row[3] if len(row) > 3 and row[3] is not None else ""
             title_len = len(title_val)
@@ -1938,6 +1999,7 @@ class ImageTableWidget(QWidget):
         self._page_cache.clear()                          
         self._load_page_data()
         self._update_pagination_ui()
+        self._update_zoom_controls_visibility()
         
                                                         
         if self.total_count >= 100:

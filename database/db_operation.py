@@ -189,7 +189,7 @@ class ImageTeaDB:
     def get_all_files(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files')
+            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files ORDER BY filename COLLATE NOCASE ASC, filepath ASC')
             return c.fetchall()
 
     def get_files_count(self, search_text=None, status_filter=None):
@@ -238,6 +238,7 @@ class ImageTeaDB:
             query = 'SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files'
             if conditions:
                 query += f" WHERE {' AND '.join(conditions)}"
+            query += ' ORDER BY filename COLLATE NOCASE ASC, filepath ASC'
             query += ' LIMIT ? OFFSET ?'
             
             params.extend([page_size, offset])
