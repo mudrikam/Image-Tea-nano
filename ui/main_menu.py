@@ -429,13 +429,17 @@ def setup_main_menu(window):
     menubar.addAction(api_action)
 
     purchase_menu = QMenu("Purchase", menubar)
+    purchase_menu.setStyleSheet(
+        f"QMenu::title {{ color: {theme.get_color('primary')}; }}"
+    )
     purchase_menu.setToolTipsVisible(True)
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     for key, url in cfg.get("purchese_links", {}).items():
         label = key.replace('_', ' ').title()
-        action = QAction(qta.icon('fa6s.link'), label, window)
+        icon = qta.icon('fa6s.cart-shopping', color=theme.get_color('primary'))
+        action = QAction(icon, label, window)
         action.setToolTip(url)
         action.setStatusTip(url)
         action.triggered.connect(lambda checked, u=url: webbrowser.open(u))

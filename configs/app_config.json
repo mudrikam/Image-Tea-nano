@@ -23,17 +23,12 @@
         "lynk_id": "https://lynk.id/desainiajob/s/8rov8rp3o695"
     },
     "purchese_links": {
-        "API Keys for Image Tea": "https://lynk.id/desainiajob/9ex55r5j7z6j",
+        "API Key Rp5000": "https://lynk.id/desainiajob/9ex55r5j7z6j",
         "Adobe Creative Cloud 1 Month": "https://lynk.id/desainiajob/1LYZv4a",
-        "Motionvora 1 Month": "https://lynk.id/desainiajob/q5kr8rw3wq61"
+        "Motionvora 1 Month": "https://lynk.id/desainiajob/q5kr8rw3wq61",
+        "Image / Video Generator": "https://lynk.id/orata/9l63y2mg22l8"
     },
     "additional_tools": {
-        "image_video_generator": {
-            "tool_name": "Image / Video Generator",
-            "description": "Generate images and videos using AI technology.",
-            "tool_url": "https://lynk.id/orata/9l63y2mg22l8",
-            "fa_icon_name": "wand-magic-sparkles"
-        },
         "image_compressor": {
             "tool_name": "Image Upscaler",
             "description": "Enhance and upscale images using AI technology.",
