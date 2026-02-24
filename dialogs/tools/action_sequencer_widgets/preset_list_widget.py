@@ -663,7 +663,9 @@ class PresetListWidget(QWidget):
             import_action = menu.addAction("Import Preset")
             import_action.setIcon(qta.icon('fa6s.file-import'))
             import_action.triggered.connect(self.on_import_preset)
-            
+
+            menu.addSeparator()
+
             refresh_action = menu.addAction("Refresh Presets")
             refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
             refresh_action.triggered.connect(self.load_presets_from_db)
@@ -694,7 +696,9 @@ class PresetListWidget(QWidget):
         import_action = menu.addAction("Import Preset")
         import_action.setIcon(qta.icon('fa6s.file-import'))
         import_action.triggered.connect(self.on_import_preset)
-        
+
+        menu.addSeparator()
+
         refresh_action = menu.addAction("Refresh Presets")
         refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
         refresh_action.triggered.connect(self.load_presets_from_db)
@@ -829,6 +833,10 @@ class PresetListWidget(QWidget):
                 
                 menu.addSeparator()
                 
+                refresh_action = menu.addAction("Refresh Action Sets")
+                refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+                refresh_action.triggered.connect(self.load_action_sets_from_db)
+                
                 edit_action = menu.addAction("Edit")
                 edit_action.setIcon(qta.icon('fa6s.pen'))
                 edit_action.triggered.connect(self.on_edit_action_set_clicked)
@@ -850,6 +858,12 @@ class PresetListWidget(QWidget):
             import_action = menu.addAction("Import Action Set")
             import_action.setIcon(qta.icon('fa6s.file-import'))
             import_action.triggered.connect(self.on_import_action_set)
+            
+            menu.addSeparator()
+            
+            refresh_action = menu.addAction("Refresh Action Sets")
+            refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+            refresh_action.triggered.connect(self.load_action_sets_from_db)
         
         global_pos = self.action_set_list.viewport().mapToGlobal(pos)
         menu.exec_(global_pos)
@@ -869,6 +883,12 @@ class PresetListWidget(QWidget):
         import_action = menu.addAction("Import Action Set")
         import_action.setIcon(qta.icon('fa6s.file-import'))
         import_action.triggered.connect(self.on_import_action_set)
+        
+        menu.addSeparator()
+        
+        refresh_action = menu.addAction("Refresh Action Sets")
+        refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+        refresh_action.triggered.connect(self.load_action_sets_from_db)
         
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
 

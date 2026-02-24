@@ -187,8 +187,25 @@ class ActionListWidget(QWidget):
 
     def on_action_context_menu(self, pos):
         item = self.action_list.itemAt(pos)
+        
+        # If clicking on empty space, show refresh menu
         if not item:
+            menu = QMenu(self)
+            
+            refresh_action = menu.addAction("Refresh Actions")
+            refresh_action.setIcon(qta.icon('fa6s.arrows-rotate'))
+            refresh_action.triggered.connect(self.refresh_actions)
+            
+            menu.addSeparator()
+            
+            clear_action = menu.addAction("Delete All Actions")
+            clear_action.setIcon(qta.icon('fa6s.broom'))
+            clear_action.triggered.connect(self._clear_all_actions_of_current_action_set)
+            
+            global_pos = self.action_list.viewport().mapToGlobal(pos)
+            menu.exec_(global_pos)
             return
+        
         action_data = item.data(Qt.UserRole)
         if not action_data:
             return
@@ -268,6 +285,11 @@ class ActionListWidget(QWidget):
     def clear_actions(self):
         self.action_list.clear()
         self.current_action_set = None
+    
+    def refresh_actions(self):
+        """Refresh the action list by reloading from database."""
+        if self.current_action_set:
+            self.load_actions_for_action_set(self.current_action_set)
     
     def add_new_action_button(self):
         
