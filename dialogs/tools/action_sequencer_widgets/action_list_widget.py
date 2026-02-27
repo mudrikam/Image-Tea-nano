@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
+                               QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox, QLineEdit, QSizePolicy)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
 import qtawesome as qta
@@ -16,12 +16,22 @@ class ActionListWidget(QWidget):
         super().__init__(parent)
         self.current_action_set = None
         self.db = ImageTeaDB()
+        self._all_actions = []
         self.setup_ui()
     
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(8)
         layout.setContentsMargins(0, 0, 0, 0)
+        
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(4)
+        self.action_search = QLineEdit()
+        self.action_search.setPlaceholderText("Search actions...")
+        self.action_search.setClearButtonEnabled(True)
+        self.action_search.textChanged.connect(self._filter_actions)
+        search_layout.addWidget(self.action_search)
+        layout.addLayout(search_layout)
         
         self.action_list = QListWidget()
         self.action_list.setObjectName("actionList")
@@ -40,13 +50,41 @@ class ActionListWidget(QWidget):
         
         try:
             actions = self.db.get_actions_by_action_set(action_set_data['id'])
+            self._all_actions = actions
             
             for action in actions:
                 self.add_action_to_list(action)
             
             self.add_new_action_button()
+            
+            search_text = self.action_search.text().strip().lower()
+            if search_text:
+                self._filter_actions(search_text)
         except Exception as e:
             print(f"Failed to load actions: {e}")
+    
+    def _filter_actions(self, text=None):
+        if text is None:
+            text = self.action_search.text().strip().lower()
+        
+        self.action_list.blockSignals(True)
+        self.action_list.clear()
+        
+        if not text:
+            for action in self._all_actions:
+                self.add_action_to_list(action)
+            self.add_new_action_button()
+        else:
+            filtered = []
+            for action in self._all_actions:
+                action_name = action.get('name', '').lower()
+                if text in action_name:
+                    filtered.append(action)
+            for action in filtered:
+                self.add_action_to_list(action)
+            self.add_new_action_button()
+        
+        self.action_list.blockSignals(False)
     
     def add_action_to_list(self, action_data):
         item = QListWidgetItem()
@@ -104,6 +142,14 @@ class ActionListWidget(QWidget):
         name_font.setPointSize(10)
         name_label.setFont(name_font)
         name_label.setStyleSheet("background: transparent;")
+        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        name_label.setTextFormat(Qt.PlainText)
+        name_label.setWordWrap(False)
+        name_label.setToolTip(action_data['name'])
+        display_name = action_data['name']
+        if len(display_name) > 25:
+            display_name = display_name[:22] + '...'
+        name_label.setText(display_name)
         content_layout.addWidget(name_label)
         
         order_label = QLabel(f"Order: {action_data.get('order_index', 0)}")
@@ -285,6 +331,8 @@ class ActionListWidget(QWidget):
     def clear_actions(self):
         self.action_list.clear()
         self.current_action_set = None
+        self.action_search.clear()
+        self._all_actions = []
     
     def refresh_actions(self):
         """Refresh the action list by reloading from database."""

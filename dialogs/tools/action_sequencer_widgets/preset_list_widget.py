@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QListWidget, QListWidgetItem, QComboBox, QTabWidget, QSizePolicy, QMenu, QMessageBox, QFileDialog)
+                               QPushButton, QListWidget, QListWidgetItem, QComboBox, QTabWidget, QSizePolicy, QMenu, QMessageBox, QFileDialog, QLineEdit)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
 import os
@@ -33,6 +33,8 @@ class PresetListWidget(QWidget):
         self.is_first_launch = True
         self.last_selected_preset_id = None
         self.last_selected_action_set_id = None
+        self._all_presets = []
+        self._all_action_sets = []
         self.setup_ui()
     
     def setup_ui(self):
@@ -61,6 +63,15 @@ class PresetListWidget(QWidget):
         presets_layout = QVBoxLayout()
         presets_layout.setContentsMargins(0, 0, 0, 0)
         presets_layout.setSpacing(8)
+        
+        preset_search_layout = QHBoxLayout()
+        preset_search_layout.setSpacing(4)
+        self.preset_search = QLineEdit()
+        self.preset_search.setPlaceholderText("Search presets...")
+        self.preset_search.setClearButtonEnabled(True)
+        self.preset_search.textChanged.connect(self._filter_presets)
+        preset_search_layout.addWidget(self.preset_search)
+        presets_layout.addLayout(preset_search_layout)
         
         self.preset_list = QListWidget()
         self.preset_list.setAlternatingRowColors(True)
@@ -111,6 +122,15 @@ class PresetListWidget(QWidget):
         action_sets_layout = QVBoxLayout()
         action_sets_layout.setContentsMargins(0, 0, 0, 0)
         action_sets_layout.setSpacing(8)
+        
+        action_set_search_layout = QHBoxLayout()
+        action_set_search_layout.setSpacing(4)
+        self.action_set_search = QLineEdit()
+        self.action_set_search.setPlaceholderText("Search action sets...")
+        self.action_set_search.setClearButtonEnabled(True)
+        self.action_set_search.textChanged.connect(self._filter_action_sets)
+        action_set_search_layout.addWidget(self.action_set_search)
+        action_sets_layout.addLayout(action_set_search_layout)
         
         self.action_set_list = QListWidget()
         self.action_set_list.setAlternatingRowColors(True)
@@ -206,8 +226,13 @@ class PresetListWidget(QWidget):
         
         try:
             presets = self.db.get_presets_by_platform(self.current_platform_id)
+            self._all_presets = presets
             for preset in presets:
                 self.add_preset_to_list(preset)
+            
+            search_text = self.preset_search.text().strip().lower()
+            if search_text:
+                self._filter_presets(search_text)
             
             if selected_preset_id:
                 for i in range(self.preset_list.count()):
@@ -220,6 +245,24 @@ class PresetListWidget(QWidget):
                 self.preset_list.setCurrentItem(self.preset_list.item(0))
         except Exception as e:
             print(f"Failed to load presets: {e}")
+    
+    def _filter_presets(self, text=None):
+        if text is None:
+            text = self.preset_search.text().strip().lower()
+        
+        self.preset_list.blockSignals(True)
+        self.preset_list.clear()
+        
+        if not text:
+            for preset in self._all_presets:
+                self.add_preset_to_list(preset)
+        else:
+            for preset in self._all_presets:
+                preset_name = preset.get('name', '').lower()
+                if text in preset_name:
+                    self.add_preset_to_list(preset)
+        
+        self.preset_list.blockSignals(False)
     
     def add_preset_to_list(self, preset_data):
         item = QListWidgetItem()
@@ -239,6 +282,18 @@ class PresetListWidget(QWidget):
         name_font = QFont()
         name_font.setBold(True)
         name_label.setFont(name_font)
+        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        name_label.setTextFormat(Qt.PlainText)
+        name_label.setWordWrap(False)
+        tooltip = preset_data.get('description', '').strip()
+        if tooltip:
+            name_label.setToolTip(f"{preset_data['name']} - {tooltip}")
+        else:
+            name_label.setToolTip(preset_data['name'])
+        display_name = preset_data['name']
+        if len(display_name) > 25:
+            display_name = display_name[:22] + '...'
+        name_label.setText(display_name)
         info_vbox.addWidget(name_label)
         
         info_h = QHBoxLayout()
@@ -443,31 +498,27 @@ class PresetListWidget(QWidget):
             platform_id = self.platform_combo.currentData()
             self.current_platform_id = platform_id
             
-            # Clear current selections before loading new platform data
             self.current_preset = None
             self.current_action_set = None
             
-            # Clear lists
             self.preset_list.clear()
             self.action_set_list.clear()
             
-            # Emit signal to parent to clear step and action lists FIRST
+            self.preset_search.clear()
+            self.action_set_search.clear()
+            
             self.platform_changed.emit(platform_id)
             
-            # Load new platform data
             self.load_presets_from_db()
             self.load_action_sets_from_db()
             
-            # Now manually select first item if available
             if self.tab_widget.currentIndex() == 0 and self.preset_list.count() > 0:
                 first_item = self.preset_list.item(0)
                 self.preset_list.setCurrentItem(first_item)
-                # Manually trigger selection handler for proper styling
                 self.on_preset_selection_changed(first_item, None)
             elif self.tab_widget.currentIndex() == 1 and self.action_set_list.count() > 0:
                 first_item = self.action_set_list.item(0)
                 self.action_set_list.setCurrentItem(first_item)
-                # Manually trigger selection handler for proper styling
                 self.on_action_set_selection_changed(first_item, None)
     
     def load_action_sets_from_db(self):
@@ -480,8 +531,13 @@ class PresetListWidget(QWidget):
         
         try:
             action_sets = self.db.get_action_sets_by_platform(self.current_platform_id)
+            self._all_action_sets = action_sets
             for action_set in action_sets:
                 self.add_action_set_to_list(action_set)
+            
+            search_text = self.action_set_search.text().strip().lower()
+            if search_text:
+                self._filter_action_sets(search_text)
             
             if selected_action_set_id:
                 for i in range(self.action_set_list.count()):
@@ -494,6 +550,24 @@ class PresetListWidget(QWidget):
                 self.action_set_list.setCurrentItem(self.action_set_list.item(0))
         except Exception as e:
             print(f"Failed to load action sets: {e}")
+    
+    def _filter_action_sets(self, text=None):
+        if text is None:
+            text = self.action_set_search.text().strip().lower()
+        
+        self.action_set_list.blockSignals(True)
+        self.action_set_list.clear()
+        
+        if not text:
+            for action_set in self._all_action_sets:
+                self.add_action_set_to_list(action_set)
+        else:
+            for action_set in self._all_action_sets:
+                action_set_name = action_set.get('name', '').lower()
+                if text in action_set_name:
+                    self.add_action_set_to_list(action_set)
+        
+        self.action_set_list.blockSignals(False)
     
     def add_action_set_to_list(self, action_set_data):
         item = QListWidgetItem()
@@ -508,6 +582,14 @@ class PresetListWidget(QWidget):
         name_font = QFont()
         name_font.setBold(True)
         name_label.setFont(name_font)
+        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        name_label.setTextFormat(Qt.PlainText)
+        name_label.setWordWrap(False)
+        name_label.setToolTip(action_set_data['name'])
+        display_name = action_set_data['name']
+        if len(display_name) > 25:
+            display_name = display_name[:22] + '...'
+        name_label.setText(display_name)
         layout.addWidget(name_label)
         
         action_count = action_set_data.get('action_count', 0)
