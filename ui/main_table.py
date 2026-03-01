@@ -51,7 +51,7 @@ class NoDataWidget(QWidget):
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
         }
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
         
     def dragEnterEvent(self, event):
@@ -693,7 +693,7 @@ class DragDropScrollArea(QScrollArea):
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
         }
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
         
     def dragEnterEvent(self, event):
@@ -728,7 +728,7 @@ class DragDropThumbnailTab(QWidget):
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
         }
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
         
     def dragEnterEvent(self, event):
@@ -763,7 +763,7 @@ class DragDropTableTab(QWidget):
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
         }
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
         
     def dragEnterEvent(self, event):
@@ -799,7 +799,7 @@ class DragDropDetailsTab(QWidget):
             ".mp4", ".mpeg", ".mov", ".avi", ".flv",
             ".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
         }
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
         
     def dragEnterEvent(self, event):
@@ -2719,7 +2719,7 @@ class ImageTableWidget(QWidget):
                         return pixmap
                 except Exception as e:
                     print(f"Video preview error: {e}")
-            elif ext in {'.svg', '.eps', '.pdf'}:
+            elif ext in {'.svg', '.eps', '.pdf', '.ai'}:
                 try:
                     from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality
                     temp_folder = ensure_temp_folder()
@@ -2729,7 +2729,7 @@ class ImageTableWidget(QWidget):
                     if not os.path.exists(temp_jpg_path):
                         if ext == '.svg':
                             temp_jpg = convert_svg_to_jpg(filepath, temp_jpg_path, quality)
-                        elif ext in ('.eps', '.pdf'):
+                        elif ext in ('.eps', '.pdf', '.ai'):
                             temp_jpg = convert_eps_pdf_to_jpg(filepath, temp_jpg_path, quality)
                     else:
                         temp_jpg = temp_jpg_path

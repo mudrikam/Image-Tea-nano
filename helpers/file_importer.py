@@ -15,7 +15,7 @@ def import_files(parent, db, file_paths=None):
     if file_paths is None:
         home_dir = os.path.expanduser("~")
         video_exts = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         all_exts = sorted(PILLOW_FORMATS | video_exts | extra_exts)
         filter_str = "Images/Videos (" + " ".join(f"*{ext}" for ext in all_exts) + ")"
         files, _ = QFileDialog.getOpenFileNames(

@@ -89,12 +89,12 @@ class DragDropWidget(QWidget):
 			".mp4", ".mpeg", ".mov", ".avi", ".flv",
 			".mpg", ".webm", ".wmv", ".3gp", ".3gpp"
 		}
-		extra_exts = {'.svg', '.eps', '.pdf'}
+		extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
 		self._supported_exts = PILLOW_FORMATS | video_exts | extra_exts
 		self._default_sub_text = "Drag and drop images or videos here"
 		
 		common_exts = [
-			"jpg", "jpeg", "png", "psd", "eps", "svg", "pdf", "tiff", "webp",
+			"jpg", "jpeg", "png", "psd", "eps", "svg", "pdf", "ai", "tiff", "webp",
 			"mp4", "mpeg", "mov", "avi", "flv", "mpg", "webm", "wmv", "3gp", "3gpp"
 		]
 		supported_common = [ext for ext in common_exts if f".{ext}" in self._supported_exts]

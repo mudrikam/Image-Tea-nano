@@ -37,7 +37,7 @@ class ImportWorkerThread(QThread):
         
         added = 0
         video_exts = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
-        extra_exts = {'.svg', '.eps', '.pdf'}
+        extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
         
         for idx, path in enumerate(self.file_paths):
             if self.cancelled:

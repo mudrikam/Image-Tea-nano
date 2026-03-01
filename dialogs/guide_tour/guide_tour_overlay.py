@@ -160,7 +160,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 2: Add An API Key',
-                    'description': "Image Tea requires an API key to generate metadata. Click the 'Get FREE API Key' button to obtain keys from providers, or use 'Add API Key' to add your own key. You can also purchase API keys from the community via the 'Add API Key' dialog. Supported services include Gemini, OpenAI, and OpenRouter. Image Tea does not provide API keys. You must use your own.",
+                    'description': "Image Tea requires an API key to generate metadata. Click the 'Get API Key' button to obtain keys from providers, or use 'Add API Key' to add your own key. You can also purchase API keys from the community via the 'Add API Key' dialog. Supported services include Gemini, OpenAI, and OpenRouter. Image Tea does not provide API keys. You must use your own.",
                     'targets': ['api_key_section.get_api_btn', 'api_key_section.add_api_btn']
                 },
                 {
@@ -257,7 +257,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Langkah 2: Menambahkan API Key',
-                    'description': "Image Tea membutuhkan API key untuk menghasilkan metadata. Klik tombol 'Get FREE API Key' untuk mendapatkan key dari penyedia, atau tombol 'Add API Key' untuk menambahkan key sendiri. Kamu juga bisa membeli API key dari komunitas melalui dialog 'Add API Key'. Layanan yang didukung termasuk Gemini, OpenAI, dan OpenRouter. Image Tea tidak menyediakan API key. Gunakan API key milikmu sendiri.",
+                    'description': "Image Tea membutuhkan API key untuk menghasilkan metadata. Klik tombol 'Get API Key' untuk mendapatkan key dari penyedia, atau tombol 'Add API Key' untuk menambahkan key sendiri. Kamu juga bisa membeli API key dari komunitas melalui dialog 'Add API Key'. Layanan yang didukung termasuk Gemini, OpenAI, dan OpenRouter. Image Tea tidak menyediakan API key. Gunakan API key milikmu sendiri.",
                     'targets': ['api_key_section.get_api_btn', 'api_key_section.add_api_btn']
                 },
                 {

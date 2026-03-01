@@ -269,7 +269,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                     except Exception:
                         continue
         ext = os.path.splitext(input_path)[1].lower()
-        if ext == ".pdf":
+        if ext in (".pdf", ".ai"):
             args = [
                 GHOSTSCRIPT_PATH,
                 "-dBATCH",
@@ -518,7 +518,7 @@ def compress_and_save_image(image_path):
     filename = os.path.splitext(os.path.basename(image_path))[0] + ".jpg"
     save_path = os.path.join(temp_folder, filename)
 
-    if ext in (".eps", ".pdf"):
+    if ext in (".eps", ".pdf", ".ai"):
         return convert_eps_pdf_to_jpg(image_path, save_path, quality)
     elif ext == ".svg":
         return convert_svg_to_jpg(image_path, save_path, quality)
