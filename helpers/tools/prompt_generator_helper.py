@@ -778,3 +778,328 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
             progress_callback(f"Batch completed! Generated {total_generated} prompts", 100)
         
         return total_generated
+
+
+def load_prompt_generator_parameters_config():
+    """Load prompt_generator_parameters section from ai_config.json"""
+    config_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        params_cfg = data.get('prompt_generator_parameters', {})
+        pg_cfg = data.get('prompt_generator', {})
+
+        settings = params_cfg.get('settings', {})
+        themes_list = params_cfg.get('themes', [])
+        moods_list = params_cfg.get('moods', [])
+        colors_list = params_cfg.get('colors', [])
+        human_model_options = params_cfg.get('human_model_options', [])
+        instructions = params_cfg.get('instructions', pg_cfg.get('instructions', {}))
+        variation_levels = pg_cfg.get('variation_levels', {})
+        aspect_ratios = pg_cfg.get('aspect_ratios', {})
+
+        prompt_type = settings.get('prompt_type', 'image_generation')
+        aspect_ratio = settings.get('aspect_ratio', '16:9')
+        prompt_length = settings.get('prompt_length', 150)
+        prompts_per_batch = min(settings.get('prompts_per_batch', 5), 20)
+        num_requests = max(settings.get('num_requests', 1), 1)
+        variation_level = settings.get('variation_level', 5)
+        human_model = settings.get('human_model', 'No people')
+        custom_instruction = settings.get('custom_instruction', '')
+        theme = settings.get('theme', '')
+        mood = settings.get('mood', '')
+        color = settings.get('color', '')
+
+        return (
+            prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
+            variation_level, human_model, custom_instruction,
+            theme, mood, color,
+            instructions, variation_levels, num_requests
+        )
+    except Exception as e:
+        print(f"Failed to load prompt_generator_parameters config: {e}")
+        return (
+            'image_generation', '16:9', 150, 5, 5,
+            'No people', '', '', '', '', {}, {}, 1
+        )
+
+
+def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
+                                     variation_level, human_model, custom_instruction,
+                                     theme, mood, color,
+                                     instructions, variation_levels):
+    """Build a text-only prompt for parameters-based generation (no reference image)"""
+    from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
+
+    batch_token = generate_token(16)
+    batch_timestamp = generate_timestamp()
+
+    if isinstance(instructions, dict):
+        instruction_text = instructions.get(prompt_type, instructions.get('image_generation', ''))
+    else:
+        instruction_text = str(instructions)
+
+    variation_description = variation_levels.get(str(variation_level), f"Level {variation_level} variation")
+
+    parameters = {
+        "prompt_type": prompt_type,
+        "aspect_ratio": aspect_ratio,
+        "prompt_length_chars": prompt_length,
+        "variation_level": f"{variation_level}/10 — {variation_description}",
+        "human_model": human_model,
+    }
+    if theme and theme.strip():
+        parameters["theme"] = theme.strip()
+    if mood and mood.strip():
+        parameters["mood"] = mood.strip()
+    if color and color.strip():
+        parameters["color_palette"] = color.strip()
+    if custom_instruction and custom_instruction.strip():
+        parameters["additional_instruction"] = custom_instruction.strip()
+
+    prompt_json = {
+        "instruction": instruction_text,
+        "batch_info": {
+            "batch_token": batch_token,
+            "batch_timestamp": batch_timestamp,
+        },
+        "parameters": parameters,
+        "requirements": [
+            f"Generate exactly {prompts_per_batch} unique, creative prompts (max {prompts_per_batch})",
+            f"Each prompt must be approximately {prompt_length} characters long",
+            f"Include aspect ratio {aspect_ratio} in each prompt",
+            f"Apply variation level {variation_level}/10: {variation_description}",
+            "All prompts must be distinct from each other",
+            "Base prompts on the provided parameters only (no reference image)",
+            f"Human model setting: {human_model}",
+        ],
+        "response_format": {
+            "type": "JSON",
+            "structure": {
+                "prompts": [f"prompt {i+1} text here..." for i in range(prompts_per_batch)]
+            },
+            "validation_rules": [
+                f"Return exactly {prompts_per_batch} prompts in the array",
+                "Use double quotes for all strings",
+                "Response must be valid JSON",
+                "NO explanation, markdown, or extra text outside the JSON",
+            ]
+        }
+    }
+
+    return json.dumps(prompt_json, indent=2, ensure_ascii=False)
+
+
+def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
+    """Call AI service with text-only prompt (no image). Returns (prompts_list, token_in, token_out, token_total)."""
+    if stop_flag and stop_flag.get('stop'):
+        return [], 0, 0, 0
+
+    try:
+        if service.lower() == 'gemini':
+            import google.genai as genai
+            from google.genai import types
+
+            if provider_endpoint:
+                try:
+                    from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt_text, image_path=None, timeout=120)
+                    return parse_ai_prompt_response(text, aspect_ratio), 0, 0, 0
+                except Exception as e:
+                    print(f"Gemini custom endpoint text-only error: {e}")
+                    return [], 0, 0, 0
+
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=[prompt_text],
+                config=types.GenerateContentConfig(temperature=0.9, max_output_tokens=5000)
+            )
+            token_input = token_output = token_total = 0
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                token_input = getattr(usage, "prompt_token_count", 0)
+                token_output = getattr(usage, "candidates_token_count", 0)
+                token_total = getattr(usage, "total_token_count", 0)
+            text = None
+            if hasattr(response, "candidates") and response.candidates:
+                try:
+                    text = response.candidates[0].content.parts[0].text
+                except Exception:
+                    text = str(response)
+            elif hasattr(response, "text"):
+                text = response.text
+            else:
+                text = str(response)
+            return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
+
+        elif service.lower() in ('openai', 'openrouter', 'blackbox', 'maia', 'custom'):
+            if service.lower() == 'openai' or service.lower() == 'openrouter':
+                from helpers.ai_helper.openai_helper import create_openai_client
+                client = create_openai_client(api_key)
+            elif service.lower() == 'blackbox':
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key, base_url="https://api.blackbox.ai")
+            elif service.lower() == 'maia':
+                from helpers.ai_helper.maia_helper import create_maia_client
+                client = create_maia_client(api_key)
+            else:
+                if not provider_endpoint:
+                    print("Custom text-only: no endpoint provided")
+                    return [], 0, 0, 0
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key, base_url=provider_endpoint)
+
+            if provider_endpoint and service.lower() not in ('openai', 'openrouter'):
+                try:
+                    from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, service, model, prompt_text, image_path=None, timeout=120)
+                    return parse_ai_prompt_response(text, aspect_ratio), 0, 0, 0
+                except Exception as e:
+                    print(f"{service} custom endpoint text-only error: {e}")
+                    return [], 0, 0, 0
+
+            messages = [{"role": "user", "content": prompt_text}]
+            if stop_flag and stop_flag.get('stop'):
+                return [], 0, 0, 0
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=3000,
+                temperature=0.9
+            )
+            token_input = token_output = token_total = 0
+            usage = getattr(response, "usage", None)
+            if usage:
+                token_input = getattr(usage, "prompt_tokens", 0)
+                token_output = getattr(usage, "completion_tokens", 0)
+                token_total = getattr(usage, "total_tokens", 0)
+            text = None
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    text = choice.message.content
+            if not text:
+                text = str(response)
+            return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
+
+        elif service.lower() == 'groq':
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            messages = [{"role": "user", "content": prompt_text}]
+            if stop_flag and stop_flag.get('stop'):
+                return [], 0, 0, 0
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=3000,
+                temperature=0.9
+            )
+            token_input = token_output = token_total = 0
+            usage = getattr(response, "usage", None)
+            if usage:
+                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+                token_total = getattr(usage, "total_tokens", 0)
+            text = None
+            if hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message"):
+                    text = choice.message.content
+            if not text:
+                text = str(response)
+            return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
+
+        else:
+            print(f"Unsupported service for text-only generation: {service}")
+            return [], 0, 0, 0
+
+    except Exception as e:
+        print(f"Text-only prompt generation error ({service}): {e}")
+        return [], 0, 0, 0
+
+
+def generate_prompts_batch_by_parameters(db, api_key, service, model, stop_flag=None,
+                                         progress_callback=None, prompt_saved_callback=None,
+                                         provider_endpoint=None):
+    """Generate prompts using parameters (no reference image) and save to database."""
+    if stop_flag and stop_flag.get('stop'):
+        return 0
+
+    (
+        prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
+        variation_level, human_model, custom_instruction,
+        selected_themes, selected_moods, selected_colors,
+        instructions, variation_levels, num_requests
+    ) = load_prompt_generator_parameters_config()
+
+    if progress_callback:
+        progress_callback("Building parameters prompt...", 5)
+
+    prompt_text = create_parameters_prompt_request(
+        prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
+        variation_level, human_model, custom_instruction,
+        selected_themes, selected_moods, selected_colors,
+        instructions, variation_levels
+    )
+
+    if stop_flag and stop_flag.get('stop'):
+        return 0
+
+    total_saved = 0
+    total_token_input = 0
+    total_token_output = 0
+    total_token_total = 0
+
+    for req_idx in range(num_requests):
+        if stop_flag and stop_flag.get('stop'):
+            break
+        pct_start = 10 + int((req_idx / num_requests) * 80)
+        if progress_callback:
+            progress_callback(f"Request {req_idx + 1}/{num_requests} — calling {service} ({model})...", pct_start)
+
+        prompts, token_input, token_output, token_total = generate_prompts_text_only(
+            api_key, service, model, prompt_text, aspect_ratio, stop_flag, provider_endpoint
+        )
+
+        if not prompts:
+            if progress_callback:
+                progress_callback(f"Request {req_idx + 1}/{num_requests} — no prompts returned.", pct_start)
+            print(f"generate_prompts_batch_by_parameters: request {req_idx + 1} returned no prompts")
+            continue
+
+        total_token_input += token_input
+        total_token_output += token_output
+        total_token_total += token_total
+
+        if progress_callback:
+            progress_callback(f"Request {req_idx + 1}/{num_requests} — saving {len(prompts)} prompts...", pct_start + 5)
+
+        for prompt_item in prompts:
+            if stop_flag and stop_flag.get('stop'):
+                break
+            try:
+                db.add_generated_prompt(None, prompt_item)
+                total_saved += 1
+                if prompt_saved_callback:
+                    prompt_saved_callback()
+            except Exception as e:
+                print(f"Error saving parameter-generated prompt: {e}")
+
+    if total_token_total > 0:
+        try:
+            db.insert_api_token_stats(
+                filepath='parameters',
+                service=service,
+                model=model,
+                token_input=total_token_input,
+                token_output=total_token_output,
+                token_total=total_token_total
+            )
+        except Exception as e:
+            print(f"Error saving token stats: {e}")
+
+    if progress_callback:
+        progress_callback(f"Done — {total_saved} prompt(s) generated by parameters.", 100)
+
+    return total_saved

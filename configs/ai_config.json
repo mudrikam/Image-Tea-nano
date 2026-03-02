@@ -435,5 +435,83 @@
       "Continue from Stopped": "Continue from previously stopped generation"
     }
   },
+  "prompt_generator_parameters": {
+    "settings": {
+      "prompt_type": "image_generation",
+      "aspect_ratio": "16:9",
+      "prompt_length": 150,
+      "prompts_per_batch": 5,
+      "variation_level": 5,
+      "human_model": "No people",
+      "custom_instruction": "",
+      "theme": "Nature",
+      "mood": "Peaceful",
+      "color": "Warm tones"
+    },
+    "themes": [
+      "Nature",
+      "Urban",
+      "Abstract",
+      "Minimalist",
+      "Fantasy",
+      "Science Fiction",
+      "Vintage",
+      "Modern",
+      "Industrial",
+      "Romantic",
+      "Surreal",
+      "Documentary",
+      "Fashion",
+      "Food & Culinary",
+      "Architecture"
+    ],
+    "moods": [
+      "Peaceful",
+      "Energetic",
+      "Dark",
+      "Bright",
+      "Mysterious",
+      "Melancholic",
+      "Joyful",
+      "Tense",
+      "Serene",
+      "Dramatic",
+      "Nostalgic",
+      "Hopeful",
+      "Eerie",
+      "Whimsical",
+      "Gloomy"
+    ],
+    "colors": [
+      "Warm tones",
+      "Cool tones",
+      "Monochrome",
+      "Pastel",
+      "Vibrant",
+      "Muted",
+      "Earth tones",
+      "Neon",
+      "Black and white",
+      "Sunset",
+      "Golden hour",
+      "Teal and orange",
+      "Rose gold",
+      "Deep blue",
+      "Forest green"
+    ],
+    "human_model_options": [
+      "No people",
+      "Yes - any person",
+      "Yes - woman",
+      "Yes - man",
+      "Yes - group of people",
+      "Yes - child",
+      "Yes - elderly person"
+    ],
+    "instructions": {
+      "image_generation": "Generate creative, detailed prompts for AI image generation based on the provided parameters. Create unique, diverse prompts that match the specified theme, mood, color palette, and other parameters. Each prompt should be vivid and descriptive, suitable for generating high-quality images.",
+      "video_generation": "Generate creative, detailed prompts for AI video generation based on the provided parameters. Create dynamic video prompts that describe motion, camera movements, transitions, and temporal elements matching the specified theme, mood, color palette, and other parameters."
+    }
+  },
   "selected_preset": "Default"
 }
