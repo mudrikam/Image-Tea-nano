@@ -210,10 +210,10 @@ class CSVImportWorker(QThread):
 
 
 class CSVImportProgressDialog(QDialog):
-	"""Progress dialog for CSV import"""
+	"""Progress dialog for prompt import"""
 	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setWindowTitle("Importing CSV")
+		self.setWindowTitle("Importing Prompts")
 		self.setFixedSize(450, 150)
 		self.setModal(True)
 		layout = QVBoxLayout(self)
@@ -787,13 +787,13 @@ class PromptGeneratorDialog(QDialog):
 		self.clear_copied_btn.clicked.connect(self.clear_copied_prompts)
 		toolbar_layout.addWidget(self.clear_copied_btn)
 
-		self.export_btn = QPushButton(qta.icon('fa6s.upload'), " Export CSV")
-		self.export_btn.setToolTip("Export prompts to CSV file")
+		self.export_btn = QPushButton(qta.icon('fa6s.file-export'), " Export")
+		self.export_btn.setToolTip("Export prompts to CSV or TXT file")
 		self.export_btn.clicked.connect(self.export_to_csv)
 		toolbar_layout.addWidget(self.export_btn)
 
-		self.import_btn = QPushButton(qta.icon('fa6s.download'), " Import CSV")
-		self.import_btn.setToolTip("Import prompts from CSV file")
+		self.import_btn = QPushButton(qta.icon('fa6s.file-import'), " Import")
+		self.import_btn.setToolTip("Import prompts from CSV or TXT file")
 		self.import_btn.clicked.connect(self.import_from_csv)
 		toolbar_layout.addWidget(self.import_btn)
 
@@ -967,6 +967,60 @@ class PromptGeneratorDialog(QDialog):
 		var_layout.addLayout(var_btns)
 		inner_tabs.addTab(var_tab, qta.icon('fa6s.sliders'), "Variation Levels")
 
+		# --- Combo Lists tab ---
+		combo_tab = QWidget()
+		combo_layout = QVBoxLayout(combo_tab)
+		combo_layout.setContentsMargins(2, 2, 2, 2)
+		combo_sub = QTabWidget()
+
+		def _make_list_tab(attr_name):
+			w = QWidget()
+			vl = QVBoxLayout(w)
+			vl.setContentsMargins(4, 4, 4, 4)
+			lw = QListWidget()
+			setattr(self, attr_name, lw)
+			vl.addWidget(lw, 1)
+			btns = QHBoxLayout()
+			add_b = QPushButton(qta.icon('fa6s.plus'), " Add")
+			add_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_add_list_item(_lw))
+			edit_b = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+			edit_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_edit_list_item(_lw))
+			del_b = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+			del_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_remove_list_item(_lw))
+			for b in (add_b, edit_b, del_b):
+				btns.addWidget(b)
+			btns.addStretch()
+			vl.addLayout(btns)
+			return w
+
+		ar_tab = QWidget()
+		ar_l = QVBoxLayout(ar_tab)
+		ar_l.setContentsMargins(4, 4, 4, 4)
+		ar_l.addWidget(QLabel("Format:  key | Display Label   (e.g.  16:9 | Widescreen (16:9))"))
+		self.cfg_aspect_ratios_list = QListWidget()
+		ar_l.addWidget(self.cfg_aspect_ratios_list, 1)
+		ar_btns = QHBoxLayout()
+		ar_add = QPushButton(qta.icon('fa6s.plus'), " Add")
+		ar_add.clicked.connect(lambda: self._cfg_add_list_item(self.cfg_aspect_ratios_list))
+		ar_edit = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+		ar_edit.clicked.connect(lambda: self._cfg_edit_list_item(self.cfg_aspect_ratios_list))
+		ar_del = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+		ar_del.clicked.connect(lambda: self._cfg_remove_list_item(self.cfg_aspect_ratios_list))
+		for b in (ar_add, ar_edit, ar_del):
+			ar_btns.addWidget(b)
+		ar_btns.addStretch()
+		ar_l.addLayout(ar_btns)
+
+		combo_sub.addTab(ar_tab, qta.icon('fa6s.crop-simple'), " Ratios")
+		combo_sub.addTab(_make_list_tab('cfg_languages_list'), qta.icon('fa6s.language'), " Languages")
+		combo_sub.addTab(_make_list_tab('cfg_themes_list'), qta.icon('fa6s.palette'), " Themes")
+		combo_sub.addTab(_make_list_tab('cfg_moods_list'), qta.icon('fa6s.face-smile'), " Moods")
+		combo_sub.addTab(_make_list_tab('cfg_colors_list'), qta.icon('fa6s.droplet'), " Colors")
+		combo_sub.addTab(_make_list_tab('cfg_art_styles_list'), qta.icon('fa6s.paintbrush'), " Art Styles")
+		combo_sub.addTab(_make_list_tab('cfg_bg_list'), qta.icon('fa6s.image'), " Backgrounds")
+		combo_layout.addWidget(combo_sub, 1)
+		inner_tabs.addTab(combo_tab, qta.icon('fa6s.list'), "Parameters")
+
 		layout.addWidget(inner_tabs, 1)
 
 		save_row = QHBoxLayout()
@@ -1128,6 +1182,33 @@ class PromptGeneratorDialog(QDialog):
 			item.setData(Qt.UserRole, level_str)
 			self.cfg_variation_list.addItem(item)
 
+		# Load combo lists
+		if hasattr(self, 'cfg_aspect_ratios_list'):
+			try:
+				cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+				with open(cfg_path, 'r', encoding='utf-8') as _f:
+					_full = json.load(_f)
+				_pg = _full.get('prompt_generator', {})
+				_pgp = _full.get('prompt_generator_parameters', {})
+				self.cfg_aspect_ratios_list.clear()
+				for k, v in _pg.get('aspect_ratios', {}).items():
+					self.cfg_aspect_ratios_list.addItem(QListWidgetItem(f"{k} | {v}"))
+				for _attr, _key, _src in [
+					('cfg_languages_list', 'languages', _pgp),
+					('cfg_themes_list', 'themes', _pgp),
+					('cfg_moods_list', 'moods', _pgp),
+					('cfg_colors_list', 'colors', _pgp),
+					('cfg_art_styles_list', 'art_styles', _pgp),
+					('cfg_bg_list', 'backgrounds', _pgp),
+				]:
+					_lw = getattr(self, _attr, None)
+					if _lw:
+						_lw.clear()
+						for _item in _src.get(_key, []):
+							_lw.addItem(QListWidgetItem(_item))
+			except Exception as e:
+				print(f"Failed to load combo lists for config tab: {e}")
+
 	def _save_configure_instructions(self):
 		if not hasattr(self, 'cfg_image_instruction_edit'):
 			return
@@ -1146,11 +1227,44 @@ class PromptGeneratorDialog(QDialog):
 			}
 			if hasattr(self, '_cfg_pg_data') and 'variation_levels' in self._cfg_pg_data:
 				pg_cfg['variation_levels'] = self._cfg_pg_data['variation_levels']
+			# Save aspect ratios
+			if hasattr(self, 'cfg_aspect_ratios_list'):
+				ar_dict = {}
+				for i in range(self.cfg_aspect_ratios_list.count()):
+					entry = self.cfg_aspect_ratios_list.item(i).text()
+					if '|' in entry:
+						k, v = entry.split('|', 1)
+						k = k.strip()
+						v = v.strip()
+						if k:
+							ar_dict[k] = v
+					else:
+						text = entry.strip()
+						if text:
+							ar_dict[text] = text
+				if ar_dict:
+					pg_cfg['aspect_ratios'] = ar_dict
+			# Save parameter combo lists
+			if hasattr(self, 'cfg_languages_list'):
+				pgp_cfg = full_cfg.get('prompt_generator_parameters', {})
+				for _attr, _key in [
+					('cfg_languages_list', 'languages'),
+					('cfg_themes_list', 'themes'),
+					('cfg_moods_list', 'moods'),
+					('cfg_colors_list', 'colors'),
+					('cfg_art_styles_list', 'art_styles'),
+					('cfg_bg_list', 'backgrounds'),
+				]:
+					_lw = getattr(self, _attr, None)
+					if _lw:
+						pgp_cfg[_key] = [_lw.item(i).text() for i in range(_lw.count())]
+				full_cfg['prompt_generator_parameters'] = pgp_cfg
 			full_cfg['prompt_generator'] = pg_cfg
 			with open(cfg_path, 'w', encoding='utf-8') as f:
 				json.dump(full_cfg, f, indent=2, ensure_ascii=False)
 			self._append_log("Prompt generator configuration saved.")
 			print("Prompt generator configuration saved successfully")
+			self._reload_combo_lists()
 		except Exception as e:
 			print(f"Failed to save prompt generator configuration: {e}")
 
@@ -1218,6 +1332,97 @@ class PromptGeneratorDialog(QDialog):
 			self._cfg_pg_data['variation_levels'][level_str] = text
 			display_text = f"Level {level_str}: {text[:50]}{'...' if len(text) > 50 else ''}"
 			current_item.setText(display_text)
+
+	def _cfg_add_list_item(self, list_widget):
+		prompt = "Enter new item:"
+		if hasattr(self, 'cfg_aspect_ratios_list') and list_widget is self.cfg_aspect_ratios_list:
+			prompt = "Enter as:  key | Display Label\n(e.g.  16:9 | Widescreen (16:9))"
+		text = self._cfg_requirement_dialog("Add Item", prompt)
+		if text:
+			list_widget.addItem(QListWidgetItem(text))
+
+	def _cfg_edit_list_item(self, list_widget):
+		current_item = list_widget.currentItem()
+		if not current_item:
+			return
+		prompt = "Edit item:"
+		if hasattr(self, 'cfg_aspect_ratios_list') and list_widget is self.cfg_aspect_ratios_list:
+			prompt = "Edit as:  key | Display Label\n(e.g.  16:9 | Widescreen (16:9))"
+		text = self._cfg_requirement_dialog("Edit Item", prompt, current_item.text())
+		if text:
+			current_item.setText(text)
+
+	def _cfg_remove_list_item(self, list_widget):
+		current_item = list_widget.currentItem()
+		if not current_item:
+			return
+		reply = QMessageBox.question(self, "Delete Item", "Delete this item?",
+									 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+		if reply == QMessageBox.Yes:
+			list_widget.takeItem(list_widget.row(current_item))
+
+	def _reload_combo_lists(self):
+		cfg = self._load_ai_config()
+		if not cfg:
+			return
+		pg = cfg.get('prompt_generator', {})
+		pgp = cfg.get('prompt_generator_parameters', {})
+		prompt_types = pg.get('prompt_types', {})
+		aspect_ratios = pg.get('aspect_ratios', {})
+		languages = pgp.get('languages', [])
+
+		for attr, items_dict, current_fn in [
+			('ref_aspect_ratio_combo', aspect_ratios, None),
+			('ref_prompt_type_combo', prompt_types, None),
+			('param_aspect_ratio_combo', aspect_ratios, None),
+			('param_prompt_type_combo', prompt_types, None),
+		]:
+			if not hasattr(self, attr):
+				continue
+			combo = getattr(self, attr)
+			current_data = combo.currentData()
+			combo.blockSignals(True)
+			combo.clear()
+			for k, v in items_dict.items():
+				combo.addItem(v, k)
+			idx = combo.findData(current_data)
+			if idx >= 0:
+				combo.setCurrentIndex(idx)
+			combo.blockSignals(False)
+
+		if hasattr(self, 'param_language_combo'):
+			current_lang = self.param_language_combo.currentText()
+			self.param_language_combo.blockSignals(True)
+			self.param_language_combo.clear()
+			for lang in languages:
+				self.param_language_combo.addItem(lang)
+			idx = self.param_language_combo.findText(current_lang)
+			if idx >= 0:
+				self.param_language_combo.setCurrentIndex(idx)
+			self.param_language_combo.blockSignals(False)
+
+		for attr, cfg_key in [
+			('param_themes_combo', 'themes'),
+			('param_moods_combo', 'moods'),
+			('param_colors_combo', 'colors'),
+			('param_art_style_combo', 'art_styles'),
+			('param_bg_combo', 'backgrounds'),
+		]:
+			if not hasattr(self, attr):
+				continue
+			combo = getattr(self, attr)
+			current_text = combo.currentText()
+			combo.blockSignals(True)
+			combo.clear()
+			combo.addItem('\u2014 None \u2014')
+			for item in pgp.get(cfg_key, []):
+				combo.addItem(item)
+			idx = combo.findText(current_text)
+			if idx >= 0:
+				combo.setCurrentIndex(idx)
+			combo.blockSignals(False)
+
+		print("Combo lists reloaded successfully")
 
 	def on_api_key_changed(self, api_key, service, model):
 		self.api_key = api_key
@@ -2142,22 +2347,37 @@ class PromptGeneratorDialog(QDialog):
 			if not all_prompts:
 				QMessageBox.information(self, "Export", "No prompts to export")
 				return
+
+			from dialogs.tools.prompt_io_dialogs import ExportSettingsDialog, build_export_content
+			settings_dialog = ExportSettingsDialog(self)
+			if settings_dialog.exec() != ExportSettingsDialog.Accepted:
+				return
+			settings = settings_dialog.settings
+
+			prompt_texts = [row[2] for row in all_prompts]
+			content, ext = build_export_content(prompt_texts, settings)
+
 			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-			default_filename = f"Image_Tea_Generated_Prompts_{timestamp}.csv"
+			default_filename = f"Image_Tea_Generated_Prompts_{timestamp}.{ext}"
 			home_dir = os.path.expanduser("~")
 			default_path = os.path.join(home_dir, default_filename)
+
+			if ext == 'csv':
+				file_filter = "CSV Files (*.csv);;All Files (*)"
+			else:
+				file_filter = "Text Files (*.txt);;All Files (*)"
+
 			filename, _ = QFileDialog.getSaveFileName(
-				self, "Export Prompts to CSV", default_path,
-				"CSV Files (*.csv);;All Files (*)"
+				self, "Save Exported Prompts", default_path, file_filter
 			)
 			if not filename:
 				return
-			with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-				writer = csv.writer(csvfile)
-				for row in all_prompts:
-					writer.writerow([row[2]])
-			self._append_log(f"Exported {len(all_prompts)} prompts to {os.path.basename(filename)}")
-			QMessageBox.information(self, "Export Complete", f"Exported {len(all_prompts)} prompts to:\n{filename}")
+
+			with open(filename, 'w', encoding='utf-8', newline='') as f:
+				f.write(content)
+
+			self._append_log(f"Exported {len(prompt_texts)} prompts to {os.path.basename(filename)}")
+			QMessageBox.information(self, "Export Complete", f"Exported {len(prompt_texts)} prompts to:\n{filename}")
 		except Exception as e:
 			print(f"Failed to export prompts: {e}")
 			QMessageBox.critical(self, "Export Error", "Failed to export prompts — check console for details")
@@ -2165,17 +2385,18 @@ class PromptGeneratorDialog(QDialog):
 	def import_from_csv(self):
 		try:
 			filename, _ = QFileDialog.getOpenFileName(
-				self, "Import Prompts from CSV",
+				self, "Import Prompts",
 				os.path.expanduser("~"),
-				"CSV files (*.csv);;All files (*.*)"
+				"Supported files (*.csv *.txt);;CSV files (*.csv);;Text files (*.txt);;All files (*.*)"
 			)
 			if not filename:
 				return
 			if not self.db:
 				QMessageBox.critical(self, "Import Error", "Database connection not available.")
 				return
+			from dialogs.tools.prompt_io_dialogs import SmartImportWorker
 			progress_dialog = CSVImportProgressDialog(self)
-			worker = CSVImportWorker(self.db, filename)
+			worker = SmartImportWorker(self.db, filename)
 			progress_dialog.worker = worker
 			worker.progress_updated.connect(progress_dialog.update_progress)
 			worker.progress_value_changed.connect(progress_dialog.update_progress_value)
@@ -2195,8 +2416,8 @@ class PromptGeneratorDialog(QDialog):
 		try:
 			self.load_prompts_from_db()
 			self.update_pagination()
-			self._append_log(f"Imported {imported_count} prompts from CSV.")
-			print(f"Successfully imported {imported_count} prompts from CSV")
+			self._append_log(f"Imported {imported_count} prompts.")
+			print(f"Successfully imported {imported_count} prompts")
 		except Exception as e:
 			print(f"Error refreshing table after import: {e}")
 
