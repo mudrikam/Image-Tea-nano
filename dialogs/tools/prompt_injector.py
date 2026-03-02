@@ -17,6 +17,7 @@ from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QI
 import qtawesome as qta
 from helpers.tools import prompt_injector_helper
 from config import BASE_PATH
+from ui.theme_system import theme
 from database.db_operation import ImageTeaDB
 from dialogs.tools.icon_picker_dialog import IconPickerDialog
 
@@ -79,7 +80,7 @@ class PointWidget(QWidget):
 				self.hide()
 				self.show()
 
-	def __init__(self, point_id: int, color_hex: str, icon_name: str = "location-dot",
+	def __init__(self, point_id: int, color_hex: str, icon_name: str = "location-crosshairs",
 				 icon_style: str = "solid", size: int = 32, name: str = "Point", parent=None):
 		flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
 		super().__init__(parent, flags)
@@ -195,7 +196,7 @@ class AddEditPointDialog(QDialog):
 		super().__init__(parent)
 		self._is_edit = point_data is not None
 		self._point_data = point_data or {}
-		self._selected_icon = self._point_data.get("icon", "location-dot")
+		self._selected_icon = self._point_data.get("icon", "location-crosshairs")
 		self._selected_icon_style = self._point_data.get("icon_style", "solid")
 		self._selected_color = self._point_data.get("color", "#ff4d4d")
 		self.setWindowTitle("Edit Point" if self._is_edit else "Add New Point")
@@ -413,7 +414,7 @@ class PointItemWidget(QWidget):
 		prefix_map = {"solid": "fa6s", "regular": "fa6r", "brands": "fa6b"}
 		icon_style = self._point_data.get("icon_style", "solid")
 		prefix = prefix_map.get(icon_style, "fa6s")
-		icon_name = self._point_data.get("icon", "location-dot")
+		icon_name = self._point_data.get("icon", "location-crosshairs")
 		full_icon = f"{prefix}.{icon_name}" if "." not in icon_name else icon_name
 
 		icon_lbl = QLabel()
@@ -702,20 +703,20 @@ class PromptInjectorDialog(QDialog):
 		layout.addWidget(self.delay_label)
 
 		h_btns = QHBoxLayout()
-		self.btn_action = QPushButton(qta.icon('fa6s.play'), " Run Action")
+		self.btn_action = QPushButton(qta.icon('fa6s.play', color=theme.get_color('primary')), " Run Action")
 		self.btn_action.setIconSize(QSize(16, 16))
 		self.btn_action.setToolTip("Start the automation: all enabled points run in order for each prompt.")
 		self.btn_action.clicked.connect(self.on_run_automation)
 		h_btns.addWidget(self.btn_action)
 
-		self.btn_pause = QPushButton(qta.icon('fa6s.pause'), " Pause")
+		self.btn_pause = QPushButton(qta.icon('fa6s.pause', color=theme.get_color('warning')), " Pause")
 		self.btn_pause.setIconSize(QSize(16, 16))
 		self.btn_pause.setEnabled(False)
 		self.btn_pause.setToolTip("Pause or resume automation. Esc key also pauses.")
 		self.btn_pause.clicked.connect(self.on_pause_toggle)
 		h_btns.addWidget(self.btn_pause)
 
-		self.btn_stop = QPushButton(qta.icon('fa6s.stop'), " Stop")
+		self.btn_stop = QPushButton(qta.icon('fa6s.stop', color=theme.get_color('error')), " Stop")
 		self.btn_stop.setIconSize(QSize(16, 16))
 		self.btn_stop.setEnabled(False)
 		self.btn_stop.setToolTip("Stop automation immediately.")
@@ -797,7 +798,7 @@ class PromptInjectorDialog(QDialog):
 		pw = PointWidget(
 			point_id=point_data['id'],
 			color_hex=point_data.get('color', '#ff4d4d'),
-			icon_name=point_data.get('icon', 'location-dot'),
+			icon_name=point_data.get('icon', 'location-crosshairs'),
 			icon_style=point_data.get('icon_style', 'solid'),
 			size=point_data.get('size', 32),
 			name=point_data.get('name', 'Point'),
@@ -1695,7 +1696,7 @@ class PromptInjectorDialog(QDialog):
 		for i, pt in enumerate(data["points"]):
 			self.db.add_prompt_injector_point(
 				name=pt.get("name", "Point"),
-				icon=pt.get("icon", "location-dot"),
+				icon=pt.get("icon", "location-crosshairs"),
 				icon_style=pt.get("icon_style", "solid"),
 				color=pt.get("color", "#ff4d4d"),
 				size=pt.get("size", 32),
