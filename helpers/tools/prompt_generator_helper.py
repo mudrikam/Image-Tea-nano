@@ -719,6 +719,59 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
         print(f"Error in generate_prompts_for_all_files: {e}")
         return 0
 
+def generate_prompts_from_folder(db, api_key, service, model, folder_files, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
+    """Generate prompts for a list of image file paths from a local folder (not from DB)"""
+    if stop_flag and stop_flag.get('stop'):
+        return 0
+
+    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
+
+    total_generated = 0
+    total = len(folder_files)
+
+    for i, filepath in enumerate(folder_files):
+        if stop_flag and stop_flag.get('stop'):
+            break
+
+        filename = os.path.basename(filepath)
+        if file_callback:
+            file_callback(filename)
+
+        progress_percent = (i / total) * 100 if total > 0 else 0
+        if progress_callback:
+            progress_callback(f"Generating prompts for {filename}... ({i+1}/{total})", progress_percent)
+
+        file_info = (None, filepath, filename, '', '', '', 'active', filename)
+
+        prompts_data = generate_prompts_for_file(
+            api_key, service, model, file_info,
+            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
+        )
+
+        for prompt_data in prompts_data:
+            try:
+                if isinstance(prompt_data, dict):
+                    db.add_generated_prompt(None, prompt_data['prompt'])
+                    if prompt_saved_callback:
+                        prompt_saved_callback()
+                else:
+                    db.add_generated_prompt(None, prompt_data)
+                total_generated += 1
+            except Exception as e:
+                print(f"Error saving prompt from folder file {filename}: {e}")
+
+        if i < total - 1:
+            delay_seconds = get_delay_interval()
+            if progress_callback:
+                progress_callback(f"Waiting {delay_seconds:.1f}s before next file...", progress_percent)
+            time.sleep(delay_seconds)
+
+    if progress_callback:
+        progress_callback(f"Folder generation completed! Generated {total_generated} prompts", 100)
+
+    return total_generated
+
+
 def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
     """Generate prompts for specific files or all files if file_ids is None"""
     if stop_flag and stop_flag.get('stop'):
@@ -807,27 +860,43 @@ def load_prompt_generator_parameters_config():
         human_model = settings.get('human_model', 'No people')
         custom_instruction = settings.get('custom_instruction', '')
         theme = settings.get('theme', '')
+        if theme == '\u2014 None \u2014':
+            theme = ''
         mood = settings.get('mood', '')
+        if mood == '\u2014 None \u2014':
+            mood = ''
         color = settings.get('color', '')
+        if color == '\u2014 None \u2014':
+            color = ''
+        language = settings.get('language', 'English (Default)')
+        art_style = settings.get('art_style', '')
+        if art_style == '\u2014 None \u2014':
+            art_style = ''
+        background = settings.get('background', '')
+        if background == '\u2014 None \u2014':
+            background = ''
 
         return (
             prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
             variation_level, human_model, custom_instruction,
             theme, mood, color,
-            instructions, variation_levels, num_requests
+            instructions, variation_levels, num_requests,
+            language, art_style, background
         )
     except Exception as e:
         print(f"Failed to load prompt_generator_parameters config: {e}")
         return (
             'image_generation', '16:9', 150, 5, 5,
-            'No people', '', '', '', '', {}, {}, 1
+            'No people', '', '', '', '', {}, {}, 1,
+            'English (Default)', '', ''
         )
 
 
 def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
                                      variation_level, human_model, custom_instruction,
                                      theme, mood, color,
-                                     instructions, variation_levels):
+                                     instructions, variation_levels,
+                                     language=None, art_style=None, background=None):
     """Build a text-only prompt for parameters-based generation (no reference image)"""
     from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 
@@ -848,12 +917,18 @@ def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, p
         "variation_level": f"{variation_level}/10 — {variation_description}",
         "human_model": human_model,
     }
+    if language and language not in ('English (Default)', ''):
+        parameters["output_language"] = language
     if theme and theme.strip():
         parameters["theme"] = theme.strip()
     if mood and mood.strip():
         parameters["mood"] = mood.strip()
     if color and color.strip():
         parameters["color_palette"] = color.strip()
+    if art_style and art_style.strip():
+        parameters["art_style"] = art_style.strip()
+    if background and background.strip():
+        parameters["background"] = background.strip()
     if custom_instruction and custom_instruction.strip():
         parameters["additional_instruction"] = custom_instruction.strip()
 
@@ -1030,7 +1105,8 @@ def generate_prompts_batch_by_parameters(db, api_key, service, model, stop_flag=
         prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
         variation_level, human_model, custom_instruction,
         selected_themes, selected_moods, selected_colors,
-        instructions, variation_levels, num_requests
+        instructions, variation_levels, num_requests,
+        language, art_style, background
     ) = load_prompt_generator_parameters_config()
 
     if progress_callback:
@@ -1040,7 +1116,8 @@ def generate_prompts_batch_by_parameters(db, api_key, service, model, stop_flag=
         prompt_type, aspect_ratio, prompt_length, prompts_per_batch,
         variation_level, human_model, custom_instruction,
         selected_themes, selected_moods, selected_colors,
-        instructions, variation_levels
+        instructions, variation_levels,
+        language=language, art_style=art_style, background=background
     )
 
     if stop_flag and stop_flag.get('stop'):

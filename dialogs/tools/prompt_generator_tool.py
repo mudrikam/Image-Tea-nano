@@ -63,18 +63,33 @@ class PromptGeneratorWorker(QThread):
 			except Exception as e:
 				print(f"Error resolving provider_endpoint for Prompt Generator: {e}")
 
-			total_generated = generate_prompts_batch(
-				db=self.db,
-				api_key=self.api_key,
-				service=self.service,
-				model=self.model,
-				file_ids=None,
-				stop_flag=self.stop_flag,
-				progress_callback=progress_callback,
-				prompt_saved_callback=prompt_saved_callback,
-				file_callback=file_callback,
-				provider_endpoint=provider_endpoint
-			)
+			if self.folder_files is not None:
+				from helpers.tools.prompt_generator_helper import generate_prompts_from_folder
+				total_generated = generate_prompts_from_folder(
+					db=self.db,
+					api_key=self.api_key,
+					service=self.service,
+					model=self.model,
+					folder_files=self.folder_files,
+					stop_flag=self.stop_flag,
+					progress_callback=progress_callback,
+					prompt_saved_callback=prompt_saved_callback,
+					file_callback=file_callback,
+					provider_endpoint=provider_endpoint
+				)
+			else:
+				total_generated = generate_prompts_batch(
+					db=self.db,
+					api_key=self.api_key,
+					service=self.service,
+					model=self.model,
+					file_ids=None,
+					stop_flag=self.stop_flag,
+					progress_callback=progress_callback,
+					prompt_saved_callback=prompt_saved_callback,
+					file_callback=file_callback,
+					provider_endpoint=provider_endpoint
+				)
 			self.finished.emit(total_generated)
 		except Exception as e:
 			self.error_occurred.emit(str(e))
@@ -249,6 +264,11 @@ class PromptGeneratorDialog(QDialog):
 		self._gen_start_time = None
 		self._gen_estimated_total = 0
 		self._gen_prompts_at_start = 0
+		self._ref_folder_files = []
+		self._random_mode_active = False
+		self._random_requests_remaining = 0
+		self._random_original_num_requests = 1
+		self._random_total_generated = 0
 
 		from database import db_operation
 		self.db = db_operation.ImageTeaDB()
@@ -303,6 +323,7 @@ class PromptGeneratorDialog(QDialog):
 	def _build_left_panel(self):
 		self.left_tabs = QTabWidget()
 		self.left_tabs.setTabPosition(QTabWidget.North)
+		self.left_tabs.setMinimumWidth(340)
 		self.left_tabs.currentChanged.connect(self._on_left_tab_changed)
 
 		ref_tab = self._build_reference_tab()
@@ -331,6 +352,24 @@ class PromptGeneratorDialog(QDialog):
 			h.addWidget(lbl)
 			h.addWidget(widget_obj, 1)
 			layout.addLayout(h)
+
+		self.ref_source_combo = QComboBox()
+		self.ref_source_combo.addItem("Load from Database", "database")
+		self.ref_source_combo.addItem("Loaded Folder", "folder")
+		add_row("Source", self.ref_source_combo)
+
+		self._ref_folder_row = QWidget()
+		self._ref_folder_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		_frl = QHBoxLayout(self._ref_folder_row)
+		_frl.setContentsMargins(0, 0, 0, 0)
+		_frl.setSpacing(4)
+		_flbl = QLabel("Folder")
+		_flbl.setMinimumWidth(120)
+		_frl.addWidget(_flbl)
+		self.ref_load_folder_btn = QPushButton(qta.icon('fa6s.folder-open'), " Load Folder")
+		_frl.addWidget(self.ref_load_folder_btn, 1)
+		self._ref_folder_row.setVisible(False)
+		layout.addWidget(self._ref_folder_row)
 
 		self.ref_prompt_type_combo = QComboBox()
 		self.ref_prompt_type_combo.setToolTip("Select prompt generation type")
@@ -403,6 +442,8 @@ class PromptGeneratorDialog(QDialog):
 		self.ref_variation_spin.valueChanged.connect(self._save_reference_options)
 		self.ref_prompt_type_combo.currentIndexChanged.connect(self._save_reference_options)
 		self.ref_aspect_ratio_combo.currentIndexChanged.connect(self._save_reference_options)
+		self.ref_source_combo.currentIndexChanged.connect(self._on_ref_source_changed)
+		self.ref_load_folder_btn.clicked.connect(self._load_ref_folder)
 
 		layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -422,11 +463,13 @@ class PromptGeneratorDialog(QDialog):
 		scroll.setFrameShape(QFrame.NoFrame)
 		scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 		scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-		scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-		scroll.viewport().setStyleSheet("background: transparent;")
+		scroll.setObjectName("paramScrollArea")
+		scroll.setStyleSheet("QScrollArea#paramScrollArea { background: transparent; border: none; }")
+		scroll.viewport().setAutoFillBackground(False)
 		inner_widget = QWidget()
 		inner_widget.setAutoFillBackground(False)
 		inner_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		inner_widget.setMinimumWidth(310)
 		layout = QVBoxLayout(inner_widget)
 		layout.setSpacing(8)
 		layout.setContentsMargins(8, 8, 8, 8)
@@ -461,6 +504,20 @@ class PromptGeneratorDialog(QDialog):
 				self.param_prompt_type_combo.setCurrentIndex(i)
 				break
 		add_row("Type", self.param_prompt_type_combo)
+
+		languages_list = params_cfg.get('languages', [
+			"English (Default)", "Indonesian / Bahasa Indonesia", "Japanese / 日本語",
+			"Chinese Simplified / 简体中文", "Korean / 한국어", "Spanish / Español",
+			"French / Français", "German / Deutsch", "Portuguese / Português", "Arabic / العربية",
+		])
+		self.param_language_combo = QComboBox()
+		for lang in languages_list:
+			self.param_language_combo.addItem(lang)
+		saved_lang = p_settings.get('language', 'English (Default)')
+		idx_lang = self.param_language_combo.findText(saved_lang)
+		if idx_lang >= 0:
+			self.param_language_combo.setCurrentIndex(idx_lang)
+		add_row("Language", self.param_language_combo)
 
 		self.param_aspect_ratio_combo = QComboBox()
 		if aspect_ratios:
@@ -505,16 +562,27 @@ class PromptGeneratorDialog(QDialog):
 		self.param_variation_spin.setToolTip("Variation level between prompts (1=very similar, 10=completely different)")
 		add_row("Variation", self.param_variation_spin)
 
+		saved_gen_mode = p_settings.get('gen_mode', 'user_defined')
+		self.param_gen_mode_combo = QComboBox()
+		self.param_gen_mode_combo.addItem(qta.icon('fa6s.pen'), " User Defined", "user_defined")
+		self.param_gen_mode_combo.addItem(qta.icon('fa6s.shuffle'), " Random Parameters", "random")
+		idx_gm = self.param_gen_mode_combo.findData(saved_gen_mode)
+		if idx_gm >= 0:
+			self.param_gen_mode_combo.setCurrentIndex(idx_gm)
+		self.param_gen_mode_combo.setToolTip("User Defined: pick values manually. Random: auto-randomize Theme, Mood, Color, Art Style & Background before each generation.")
+		add_row("Mode", self.param_gen_mode_combo)
+
 		themes_list = params_cfg.get('themes', [])
 		themes_row = QHBoxLayout()
 		themes_row.addWidget(QLabel("Theme:"))
 		self.param_themes_combo = QComboBox()
 		self.param_themes_combo.setEditable(True)
 		self.param_themes_combo.setToolTip("Select or type a custom theme")
+		self.param_themes_combo.addItem("— None —")
 		for t in themes_list:
 			self.param_themes_combo.addItem(t)
 		saved_theme = p_settings.get('theme', '')
-		if saved_theme:
+		if saved_theme and saved_theme != '— None —':
 			idx_t = self.param_themes_combo.findText(saved_theme)
 			if idx_t >= 0:
 				self.param_themes_combo.setCurrentIndex(idx_t)
@@ -534,10 +602,11 @@ class PromptGeneratorDialog(QDialog):
 		self.param_moods_combo = QComboBox()
 		self.param_moods_combo.setEditable(True)
 		self.param_moods_combo.setToolTip("Select or type a custom mood")
+		self.param_moods_combo.addItem("— None —")
 		for m in moods_list:
 			self.param_moods_combo.addItem(m)
 		saved_mood = p_settings.get('mood', '')
-		if saved_mood:
+		if saved_mood and saved_mood != '— None —':
 			idx_m = self.param_moods_combo.findText(saved_mood)
 			if idx_m >= 0:
 				self.param_moods_combo.setCurrentIndex(idx_m)
@@ -557,10 +626,11 @@ class PromptGeneratorDialog(QDialog):
 		self.param_colors_combo = QComboBox()
 		self.param_colors_combo.setEditable(True)
 		self.param_colors_combo.setToolTip("Select or type a custom color palette")
+		self.param_colors_combo.addItem("— None —")
 		for c in colors_list:
 			self.param_colors_combo.addItem(c)
 		saved_color = p_settings.get('color', '')
-		if saved_color:
+		if saved_color and saved_color != '— None —':
 			idx_c = self.param_colors_combo.findText(saved_color)
 			if idx_c >= 0:
 				self.param_colors_combo.setCurrentIndex(idx_c)
@@ -573,6 +643,65 @@ class PromptGeneratorDialog(QDialog):
 		colors_row.addWidget(add_color_btn)
 		add_color_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_colors_combo, 'colors'))
 		layout.addLayout(colors_row)
+
+		art_styles_list = params_cfg.get('art_styles', [])
+		art_styles_row = QHBoxLayout()
+		art_styles_row.addWidget(QLabel("Art Style:"))
+		self.param_art_style_combo = QComboBox()
+		self.param_art_style_combo.setEditable(True)
+		self.param_art_style_combo.setToolTip("Select or type a custom art style")
+		self.param_art_style_combo.addItem("— None —")
+		for s in art_styles_list:
+			self.param_art_style_combo.addItem(s)
+		saved_as = p_settings.get('art_style', '')
+		if saved_as and saved_as != '— None —':
+			idx_as = self.param_art_style_combo.findText(saved_as)
+			if idx_as >= 0:
+				self.param_art_style_combo.setCurrentIndex(idx_as)
+			else:
+				self.param_art_style_combo.setCurrentText(saved_as)
+		art_styles_row.addWidget(self.param_art_style_combo, 1)
+		add_art_style_btn = QPushButton(qta.icon('fa6s.plus'), "")
+		add_art_style_btn.setFixedSize(24, 24)
+		add_art_style_btn.setToolTip("Add current text to art style list")
+		art_styles_row.addWidget(add_art_style_btn)
+		add_art_style_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_art_style_combo, 'art_styles'))
+		layout.addLayout(art_styles_row)
+
+		bg_list = params_cfg.get('backgrounds', [])
+		bg_row = QHBoxLayout()
+		bg_row.addWidget(QLabel("Background:"))
+		self.param_bg_combo = QComboBox()
+		self.param_bg_combo.setEditable(True)
+		self.param_bg_combo.setToolTip("Select or type a custom background")
+		self.param_bg_combo.addItem("— None —")
+		for b in bg_list:
+			self.param_bg_combo.addItem(b)
+		saved_bg = p_settings.get('background', '')
+		if saved_bg and saved_bg != '— None —':
+			idx_bg = self.param_bg_combo.findText(saved_bg)
+			if idx_bg >= 0:
+				self.param_bg_combo.setCurrentIndex(idx_bg)
+			else:
+				self.param_bg_combo.setCurrentText(saved_bg)
+		bg_row.addWidget(self.param_bg_combo, 1)
+		add_bg_btn = QPushButton(qta.icon('fa6s.plus'), "")
+		add_bg_btn.setFixedSize(24, 24)
+		add_bg_btn.setToolTip("Add current text to background list")
+		bg_row.addWidget(add_bg_btn)
+		add_bg_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_bg_combo, 'backgrounds'))
+		pick_color_btn = QPushButton(qta.icon('fa6s.palette'), "")
+		pick_color_btn.setFixedSize(24, 24)
+		pick_color_btn.setToolTip("Pick a custom background color")
+		pick_color_btn.clicked.connect(self._pick_background_color)
+		bg_row.addWidget(pick_color_btn)
+		layout.addLayout(bg_row)
+
+		self._random_mode_hint_label = QLabel("\u26a1 Theme, Mood, Color, Art Style & Background will be auto-randomized before each generation")
+		self._random_mode_hint_label.setWordWrap(True)
+		self._random_mode_hint_label.setStyleSheet("color: #f59e0b; font-size: 10px; padding: 2px 0;")
+		self._random_mode_hint_label.setVisible(saved_gen_mode == 'random')
+		layout.addWidget(self._random_mode_hint_label)
 
 		human_model_options = params_cfg.get('human_model_options', [])
 		self.param_human_model_combo = QComboBox()
@@ -605,11 +734,18 @@ class PromptGeneratorDialog(QDialog):
 		self.param_prompt_length_spin.valueChanged.connect(self._save_parameters_to_config)
 		self.param_prompts_per_batch_spin.valueChanged.connect(self._save_parameters_to_config)
 		self.param_num_requests_spin.valueChanged.connect(self._save_parameters_to_config)
+		self.param_num_requests_spin.valueChanged.connect(self.update_stats_display)
+		self.param_prompts_per_batch_spin.valueChanged.connect(self.update_stats_display)
 		self.param_variation_spin.valueChanged.connect(self._save_parameters_to_config)
 		self.param_human_model_combo.currentTextChanged.connect(self._save_parameters_to_config)
 		self.param_themes_combo.currentTextChanged.connect(self._save_parameters_to_config)
 		self.param_moods_combo.currentTextChanged.connect(self._save_parameters_to_config)
 		self.param_colors_combo.currentTextChanged.connect(self._save_parameters_to_config)
+		self.param_art_style_combo.currentTextChanged.connect(self._save_parameters_to_config)
+		self.param_bg_combo.currentTextChanged.connect(self._save_parameters_to_config)
+		self.param_language_combo.currentIndexChanged.connect(self._save_parameters_to_config)
+		self.param_gen_mode_combo.currentIndexChanged.connect(self._on_param_mode_changed)
+		self.param_gen_mode_combo.currentIndexChanged.connect(self._save_parameters_to_config)
 
 		return widget
 
@@ -1171,15 +1307,22 @@ class PromptGeneratorDialog(QDialog):
 		if self.worker and self.worker.isRunning():
 			return
 
-		total_files = self.db.get_files_count() if hasattr(self.db, "get_files_count") else 0
-		if total_files == 0:
-			QMessageBox.information(
-				self,
-				"No reference images",
-				"No reference images were found in Image-Tea.\n"
-				"Add images or videos to your library and try again."
-			)
-			return
+		use_folder = hasattr(self, 'ref_source_combo') and self.ref_source_combo.currentData() == 'folder'
+		if use_folder:
+			if not self._ref_folder_files:
+				QMessageBox.information(self, "No folder loaded", "Please load a reference folder first using the Load Folder button.")
+				return
+			total_files = len(self._ref_folder_files)
+		else:
+			total_files = self.db.get_files_count() if hasattr(self.db, "get_files_count") else 0
+			if total_files == 0:
+				QMessageBox.information(
+					self,
+					"No reference images",
+					"No reference images were found in Image-Tea.\n"
+					"Add images or videos to your library and try again."
+				)
+				return
 
 		prompts_per_file = self.ref_prompts_per_file_spin.value() if hasattr(self, 'ref_prompts_per_file_spin') else 1
 		self._gen_estimated_total = total_files * prompts_per_file
@@ -1195,11 +1338,13 @@ class PromptGeneratorDialog(QDialog):
 		if hasattr(self, '_stats_tick_timer'):
 			self._stats_tick_timer.start(1000)
 
-		self._append_log(f"Starting generation by reference — {total_files} file(s) found.")
-		print("Starting prompt generation by reference...")
+		source_label = "folder" if use_folder else "database"
+		self._append_log(f"Starting generation by reference ({source_label}) — {total_files} file(s) found.")
+		print(f"Starting prompt generation by reference ({source_label})...")
 
 		self.worker = PromptGeneratorWorker(
-			self.db, self.api_key, self.selected_service, self.selected_model_name
+			self.db, self.api_key, self.selected_service, self.selected_model_name,
+			folder_files=self._ref_folder_files if use_folder else None
 		)
 		self.worker.progress_updated.connect(self.on_generation_progress)
 		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
@@ -1219,6 +1364,55 @@ class PromptGeneratorDialog(QDialog):
 		if self.worker and self.worker.isRunning():
 			return
 
+		is_random = hasattr(self, 'param_gen_mode_combo') and self.param_gen_mode_combo.currentData() == 'random'
+		if is_random:
+			num_requests = self.param_num_requests_spin.value() if hasattr(self, 'param_num_requests_spin') else 1
+			self._random_requests_remaining = num_requests
+			self._random_original_num_requests = num_requests
+			self._random_mode_active = True
+			self._random_total_generated = 0
+			self.is_generating = True
+			self._lock_left_tabs(True)
+			self.update_generate_button()
+			self.progress_bar.setVisible(True)
+			self.progress_bar.setValue(0)
+			if hasattr(self, 'refresh_timer'):
+				self.refresh_timer.start(1000)
+			if hasattr(self, '_stats_tick_timer'):
+				self._stats_tick_timer.start(1000)
+			self._gen_prompts_at_start = self.total_prompts
+			self._gen_start_time = time.time()
+			self._gen_estimated_total = (self.param_prompts_per_batch_spin.value() if hasattr(self, 'param_prompts_per_batch_spin') else 1) * num_requests
+			self._append_log(f"Starting random generation — {num_requests} request(s) total...")
+			self._randomize_parameters_animated(self._start_single_random_request)
+		else:
+			self._random_mode_active = False
+			self._start_parameters_worker()
+
+	def _start_single_random_request(self):
+		if not self.is_generating or not self._random_mode_active:
+			return
+		self.param_num_requests_spin.blockSignals(True)
+		self.param_num_requests_spin.setValue(1)
+		self.param_num_requests_spin.blockSignals(False)
+		self._save_parameters_to_config()
+		req_num = self._random_original_num_requests - self._random_requests_remaining + 1
+		self._append_log(f"[Random {req_num}/{self._random_original_num_requests}] Sending request...")
+		self._launch_parameters_worker_bare()
+
+	def _launch_parameters_worker_bare(self):
+		self.progress_bar.setValue(0)
+		self.worker = PromptGeneratorParametersWorker(
+			self.db, self.api_key, self.selected_service, self.selected_model_name
+		)
+		self.worker.progress_updated.connect(self.on_generation_progress)
+		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
+		self.worker.finished.connect(self.on_generation_finished)
+		self.worker.error_occurred.connect(self.on_generation_error)
+		self.worker.prompt_added.connect(self.on_new_prompt_added)
+		self.worker.start()
+
+	def _start_parameters_worker(self):
 		prompts_per_batch = self.param_prompts_per_batch_spin.value() if hasattr(self, 'param_prompts_per_batch_spin') else 1
 		num_requests = self.param_num_requests_spin.value() if hasattr(self, 'param_num_requests_spin') else 1
 		self._gen_estimated_total = prompts_per_batch * num_requests
@@ -1260,6 +1454,31 @@ class PromptGeneratorDialog(QDialog):
 		self.progress_bar.setValue(value)
 
 	def on_generation_finished(self, total_generated):
+		if total_generated > 0:
+			self.load_prompts_from_db()
+			self.update_pagination()
+
+		if self._random_mode_active:
+			self._random_total_generated += total_generated
+			self._random_requests_remaining -= 1
+			req_done = self._random_original_num_requests - self._random_requests_remaining
+			if total_generated > 0:
+				self._append_log(f"[Random {req_done}/{self._random_original_num_requests}] {total_generated} prompt(s) done.")
+			else:
+				self._append_log(f"[Random {req_done}/{self._random_original_num_requests}] No prompts produced.")
+
+			if self._random_requests_remaining > 0:
+				self.progress_bar.setValue(0)
+				self._randomize_parameters_animated(self._start_single_random_request)
+				return
+
+			self._random_mode_active = False
+			total_generated = self._random_total_generated
+			self.param_num_requests_spin.blockSignals(True)
+			self.param_num_requests_spin.setValue(self._random_original_num_requests)
+			self.param_num_requests_spin.blockSignals(False)
+			self._save_parameters_to_config()
+
 		self.is_generating = False
 		self.current_generating_file = None
 		self._gen_start_time = None
@@ -1269,8 +1488,6 @@ class PromptGeneratorDialog(QDialog):
 		self.update_generate_button()
 		self.progress_bar.setVisible(False)
 		if total_generated > 0:
-			self.load_prompts_from_db()
-			self.update_pagination()
 			self._append_log(f"Done — {total_generated} prompt(s) generated successfully.")
 			print(f"Successfully generated {total_generated} prompts")
 		else:
@@ -1283,6 +1500,12 @@ class PromptGeneratorDialog(QDialog):
 	def on_generation_error(self, error_message):
 		print(f"Prompt generation error: {error_message}")
 		self._append_log(f"ERROR: {error_message}")
+		if self._random_mode_active:
+			self._random_mode_active = False
+			self.param_num_requests_spin.blockSignals(True)
+			self.param_num_requests_spin.setValue(self._random_original_num_requests)
+			self.param_num_requests_spin.blockSignals(False)
+			self._save_parameters_to_config()
 		self.is_generating = False
 		self._gen_start_time = None
 		if hasattr(self, '_stats_tick_timer'):
@@ -1328,6 +1551,41 @@ class PromptGeneratorDialog(QDialog):
 	def save_options_to_config(self):
 		self._save_reference_options()
 
+	def _on_ref_source_changed(self, index):
+		is_folder = hasattr(self, 'ref_source_combo') and self.ref_source_combo.currentData() == 'folder'
+		if hasattr(self, '_ref_folder_row'):
+			self._ref_folder_row.setVisible(is_folder)
+		self.update_stats_display()
+
+	def _load_ref_folder(self):
+		from PySide6.QtWidgets import QFileDialog
+		home_dir = os.path.expanduser("~")
+		folder = QFileDialog.getExistingDirectory(self, "Select Reference Folder", home_dir)
+		if not folder:
+			return
+		image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
+		self._ref_folder_files = [
+			os.path.join(folder, f)
+			for f in sorted(os.listdir(folder))
+			if os.path.isfile(os.path.join(folder, f)) and os.path.splitext(f.lower())[1] in image_exts
+		]
+		count = len(self._ref_folder_files)
+		self.update_stats_display()
+		self._append_log(f"Loaded {count} image(s) from: {folder}")
+		print(f"Loaded {count} reference images from folder: {folder}")
+
+	def _pick_background_color(self):
+		from PySide6.QtWidgets import QColorDialog
+		color = QColorDialog.getColor(parent=self)
+		if color.isValid():
+			hex_val = color.name().upper()
+			if hasattr(self, 'param_bg_combo'):
+				idx = self.param_bg_combo.findText(hex_val)
+				if idx < 0:
+					self.param_bg_combo.insertItem(1, hex_val)
+					idx = 1
+				self.param_bg_combo.setCurrentIndex(idx)
+
 	def _save_parameters_to_config(self):
 		cfg = self._load_ai_config() or {}
 		if 'prompt_generator_parameters' not in cfg or not isinstance(cfg['prompt_generator_parameters'], dict):
@@ -1346,6 +1604,10 @@ class PromptGeneratorDialog(QDialog):
 		s['theme'] = self.param_themes_combo.currentText()
 		s['mood'] = self.param_moods_combo.currentText()
 		s['color'] = self.param_colors_combo.currentText()
+		s['art_style'] = self.param_art_style_combo.currentText() if hasattr(self, 'param_art_style_combo') else ''
+		s['background'] = self.param_bg_combo.currentText() if hasattr(self, 'param_bg_combo') else ''
+		s['language'] = self.param_language_combo.currentText() if hasattr(self, 'param_language_combo') else 'English (Default)'
+		s['gen_mode'] = self.param_gen_mode_combo.currentData() if hasattr(self, 'param_gen_mode_combo') else 'user_defined'
 		cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
 		try:
 			with open(cfg_path, 'w', encoding='utf-8') as f:
@@ -1378,6 +1640,84 @@ class PromptGeneratorDialog(QDialog):
 				self.param_colors_combo.setCurrentIndex(idx)
 			else:
 				self.param_colors_combo.setCurrentText(saved_color)
+		if hasattr(self, 'param_art_style_combo'):
+			saved_as = p_settings.get('art_style', '')
+			if saved_as:
+				idx = self.param_art_style_combo.findText(saved_as)
+				if idx >= 0:
+					self.param_art_style_combo.setCurrentIndex(idx)
+				else:
+					self.param_art_style_combo.setCurrentText(saved_as)
+		if hasattr(self, 'param_bg_combo'):
+			saved_bg = p_settings.get('background', '')
+			if saved_bg:
+				idx = self.param_bg_combo.findText(saved_bg)
+				if idx >= 0:
+					self.param_bg_combo.setCurrentIndex(idx)
+				else:
+					self.param_bg_combo.setCurrentText(saved_bg)
+		if hasattr(self, 'param_gen_mode_combo'):
+			saved_gm = p_settings.get('gen_mode', 'user_defined')
+			idx_gm = self.param_gen_mode_combo.findData(saved_gm)
+			if idx_gm >= 0:
+				self.param_gen_mode_combo.setCurrentIndex(idx_gm)
+			if hasattr(self, '_random_mode_hint_label'):
+				self._random_mode_hint_label.setVisible(saved_gm == 'random')
+
+	def _on_param_mode_changed(self):
+		is_random = hasattr(self, 'param_gen_mode_combo') and self.param_gen_mode_combo.currentData() == 'random'
+		if hasattr(self, '_random_mode_hint_label'):
+			self._random_mode_hint_label.setVisible(is_random)
+
+	def _randomize_parameters_animated(self, on_complete):
+		import random
+		cfg = self._load_ai_config() or {}
+		pcfg = cfg.get('prompt_generator_parameters', {})
+		combo_defs = [
+			(self.param_themes_combo, pcfg.get('themes', [])),
+			(self.param_moods_combo, pcfg.get('moods', [])),
+			(self.param_colors_combo, pcfg.get('colors', [])),
+		]
+		if hasattr(self, 'param_art_style_combo'):
+			combo_defs.append((self.param_art_style_combo, pcfg.get('art_styles', [])))
+		if hasattr(self, 'param_bg_combo'):
+			combo_defs.append((self.param_bg_combo, pcfg.get('backgrounds', [])))
+		chosen = []
+		for combo, items in combo_defs:
+			real = [it for it in items if it and it != '\u2014 None \u2014']
+			chosen.append(random.choice(real) if real else '\u2014 None \u2014')
+		self._animate_combo_sequence(combo_defs, chosen, 0, on_complete)
+
+	def _animate_combo_sequence(self, combos, chosen, idx, on_complete):
+		import random
+		if idx >= len(combos):
+			self._save_parameters_to_config()
+			on_complete()
+			return
+		combo, items = combos[idx]
+		target = chosen[idx]
+		delays = [40, 40, 40, 40, 40, 40, 40, 40, 65, 90, 120, 160]
+		spin_pool = [it for it in items if it] or [combo.itemText(i) for i in range(combo.count())]
+
+		def step(frame):
+			if frame >= len(delays):
+				combo.blockSignals(True)
+				combo.setCurrentText(target)
+				combo.blockSignals(False)
+				combo.setStyleSheet("QComboBox { border: 1px solid #22c55e; border-radius: 3px; }")
+				def settle():
+					combo.setStyleSheet("")
+					QTimer.singleShot(80, lambda: self._animate_combo_sequence(combos, chosen, idx + 1, on_complete))
+				QTimer.singleShot(200, settle)
+				return
+			if spin_pool:
+				combo.blockSignals(True)
+				combo.setCurrentText(random.choice(spin_pool))
+				combo.blockSignals(False)
+			combo.setStyleSheet("QComboBox { border: 1px solid #f59e0b; border-radius: 3px; }")
+			QTimer.singleShot(delays[frame], lambda f=frame: step(f + 1))
+
+		step(0)
 
 	def _save_delay_to_config(self):
 		try:
@@ -1488,13 +1828,18 @@ class PromptGeneratorDialog(QDialog):
 		return f"{h}h {m:02d}m {s:02d}s"
 
 	def update_stats_display(self):
-		total_files = self.db.get_files_count() if self.db and hasattr(self.db, 'get_files_count') else 0
+		db_file_count = self.db.get_files_count() if self.db and hasattr(self.db, 'get_files_count') else 0
 		active_tab = self.left_tabs.currentIndex() if hasattr(self, 'left_tabs') else 0
 
 		if active_tab == 0:
+			use_folder = hasattr(self, 'ref_source_combo') and self.ref_source_combo.currentData() == 'folder'
+			total_files = len(self._ref_folder_files) if use_folder else db_file_count
 			prompts_per_file = self.ref_prompts_per_file_spin.value() if hasattr(self, 'ref_prompts_per_file_spin') else 1
 			target_total = total_files * prompts_per_file
-			gen_type = "By Reference"
+			gen_type = "By Reference (Folder)" if use_folder else "By Reference (DB)"
+			if hasattr(self, 'ref_stats_label'):
+				source_label = f"{total_files} folder image(s)" if use_folder else f"{total_files} DB file(s)"
+				self.ref_stats_label.setText(f"{source_label} | Target: {target_total} prompts")
 		else:
 			prompts_per_batch = self.param_prompts_per_batch_spin.value() if hasattr(self, 'param_prompts_per_batch_spin') else 1
 			num_requests = self.param_num_requests_spin.value() if hasattr(self, 'param_num_requests_spin') else 1
@@ -1535,9 +1880,6 @@ class PromptGeneratorDialog(QDialog):
 			self.generating_label.setText(f"Processing: {self.current_generating_file}")
 		else:
 			self.generating_label.setText("Ready to generate" if not self.is_generating else "Generating...")
-		if hasattr(self, 'ref_stats_label') and total_files is not None:
-			per_file = self.ref_prompts_per_file_spin.value() if hasattr(self, 'ref_prompts_per_file_spin') else 1
-			self.ref_stats_label.setText(f"Files: {total_files} | Target: {total_files * per_file} prompts")
 
 	def go_prev(self):
 		if self.current_page > 1:
