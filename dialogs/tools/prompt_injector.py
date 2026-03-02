@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 	QListWidget, QListWidgetItem, QStatusBar, QMenu
 )
 from PySide6.QtCore import Qt, QPoint, Signal, Slot, QTimer, QSize, QEvent
-from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QIcon, QFont, QPixmap, QDrag
+from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QPen, QIcon, QFont, QPixmap, QDrag
 import qtawesome as qta
 from helpers.tools import prompt_injector_helper
 from config import BASE_PATH
@@ -98,6 +98,7 @@ class PointWidget(QWidget):
 		self._icon_style = icon_style
 		self._size = size
 		self._is_dragging = False
+		self._is_selected = False
 		self.setAttribute(Qt.WA_TranslucentBackground, True)
 		self.setFixedSize(size, size)
 		self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
@@ -114,6 +115,10 @@ class PointWidget(QWidget):
 		self.setFixedSize(size, size)
 		self.update()
 
+	def set_selected(self, selected: bool):
+		self._is_selected = selected
+		self.update()
+
 	def paintEvent(self, event):
 		painter = QPainter(self)
 		painter.setRenderHint(QPainter.Antialiasing)
@@ -122,6 +127,12 @@ class PointWidget(QWidget):
 		painter.setBrush(QBrush(bg))
 		painter.setPen(Qt.NoPen)
 		painter.drawEllipse(0, 0, self._size, self._size)
+		if self._is_selected:
+			pen = QPen(QColor("#2196F3"))
+			pen.setWidth(3)
+			painter.setPen(pen)
+			painter.setBrush(Qt.NoBrush)
+			painter.drawEllipse(2, 2, self._size - 4, self._size - 4)
 		try:
 			if self._is_dragging:
 				full_icon = "fa6s.crosshairs"
@@ -166,6 +177,36 @@ class PointWidget(QWidget):
 
 
 class DraggablePointListWidget(QListWidget):
+	def __init__(self, parent=None):
+		super().__init__(parent)
+		self._click_item = None
+		self._click_was_selected = False
+		self._mouse_moved = False
+
+	def mousePressEvent(self, event):
+		if event.button() == Qt.LeftButton:
+			item = self.itemAt(event.pos())
+			self._click_item = item
+			self._click_was_selected = item is not None and item.isSelected()
+			self._mouse_moved = False
+		super().mousePressEvent(event)
+
+	def mouseMoveEvent(self, event):
+		self._mouse_moved = True
+		super().mouseMoveEvent(event)
+
+	def mouseReleaseEvent(self, event):
+		super().mouseReleaseEvent(event)
+		if event.button() == Qt.LeftButton and not self._mouse_moved:
+			modifiers = event.modifiers()
+			item = self.itemAt(event.pos())
+			if (item is not None and item is self._click_item
+					and self._click_was_selected
+					and not (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))):
+				item.setSelected(False)
+		self._click_item = None
+		self._click_was_selected = False
+
 	def startDrag(self, supportedActions):
 		item = self.currentItem()
 		if not item:
@@ -424,8 +465,10 @@ class PointItemWidget(QWidget):
 			r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
 		except Exception:
 			r, g, b = 255, 77, 77
+		self._r, self._g, self._b = r, g, b
 
 		container = QWidget()
+		self._container = container
 		container.setObjectName(f"piItem_{self._point_data['id']}")
 		container.setStyleSheet(
 			f"QWidget#piItem_{self._point_data['id']} {{"
@@ -530,6 +573,30 @@ class PointItemWidget(QWidget):
 		self._refresh_toggle_icon()
 		self.toggle_enabled.emit(self._point_data, self._enabled_state)
 
+	def set_selected(self, selected: bool):
+		r, g, b = self._r, self._g, self._b
+		pid = self._point_data['id']
+		if selected:
+			self._container.setStyleSheet(
+				f"QWidget#piItem_{pid} {{"
+				f"background-color: rgba({r},{g},{b},90);"
+				f"border-radius: 4px;"
+				f"border: 1px solid rgba({r},{g},{b},220);}}"
+				f"QWidget#piItem_{pid}:hover {{"
+				f"background-color: rgba({r},{g},{b},110);"
+				f"border: 1px solid rgba({r},{g},{b},255);}}"
+			)
+		else:
+			self._container.setStyleSheet(
+				f"QWidget#piItem_{pid} {{"
+				f"background-color: rgba({r},{g},{b},25);"
+				f"border-radius: 4px;"
+				f"border: 1px solid rgba({r},{g},{b},0);}}"
+				f"QWidget#piItem_{pid}:hover {{"
+				f"background-color: rgba({r},{g},{b},70);"
+				f"border: 1px solid rgba({r},{g},{b},180);}}"
+			)
+
 
 class PromptInjectorDialog(QDialog):
 	setClipboardRequested = Signal(str)
@@ -551,6 +618,7 @@ class PromptInjectorDialog(QDialog):
 		self.db = ImageTeaDB()
 
 		self._point_widgets = {}
+		self._drag_last_centers = {}
 		self._loaded_paste_texts = None
 		self._loaded_from_db = False
 		self._copied_count = 0
@@ -622,7 +690,8 @@ class PromptInjectorDialog(QDialog):
 		self.points_list.setDropIndicatorShown(True)
 		self.points_list.setDragDropMode(QListWidget.InternalMove)
 		self.points_list.setDefaultDropAction(Qt.MoveAction)
-		self.points_list.setSelectionMode(QListWidget.SingleSelection)
+		self.points_list.setSelectionMode(QListWidget.ExtendedSelection)
+		self.points_list.itemSelectionChanged.connect(self._on_selection_changed)
 		self.points_list.setMinimumHeight(120)
 		self.points_list.setMaximumHeight(320)
 		self.points_list.model().rowsMoved.connect(self._on_rows_moved)
@@ -779,12 +848,14 @@ class PromptInjectorDialog(QDialog):
 	# ───── Point Management ─────────────────────────────────────────────────
 
 	def _load_points_from_db(self):
+		scroll_val = self.points_list.verticalScrollBar().value()
 		try:
 			points = self.db.get_all_prompt_injector_points()
 		except Exception as e:
 			print(f"Failed to load points from DB: {e}")
 			points = []
 		self._rebuild_points_ui(points)
+		QTimer.singleShot(0, lambda: self.points_list.verticalScrollBar().setValue(scroll_val))
 
 	def _rebuild_points_ui(self, points: list):
 		for pw in list(self._point_widgets.values()):
@@ -851,16 +922,15 @@ class PromptInjectorDialog(QDialog):
 			pw.raise_()
 		self._point_widgets[point_data['id']] = pw
 
-	def _on_point_position_changed(self, point_id: int, cx: int, cy: int):
-		# update database only when widget is not currently being dragged
-		pw = self._point_widgets.get(point_id)
-		if pw and getattr(pw, '_is_dragging', False):
-			# ignore intermediate moves
-			return
-		try:
-			self.db.update_prompt_injector_point_position(point_id, cx, cy)
-		except Exception as e:
-			print(f"Failed to save point position to DB: {e}")
+	def _get_selected_point_widget_ids(self) -> set:
+		ids = set()
+		for item in self.points_list.selectedItems():
+			d = item.data(Qt.UserRole)
+			if d and d.get('id'):
+				ids.add(d['id'])
+		return ids
+
+	def _update_list_item_pos(self, point_id: int, cx: int, cy: int):
 		for i in range(self.points_list.count()):
 			list_item = self.points_list.item(i)
 			if list_item:
@@ -869,6 +939,45 @@ class PromptInjectorDialog(QDialog):
 					w._point_data['pos_x'] = cx
 					w._point_data['pos_y'] = cy
 					break
+
+	def _on_point_position_changed(self, point_id: int, cx: int, cy: int):
+		pw = self._point_widgets.get(point_id)
+		is_dragging = pw and getattr(pw, '_is_dragging', False)
+
+		if is_dragging:
+			last = self._drag_last_centers.get(point_id)
+			if last is not None:
+				dx = cx - last[0]
+				dy = cy - last[1]
+				selected_ids = self._get_selected_point_widget_ids()
+				for pid, gpw in self._point_widgets.items():
+					if pid == point_id:
+						continue
+					if pid not in selected_ids:
+						continue
+					gpw.move(gpw.pos().x() + dx, gpw.pos().y() + dy)
+			self._drag_last_centers[point_id] = (cx, cy)
+			return
+
+		self._drag_last_centers.pop(point_id, None)
+		try:
+			self.db.update_prompt_injector_point_position(point_id, cx, cy)
+		except Exception as e:
+			print(f"Failed to save point position to DB: {e}")
+		self._update_list_item_pos(point_id, cx, cy)
+
+		selected_ids = self._get_selected_point_widget_ids()
+		for pid, gpw in self._point_widgets.items():
+			if pid == point_id:
+				continue
+			if pid not in selected_ids:
+				continue
+			gcenter = gpw.frameGeometry().center()
+			try:
+				self.db.update_prompt_injector_point_position(pid, gcenter.x(), gcenter.y())
+			except Exception as e:
+				print(f"Failed to save group point position to DB: {e}")
+			self._update_list_item_pos(pid, gcenter.x(), gcenter.y())
 
 	def _on_point_toggle_enabled(self, point_data: dict, enabled: bool):
 		pid = point_data['id']
@@ -883,6 +992,33 @@ class PromptInjectorDialog(QDialog):
 				pw.raise_()
 			else:
 				pw.hide()
+
+	def _on_selection_changed(self):
+		selected_ids = set()
+		for item in self.points_list.selectedItems():
+			d = item.data(Qt.UserRole)
+			if d and d.get('id'):
+				selected_ids.add(d['id'])
+		for i in range(self.points_list.count()):
+			list_item = self.points_list.item(i)
+			if not list_item:
+				continue
+			w = self.points_list.itemWidget(list_item)
+			if w and isinstance(w, PointItemWidget):
+				w.set_selected(w._point_data.get('id') in selected_ids)
+		for pid, pw in self._point_widgets.items():
+			pw.set_selected(pid in selected_ids)
+
+	def _get_selected_point_data_list(self) -> list:
+		result = []
+		for item in self.points_list.selectedItems():
+			if item.data(Qt.UserRole + 1) == '_add_button':
+				continue
+			d = item.data(Qt.UserRole)
+			if d and d.get('id'):
+				result.append(d)
+		result.sort(key=lambda p: p.get('order_index', 0))
+		return result
 
 	def on_add_point(self):
 		dlg = AddEditPointDialog(parent=self)
@@ -952,19 +1088,24 @@ class PromptInjectorDialog(QDialog):
 				pw.hide()
 		self._load_points_from_db()
 
-	def on_delete_point(self, point_data: dict):
-		reply = QMessageBox.question(
-			self, "Delete Point",
-			f"Delete point '{point_data.get('name', '')}'?",
-			QMessageBox.Yes | QMessageBox.No
-		)
+	def on_delete_point(self, point_data_or_list):
+		if isinstance(point_data_or_list, list):
+			points_to_delete = point_data_or_list
+		else:
+			points_to_delete = [point_data_or_list]
+		if len(points_to_delete) == 1:
+			msg = f"Delete point '{points_to_delete[0].get('name', '')}'?"
+		else:
+			msg = f"Delete {len(points_to_delete)} selected points?"
+		reply = QMessageBox.question(self, "Delete Point", msg, QMessageBox.Yes | QMessageBox.No)
 		if reply != QMessageBox.Yes:
 			return
-		pid = point_data['id']
-		self.db.delete_prompt_injector_point(pid)
-		pw = self._point_widgets.pop(pid, None)
-		if pw:
-			pw.close()
+		for pd in points_to_delete:
+			pid = pd['id']
+			self.db.delete_prompt_injector_point(pid)
+			pw = self._point_widgets.pop(pid, None)
+			if pw:
+				pw.close()
 		self._load_points_from_db()
 
 	def on_reset_points(self):
@@ -1518,39 +1659,50 @@ class PromptInjectorDialog(QDialog):
 		point_data = list_item.data(Qt.UserRole)
 		if not point_data:
 			return
-		menu = QMenu(self)
 
-		act_edit = menu.addAction(qta.icon('fa6s.pen'), "Edit Point")
-		menu.addSeparator()
-		act_above = menu.addAction(qta.icon('fa6s.plus'), "Add Point Above")
-		act_below = menu.addAction(qta.icon('fa6s.plus'), "Add Point Below")
-		act_dup = menu.addAction(qta.icon('fa6s.clone'), "Duplicate")
+		selected = self._get_selected_point_data_list()
+		selected_ids = {p['id'] for p in selected}
+		if point_data['id'] not in selected_ids:
+			selected = [point_data]
+		is_multi = len(selected) > 1
+		count_label = f" ({len(selected)})" if is_multi else ""
+
+		menu = QMenu(self)
+		if not is_multi:
+			act_edit = menu.addAction(qta.icon('fa6s.pen'), "Edit Point")
+			menu.addSeparator()
+			act_above = menu.addAction(qta.icon('fa6s.plus'), "Add Point Above")
+			act_below = menu.addAction(qta.icon('fa6s.plus'), "Add Point Below")
+		act_dup = menu.addAction(qta.icon('fa6s.clone'), f"Duplicate{count_label}")
 		menu.addSeparator()
 		act_top = menu.addAction(qta.icon('fa6s.angles-up'), "To Top")
 		act_up = menu.addAction(qta.icon('fa6s.arrow-up'), "Move Up")
 		act_down = menu.addAction(qta.icon('fa6s.arrow-down'), "Move Down")
 		act_bottom = menu.addAction(qta.icon('fa6s.angles-down'), "To Bottom")
 		menu.addSeparator()
-		act_del = menu.addAction(qta.icon('fa6s.trash'), "Delete Point")
+		act_del = menu.addAction(qta.icon('fa6s.trash'), f"Delete{count_label}")
 		act_clear = menu.addAction(qta.icon('fa6s.broom'), "Remove All Points")
 
-		order = point_data.get('order_index', 0)
 		all_pts = self.db.get_all_prompt_injector_points()
 		total = len(all_pts)
-		act_top.setEnabled(order > 0)
-		act_up.setEnabled(order > 0)
-		act_down.setEnabled(order < total - 1)
-		act_bottom.setEnabled(order < total - 1)
+		orders = [p.get('order_index', 0) for p in selected]
+		min_order = min(orders)
+		max_order = max(orders)
+		act_top.setEnabled(min_order > 0)
+		act_up.setEnabled(min_order > 0)
+		act_down.setEnabled(max_order < total - 1)
+		act_bottom.setEnabled(max_order < total - 1)
 
-		act_edit.triggered.connect(lambda: self.on_edit_point(point_data))
-		act_above.triggered.connect(lambda: self._ctx_add_adjacent(point_data, above=True))
-		act_below.triggered.connect(lambda: self._ctx_add_adjacent(point_data, above=False))
-		act_dup.triggered.connect(lambda: self._ctx_duplicate(point_data))
-		act_top.triggered.connect(lambda: self._ctx_move_to_top(point_data))
-		act_up.triggered.connect(lambda: self._ctx_move_up(point_data))
-		act_down.triggered.connect(lambda: self._ctx_move_down(point_data))
-		act_bottom.triggered.connect(lambda: self._ctx_move_to_bottom(point_data))
-		act_del.triggered.connect(lambda: self.on_delete_point(point_data))
+		if not is_multi:
+			act_edit.triggered.connect(lambda: self.on_edit_point(point_data))
+			act_above.triggered.connect(lambda: self._ctx_add_adjacent(point_data, above=True))
+			act_below.triggered.connect(lambda: self._ctx_add_adjacent(point_data, above=False))
+		act_dup.triggered.connect(lambda: self._ctx_duplicate(selected))
+		act_top.triggered.connect(lambda: self._ctx_move_to_top(selected))
+		act_up.triggered.connect(lambda: self._ctx_move_up(selected))
+		act_down.triggered.connect(lambda: self._ctx_move_down(selected))
+		act_bottom.triggered.connect(lambda: self._ctx_move_to_bottom(selected))
+		act_del.triggered.connect(lambda: self.on_delete_point(selected))
 		act_clear.triggered.connect(self._ctx_remove_all)
 
 		menu.exec(self.points_list.viewport().mapToGlobal(pos))
@@ -1580,80 +1732,80 @@ class PromptInjectorDialog(QDialog):
 		)
 		self._load_points_from_db()
 
-	def _ctx_duplicate(self, point_data: dict):
+	def _ctx_duplicate(self, points_input):
+		if isinstance(points_input, dict):
+			points_input = [points_input]
+		points = sorted(points_input, key=lambda p: p.get('order_index', 0))
 		all_pts = self.db.get_all_prompt_injector_points()
-		new_order = point_data.get('order_index', 0) + 1
+		insert_after = max(p.get('order_index', 0) for p in points)
+		shift = len(points)
 		for pt in all_pts:
-			if pt['order_index'] >= new_order:
+			if pt['order_index'] > insert_after:
 				self.db.update_prompt_injector_point(
 					point_id=pt['id'], name=pt['name'], icon=pt['icon'],
 					icon_style=pt['icon_style'], color=pt['color'], size=pt['size'],
 					delay=pt['delay'], enabled=pt['enabled'], point_type=pt['type'],
-					shortcut=pt['shortcut'], order_index=pt['order_index'] + 1,
+					shortcut=pt['shortcut'], order_index=pt['order_index'] + shift,
 				)
-		self.db.add_prompt_injector_point(
-			name=f"Copy of {point_data['name']}", icon=point_data['icon'],
-			icon_style=point_data['icon_style'], color=point_data['color'],
-			size=point_data['size'], pos_x=point_data['pos_x'], pos_y=point_data['pos_y'],
-			delay=point_data['delay'], enabled=point_data['enabled'],
-			point_type=point_data['type'], shortcut=point_data['shortcut'],
-			order_index=new_order,
-		)
+		for i, pd in enumerate(points):
+			self.db.add_prompt_injector_point(
+				name=f"Copy of {pd['name']}", icon=pd['icon'],
+				icon_style=pd['icon_style'], color=pd['color'],
+				size=pd['size'], pos_x=pd['pos_x'], pos_y=pd['pos_y'],
+				delay=pd['delay'], enabled=pd['enabled'],
+				point_type=pd['type'], shortcut=pd['shortcut'],
+				order_index=insert_after + 1 + i,
+			)
 		self._load_points_from_db()
 
-	def _ctx_move_to_top(self, point_data: dict):
+	def _ctx_move_to_top(self, points_input):
+		if isinstance(points_input, dict):
+			points_input = [points_input]
+		selected_ids = {p['id'] for p in points_input}
 		all_pts = self.db.get_all_prompt_injector_points()
-		cur = point_data['order_index']
-		new_orders = []
-		for pt in all_pts:
-			if pt['id'] == point_data['id']:
-				new_orders.append((pt['id'], 0))
-			elif pt['order_index'] < cur:
-				new_orders.append((pt['id'], pt['order_index'] + 1))
-			else:
-				new_orders.append((pt['id'], pt['order_index']))
+		selected_sorted = sorted(points_input, key=lambda p: p.get('order_index', 0))
+		others = sorted([p for p in all_pts if p['id'] not in selected_ids], key=lambda p: p.get('order_index', 0))
+		new_order = selected_sorted + others
+		new_orders = [(p['id'], i) for i, p in enumerate(new_order)]
 		self._apply_order(new_orders)
 
-	def _ctx_move_up(self, point_data: dict):
-		all_pts = self.db.get_all_prompt_injector_points()
-		cur = point_data['order_index']
-		if cur == 0:
+	def _ctx_move_up(self, points_input):
+		if isinstance(points_input, dict):
+			points_input = [points_input]
+		selected_ids = {p['id'] for p in points_input}
+		all_pts = sorted(self.db.get_all_prompt_injector_points(), key=lambda p: p.get('order_index', 0))
+		ids_ordered = [p['id'] for p in all_pts]
+		if ids_ordered[0] in selected_ids:
 			return
-		new_orders = []
-		for pt in all_pts:
-			if pt['id'] == point_data['id']:
-				new_orders.append((pt['id'], cur - 1))
-			elif pt['order_index'] == cur - 1:
-				new_orders.append((pt['id'], cur))
-			else:
-				new_orders.append((pt['id'], pt['order_index']))
+		for i in range(1, len(ids_ordered)):
+			if ids_ordered[i] in selected_ids and ids_ordered[i - 1] not in selected_ids:
+				ids_ordered[i - 1], ids_ordered[i] = ids_ordered[i], ids_ordered[i - 1]
+		new_orders = [(pid, idx) for idx, pid in enumerate(ids_ordered)]
 		self._apply_order(new_orders)
 
-	def _ctx_move_down(self, point_data: dict):
-		all_pts = self.db.get_all_prompt_injector_points()
-		cur = point_data['order_index']
-		new_orders = []
-		for pt in all_pts:
-			if pt['id'] == point_data['id']:
-				new_orders.append((pt['id'], cur + 1))
-			elif pt['order_index'] == cur + 1:
-				new_orders.append((pt['id'], cur))
-			else:
-				new_orders.append((pt['id'], pt['order_index']))
+	def _ctx_move_down(self, points_input):
+		if isinstance(points_input, dict):
+			points_input = [points_input]
+		selected_ids = {p['id'] for p in points_input}
+		all_pts = sorted(self.db.get_all_prompt_injector_points(), key=lambda p: p.get('order_index', 0))
+		ids_ordered = [p['id'] for p in all_pts]
+		if ids_ordered[-1] in selected_ids:
+			return
+		for i in range(len(ids_ordered) - 2, -1, -1):
+			if ids_ordered[i] in selected_ids and ids_ordered[i + 1] not in selected_ids:
+				ids_ordered[i], ids_ordered[i + 1] = ids_ordered[i + 1], ids_ordered[i]
+		new_orders = [(pid, idx) for idx, pid in enumerate(ids_ordered)]
 		self._apply_order(new_orders)
 
-	def _ctx_move_to_bottom(self, point_data: dict):
+	def _ctx_move_to_bottom(self, points_input):
+		if isinstance(points_input, dict):
+			points_input = [points_input]
+		selected_ids = {p['id'] for p in points_input}
 		all_pts = self.db.get_all_prompt_injector_points()
-		cur = point_data['order_index']
-		bottom = len(all_pts) - 1
-		new_orders = []
-		for pt in all_pts:
-			if pt['id'] == point_data['id']:
-				new_orders.append((pt['id'], bottom))
-			elif pt['order_index'] > cur:
-				new_orders.append((pt['id'], pt['order_index'] - 1))
-			else:
-				new_orders.append((pt['id'], pt['order_index']))
+		selected_sorted = sorted(points_input, key=lambda p: p.get('order_index', 0))
+		others = sorted([p for p in all_pts if p['id'] not in selected_ids], key=lambda p: p.get('order_index', 0))
+		new_order = others + selected_sorted
+		new_orders = [(p['id'], i) for i, p in enumerate(new_order)]
 		self._apply_order(new_orders)
 
 	def _apply_order(self, new_orders: list):
