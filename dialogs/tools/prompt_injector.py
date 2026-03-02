@@ -6,6 +6,7 @@ import threading
 import time
 import random
 import datetime
+import math
 from PySide6.QtWidgets import (
 	QApplication, QDialog, QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
 	QDoubleSpinBox, QMessageBox, QFileDialog, QCheckBox, QSizePolicy, QProgressBar,
@@ -141,10 +142,9 @@ class PointWidget(QWidget):
 		if event.button() == Qt.LeftButton:
 			self._is_dragging = True
 			self.update()
-			try:
-				self._drag_offset = event.position().toPoint()
-			except Exception:
-				self._drag_offset = event.pos()
+			self.setWindowOpacity(0.6)
+			half = QPoint(self._size // 2, self._size // 2)
+			self._drag_offset = half
 
 	def mouseMoveEvent(self, event):
 		if self._drag_offset is None:
@@ -159,6 +159,10 @@ class PointWidget(QWidget):
 		self._is_dragging = False
 		self.update()
 		self._drag_offset = None
+		self.setWindowOpacity(1.0)
+		# send final coords for database update
+		center = self.frameGeometry().center()
+		self.positionChanged.emit(self._point_id, center.x(), center.y())
 
 
 class DraggablePointListWidget(QListWidget):
@@ -212,25 +216,32 @@ class AddEditPointDialog(QDialog):
 		layout.setSpacing(5)
 		layout.setContentsMargins(10, 10, 10, 10)
 
-		name_row = QHBoxLayout()
-		name_row.addWidget(QLabel("Name:"))
+		name_type_row = QHBoxLayout()
+		# icon + name label
+		name_icon_lbl = QLabel()
+		name_icon_lbl.setPixmap(qta.icon('fa6s.tag', color=theme.get_color('gray')).pixmap(16,16))
+		name_type_row.addWidget(name_icon_lbl)
+		name_type_row.addWidget(QLabel("Name:"))
 		self.name_edit = QLineEdit()
 		self.name_edit.setPlaceholderText("e.g. Paste Prompt")
 		self.name_edit.setText(self._point_data.get("name", ""))
-		name_row.addWidget(self.name_edit)
-		layout.addLayout(name_row)
-
-		type_row = QHBoxLayout()
-		type_row.addWidget(QLabel("Type:"))
+		self.name_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+		name_type_row.addWidget(self.name_edit)
+		name_type_row.addSpacing(8)
+		# type combo with icon
 		self.type_combo = QComboBox()
+		type_icon_lbl = QLabel()
+		type_icon_lbl.setPixmap(qta.icon('fa6s.list', color=theme.get_color('gray')).pixmap(16,16))
+		name_type_row.addWidget(type_icon_lbl)
+		name_type_row.addWidget(self.type_combo)
+		self.type_combo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 		for pt in POINT_TYPES:
 			self.type_combo.addItem(pt)
 		cur_type = self._point_data.get("type", "click")
 		if cur_type in POINT_TYPES:
 			self.type_combo.setCurrentIndex(POINT_TYPES.index(cur_type))
 		self.type_combo.currentIndexChanged.connect(self._on_type_changed)
-		type_row.addWidget(self.type_combo)
-		layout.addLayout(type_row)
+		layout.addLayout(name_type_row)
 
 		self.type_desc_lbl = QLabel()
 		self.type_desc_lbl.setWordWrap(True)
@@ -238,6 +249,8 @@ class AddEditPointDialog(QDialog):
 		layout.addWidget(self.type_desc_lbl)
 
 		shortcut_row = QHBoxLayout()
+		shortcut_row.setContentsMargins(0, 0, 0, 0)
+		shortcut_row.setSpacing(4)
 		self.shortcut_lbl = QLabel("Shortcut:")
 		self.shortcut_edit = QLineEdit()
 		self.shortcut_edit.setPlaceholderText("e.g. ctrl+c  or  ctrl+shift+z")
@@ -249,41 +262,58 @@ class AddEditPointDialog(QDialog):
 		shortcut_row.addWidget(self.shortcut_edit)
 		self.shortcut_container = QWidget()
 		self.shortcut_container.setLayout(shortcut_row)
+		self.shortcut_container.layout().setContentsMargins(0,0,0,0)
 		layout.addWidget(self.shortcut_container)
 
-		icon_row = QHBoxLayout()
-		icon_row.addWidget(QLabel("Icon:"))
+		icon_color_row = QHBoxLayout()
+		icon_color_row.setSpacing(6)
+		# icon label with icon
+		icon_label_lbl = QLabel()
+		icon_label_lbl.setPixmap(qta.icon('fa6s.icons', color=theme.get_color('gray')).pixmap(16,16))
+		icon_color_row.addWidget(icon_label_lbl)
+		icon_color_row.addWidget(QLabel("Icon:"))
 		self.icon_preview = QLabel()
-		self.icon_preview.setFixedSize(20, 20)
-		icon_row.addWidget(self.icon_preview)
+		self.icon_preview.setFixedSize(24, 24)
+		icon_color_row.addWidget(self.icon_preview)
 		self.icon_name_lbl = QLabel(self._selected_icon)
-		icon_row.addWidget(self.icon_name_lbl)
-		icon_row.addStretch()
-		self.btn_pick_icon = QPushButton(qta.icon('fa6s.icons'), " Pick Icon")
+		icon_color_row.addWidget(self.icon_name_lbl)
+		self.btn_pick_icon = QPushButton(qta.icon('fa6s.icons'), "")
+		self.btn_pick_icon.setToolTip("Pick icon")
+		self.btn_pick_icon.setFixedSize(28,28)
 		self.btn_pick_icon.clicked.connect(self._pick_icon)
-		icon_row.addWidget(self.btn_pick_icon)
-		layout.addLayout(icon_row)
-
-		color_row = QHBoxLayout()
-		color_row.addWidget(QLabel("Color:"))
+		icon_color_row.addWidget(self.btn_pick_icon)
+		icon_color_row.addSpacing(12)
+		# color label with icon
+		color_label_lbl = QLabel()
+		color_label_lbl.setPixmap(qta.icon('fa6s.palette', color=theme.get_color('gray')).pixmap(16,16))
+		icon_color_row.addWidget(color_label_lbl)
+		icon_color_row.addWidget(QLabel("Color:"))
 		self.color_swatch = QPushButton()
-		self.color_swatch.setFixedSize(28, 20)
+		self.color_swatch.setFixedSize(24, 24)
 		self.color_swatch.clicked.connect(self._pick_color)
-		color_row.addWidget(self.color_swatch)
+		icon_color_row.addWidget(self.color_swatch)
 		self.color_hex_lbl = QLabel(self._selected_color)
-		color_row.addWidget(self.color_hex_lbl)
-		color_row.addStretch()
-		layout.addLayout(color_row)
+		icon_color_row.addWidget(self.color_hex_lbl)
+		icon_color_row.addStretch()
+		layout.addLayout(icon_color_row)
 
 		size_delay_row = QHBoxLayout()
+		# size icon
+		size_icon_lbl = QLabel()
+		size_icon_lbl.setPixmap(qta.icon('fa6s.arrows-up-down', color=theme.get_color('gray')).pixmap(16,16))
+		size_delay_row.addWidget(size_icon_lbl)
 		size_delay_row.addWidget(QLabel("Size:"))
 		self.size_spin = QSpinBox()
 		self.size_spin.setRange(16, 96)
 		self.size_spin.setValue(self._point_data.get("size", 32))
 		self.size_spin.setSuffix(" px")
-		self.size_spin.setFixedWidth(120)
+		self.size_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		size_delay_row.addWidget(self.size_spin)
 		size_delay_row.addSpacing(8)
+		# delay icon
+		delay_icon_lbl = QLabel()
+		delay_icon_lbl.setPixmap(qta.icon('fa6s.hourglass-half', color=theme.get_color('gray')).pixmap(16,16))
+		size_delay_row.addWidget(delay_icon_lbl)
 		size_delay_row.addWidget(QLabel("Delay:"))
 		self.delay_spin = QDoubleSpinBox()
 		self.delay_spin.setRange(0.0, 600.0)
@@ -291,7 +321,7 @@ class AddEditPointDialog(QDialog):
 		self.delay_spin.setDecimals(2)
 		self.delay_spin.setValue(self._point_data.get("delay", 1.0))
 		self.delay_spin.setSuffix(" s")
-		self.delay_spin.setFixedWidth(120)
+		self.delay_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self.delay_spin.setToolTip(
 			"Wait before this point's action.\nFor monitor type: maximum wait time before continuing regardless."
 		)
@@ -822,6 +852,11 @@ class PromptInjectorDialog(QDialog):
 		self._point_widgets[point_data['id']] = pw
 
 	def _on_point_position_changed(self, point_id: int, cx: int, cy: int):
+		# update database only when widget is not currently being dragged
+		pw = self._point_widgets.get(point_id)
+		if pw and getattr(pw, '_is_dragging', False):
+			# ignore intermediate moves
+			return
 		try:
 			self.db.update_prompt_injector_point_position(point_id, cx, cy)
 		except Exception as e:
@@ -933,18 +968,34 @@ class PromptInjectorDialog(QDialog):
 		self._load_points_from_db()
 
 	def on_reset_points(self):
+		resp = QMessageBox.question(
+			self, "Reset Points",
+			"Resetting all point markers will move them back to screen center.\nThis action cannot be undone.\nContinue?",
+			QMessageBox.Yes | QMessageBox.No
+		)
+		if resp != QMessageBox.Yes:
+			return
 		screen = QGuiApplication.primaryScreen().availableGeometry()
 		center = screen.center()
 		all_points = self.db.get_all_prompt_injector_points()
 		count = len(all_points)
-		for i, pt in enumerate(all_points):
-			cx = center.x() + (i - count // 2) * 50
-			cy = center.y()
+		if count == 0:
+			return
+		# determine grid size: cols x rows
+		cols = int(math.ceil(math.sqrt(count)))
+		rows = int(math.ceil(count / cols))
+		spacing = 50
+		for idx, pt in enumerate(all_points):
+			row = idx // cols
+			col = idx % cols
+			# center grid around screen center
+			cx = center.x() + (col - (cols - 1) / 2) * spacing
+			cy = center.y() + (row - (rows - 1) / 2) * spacing
 			pw = self._point_widgets.get(pt['id'])
 			if pw:
 				half = pw.width() // 2
-				pw.move(QPoint(cx - half, cy - half))
-			self.db.update_prompt_injector_point_position(pt['id'], cx, cy)
+				pw.move(QPoint(int(cx - half), int(cy - half)))
+			self.db.update_prompt_injector_point_position(pt['id'], int(cx), int(cy))
 
 	def _get_enabled_points(self):
 		try:
@@ -1641,7 +1692,9 @@ class PromptInjectorDialog(QDialog):
 			return
 		stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 		default = f"Prompt_Injector_v2_Preset_{stamp}.json"
-		path, _ = QFileDialog.getSaveFileName(self, "Export Points Preset", default, "JSON Files (*.json)")
+		home = os.path.expanduser("~")
+		initial = os.path.join(home, default)
+		path, _ = QFileDialog.getSaveFileName(self, "Export Points Preset", initial, "JSON Files (*.json)")
 		if not path:
 			return
 		export_data = {"version": 1, "points": []}
@@ -1668,7 +1721,8 @@ class PromptInjectorDialog(QDialog):
 			QMessageBox.critical(self, "Export Failed", str(e))
 
 	def on_import_preset(self):
-		path, _ = QFileDialog.getOpenFileName(self, "Import Points Preset", "", "JSON Files (*.json)")
+		home = os.path.expanduser("~")
+		path, _ = QFileDialog.getOpenFileName(self, "Import Points Preset", home, "JSON Files (*.json)")
 		if not path:
 			return
 		try:
@@ -1968,6 +2022,10 @@ class PromptInjectorDialog(QDialog):
 			if pt and pt.get('enabled', True):
 				pw.show()
 				pw.raise_()
+
+	def showEvent(self, event):
+		super().showEvent(event)
+		self._load_points_from_db()
 
 	def closeEvent(self, event):
 		self.save_settings()
