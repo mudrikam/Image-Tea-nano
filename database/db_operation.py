@@ -1308,3 +1308,96 @@ class ImageTeaDB:
             else:
                 c.execute('DELETE FROM action_sequencer_status')
             conn.commit()
+
+    def get_all_prompt_injector_points(self):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''SELECT point_id, point_name, point_icon, point_icon_style, point_color,
+                                point_size, point_pos_x, point_pos_y, point_delay, point_enabled,
+                                point_type, point_shortcut, point_order_index,
+                                point_created_at, point_updated_at
+                         FROM prompt_injector_points
+                         ORDER BY point_order_index ASC, point_id ASC''')
+            rows = c.fetchall()
+            return [self._map_point_row(row) for row in rows]
+
+    def add_prompt_injector_point(self, name, icon='location-dot', icon_style='solid',
+                                   color='#ff4d4d', size=32, pos_x=0, pos_y=0,
+                                   delay=1.0, enabled=True, point_type='click',
+                                   shortcut=None, order_index=0):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''INSERT INTO prompt_injector_points
+                         (point_name, point_icon, point_icon_style, point_color, point_size,
+                          point_pos_x, point_pos_y, point_delay, point_enabled, point_type,
+                          point_shortcut, point_order_index)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                      (name, icon, icon_style, color, size, pos_x, pos_y,
+                       delay, 1 if enabled else 0, point_type, shortcut, order_index))
+            conn.commit()
+            return c.lastrowid
+
+    def update_prompt_injector_point(self, point_id, name, icon, icon_style, color, size,
+                                      delay, enabled, point_type, shortcut, order_index):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''UPDATE prompt_injector_points
+                         SET point_name=?, point_icon=?, point_icon_style=?, point_color=?,
+                             point_size=?, point_delay=?, point_enabled=?, point_type=?,
+                             point_shortcut=?, point_order_index=?,
+                             point_updated_at=CURRENT_TIMESTAMP
+                         WHERE point_id=?''',
+                      (name, icon, icon_style, color, size, delay,
+                       1 if enabled else 0, point_type, shortcut, order_index, point_id))
+            conn.commit()
+
+    def update_prompt_injector_point_position(self, point_id, pos_x, pos_y):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''UPDATE prompt_injector_points
+                         SET point_pos_x=?, point_pos_y=?, point_updated_at=CURRENT_TIMESTAMP
+                         WHERE point_id=?''',
+                      (pos_x, pos_y, point_id))
+            conn.commit()
+
+    def update_prompt_injector_point_enabled(self, point_id, enabled):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('''UPDATE prompt_injector_points
+                         SET point_enabled=?, point_updated_at=CURRENT_TIMESTAMP
+                         WHERE point_id=?''',
+                      (1 if enabled else 0, point_id))
+            conn.commit()
+
+    def delete_prompt_injector_point(self, point_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM prompt_injector_points WHERE point_id=?', (point_id,))
+            conn.commit()
+
+    def reorder_prompt_injector_points(self, ordered_ids):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            for idx, point_id in enumerate(ordered_ids):
+                c.execute('UPDATE prompt_injector_points SET point_order_index=?, point_updated_at=CURRENT_TIMESTAMP WHERE point_id=?',
+                          (idx, point_id))
+            conn.commit()
+
+    def _map_point_row(self, row):
+        return {
+            'id': row[0],
+            'name': row[1],
+            'icon': row[2],
+            'icon_style': row[3],
+            'color': row[4],
+            'size': row[5],
+            'pos_x': row[6],
+            'pos_y': row[7],
+            'delay': row[8],
+            'enabled': bool(row[9]),
+            'type': row[10],
+            'shortcut': row[11],
+            'order_index': row[12],
+            'created_at': row[13],
+            'updated_at': row[14],
+        }
