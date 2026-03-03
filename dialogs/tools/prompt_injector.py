@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 	QListWidget, QListWidgetItem, QStatusBar, QMenu
 )
 from PySide6.QtCore import Qt, QPoint, Signal, Slot, QTimer, QSize, QEvent
-from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QPen, QIcon, QFont, QPixmap, QDrag
+from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QBrush, QPen, QIcon, QFont, QPixmap, QDrag, QKeySequence
 import qtawesome as qta
 from helpers.tools import prompt_injector_helper
 from config import BASE_PATH
@@ -236,6 +236,38 @@ class DraggablePointListWidget(QListWidget):
 		drag.exec(Qt.MoveAction)
 
 
+_SHORTCUT_KEY_MAP = {
+	Qt.Key_Return: "enter",
+	Qt.Key_Enter: "enter",
+	Qt.Key_Tab: "tab",
+	Qt.Key_Backspace: "backspace",
+	Qt.Key_Delete: "delete",
+	Qt.Key_Escape: "esc",
+	Qt.Key_Space: "space",
+	Qt.Key_Left: "left",
+	Qt.Key_Right: "right",
+	Qt.Key_Up: "up",
+	Qt.Key_Down: "down",
+	Qt.Key_Home: "home",
+	Qt.Key_End: "end",
+	Qt.Key_PageUp: "pageup",
+	Qt.Key_PageDown: "pagedown",
+	Qt.Key_Insert: "insert",
+	Qt.Key_Print: "printscreen",
+	Qt.Key_ScrollLock: "scrolllock",
+	Qt.Key_Pause: "pause",
+	Qt.Key_CapsLock: "capslock",
+	Qt.Key_NumLock: "numlock",
+	Qt.Key_F1: "f1", Qt.Key_F2: "f2", Qt.Key_F3: "f3", Qt.Key_F4: "f4",
+	Qt.Key_F5: "f5", Qt.Key_F6: "f6", Qt.Key_F7: "f7", Qt.Key_F8: "f8",
+	Qt.Key_F9: "f9", Qt.Key_F10: "f10", Qt.Key_F11: "f11", Qt.Key_F12: "f12",
+}
+_SHORTCUT_MODIFIER_KEYS = {
+	Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta,
+	Qt.Key_AltGr, Qt.Key_Super_L, Qt.Key_Super_R,
+}
+
+
 class AddEditPointDialog(QDialog):
 	def __init__(self, point_data=None, parent=None):
 		super().__init__(parent)
@@ -244,6 +276,7 @@ class AddEditPointDialog(QDialog):
 		self._selected_icon = self._point_data.get("icon", "location-crosshairs")
 		self._selected_icon_style = self._point_data.get("icon_style", "solid")
 		self._selected_color = self._point_data.get("color", "#ff4d4d")
+		self._recording_shortcut = False
 		self.setWindowTitle("Edit Point" if self._is_edit else "Add New Point")
 		self.setModal(True)
 		icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
@@ -299,8 +332,15 @@ class AddEditPointDialog(QDialog):
 			"Key combination to execute. Separate keys with '+'. Example: ctrl+c, ctrl+shift+z, enter, tab"
 		)
 		self.shortcut_edit.setText(self._point_data.get("shortcut") or "")
+		self.btn_record_shortcut = QPushButton()
+		self.btn_record_shortcut.setFixedSize(26, 26)
+		self.btn_record_shortcut.setToolTip("Record shortcut: click to start, press your key combo, click again to stop")
+		self.btn_record_shortcut.setCursor(Qt.PointingHandCursor)
+		self.btn_record_shortcut.clicked.connect(self._toggle_shortcut_recording)
+		self._set_record_btn_idle()
 		shortcut_row.addWidget(self.shortcut_lbl)
 		shortcut_row.addWidget(self.shortcut_edit)
+		shortcut_row.addWidget(self.btn_record_shortcut)
 		self.shortcut_container = QWidget()
 		self.shortcut_container.setLayout(shortcut_row)
 		self.shortcut_container.layout().setContentsMargins(0,0,0,0)
@@ -389,10 +429,99 @@ class AddEditPointDialog(QDialog):
 		self._refresh_icon_preview()
 		self._on_type_changed()
 
+	def _set_record_btn_idle(self):
+		self.btn_record_shortcut.setStyleSheet(
+			"QPushButton {"
+			"  border-radius: 13px;"
+			"  border: 2px solid #888;"
+			"  background-color: transparent;"
+			"}"
+			"QPushButton:hover {"
+			"  border-color: #aaa;"
+			"  background-color: rgba(180,180,180,40);"
+			"}"
+		)
+		self.btn_record_shortcut.setText("")
+		self.btn_record_shortcut.setIcon(qta.icon('fa6s.circle', color='#888'))
+		self.btn_record_shortcut.setIconSize(QSize(12, 12))
+
+	def _set_record_btn_active(self):
+		try:
+			red = theme.get_color('error')
+		except Exception:
+			red = '#f44336'
+		self.btn_record_shortcut.setStyleSheet(
+			f"QPushButton {{"
+			f"  border-radius: 13px;"
+			f"  border: 2px solid {red};"
+			f"  background-color: {red};"
+			f"}}"
+			f"QPushButton:hover {{"
+			f"  background-color: {red};"
+			f"}}"
+		)
+		self.btn_record_shortcut.setText("")
+		self.btn_record_shortcut.setIcon(qta.icon('fa6s.circle', color='white'))
+		self.btn_record_shortcut.setIconSize(QSize(10, 10))
+
+	def _toggle_shortcut_recording(self):
+		self._recording_shortcut = not self._recording_shortcut
+		if self._recording_shortcut:
+			self._set_record_btn_active()
+			self.shortcut_edit.setPlaceholderText("Press your shortcut now...")
+			self.shortcut_edit.clear()
+			self.shortcut_edit.setReadOnly(True)
+			self.setFocus()
+		else:
+			self._set_record_btn_idle()
+			self.shortcut_edit.setPlaceholderText("e.g. ctrl+c  or  ctrl+shift+z")
+			self.shortcut_edit.setReadOnly(False)
+
+	def keyPressEvent(self, event):
+		if self._recording_shortcut:
+			key = event.key()
+			if key in _SHORTCUT_MODIFIER_KEYS:
+				event.accept()
+				return
+			parts = []
+			modifiers = event.modifiers()
+			if modifiers & Qt.ControlModifier:
+				parts.append("ctrl")
+			if modifiers & Qt.AltModifier:
+				parts.append("alt")
+			if modifiers & Qt.ShiftModifier:
+				parts.append("shift")
+			if modifiers & Qt.MetaModifier:
+				parts.append("win")
+			key_name = _SHORTCUT_KEY_MAP.get(key)
+			if key_name is None:
+				text = event.text()
+				if text and text.isprintable() and not text.isspace():
+					key_name = text.lower()
+				else:
+					key_name = QKeySequence(key).toString().lower()
+			if key_name:
+				parts.append(key_name)
+				combo = "+".join(parts)
+				self.shortcut_edit.setReadOnly(False)
+				self.shortcut_edit.setText(combo)
+				self.shortcut_edit.setReadOnly(True)
+				self._recording_shortcut = False
+				self._set_record_btn_idle()
+				self.shortcut_edit.setPlaceholderText("e.g. ctrl+c  or  ctrl+shift+z")
+				self.shortcut_edit.setReadOnly(False)
+			event.accept()
+			return
+		super().keyPressEvent(event)
+
 	def _on_type_changed(self):
 		t = self.type_combo.currentText()
 		self.type_desc_lbl.setText(POINT_TYPE_DESC.get(t, ""))
 		self.shortcut_container.setVisible(t == "key_action")
+		if t != "key_action" and self._recording_shortcut:
+			self._recording_shortcut = False
+			self._set_record_btn_idle()
+			self.shortcut_edit.setReadOnly(False)
 
 	def _pick_icon(self):
 		dlg = IconPickerDialog(current_icon=self._selected_icon, parent=self)
@@ -519,7 +648,7 @@ class PointItemWidget(QWidget):
 			f"  \u00b7  pos ({self._point_data.get('pos_x', 0)}, {self._point_data.get('pos_y', 0)})"
 		)
 		detail_lbl = QLabel(detail_text)
-		detail_lbl.setStyleSheet("color: gray; font-size: 9px; background: transparent;")
+		detail_lbl.setStyleSheet("font-size: 9px; background: transparent;")
 		info_col.addWidget(detail_lbl)
 
 		main.addLayout(info_col)
@@ -624,6 +753,7 @@ class PromptInjectorDialog(QDialog):
 		self._copied_count = 0
 		self._loaded_prompt_ids = []
 		self._loaded_files = []
+		self._last_csv_dir = None
 		self._queue_lock = threading.Lock()
 		self._current_done = 0
 		self._total = 0
@@ -1974,12 +2104,19 @@ class PromptInjectorDialog(QDialog):
 		self.stats_speed_lbl.setText(f"Speed: {speed:.2f}/m")
 
 	def on_load_csv(self):
+		start_dir = getattr(self, '_last_csv_dir', None)
+		if not start_dir or not os.path.isdir(start_dir):
+			start_dir = os.path.expanduser("~")
 		paths, _ = QFileDialog.getOpenFileNames(
-			self, "Select CSV/TXT files", os.path.dirname(__file__),
+			self, "Select CSV/TXT files", start_dir,
 			"CSV or TXT Files (*.csv *.txt);;All Files (*)"
 		)
 		if not paths:
 			return
+		try:
+			self._last_csv_dir = os.path.dirname(paths[0])
+		except Exception:
+			pass
 		aggregated = []
 		new_files = []
 		for path in paths:
@@ -2119,6 +2256,7 @@ class PromptInjectorDialog(QDialog):
 		data = {
 			"random_delay": float(self.rand_spin.value()),
 			"loaded_files": list(self._loaded_files),
+			"last_csv_dir": getattr(self, '_last_csv_dir', None),
 		}
 		path = self.settings_path()
 		try:
@@ -2141,6 +2279,7 @@ class PromptInjectorDialog(QDialog):
 		if rd is not None:
 			self.rand_spin.setValue(float(rd))
 		loaded_files = data.get("loaded_files") or []
+		self._last_csv_dir = data.get("last_csv_dir")
 		if loaded_files:
 			aggregated = []
 			self._loaded_files = []

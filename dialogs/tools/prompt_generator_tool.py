@@ -366,8 +366,10 @@ class PromptGeneratorDialog(QDialog):
 		_flbl = QLabel("Folder")
 		_flbl.setMinimumWidth(120)
 		_frl.addWidget(_flbl)
+		_frl.addStretch()
 		self.ref_load_folder_btn = QPushButton(qta.icon('fa6s.folder-open'), " Load Folder")
-		_frl.addWidget(self.ref_load_folder_btn, 1)
+		self.ref_load_folder_btn.setFixedWidth(120)
+		_frl.addWidget(self.ref_load_folder_btn, 0, Qt.AlignRight)
 		self._ref_folder_row.setVisible(False)
 		layout.addWidget(self._ref_folder_row)
 
