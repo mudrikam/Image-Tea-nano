@@ -12,6 +12,8 @@ import shutil
 
 BASE_PATH = config.BASE_PATH
 
+_NO_WINDOW = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+
 CAIRO_DLL_DIR = os.path.join(BASE_PATH, "tools", "cairo", "cairo-windows-1.17.2", "lib", "x64")
 from tools.tools_checker import download_and_extract_cairo
 
@@ -178,7 +180,7 @@ def _ensure_cairo_loaded():
                 print(f"Failed to load cairo from {p} as RTLD_GLOBAL: {e}")
 
     try:
-        res = subprocess.run(["pkg-config", "--variable=libdir", "cairo"], capture_output=True, text=True, check=False)
+        res = subprocess.run(["pkg-config", "--variable=libdir", "cairo"], capture_output=True, text=True, check=False, **_NO_WINDOW)
         libdir = res.stdout.strip()
         if libdir:
             candidate = os.path.join(libdir, "libcairo.dylib")
@@ -255,7 +257,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
             "-sDEVICE=bbox",
             input_path
         ]
-        proc = subprocess.run(bbox_args, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(bbox_args, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **_NO_WINDOW)
         output = proc.stdout + proc.stderr
         bbox = None
         for line in output.splitlines():
@@ -279,7 +281,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                 f"-sOutputFile={png_path}",
                 input_path
             ]
-            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
             if not os.path.exists(png_path):
                 print(f"Ghostscript did not produce output: {png_path}")
                 return None
@@ -296,7 +298,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                     f"-sOutputFile={output_path}",
                     input_path
                 ]
-                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
                 if os.path.exists(output_path):
                     try:
                         os.remove(png_path)
@@ -316,7 +318,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                 f"-sOutputFile={png_path}",
                 input_path
             ]
-            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
             if not os.path.exists(png_path):
                 print(f"Ghostscript did not produce output: {png_path}")
                 return None
@@ -333,7 +335,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                     f"-sOutputFile={output_path}",
                     input_path
                 ]
-                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
                 if os.path.exists(output_path):
                     try:
                         os.remove(png_path)
@@ -387,7 +389,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
             "-f",
             input_path
         ]
-        subprocess.run(gs_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(gs_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
         if not os.path.exists(png_path):
             print(f"Ghostscript did not produce output after bbox rasterize: {png_path}")
             return None
@@ -408,7 +410,7 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
                 "-f",
                 input_path
             ]
-            subprocess.run(gs_args_jpg, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(gs_args_jpg, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
             if os.path.exists(output_path):
                 try:
                     os.remove(png_path)

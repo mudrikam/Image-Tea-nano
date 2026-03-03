@@ -210,7 +210,13 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
         if provider_endpoint:
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
             try:
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, image_path if not is_video else None, timeout=180)
+                endpoint_image_path = None
+                if not is_video:
+                    endpoint_image_path = compress_and_save_image(image_path)
+                    if not endpoint_image_path:
+                        print(f"[Gemini ERROR] Failed to compress image for custom endpoint: {image_path}")
+                        return '', '', '', {}, '', f"[Gemini ERROR] Failed to compress image: {image_path}", 0, 0, 0
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[Gemini][CustomEndpoint] {e}")
