@@ -514,12 +514,27 @@ class AddApiKeyDialog(QDialog):
         endpoint_layout = QHBoxLayout()
         _endpoint_label_widget, endpoint_label = self._create_icon_label_widget("Endpoint:", 'fa6s.link', label_width)
         endpoint_label.setToolTip("Optional custom provider endpoint URL (e.g. https://api.myrouter.local/v1)")
-        self.endpoint_edit = QLineEdit()
-        self.endpoint_edit.setPlaceholderText("Optional: Custom endpoint URL (leave empty to use provider default)")
+        self.endpoint_edit = QComboBox()
+        self.endpoint_edit.setEditable(True)
+        self.endpoint_edit.addItem("", "")
+        self.endpoint_edit.addItem("Desainia API", "https://api.desainia.my.id/v1/chat/completions")
+        self.endpoint_edit.addItem("OpenRouter Custom", "https://openrouter.ai/api/v1/chat/completions")
+        self.endpoint_edit.addItem("Groq Custom", "https://api.groq.com/openai/v1/chat/completions")
+        self.endpoint_edit.addItem("Together AI", "https://api.together.xyz/v1/chat/completions")
+        self.endpoint_edit.addItem("Anthropic", "https://api.anthropic.com/v1/messages")
+        self.endpoint_edit.addItem("Ollama Local", "http://localhost:11434/v1/chat/completions")
         self.endpoint_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.endpoint_edit.setToolTip("Enter full endpoint URL including scheme (https://)")
+        self.endpoint_edit.currentIndexChanged.connect(self._on_endpoint_combo_changed)
         endpoint_layout.addWidget(_endpoint_label_widget)
         endpoint_layout.addWidget(self.endpoint_edit)
+        self.endpoint_paste_btn = QPushButton()
+        self.endpoint_paste_btn.setIcon(qta.icon('fa6s.paste'))
+        self.endpoint_paste_btn.setFixedWidth(32)
+        self.endpoint_paste_btn.setToolTip("Paste endpoint from clipboard")
+        self.endpoint_paste_btn.setFocusPolicy(Qt.NoFocus)
+        self.endpoint_paste_btn.clicked.connect(self._on_endpoint_paste)
+        endpoint_layout.addWidget(self.endpoint_paste_btn)
         layout.addLayout(endpoint_layout)
 
         csv_btn_layout_top = QHBoxLayout()
@@ -613,6 +628,14 @@ class AddApiKeyDialog(QDialog):
         layout.addLayout(csv_btn_layout_bottom)
 
         csv_btn_layout_top.addWidget(self.test_all_btn)
+        self.new_btn = QPushButton()
+        self.new_btn.setText("New")
+        self.new_btn.setIcon(qta.icon('fa6s.file-circle-plus', color=theme.get_color('primary')))
+        self.new_btn.setIconSize(self.new_btn.iconSize())
+        self.new_btn.setToolTip("Reset entry to blank (first launch)")
+        self.new_btn.setMinimumHeight(self.test_all_btn.minimumHeight())
+        self.new_btn.clicked.connect(self._reset_entry_form)
+        csv_btn_layout_top.addWidget(self.new_btn)
         csv_btn_layout_top.addWidget(self.sort_combo)
         csv_btn_layout_top.addWidget(self.refresh_btn)
         csv_btn_layout_top.addWidget(self.search_edit, 1)
@@ -723,12 +746,32 @@ class AddApiKeyDialog(QDialog):
         self._test_all_running = False
         self._test_all_results = []
         self._test_all_row_blinking = False
+        self._service_manually_selected = False
+        self._model_manually_selected = False
         try:
             self._load_app_links()
         except Exception as e:
             print(f"Failed to load app links in AddApiKeyDialog: {e}")
             self._whatsapp_link = None
             self._get_api_key_link = None
+        self._reset_entry_form_initial_values = {
+            'service': 'Gemini',
+            'model': '',
+            'api_key': '',
+            'note': '',
+            'endpoint': ''
+        }
+    def _reset_entry_form(self):
+        self.service_combo.setCurrentText(self._reset_entry_form_initial_values['service'])
+        self._service_manually_selected = False
+        self._model_manually_selected = False
+        self.model_combo.setCurrentText(self._reset_entry_form_initial_values['model'])
+        self.key_edit.setText(self._reset_entry_form_initial_values['api_key'])
+        self.note_edit.setText(self._reset_entry_form_initial_values['note'])
+        self.endpoint_edit.setCurrentText(self._reset_entry_form_initial_values['endpoint'])
+        self._detected_service = None
+        self._api_key_valid = False
+        self.progress_bar.setVisible(False)
 
     def _truncate_api_key(self, api, head=6, tail=6, min_len=20):
         """Return a truncated API key for display in tooltips. Keep full API when editing."""
@@ -1386,7 +1429,7 @@ class AddApiKeyDialog(QDialog):
             note_text = note_item.text() if note_item else ""
             self.key_edit.setText(api_text)
             self.note_edit.setText(note_text)
-            self.endpoint_edit.setText(endpoint_text)
+            self.endpoint_edit.setCurrentText(endpoint_text)
             service_combo_map = {
                 'openai': 'OpenAI',
                 'openrouter': 'OpenRouter',
@@ -1479,20 +1522,21 @@ class AddApiKeyDialog(QDialog):
             service = 'gemini'
         else:
             service = None
-        if service == 'openai':
-            self.service_combo.setCurrentText("OpenAI")
-        elif service == 'openrouter':
-            self.service_combo.setCurrentText("OpenRouter")
-        elif service == 'gemini':
-            self.service_combo.setCurrentText("Gemini")
-        elif service == 'groq':
-            self.service_combo.setCurrentText("Groq")
-        elif service == 'blackbox':
-            self.service_combo.setCurrentText("Blackbox")
-        elif service == 'maia':
-            self.service_combo.setCurrentText("Maia")
-        elif service == 'custom':
-            self.service_combo.setCurrentText("Custom Endpoint")
+        if not self._service_manually_selected:
+            if service == 'openai':
+                self.service_combo.setCurrentText("OpenAI")
+            elif service == 'openrouter':
+                self.service_combo.setCurrentText("OpenRouter")
+            elif service == 'gemini':
+                self.service_combo.setCurrentText("Gemini")
+            elif service == 'groq':
+                self.service_combo.setCurrentText("Groq")
+            elif service == 'blackbox':
+                self.service_combo.setCurrentText("Blackbox")
+            elif service == 'maia':
+                self.service_combo.setCurrentText("Maia")
+            elif service == 'custom':
+                self.service_combo.setCurrentText("Custom Endpoint")
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
@@ -1516,12 +1560,37 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = None
         self._refresh_model_combo()
         self._api_key_valid = False
+        self._service_manually_selected = True
 
     def _on_model_combo_changed(self, idx):
         try:
             self._api_key_valid = False
+            self._model_manually_selected = True
         except Exception as e:
             print(f"[AddApiKeyDialog] Error handling model combo change: {e}")
+
+    def _on_endpoint_combo_changed(self, idx):
+        current = self.endpoint_edit.currentText()
+        if current == "Desainia API":
+            self.endpoint_edit.setCurrentText("https://api.desainia.my.id/v1/chat/completions")
+        elif current == "OpenRouter Custom":
+            self.endpoint_edit.setCurrentText("https://openrouter.ai/api/v1/chat/completions")
+        elif current == "Groq Custom":
+            self.endpoint_edit.setCurrentText("https://api.groq.com/openai/v1/chat/completions")
+        elif current == "Together AI":
+            self.endpoint_edit.setCurrentText("https://api.together.xyz/v1/chat/completions")
+        elif current == "Anthropic":
+            self.endpoint_edit.setCurrentText("https://api.anthropic.com/v1/messages")
+        elif current == "Ollama Local":
+            self.endpoint_edit.setCurrentText("http://localhost:11434/v1/chat/completions")
+
+    def _on_endpoint_paste(self):
+        try:
+            clip = QApplication.clipboard().text()
+            if clip:
+                self.endpoint_edit.setCurrentText(clip)
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Failed to paste endpoint: {e}")
 
     def _open_model_manager(self):
         dlg = ModelManagerDialog(self.model_list, self)
@@ -1546,7 +1615,7 @@ class AddApiKeyDialog(QDialog):
         model = self.model_combo.currentText() if self.model_combo.count() > 0 else None
         provider_endpoint = None
         if hasattr(self, 'endpoint_edit'):
-            ep = self.endpoint_edit.text().strip()
+            ep = self.endpoint_edit.currentText().strip()
             provider_endpoint = ep if ep else None
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)
         self._test_thread.result.connect(self._on_test_result_auto)
@@ -1603,7 +1672,7 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setEnabled(False)
         provider_endpoint = None
         if hasattr(self, 'endpoint_edit'):
-            ep = self.endpoint_edit.text().strip()
+            ep = self.endpoint_edit.currentText().strip()
             provider_endpoint = ep if ep else None
         self._pending_provider_endpoint = provider_endpoint
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)

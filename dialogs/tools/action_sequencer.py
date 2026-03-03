@@ -890,29 +890,38 @@ class ActionSequencerDialog(QDialog):
     
     def on_reset_tool(self):
         print("Clear All requested")
-        
-        if self.batch_worker and self.batch_worker.isRunning():
-            self.batch_worker.stop()
-            self.batch_worker.wait()
-        
+
+        if self.batch_worker:
+            try:
+                self.batch_worker.progress_updated.disconnect(self.on_batch_progress)
+                self.batch_worker.status_updated.disconnect(self.on_batch_status)
+                self.batch_worker.completed.disconnect(self.on_batch_completed)
+                self.batch_worker.error_occurred.disconnect(self.on_batch_error)
+                self.batch_worker.segment_started.disconnect(self.on_segment_started)
+                self.batch_worker.delay_countdown.disconnect(self.on_delay_countdown)
+            except Exception:
+                pass
+            if self.batch_worker.isRunning():
+                self.batch_worker.stop()
+
         self.batch_worker = None
         self.loaded_files = []
         self.is_batch_paused = False
         self.current_platform_name = None
         self.last_processed_index = 0
-        
+
         self.status_bar_widget.end_running_mode()
         self.status_bar_widget.reset_stats()
         self.status_bar_widget.set_run_button_enabled(True)
         self.status_bar_widget.update_files_count(0, '')
-        
+
         try:
             self.action_bar_widget.set_source_path("")
             self.action_bar_widget.set_file_path("")
         except Exception:
             pass
         self.action_bar_widget.disable_all_load_buttons()
-        
+
         print("Tool cleared to initial state")
 
     def on_clear_source(self):

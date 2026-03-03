@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QListWidget, QListWidgetItem, QPushButton, QMenu, QMessageBox)
-from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer
 from PySide6.QtGui import QFont, QDrag, QPixmap, QPainter, QColor
 import qtawesome as qta
 from .select_action_dialog import SelectActionDialog
@@ -10,38 +10,81 @@ from ui.theme_system import theme
 
 class DraggableListWidget(QListWidget):
     """QListWidget subclass that creates a drag pixmap so the item follows the cursor while dragging."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._click_item = None
+        self._click_was_selected = False
+        self._mouse_moved = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            item = self.itemAt(event.pos())
+            self._click_item = item
+            self._click_was_selected = item is not None and item.isSelected()
+            self._mouse_moved = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        self._mouse_moved = True
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton and not self._mouse_moved:
+            modifiers = event.modifiers()
+            item = self.itemAt(event.pos())
+            if (item is not None and item is self._click_item
+                    and self._click_was_selected
+                    and not (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))):
+                item.setSelected(False)
+        self._click_item = None
+        self._click_was_selected = False
+
     def startDrag(self, supportedActions):
-        item = self.currentItem()
-        if not item:
+        selected_items = [
+            self.item(i) for i in range(self.count())
+            if self.item(i) and self.item(i).isSelected()
+            and (self.item(i).flags() & Qt.ItemIsDragEnabled)
+        ]
+        if not selected_items:
             return
-        widget = self.itemWidget(item)
-        try:
-            if widget:
-                pixmap = widget.grab()
-            else:
-                rect = self.visualItemRect(item)
-                pixmap = QPixmap(rect.size())
-                pixmap.fill(Qt.transparent)
-        except Exception:
-            pixmap = QPixmap(200, 40)
-            pixmap.fill(Qt.lightGray)
+
+        pixmaps = []
+        for it in selected_items:
+            w = self.itemWidget(it)
+            try:
+                if w:
+                    pixmaps.append(w.grab())
+                else:
+                    rect = self.visualItemRect(it)
+                    px = QPixmap(rect.size())
+                    px.fill(Qt.transparent)
+                    pixmaps.append(px)
+            except Exception:
+                px = QPixmap(200, 40)
+                px.fill(Qt.lightGray)
+                pixmaps.append(px)
+
+        if not pixmaps:
+            return
+
+        total_w = max(p.width() for p in pixmaps)
+        total_h = sum(p.height() for p in pixmaps)
+        composite = QPixmap(total_w, total_h)
+        composite.fill(Qt.transparent)
+        painter = QPainter(composite)
+        painter.setOpacity(0.7)
+        y_offset = 0
+        for px in pixmaps:
+            painter.drawPixmap(0, y_offset, px)
+            y_offset += px.height()
+        painter.end()
 
         drag = QDrag(self)
         mime = self.model().mimeData(self.selectedIndexes())
         drag.setMimeData(mime)
-        try:
-            # create a semi-transparent pixmap so the item under the cursor remains visible
-            translucent = QPixmap(pixmap.size())
-            translucent.fill(Qt.transparent)
-            painter = QPainter(translucent)
-            painter.setOpacity(0.6)
-            painter.drawPixmap(0, 0, pixmap)
-            painter.end()
-            drag.setPixmap(translucent)
-        except Exception:
-            # fallback to original pixmap if anything goes wrong
-            drag.setPixmap(pixmap)
-        drag.setHotSpot(QPoint(pixmap.width()//2, pixmap.height()//2))
+        drag.setPixmap(composite)
+        drag.setHotSpot(QPoint(composite.width() // 2, pixmaps[0].height() // 2))
         drag.exec(Qt.MoveAction)
 
 class StepListWidget(QWidget):
@@ -57,6 +100,9 @@ class StepListWidget(QWidget):
         self.current_preset = None
         self.current_platform_id = None
         self.db = ImageTeaDB()
+        self._rows_moved_timer = QTimer()
+        self._rows_moved_timer.setSingleShot(True)
+        self._rows_moved_timer.timeout.connect(self._save_and_reload_after_drag)
         self.setup_ui()
     
     def setup_ui(self):
@@ -73,13 +119,14 @@ class StepListWidget(QWidget):
         self.step_list.setDropIndicatorShown(True)
         self.step_list.setDragDropMode(QListWidget.InternalMove)
         self.step_list.setDefaultDropAction(Qt.MoveAction)
-        self.step_list.setSelectionMode(QListWidget.SingleSelection)
+        self.step_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.step_list.setMovement(QListWidget.Snap)
         self.step_list.setResizeMode(QListWidget.Adjust)
         self.step_list.model().rowsMoved.connect(self.on_rows_moved)
         self.step_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.step_list.customContextMenuRequested.connect(self.on_step_context_menu)
         self.step_list.itemDoubleClicked.connect(lambda item: self.step_edit_requested.emit(item.data(Qt.UserRole)))
+        self.step_list.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.step_list)
         
         self.setLayout(layout)
@@ -88,6 +135,7 @@ class StepListWidget(QWidget):
         self.current_preset = preset_data
         if platform_id:
             self.current_platform_id = platform_id
+        scroll_val = self.step_list.verticalScrollBar().value()
         self.step_list.clear()
         
         try:
@@ -98,6 +146,7 @@ class StepListWidget(QWidget):
             print(f"Failed to load preset steps: {e}")
         
         self.add_new_action_button()
+        QTimer.singleShot(0, lambda: self.step_list.verticalScrollBar().setValue(scroll_val))
     
     def add_step_to_list(self, step_data):
         item = QListWidgetItem()
@@ -214,6 +263,93 @@ class StepListWidget(QWidget):
         self.step_list.addItem(item)
         self.step_list.setItemWidget(item, container)
     
+    def _on_selection_changed(self):
+        selected_ids = set()
+        for item in self.step_list.selectedItems():
+            d = item.data(Qt.UserRole)
+            if d and d.get('id'):
+                selected_ids.add(d['id'])
+        for i in range(self.step_list.count()):
+            list_item = self.step_list.item(i)
+            if not list_item:
+                continue
+            d = list_item.data(Qt.UserRole)
+            if d and d.get('id'):
+                self._set_step_item_selected(list_item, d, d['id'] in selected_ids)
+
+    def _get_selected_step_data_list(self) -> list:
+        result = []
+        for item in self.step_list.selectedItems():
+            d = item.data(Qt.UserRole)
+            if d and d.get('id'):
+                result.append(d)
+        result.sort(key=lambda s: s.get('order_index', 0))
+        return result
+
+    def _get_all_steps_from_list(self) -> list:
+        steps = []
+        for i in range(self.step_list.count()):
+            item = self.step_list.item(i)
+            if item and item.flags() & Qt.ItemIsDragEnabled:
+                d = item.data(Qt.UserRole)
+                if d and d.get('id'):
+                    steps.append(d)
+        return steps
+
+    def _set_step_item_selected(self, item, step_data: dict, selected: bool):
+        widget_container = self.step_list.itemWidget(item)
+        if not widget_container:
+            return
+        step_widget = widget_container.findChild(QWidget, f"stepItem_{step_data['id']}")
+        if not step_widget:
+            return
+        color = step_data.get("color", theme.get_color('gray'))
+        hex_color = color.lstrip('#')
+        try:
+            r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+        except Exception:
+            r, g, b = 128, 128, 128
+        sid = step_data['id']
+        if selected:
+            step_widget.setStyleSheet(f"""
+                QWidget#stepItem_{sid} {{
+                    background-color: rgba({r}, {g}, {b}, 80);
+                    border-radius: 4px;
+                    border: 1px solid rgba({r}, {g}, {b}, 200);
+                }}
+                QWidget#stepItem_{sid}:hover {{
+                    background-color: rgba({r}, {g}, {b}, 100);
+                    border: 1px solid rgba({r}, {g}, {b}, 255);
+                }}
+            """)
+        else:
+            step_widget.setStyleSheet(f"""
+                QWidget#stepItem_{sid} {{
+                    background-color: rgba({r}, {g}, {b}, 30);
+                    border-radius: 4px;
+                    border: 1px solid rgba({r}, {g}, {b}, 0);
+                }}
+                QWidget#stepItem_{sid}:hover {{
+                    background-color: rgba({r}, {g}, {b}, 80);
+                    border: 1px solid rgba({r}, {g}, {b}, 1);
+                }}
+            """)
+
+    def _multi_delete_steps(self, steps: list):
+        if not steps or not self.current_preset:
+            return
+        if len(steps) == 1:
+            msg = f"Are you sure you want to remove '{steps[0]['name']}' from this preset?"
+        else:
+            msg = f"Are you sure you want to remove {len(steps)} selected steps from this preset?"
+        reply = QMessageBox.question(self, "Confirm Deletion", msg, QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        for step in steps:
+            self.db.delete_preset_step(step['id'])
+        self.load_preset_steps(self.current_preset, self.current_platform_id)
+        self.action_added_to_preset.emit()
+
     def _create_step_menu(self, step_data):
         menu = QMenu(self)
 
@@ -258,17 +394,16 @@ class StepListWidget(QWidget):
         clear_action = menu.addAction("Clear All Steps")
         clear_action.setIcon(qta.icon('fa6s.broom'))
 
-        # connect signals
         edit_action.triggered.connect(lambda: self.step_edit_requested.emit(step_data))
         add_above_action.triggered.connect(lambda: self.add_step_above(step_data))
         add_below_action.triggered.connect(lambda: self.add_step_below(step_data))
-        to_top_action.triggered.connect(lambda: self.move_step_to_top(step_data))
-        move_up_action.triggered.connect(lambda: self.move_step_up(step_data))
-        move_down_action.triggered.connect(lambda: self.move_step_down(step_data))
-        to_bottom_action.triggered.connect(lambda: self.move_step_to_bottom(step_data))
-        duplicate_action.triggered.connect(lambda: self.on_duplicate_step(step_data))
+        to_top_action.triggered.connect(lambda: self.move_step_to_top([step_data]))
+        move_up_action.triggered.connect(lambda: self.move_step_up([step_data]))
+        move_down_action.triggered.connect(lambda: self.move_step_down([step_data]))
+        to_bottom_action.triggered.connect(lambda: self.move_step_to_bottom([step_data]))
+        duplicate_action.triggered.connect(lambda: self.on_duplicate_step([step_data]))
         replace_action.triggered.connect(lambda: self.on_replace_step(step_data))
-        delete_action.triggered.connect(lambda: self.step_delete_requested.emit(step_data))
+        delete_action.triggered.connect(lambda: self._multi_delete_steps([step_data]))
         clear_action.triggered.connect(self._clear_all_steps_of_current_preset)
 
         return menu
@@ -278,226 +413,171 @@ class StepListWidget(QWidget):
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
 
     def on_step_context_menu(self, pos):
-        # pos is relative to the widget; map to item under cursor
         item = self.step_list.itemAt(pos)
         if not item:
             return
         step_data = item.data(Qt.UserRole)
         if not step_data:
             return
-        global_pos = self.step_list.viewport().mapToGlobal(pos)
-        menu = self._create_step_menu(step_data)
-        menu.exec_(global_pos)
+
+        selected = self._get_selected_step_data_list()
+        selected_ids = {s['id'] for s in selected}
+        if step_data['id'] not in selected_ids:
+            selected = [step_data]
+        is_multi = len(selected) > 1
+        count_label = f" ({len(selected)})" if is_multi else ""
+
+        if not is_multi:
+            menu = self._create_step_menu(step_data)
+            menu.exec_(self.step_list.viewport().mapToGlobal(pos))
+            return
+
+        menu = QMenu(self)
+        dup_action = menu.addAction(qta.icon('fa6s.clone'), f"Duplicate{count_label}")
+        menu.addSeparator()
+        to_top_action = menu.addAction(qta.icon('fa6s.angles-up'), "To Top")
+        move_up_action = menu.addAction(qta.icon('fa6s.arrow-up'), "Move Up")
+        move_down_action = menu.addAction(qta.icon('fa6s.arrow-down'), "Move Down")
+        to_bottom_action = menu.addAction(qta.icon('fa6s.angles-down'), "To Bottom")
+        menu.addSeparator()
+        del_action = menu.addAction(qta.icon('fa6s.trash'), f"Delete{count_label}")
+        clear_action = menu.addAction(qta.icon('fa6s.broom'), "Clear All Steps")
+
+        total_steps = sum(1 for i in range(self.step_list.count())
+                          if self.step_list.item(i) and self.step_list.item(i).flags() & Qt.ItemIsDragEnabled)
+        orders = [s.get('order_index', 0) for s in selected]
+        to_top_action.setEnabled(min(orders) > 1)
+        move_up_action.setEnabled(min(orders) > 1)
+        move_down_action.setEnabled(max(orders) < total_steps)
+        to_bottom_action.setEnabled(max(orders) < total_steps)
+
+        dup_action.triggered.connect(lambda: self.on_duplicate_step(selected))
+        to_top_action.triggered.connect(lambda: self.move_step_to_top(selected))
+        move_up_action.triggered.connect(lambda: self.move_step_up(selected))
+        move_down_action.triggered.connect(lambda: self.move_step_down(selected))
+        to_bottom_action.triggered.connect(lambda: self.move_step_to_bottom(selected))
+        del_action.triggered.connect(lambda: self._multi_delete_steps(selected))
+        clear_action.triggered.connect(self._clear_all_steps_of_current_preset)
+
+        menu.exec_(self.step_list.viewport().mapToGlobal(pos))
     
-    def move_step_up(self, step_data):
+    def move_step_up(self, step_input):
+        if isinstance(step_input, dict):
+            step_input = [step_input]
         if not self.current_preset:
             return
-        
-        current_order = step_data["order_index"]
-        if current_order <= 1:
+        for sd in step_input:
+            aid = sd.get('action_id')
+            ad = self.db.get_action_by_id(aid)
+            if ad and ad.get('type') == 'Export':
+                QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom. Cannot move above non-export actions.")
+                return
+        selected_ids = {s['id'] for s in step_input}
+        all_steps = sorted(self._get_all_steps_from_list(), key=lambda s: s.get('order_index', 0))
+        ids_ordered = [s['id'] for s in all_steps]
+        if not ids_ordered or ids_ordered[0] in selected_ids:
             return
-        
-        action_id = step_data.get('action_id')
-        action_detail = self.db.get_action_by_id(action_id)
-        is_export = action_detail and action_detail.get('type') == 'Export'
-        
-        # Jika export, cek step di atasnya
-        if is_export:
-            # Cari step di atas
-            step_above = None
-            for i in range(self.step_list.count()):
-                item = self.step_list.item(i)
-                if item and item.flags() & Qt.ItemIsDragEnabled:
-                    data = item.data(Qt.UserRole)
-                    if data and data['order_index'] == current_order - 1:
-                        step_above = data
-                        break
-            
-            if step_above:
-                above_action = self.db.get_action_by_id(step_above['action_id'])
-                if above_action and above_action.get('type') != 'Export':
-                    QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom. Cannot move above non-export actions.")
-                    return
-        
-        # Kumpulkan semua steps dan tukar order
-        step_orders = []
-        for i in range(self.step_list.count()):
-            item = self.step_list.item(i)
-            if item and item.flags() & Qt.ItemIsDragEnabled:
-                data = item.data(Qt.UserRole)
-                if data:
-                    if data['id'] == step_data['id']:
-                        # Step ini turun order (naik posisi)
-                        step_orders.append((data['id'], current_order - 1))
-                    elif data['order_index'] == current_order - 1:
-                        # Step sebelumnya naik order (turun posisi)
-                        step_orders.append((data['id'], current_order))
-                    else:
-                        step_orders.append((data['id'], data['order_index']))
-        
+        for i in range(1, len(ids_ordered)):
+            if ids_ordered[i] in selected_ids and ids_ordered[i - 1] not in selected_ids:
+                ids_ordered[i - 1], ids_ordered[i] = ids_ordered[i], ids_ordered[i - 1]
+        step_orders = [(pid, i + 1) for i, pid in enumerate(ids_ordered)]
         try:
             self.db.update_preset_step_order(self.current_preset['id'], step_orders)
             self.load_preset_steps(self.current_preset, self.current_platform_id)
         except Exception as e:
             print(f"Failed to move step up: {e}")
     
-    def move_step_down(self, step_data):
+    def move_step_down(self, step_input):
+        if isinstance(step_input, dict):
+            step_input = [step_input]
         if not self.current_preset:
             return
-        
-        current_order = step_data["order_index"]
-        # Hitung jumlah step (exclude button)
-        total_steps = sum(1 for i in range(self.step_list.count()) 
-                         if self.step_list.item(i).flags() & Qt.ItemIsDragEnabled)
-        
-        if current_order >= total_steps:
-            return
-
-        action_id = step_data.get('action_id')
-        action_detail = self.db.get_action_by_id(action_id)
-        is_export = action_detail and action_detail.get('type') == 'Export'
-        
-        # Jika non-export, cek step di bawahnya
-        if not is_export:
-            # Cari step di bawah
-            step_below = None
-            for i in range(self.step_list.count()):
-                item = self.step_list.item(i)
-                if item and item.flags() & Qt.ItemIsDragEnabled:
-                    data = item.data(Qt.UserRole)
-                    if data and data['order_index'] == current_order + 1:
-                        step_below = data
-                        break
-            
-            if step_below:
-                below_action = self.db.get_action_by_id(step_below['action_id'])
-                if below_action and below_action.get('type') == 'Export':
+        selected_ids = {s['id'] for s in step_input}
+        export_order = self._get_export_order()
+        for sd in step_input:
+            ad = self.db.get_action_by_id(sd.get('action_id'))
+            if ad and ad.get('type') != 'Export' and export_order is not None:
+                if sd.get('order_index', 0) + 1 >= export_order:
                     QMessageBox.warning(self, "Invalid Move", "Cannot move non-export steps below Export actions. Export must stay at the bottom.")
                     return
-        
-        # Kumpulkan semua steps dan tukar order
-        step_orders = []
-        for i in range(self.step_list.count()):
-            item = self.step_list.item(i)
-            if item and item.flags() & Qt.ItemIsDragEnabled:
-                data = item.data(Qt.UserRole)
-                if data:
-                    if data['id'] == step_data['id']:
-                        # Step ini naik order (turun posisi)
-                        step_orders.append((data['id'], current_order + 1))
-                    elif data['order_index'] == current_order + 1:
-                        # Step setelahnya turun order (naik posisi)
-                        step_orders.append((data['id'], current_order))
-                    else:
-                        step_orders.append((data['id'], data['order_index']))
-        
+        all_steps = sorted(self._get_all_steps_from_list(), key=lambda s: s.get('order_index', 0))
+        ids_ordered = [s['id'] for s in all_steps]
+        if not ids_ordered or ids_ordered[-1] in selected_ids:
+            return
+        for i in range(len(ids_ordered) - 2, -1, -1):
+            if ids_ordered[i] in selected_ids and ids_ordered[i + 1] not in selected_ids:
+                ids_ordered[i], ids_ordered[i + 1] = ids_ordered[i + 1], ids_ordered[i]
+        step_orders = [(pid, i + 1) for i, pid in enumerate(ids_ordered)]
         try:
             self.db.update_preset_step_order(self.current_preset['id'], step_orders)
             self.load_preset_steps(self.current_preset, self.current_platform_id)
         except Exception as e:
             print(f"Failed to move step down: {e}")
-            if item and item.flags() & Qt.ItemIsDragEnabled:
-                data = item.data(Qt.UserRole)
-                if data:
-                    if data['id'] == step_data['id']:
-                        # Step ini naik order (turun posisi)
-                        step_orders.append((data['id'], current_order + 1))
-                    elif data['order_index'] == current_order + 1:
-                        # Step setelahnya turun order (naik posisi)
-                        step_orders.append((data['id'], current_order))
-                    else:
-                        step_orders.append((data['id'], data['order_index']))
-        
-        try:
-            self.db.update_preset_step_order(self.current_preset['id'], step_orders)
-            self.load_preset_steps(self.current_preset, self.current_platform_id)
-        except Exception as e:
-            print(f"Failed to move step down: {e}")
-    
-    def move_step_to_top(self, step_data):
+
+    def move_step_to_top(self, step_input):
+        if isinstance(step_input, dict):
+            step_input = [step_input]
         if not self.current_preset:
             return
-        
-        action_id = step_data.get('action_id')
-        action_detail = self.db.get_action_by_id(action_id)
-        if action_detail and action_detail.get('type') == 'Export':
-            QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom and cannot be moved to top")
-            return
-        
-        current_order = step_data["order_index"]
-        if current_order <= 1:
-            return
-        
-        # Step ini pindah ke order 1, sisanya geser ke bawah
-        step_orders = []
-        for i in range(self.step_list.count()):
-            item = self.step_list.item(i)
-            if item and item.flags() & Qt.ItemIsDragEnabled:
-                data = item.data(Qt.UserRole)
-                if data:
-                    if data['id'] == step_data['id']:
-                        step_orders.append((data['id'], 1))
-                    elif data['order_index'] < current_order:
-                        # Step yang di atas current: order naik 1
-                        step_orders.append((data['id'], data['order_index'] + 1))
-                    else:
-                        step_orders.append((data['id'], data['order_index']))
-        
+        for sd in step_input:
+            ad = self.db.get_action_by_id(sd.get('action_id'))
+            if ad and ad.get('type') == 'Export':
+                QMessageBox.warning(self, "Cannot Move Export", "Export actions must stay at the bottom and cannot be moved to top")
+                return
+        selected_ids = {s['id'] for s in step_input}
+        all_steps = sorted(self._get_all_steps_from_list(), key=lambda s: s.get('order_index', 0))
+        selected_sorted = [s for s in all_steps if s['id'] in selected_ids]
+        others = [s for s in all_steps if s['id'] not in selected_ids]
+        new_order = selected_sorted + others
+        step_orders = [(s['id'], i + 1) for i, s in enumerate(new_order)]
         try:
             self.db.update_preset_step_order(self.current_preset['id'], step_orders)
             self.load_preset_steps(self.current_preset, self.current_platform_id)
         except Exception as e:
             print(f"Failed to move step to top: {e}")
-    
-    def move_step_to_bottom(self, step_data):
+
+    def move_step_to_bottom(self, step_input):
+        if isinstance(step_input, dict):
+            step_input = [step_input]
         if not self.current_preset:
             return
-        
-        current_order = step_data["order_index"]
-        # Hitung total steps
-        total_steps = sum(1 for i in range(self.step_list.count()) 
-                         if self.step_list.item(i).flags() & Qt.ItemIsDragEnabled)
-        
-        if current_order >= total_steps:
-            return
-
-        # Prevent moving non-export to bottom if Export exists
-        action_id = step_data.get('action_id')
-        action_detail = self.db.get_action_by_id(action_id)
         export_order = self._get_export_order()
-        if action_detail and action_detail.get('type') != 'Export' and export_order:
-            QMessageBox.warning(self, "Invalid Move", "Cannot move steps below Export action. Export must stay at the bottom.")
-            return
-        
-        # Step ini pindah ke order terakhir, sisanya geser ke atas
-        step_orders = []
-        for i in range(self.step_list.count()):
-            item = self.step_list.item(i)
-            if item and item.flags() & Qt.ItemIsDragEnabled:
-                data = item.data(Qt.UserRole)
-                if data:
-                    if data['id'] == step_data['id']:
-                        step_orders.append((data['id'], total_steps))
-                    elif data['order_index'] > current_order:
-                        # Step yang di bawah current: order turun 1
-                        step_orders.append((data['id'], data['order_index'] - 1))
-                    else:
-                        step_orders.append((data['id'], data['order_index']))
-        
+        for sd in step_input:
+            ad = self.db.get_action_by_id(sd.get('action_id'))
+            if ad and ad.get('type') != 'Export' and export_order is not None:
+                QMessageBox.warning(self, "Invalid Move", "Cannot move steps below Export action. Export must stay at the bottom.")
+                return
+        selected_ids = {s['id'] for s in step_input}
+        all_steps = sorted(self._get_all_steps_from_list(), key=lambda s: s.get('order_index', 0))
+        selected_sorted = [s for s in all_steps if s['id'] in selected_ids]
+        others = [s for s in all_steps if s['id'] not in selected_ids]
+        new_order = others + selected_sorted
+        step_orders = [(s['id'], i + 1) for i, s in enumerate(new_order)]
         try:
             self.db.update_preset_step_order(self.current_preset['id'], step_orders)
             self.load_preset_steps(self.current_preset, self.current_platform_id)
         except Exception as e:
             print(f"Failed to move step to bottom: {e}")
 
-    def on_duplicate_step(self, step_data):
-        """Duplicate a preset step by inserting the same action immediately after the current step."""
+    def on_duplicate_step(self, step_input):
+        if isinstance(step_input, dict):
+            step_input = [step_input]
         if not self.current_preset:
             QMessageBox.warning(self, "No Preset", "Please select a preset first")
             return
-        current_order = step_data.get('order_index', 0)
-        insert_at = current_order + 1
-        self.db.add_preset_step(self.current_preset['id'], step_data.get('action_id'), insert_at=insert_at)
+        steps = sorted(step_input, key=lambda s: s.get('order_index', 0))
+        insert_after = max(s.get('order_index', 0) for s in steps)
+        shift = len(steps)
+        all_steps = self.db.get_preset_steps(self.current_preset['id'])
+        step_orders = []
+        for s in all_steps:
+            if s['order_index'] > insert_after:
+                step_orders.append((s['id'], s['order_index'] + shift))
+            else:
+                step_orders.append((s['id'], s['order_index']))
+        self.db.update_preset_step_order(self.current_preset['id'], step_orders)
+        for i, sd in enumerate(steps):
+            self.db.add_preset_step(self.current_preset['id'], sd.get('action_id'), insert_at=insert_after + 1 + i)
         self.load_preset_steps(self.current_preset, self.current_platform_id)
         self.action_added_to_preset.emit()
 
@@ -540,10 +620,16 @@ class StepListWidget(QWidget):
         dialog.exec()
     
     def on_rows_moved(self, parent, start, end, destination, row):
-        """Handle drag-drop reordering"""
+        """Handle drag-drop reordering — debounced so multi-row drag only saves once."""
         if not self.current_preset:
             return
-        
+        self._rows_moved_timer.start(80)
+
+    def _save_and_reload_after_drag(self):
+        """Called once after all rowsMoved signals settle for a single drag operation."""
+        if not self.current_preset:
+            return
+
         # Validasi: cari first export position
         first_export_pos = None
         for i in range(self.step_list.count()):
@@ -556,7 +642,7 @@ class StepListWidget(QWidget):
                         if first_export_pos is None:
                             first_export_pos = i + 1
                         break
-        
+
         # Validasi: pastikan tidak ada non-export di bawah export
         if first_export_pos:
             for i in range(self.step_list.count()):
@@ -570,7 +656,7 @@ class StepListWidget(QWidget):
                             QMessageBox.warning(self, "Invalid Reorder", "Cannot place non-export actions below Export actions. Reordering reverted.")
                             self.load_preset_steps(self.current_preset, self.current_platform_id)
                             return
-        
+
         # Kumpulkan semua step dengan order baru
         step_orders = []
         for i in range(self.step_list.count()):
@@ -579,7 +665,7 @@ class StepListWidget(QWidget):
                 step_data = item.data(Qt.UserRole)
                 if step_data:
                     step_orders.append((step_data['id'], i + 1))
-        
+
         # Update ke database
         if step_orders:
             try:
