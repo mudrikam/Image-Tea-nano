@@ -296,7 +296,10 @@
         "Variation level: {variation_level}/10 - {variation_description}",
         "Apply variation level to angle, lighting, background, atmosphere, and visual composition—not artistic style",
         "Avoid repetition between prompts - each must be distinctly different",
-        "Focus on creating prompts for similar or related images"
+        "Focus on creating prompts for similar or related images",
+        "Avoid starting prompt with \"A\" or \"a\", use clear words instead",
+        "Avoid adding commas to prompts",
+        "Use \"by\" instead of colon when declaring aspect ratio e.g. \"4 by 3 aspect ratio\""
       ],
       "video_generation": [
         "Each prompt should be approximately {prompt_length} characters long",
@@ -307,7 +310,10 @@
         "Variation level: {variation_level}/10 - {variation_description}",
         "Apply variation to camera angle, atmosphere, lighting, background, and scene composition—not artistic style",
         "Include atmospheric changes, lighting transitions, or character actions",
-        "Focus on creating engaging video sequences based on the image content"
+        "Focus on creating engaging video sequences based on the image content",
+        "Avoid starting prompt with \"A\" or \"a\", use clear words instead",
+        "Avoid adding commas to prompts",
+        "Use \"by\" instead of colon when declaring aspect ratio e.g. \"4 by 3 aspect ratio\""
       ]
     },
     "response_format": {
@@ -347,8 +353,9 @@
       "prompt_length": 200,
       "prompts_per_file": 3,
       "prompt_type": "image_generation",
-      "aspect_ratio": "4:3",
-      "variation_level": 3
+      "aspect_ratio": "1:1",
+      "variation_level": 3,
+      "custom_instruction": ""
     },
     "variation_levels": {
       "1": "Identical context, only minor changes (e.g. slightly different camera angle)",

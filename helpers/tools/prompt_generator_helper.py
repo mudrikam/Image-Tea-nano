@@ -51,13 +51,14 @@ def load_prompt_generator_config():
         prompt_type = settings.get('prompt_type', 'image_generation')
         aspect_ratio = settings.get('aspect_ratio', '16:9')
         variation_level = settings.get('variation_level', 5)
+        custom_instruction = settings.get('custom_instruction', '')
         
-        return instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels
+        return instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, prompt_types, aspect_ratios, variation_levels
     except Exception as e:
         print(f"Failed to load prompt generator config: {e}")
-        return {}, {}, {}, 150, 5, 'image_generation', '16:9', 5, {}, {}, {}
+        return {}, {}, {}, 150, 5, 'image_generation', '16:9', 5, '', {}, {}, {}
 
-def create_prompt_generation_request(instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, filename=None, metadata_context=None):
+def create_prompt_generation_request(instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction='', variation_levels=None, filename=None, metadata_context=None):
     """Create a prompt for AI to analyze an image and generate prompts based on type and aspect ratio"""
     batch_token = generate_token(16)
     batch_timestamp = generate_timestamp()
@@ -119,6 +120,9 @@ def create_prompt_generation_request(instructions, requirements, response_format
             "note": "Return ONLY valid JSON object, with NO explanation, NO markdown, NO comments, NO extra text"
         }
     }
+    # attach custom instruction if provided
+    if custom_instruction and custom_instruction.strip():
+        prompt_json["additional_instruction"] = custom_instruction.strip()
     
     if filename:
         prompt_json["context"] = {"filename": filename}
@@ -133,7 +137,7 @@ def create_prompt_generation_request(instructions, requirements, response_format
     
     return full_prompt
 
-def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, provider_endpoint=None):
+def generate_prompts_for_file(api_key, service, model, file_info, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, stop_flag=None, provider_endpoint=None):
     """Generate prompts for a single file using AI service by analyzing the actual image"""
     if stop_flag and stop_flag.get('stop'):
         return []
@@ -165,7 +169,7 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     
     prompt = create_prompt_generation_request(
         instructions, requirements, response_format, prompt_length, prompts_per_file, 
-        prompt_type, aspect_ratio, variation_level, variation_levels, filename or original_filename, metadata_context
+        prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, filename or original_filename, metadata_context
     )
 
     try:
@@ -634,13 +638,7 @@ def parse_ai_prompt_response(text, aspect_ratio=None):
         cleaned_prompts = []
         for prompt in prompts:
             if isinstance(prompt, str) and prompt.strip():
-                sanitized = re.sub(r'[\x00-\x1F\x7F]+', '', prompt.strip())
-                
-                if aspect_ratio and aspect_ratio.strip():
-                    aspect_pattern = r'\(\s*\d+:\d+\s*aspect\s+ratio\s*\)'
-                    if not re.search(aspect_pattern, sanitized, re.IGNORECASE):
-                        sanitized = f"{sanitized} ({aspect_ratio} aspect ratio)"
-                
+                sanitized = re.sub(r'[\x00-\x1F\x7F]+', '', prompt.strip())                
                 cleaned_prompts.append(sanitized)
         return cleaned_prompts
     except Exception as e:
@@ -648,7 +646,7 @@ def parse_ai_prompt_response(text, aspect_ratio=None):
         print(f"Raw response: {text}")
         return []
 
-def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
+def generate_prompts_for_all_files(db, api_key, service, model, instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, stop_flag=None, progress_callback=None, prompt_saved_callback=None, file_callback=None, provider_endpoint=None):
     """Generate prompts for all files in the database"""
     if stop_flag and stop_flag.get('stop'):
         return 0
@@ -678,7 +676,7 @@ def generate_prompts_for_all_files(db, api_key, service, model, instructions, re
 
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info, 
-                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, stop_flag, provider_endpoint=provider_endpoint
             )
 
             for prompt_data in prompts_data:
@@ -724,7 +722,7 @@ def generate_prompts_from_folder(db, api_key, service, model, folder_files, stop
     if stop_flag and stop_flag.get('stop'):
         return 0
 
-    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
+    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
 
     total_generated = 0
     total = len(folder_files)
@@ -745,7 +743,7 @@ def generate_prompts_from_folder(db, api_key, service, model, folder_files, stop
 
         prompts_data = generate_prompts_for_file(
             api_key, service, model, file_info,
-            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
+            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, stop_flag, provider_endpoint=provider_endpoint
         )
 
         for prompt_data in prompts_data:
@@ -777,12 +775,12 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
     if stop_flag and stop_flag.get('stop'):
         return 0
     
-    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
+    instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, prompt_types, aspect_ratios, variation_levels = load_prompt_generator_config()
     
     if file_ids is None:
         return generate_prompts_for_all_files(
             db, api_key, service, model, 
-            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels,
+            instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels,
             stop_flag, progress_callback, prompt_saved_callback, file_callback, provider_endpoint=provider_endpoint
         )
     else:
@@ -804,9 +802,8 @@ def generate_prompts_batch(db, api_key, service, model, file_ids=None, stop_flag
             
             prompts_data = generate_prompts_for_file(
                 api_key, service, model, file_info,
-                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, variation_levels, stop_flag, provider_endpoint=provider_endpoint
+                instructions, requirements, response_format, prompt_length, prompts_per_file, prompt_type, aspect_ratio, variation_level, custom_instruction, variation_levels, stop_flag, provider_endpoint=provider_endpoint
             )
-            
             for prompt_data in prompts_data:
                 try:
                     if isinstance(prompt_data, dict):

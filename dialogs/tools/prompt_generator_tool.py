@@ -27,12 +27,13 @@ class PromptGeneratorWorker(QThread):
 	prompt_added = Signal()
 	file_processing = Signal(str)
 
-	def __init__(self, db, api_key, service, model):
+	def __init__(self, db, api_key, service, model, folder_files=None):
 		super().__init__()
 		self.db = db
 		self.api_key = api_key
 		self.service = service
 		self.model = model
+		self.folder_files = folder_files
 		self.stop_flag = {'stop': False}
 
 	def stop(self):
@@ -428,6 +429,14 @@ class PromptGeneratorDialog(QDialog):
 		self.ref_delay_combo.currentTextChanged.connect(self._save_delay_to_config)
 		add_row("Delay", self.ref_delay_combo)
 
+		layout.addWidget(QLabel("Custom Instruction (optional):"))
+		self.ref_custom_instruction = QTextEdit()
+		self.ref_custom_instruction.setMaximumHeight(70)
+		self.ref_custom_instruction.setPlaceholderText("Optional: add extra instructions for the AI...")
+		self.ref_custom_instruction.setText(settings.get('custom_instruction', ''))
+		layout.addWidget(self.ref_custom_instruction)
+		self.ref_custom_instruction.textChanged.connect(self._save_reference_options)
+
 		saved_type = settings.get('prompt_type', 'image_generation')
 		for i in range(self.ref_prompt_type_combo.count()):
 			if self.ref_prompt_type_combo.itemData(i) == saved_type:
@@ -728,6 +737,7 @@ class PromptGeneratorDialog(QDialog):
 		self.param_custom_instruction.setPlaceholderText("Optional: add extra instructions for the AI...")
 		self.param_custom_instruction.setText(p_settings.get('custom_instruction', ''))
 		layout.addWidget(self.param_custom_instruction)
+		self.param_custom_instruction.textChanged.connect(self._save_parameters_to_config)
 
 		layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -847,7 +857,6 @@ class PromptGeneratorDialog(QDialog):
 		self.table.setSelectionBehavior(QTableWidget.SelectRows)
 		self.table.setSelectionMode(QTableWidget.SingleSelection)
 		self.table.setFocusPolicy(Qt.StrongFocus)
-		self.table.setToolTip("Double-click to edit • Middle-click to copy • Ctrl+C to copy • Right-click for menu")
 		self.table.doubleClicked.connect(self.on_prompt_double_click)
 		self.table.setContextMenuPolicy(Qt.CustomContextMenu)
 		self.table.customContextMenuRequested.connect(self.on_table_context_menu)
@@ -1116,8 +1125,16 @@ class PromptGeneratorDialog(QDialog):
 
 	def _lock_left_tabs(self, locked):
 		tab_bar = self.left_tabs.tabBar()
-		for i in range(self.left_tabs.count()):
-			tab_bar.setTabEnabled(i, not locked)
+		count = self.left_tabs.count()
+		if locked:
+			# keep the currently selected tab enabled so the view does not jump
+			current = self.left_tabs.currentIndex()
+			for i in range(count):
+				tab_bar.setTabEnabled(i, i == current)
+		else:
+			# re-enable all tabs when unlocking
+			for i in range(count):
+				tab_bar.setTabEnabled(i, True)
 
 	def _append_log(self, message):
 		if hasattr(self, 'log_output'):
@@ -1748,6 +1765,7 @@ class PromptGeneratorDialog(QDialog):
 		s['variation_level'] = int(self.ref_variation_spin.value())
 		s['prompt_type'] = self.ref_prompt_type_combo.currentData() or 'image_generation'
 		s['aspect_ratio'] = self.ref_aspect_ratio_combo.currentData() or '16:9'
+		s['custom_instruction'] = self.ref_custom_instruction.toPlainText()
 		cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
 		try:
 			with open(cfg_path, 'w', encoding='utf-8') as f:
@@ -1870,6 +1888,8 @@ class PromptGeneratorDialog(QDialog):
 				self.param_gen_mode_combo.setCurrentIndex(idx_gm)
 			if hasattr(self, '_random_mode_hint_label'):
 				self._random_mode_hint_label.setVisible(saved_gm == 'random')
+		if hasattr(self, 'param_custom_instruction'):
+			self.param_custom_instruction.setText(p_settings.get('custom_instruction', ''))
 
 	def _on_param_mode_changed(self):
 		is_random = hasattr(self, 'param_gen_mode_combo') and self.param_gen_mode_combo.currentData() == 'random'
@@ -1978,6 +1998,14 @@ class PromptGeneratorDialog(QDialog):
 				item_prompt = QTableWidgetItem(display_prompt)
 				item_prompt.setData(Qt.UserRole, prompt_text)
 				item_prompt.setData(Qt.UserRole + 1, prompt_row[0])
+				tooltip_text = (
+				    "<div style='max-width: 400px; word-wrap: break-word;'>"
+				    "Double-click to edit • Middle-click to copy • Ctrl+C to copy • Right-click for menu<br>"
+				    f"Chars: {char_count}<br><br>"
+				    "Prompt:<br>" + prompt_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+				    + "</div>"
+				)
+				item_prompt.setToolTip(tooltip_text)
 				self.table.setItem(r, 0, item_prompt)
 				self.table.setItem(r, 1, QTableWidgetItem(str(char_count)))
 				self.table.setItem(r, 2, QTableWidgetItem(str(created_at)[:19]))
