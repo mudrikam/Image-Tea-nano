@@ -411,7 +411,7 @@ class RollbackDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Image Tea Rollback System")
-        self.setMinimumSize(600, 530)
+        self.setMinimumSize(600, 450)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         if HAS_QTAWESOME:
