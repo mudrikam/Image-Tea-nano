@@ -103,6 +103,7 @@ class RollbackThread(QThread):
     log = Signal(str)
     finished_success = Signal()
     finished_error = Signal(str)
+    finished_aborted = Signal(str)
     time_info = Signal(str, str, str)
 
     def __init__(self, target_tag, parent=None):
@@ -116,7 +117,7 @@ class RollbackThread(QThread):
         try:
             self._do_rollback()
         except Exception as e:
-            self.finished_error.emit(str(e))
+            self.finished_error.emit(str(e) + "\n\n" + traceback.format_exc())
 
     def _do_rollback(self):
         self.start_time = datetime.now()
@@ -134,6 +135,31 @@ class RollbackThread(QThread):
         current_version = get_current_version()
         curr_norm = _norm_tag(current_version)
         tag_norm = _norm_tag(tag)
+
+        # Step 0: Check restore point BEFORE touching anything
+        self.status.emit("Checking config restore point...")
+        self.progress.emit(1)
+        restore_prefix = f"backup_configs_on_update_{tag_norm}_to_"
+        self.log.emit(f"Searching for restore point with prefix: {restore_prefix}")
+        restore_backup = find_latest_backup_with_prefix(restore_prefix, base_path=self.base_path)
+
+        restore_ref_file = os.path.join(self.base_path, "temp", "last_rollback_restore_point.txt")
+
+        if not restore_backup:
+            self.log.emit(f"No restore point found for prefix: {restore_prefix}")
+            abort_msg = (
+                f"No config restore point found for version {tag}.\n\n"
+                f"The config backup that should have been created when you updated from {tag} "
+                f"to a later version could not be found. Without it, there is no safe way to restore "
+                f"the configuration to the state it was in while running {tag}.\n\n"
+                f"Rollback has been cancelled. No files have been modified."
+            )
+            self.finished_aborted.emit(abort_msg)
+            return
+
+        self.log.emit(f"Restore point found: {restore_backup}")
+        with open(restore_ref_file, "w", encoding="utf-8") as f:
+            f.write(restore_backup)
 
         # Step 1: Backup current configs before rollback
         self.status.emit("Creating backup before rollback...")
@@ -213,31 +239,10 @@ class RollbackThread(QThread):
         except Exception:
             pass
 
-        # Step 6: Look for the original config backup made when the user updated FROM the target version
-        # Pattern: backup_configs_on_update_{tag_norm}_to_*
-        # This backup contains configs that were in place while running the target version.
-        self.status.emit("Looking for config restore point...")
+        # Step 6: Set version in app_config and update_config
+        self.status.emit("Setting version...")
         self.progress.emit(90)
         self._update_time_info(90)
-
-        restore_prefix = f"backup_configs_on_update_{tag_norm}_to_"
-        self.log.emit(f"Searching for restore point with prefix: {restore_prefix}")
-        restore_backup = find_latest_backup_with_prefix(restore_prefix, base_path=self.base_path)
-
-        restore_ref_file = os.path.join(self.base_path, "temp", "last_rollback_restore_point.txt")
-        if restore_backup:
-            self.log.emit(f"Found restore point: {restore_backup}")
-            with open(restore_ref_file, "w", encoding="utf-8") as f:
-                f.write(restore_backup)
-        else:
-            self.log.emit(f"No restore point found for prefix: {restore_prefix}")
-            if os.path.exists(restore_ref_file):
-                os.remove(restore_ref_file)
-
-        # Step 7: Set version in app_config and update_config
-        self.status.emit("Setting version...")
-        self.progress.emit(95)
-        self._update_time_info(95)
         set_version_to(tag, base_path=self.base_path)
         self.log.emit(f"Version set to {tag}")
 
@@ -788,6 +793,7 @@ class RollbackDialog(QDialog):
         self.rollback_thread.log.connect(self._append_log)
         self.rollback_thread.time_info.connect(self._update_time_info)
         self.rollback_thread.finished_success.connect(self._on_rollback_success)
+        self.rollback_thread.finished_aborted.connect(self._on_rollback_aborted)
         self.rollback_thread.finished_error.connect(self._on_rollback_error)
         self.rollback_thread.start()
 
@@ -864,6 +870,24 @@ class RollbackDialog(QDialog):
                 "Click OK to relaunch.",
             )
             self._relaunch_app()
+
+    def _on_rollback_aborted(self, reason):
+        self.close_button.setEnabled(True)
+        self.start_button.setEnabled(True)
+        self.version_combo.setEnabled(True)
+        self.status_label.setText("Rollback cancelled.")
+        self._append_log(f"ABORTED: {reason}")
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Rollback Cancelled")
+        msg.setText("Rollback cannot proceed.")
+        msg.setInformativeText(reason)
+        msg.setStandardButtons(QMessageBox.Ok)
+        if HAS_QTAWESOME:
+            msg.setIconPixmap(
+                qta.icon("fa6s.triangle-exclamation", color=theme.get_color("warning")).pixmap(64, 64)
+            )
+        msg.exec()
 
     def _on_rollback_error(self, error):
         self.close_button.setEnabled(True)
