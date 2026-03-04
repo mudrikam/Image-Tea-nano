@@ -141,7 +141,10 @@ class RollbackThread(QThread):
         self.progress.emit(1)
         restore_prefix = f"backup_configs_on_update_{tag_norm}_to_"
         self.log.emit(f"Searching for restore point with prefix: {restore_prefix}")
-        restore_backup = find_latest_backup_with_prefix(restore_prefix, base_path=self.base_path)
+        try:
+            restore_backup = find_latest_backup_with_prefix(restore_prefix, base_path=self.base_path)
+        except FileNotFoundError:
+            restore_backup = None
 
         restore_ref_file = os.path.join(self.base_path, "temp", "last_rollback_restore_point.txt")
 
