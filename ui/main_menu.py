@@ -79,6 +79,7 @@ MENU_TOOLTIPS = {
     # Help menu
     "about": "View application information and credits",
     "update_now": "Check for and install application updates",
+    "rollback_version": "Rollback Image Tea to a previous version",
     "donate": "Support development with a donation",
     "whatsapp": "Join our WhatsApp community group",
     "repository": "View source code on GitHub",
@@ -139,6 +140,46 @@ def run_updater(window):
             
     except Exception as e:
         print(f"Failed to start update process: {e}")
+
+
+def run_rollback(window):
+    try:
+        system = platform.system()
+        print(f"Detected OS: {system}")
+
+        rollback_system_py = os.path.join(BASE_PATH, "Rollback_System.py")
+
+        if not os.path.exists(rollback_system_py):
+            msg = (
+                "Rollback_System.py not found. "
+                "Please ensure Rollback_System.py exists in the application directory."
+            )
+            print(msg)
+            try:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(window, "Rollback Not Available", msg)
+            except Exception:
+                pass
+            return
+
+        print(f"Running Rollback_System.py: {rollback_system_py}")
+
+        if system == "Windows":
+            pythonw_path = os.path.join(BASE_PATH, "python", "Windows", "pythonw.exe")
+            python_path = os.path.join(BASE_PATH, "python", "Windows", "python.exe")
+
+            if os.path.exists(pythonw_path):
+                subprocess.Popen([pythonw_path, rollback_system_py], shell=False)
+            elif os.path.exists(python_path):
+                subprocess.Popen([python_path, rollback_system_py], shell=False)
+            else:
+                subprocess.Popen([sys.executable, rollback_system_py], shell=False)
+        else:
+            subprocess.Popen([sys.executable, rollback_system_py], shell=False)
+
+    except Exception as e:
+        print(f"Failed to start rollback process: {e}")
+
 
 def setup_main_menu(window):
     links = get_app_links()
@@ -475,6 +516,12 @@ def setup_main_menu(window):
     update_now_action.setStatusTip(MENU_TOOLTIPS["update_now"])
     update_now_action.triggered.connect(lambda: run_updater(window))
     help_menu.addAction(update_now_action)
+
+    rollback_version_action = QAction(qta.icon('fa6s.clock-rotate-left'), "Rollback Version", window)
+    rollback_version_action.setToolTip(MENU_TOOLTIPS["rollback_version"])
+    rollback_version_action.setStatusTip(MENU_TOOLTIPS["rollback_version"])
+    rollback_version_action.triggered.connect(lambda: run_rollback(window))
+    help_menu.addAction(rollback_version_action)
 
     version_action = QAction(qta.icon('fa6s.code-branch'), "Version", window)
     version_action.setToolTip("Show version and update information")
