@@ -355,7 +355,13 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 }
             ]
         elif is_video and frame_paths:
-            content_items = [{"type": "text", "text": prompt}]
+            video_context = (
+                f"[VIDEO FRAME CONTEXT] The {len(frame_paths)} images below are evenly-spaced frames "
+                f"extracted from the video file '{filename}'. "
+                "You MUST generate metadata that describes the VIDEO as a whole — NOT a single photo or portrait. "
+                "Title, description, and tags must reflect motion, scene, and activity visible across the frames."
+            )
+            content_items = [{"type": "text", "text": f"{video_context}\n\n{prompt}"}]
             for frame_path in frame_paths:
                 compressed_frame = compress_and_save_image(frame_path)
                 if compressed_frame:
@@ -400,8 +406,18 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         if provider_endpoint:
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
             try:
-                endpoint_image_path = compressed_path if not is_video else None
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, endpoint_image_path, timeout=180)
+                if is_video and frame_paths:
+                    print(f"[OpenAI][CustomEndpoint] Sending {len(frame_paths)} video frames to custom endpoint")
+                    video_context = (
+                        f"[VIDEO FRAME CONTEXT] The {len(frame_paths)} images below are evenly-spaced frames "
+                        f"extracted from the video file '{filename}'. "
+                        "You MUST generate metadata that describes the frames as a whole — NOT a single photo or portrait. "
+                        "Title, description, and tags must reflect motion, scene, and activity visible across the frames."
+                    )
+                    frame_prompt = f"{video_context}\n\n{prompt}"
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, frame_prompt, None, timeout=180, frame_paths=frame_paths)
+                else:
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, compressed_path, timeout=180)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[OpenAI][CustomEndpoint] {e}")

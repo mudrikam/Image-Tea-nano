@@ -60,18 +60,36 @@ class ProgressDialog(QDialog):
 		
 		info_group = QGroupBox("Progress Information")
 		info_layout = QVBoxLayout()
-		
+		_icon_size = 12
+
+		chunk_row = QHBoxLayout()
+		chunk_icon_lbl = QLabel()
+		chunk_icon_lbl.setPixmap(qta.icon('fa6s.layer-group', color=theme.get_color('text_dark')).pixmap(_icon_size, _icon_size))
 		self.chunk_label = QLabel("Chunk: 0 / 0")
-		info_layout.addWidget(self.chunk_label)
-		
+		chunk_row.addWidget(chunk_icon_lbl)
+		chunk_row.addWidget(self.chunk_label)
+		chunk_row.addStretch()
+		info_layout.addLayout(chunk_row)
+
+		status_row = QHBoxLayout()
+		status_icon_lbl = QLabel()
+		status_icon_lbl.setPixmap(qta.icon('fa6s.chart-simple', color=theme.get_color('text_dark')).pixmap(_icon_size, _icon_size))
 		self.status_label = QLabel("Success: 0 | Failed: 0")
-		info_layout.addWidget(self.status_label)
-		
+		status_row.addWidget(status_icon_lbl)
+		status_row.addWidget(self.status_label)
+		status_row.addStretch()
+		info_layout.addLayout(status_row)
+
+		file_row = QHBoxLayout()
+		file_icon_lbl = QLabel()
+		file_icon_lbl.setPixmap(qta.icon('fa6s.file-image', color=theme.get_color('text_dark')).pixmap(_icon_size, _icon_size))
 		self.file_label = QLabel("")
 		self.file_label.setWordWrap(True)
 		self.file_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-		info_layout.addWidget(self.file_label)
-		
+		file_row.addWidget(file_icon_lbl)
+		file_row.addWidget(self.file_label)
+		info_layout.addLayout(file_row)
+
 		info_group.setLayout(info_layout)
 		layout.addWidget(info_group)
 		
@@ -83,7 +101,7 @@ class ProgressDialog(QDialog):
 		self.chunk_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
 		self.chunk_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
 		self.chunk_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-		self.chunk_table.setMaximumHeight(220)
+		self.chunk_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 		self.chunk_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
 		self.chunk_table.setSelectionMode(QAbstractItemView.NoSelection)
 		chunk_table_layout.addWidget(self.chunk_table)
@@ -166,29 +184,33 @@ class ProgressDialog(QDialog):
 			fname_item = QTableWidgetItem(short)
 			fname_item.setToolTip(fname)
 			self.chunk_table.setItem(i, 1, fname_item)
-			status_item = QTableWidgetItem("Pending")
+			status_item = QTableWidgetItem()
 			status_item.setTextAlignment(Qt.AlignCenter)
+			status_item.setIcon(qta.icon('fa6s.circle-exclamation', color=theme.get_color('warning')))
 			self.chunk_table.setItem(i, 2, status_item)
 
 	def update_file_row_status(self, row_idx, success, error=""):
 		if row_idx < 0 or row_idx >= self.chunk_table.rowCount():
 			return
+		icon = None
 		if success:
-			color = QColor(theme.get_color('success'))
-			color.setAlpha(int(0.45 * 255))
-			status_text = "Success"
+			icon = qta.icon('fa6s.circle-check', color=theme.get_color('success'))
+			bg_color = QColor(theme.get_color('success'))
+			bg_color.setAlpha(int(0.45 * 255))
 		else:
-			color = QColor(theme.get_color('error'))
-			color.setAlpha(int(0.18 * 255))
-			status_text = "Failed"
-		bg_brush = QBrush(color)
+			icon = qta.icon('fa6s.circle-xmark', color=theme.get_color('error'))
+			bg_color = QColor(theme.get_color('error'))
+			bg_color.setAlpha(int(0.18 * 255))
+		# apply background to entire row
+		bg_brush = QBrush(bg_color)
 		for col in range(self.chunk_table.columnCount()):
 			item = self.chunk_table.item(row_idx, col)
 			if item:
 				item.setBackground(bg_brush)
 		status_item = self.chunk_table.item(row_idx, 2)
 		if status_item:
-			status_item.setText(status_text)
+			status_item.setIcon(icon)
+			status_item.setText("")
 
 	def _cancel_thread(self):
 		if self._thread is not None and self._thread.isRunning():
@@ -481,9 +503,9 @@ def read_metadata_video(file_path):
 			data = metadata_list[0]
 			if not isinstance(data, dict):
 				return None, None, None
-			title_keys = ["QuickTime:Title", "XMP:Title", "Title"]
-			description_keys = ["QuickTime:Description", "XMP:Description", "Description"]
-			tags_keys = ["QuickTime:Keywords", "XMP:Keywords", "Keywords"]
+			title_keys = ["Keys:Title", "QuickTime:Title", "UserData:Title", "XMP:Title", "Title"]
+			description_keys = ["Keys:Description", "QuickTime:Description", "UserData:Description", "Keys:Comment", "QuickTime:Comment", "XMP:Description", "Description"]
+			tags_keys = ["Keys:Keywords", "QuickTime:Keywords", "UserData:Keywords", "XMP:Subject", "XMP:Keywords", "Subject", "WM/Category", "Keywords"]
 			title = None
 			for k in title_keys:
 				if k in data and data[k] is not None:
@@ -500,9 +522,9 @@ def read_metadata_video(file_path):
 					tags = data[k]
 					break
 			if isinstance(tags, list):
-				tags_str = ",".join(str(t) for t in tags)
+				tags_str = ",".join(str(t).strip() for t in tags if str(t).strip())
 			elif isinstance(tags, str):
-				tags_str = tags
+				tags_str = ",".join(t.strip() for t in tags.replace(";", ",").split(",") if t.strip())
 			else:
 				tags_str = ""
 			return title, description, tags_str
@@ -647,13 +669,15 @@ class VideoMetadataWriterThread(QThread):
 					metadata_args = []
 					if title is not None:
 						metadata_args.append(f"-Title={title}")
+						metadata_args.append(f"-Keys:Title={title}")
 						metadata_args.append(f"-QuickTime:Title={title}")
 						metadata_args.append(f"-XMP:Title={title}")
 					if description is not None:
 						metadata_args.append(f"-Description={description}")
+						metadata_args.append(f"-Keys:Description={description}")
 						metadata_args.append(f"-QuickTime:Description={description}")
-						metadata_args.append(f"-XMP:Description={description}")
 						metadata_args.append(f"-QuickTime:Comment={description}")
+						metadata_args.append(f"-XMP:Description={description}")
 					if tags is not None:
 						if isinstance(tags, str):
 							tag_list = [t.strip() for t in tags.split(',') if t.strip()]
@@ -662,13 +686,17 @@ class VideoMetadataWriterThread(QThread):
 						else:
 							tag_list = []
 						if tag_list:
-							joined_tags = ",".join(tag_list)
-							metadata_args.append(f"-Keywords={joined_tags}")
-							metadata_args.append(f"-QuickTime:Keywords={joined_tags}")
-							metadata_args.append(f"-XMP:Keywords={joined_tags}")
+							joined_comma = ",".join(tag_list)
+							joined_semi = "; ".join(tag_list)
+							metadata_args.append(f"-Keys:Keywords={joined_comma}")
+							metadata_args.append(f"-QuickTime:Keywords={joined_comma}")
+							metadata_args.append(f"-Subject={joined_semi}")
+							metadata_args.append(f"-WM/Category={joined_semi}")
+							for t in tag_list:
+								metadata_args.append(f"-XMP:Subject={t}")
+					metadata_args.append(f"-Keys:Software=Image Tea")
 					metadata_args.append(f"-QuickTime:Software=Image Tea")
 					metadata_args.append(f"-XMP:CreatorTool=Image Tea")
-					metadata_args.append(f"-Software=Image Tea")
 					metadata_args.append("-overwrite_original")
 					metadata_args.append(filepath)
 					with exiftool.ExifTool(executable=exiftool_path) as et:

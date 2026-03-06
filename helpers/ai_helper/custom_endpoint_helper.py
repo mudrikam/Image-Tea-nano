@@ -66,7 +66,17 @@ class CustomEndpointHelper:
         return json.dumps(resp_json) 
 
     @staticmethod
-    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180) -> str:
+    def _build_multi_frame_content(prompt: str, frame_paths: list) -> list:
+        content_items = [{"type": "text", "text": prompt}]
+        for fp in frame_paths:
+            frame_url = CustomEndpointHelper._image_path_to_data_url(fp)
+            content_items.append({"type": "image_url", "image_url": {"url": frame_url}})
+        return content_items
+
+
+
+    @staticmethod
+    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> str:
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -86,44 +96,64 @@ class CustomEndpointHelper:
                 use_chat_messages = False
 
             if use_chat_messages:
-                payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
-                if image_path:
+                if frame_paths:
+                    content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                elif image_path:
                     payload = {
                         "model": model or "",
                         "messages": [
                             {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
                         ]
                     }
+                else:
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
             else:
-                payload = {"model": model or "", "input": prompt}
-                if image_path:
+                if frame_paths:
+                    content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                elif image_path:
                     payload = {
                         "model": model or "",
                         "messages": [
                             {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
                         ]
                     }
+                else:
+                    payload = {"model": model or "", "input": prompt}
         elif prov == "gemini":
             contents = [prompt]
-            if image_path:
+            if frame_paths:
+                contents = [CustomEndpointHelper._image_path_to_data_url(fp) for fp in frame_paths] + [prompt]
+            elif image_path:
                 contents = [data_url, prompt]
             payload = {"model": model or "", "contents": contents}
         elif prov == "groq":
             messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-            if image_path:
+            if frame_paths:
+                for fp in frame_paths:
+                    messages[0]["content"].append({"type": "image_url", "image_url": {"url": CustomEndpointHelper._image_path_to_data_url(fp)}})
+            elif image_path:
                 messages[0]["content"].append({"type": "image_url", "image_url": {"url": data_url}})
             payload = {"model": model or "", "messages": messages}
         else:
             payloads_to_try = []
 
-            chat_payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
-            if image_path:
+            if frame_paths:
+                multi_content = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": multi_content}]}
+            elif image_path:
                 chat_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            else:
+                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
             payloads_to_try.append(("chat", chat_payload))
 
-            responses_payload = {"model": model or "", "input": prompt}
-            if image_path:
+            if frame_paths:
+                responses_payload = {"model": model or "", "messages": [{"role": "user", "content": CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)}]}
+            elif image_path:
                 responses_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            else:
+                responses_payload = {"model": model or "", "input": prompt}
             payloads_to_try.append(("responses", responses_payload))
 
             completion_payload = {"model": model or "", "prompt": prompt}
