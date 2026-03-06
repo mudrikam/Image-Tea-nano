@@ -1,12 +1,13 @@
 import pyexiv2
 from database.db_operation import ImageTeaDB, DB_PATH
+from ui.theme_system import theme
 
 from PySide6.QtCore import QThread, Signal, Qt, QObject, QTimer, QCoreApplication
 import json
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QProgressBar, QSizePolicy, 
-							   QTextEdit, QPushButton, QHBoxLayout, QTableWidget, 
-					   QTableWidgetItem, QHeaderView, QFileDialog, QGroupBox, QMessageBox, QApplication)
-from PySide6.QtGui import QIcon
+							   QTextEdit, QPushButton, QHBoxLayout, QTableWidget, QAbstractItemView,
+				   QTableWidgetItem, QHeaderView, QFileDialog, QGroupBox, QMessageBox, QApplication)
+from PySide6.QtGui import QIcon, QColor, QBrush
 import os
 import shutil
 import platform
@@ -20,7 +21,26 @@ import qtawesome as qta
 def _get_chunk_size():
 	with open(os.path.join(BASE_PATH, "configs", "app_config.json"), encoding="utf-8") as f:
 		app_config = json.load(f)
-	return app_config.get('chunk_size', 20)
+	return app_config['chunk_size']
+
+
+def _truncate_text(text: str, max_len: int = 60) -> str:
+	"""Return a shortened version of *text* suitable for UI display.
+	If the string is longer than *max_len* characters the middle will be
+	replaced with an ellipsis and the file extension (if any) will be
+	preserved. The full text is left intact in the item's tooltip so it can
+	still be viewed by hovering.
+	"""
+	if text is None:
+		return ""
+	if len(text) <= max_len:
+		return text
+	base, ext = os.path.splitext(text)
+	# reserve space for ellipsis and the extension
+	keep = max_len - 3 - len(ext)
+	if keep < 1:
+		return text[: max_len - 3] + "..."
+	return base[:keep] + "..." + ext
 
 def _extract_xmp_value(val):
 	if isinstance(val, dict):
@@ -31,8 +51,8 @@ class ProgressDialog(QDialog):
 	def __init__(self, parent, total, title):
 		super().__init__(parent)
 		self.setWindowTitle(title)
-		self.setMinimumWidth(500)
-		self.setMinimumHeight(170)
+		self.setMinimumWidth(640)
+		self.setMinimumHeight(520)
 		self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 		self.setModal(True)
 		
@@ -55,7 +75,21 @@ class ProgressDialog(QDialog):
 		info_group.setLayout(info_layout)
 		layout.addWidget(info_group)
 		
-		# Global progress (overall files) - use percentage scale to match widths
+		chunk_table_group = QGroupBox("Current Chunk Files")
+		chunk_table_layout = QVBoxLayout()
+		self.chunk_table = QTableWidget()
+		self.chunk_table.setColumnCount(3)
+		self.chunk_table.setHorizontalHeaderLabels(["#", "Filename", "Status"])
+		self.chunk_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+		self.chunk_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+		self.chunk_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+		self.chunk_table.setMaximumHeight(220)
+		self.chunk_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+		self.chunk_table.setSelectionMode(QAbstractItemView.NoSelection)
+		chunk_table_layout.addWidget(self.chunk_table)
+		chunk_table_group.setLayout(chunk_table_layout)
+		layout.addWidget(chunk_table_group)
+		
 		global_h = QHBoxLayout()
 		self.global_progress = QProgressBar()
 		self.global_progress.setRange(0, 100)
@@ -66,7 +100,6 @@ class ProgressDialog(QDialog):
 		global_h.addWidget(self.global_count_label)
 		layout.addLayout(global_h)
 		
-		# Chunk progress (per current chunk) - percentage scale so widths match
 		chunk_h = QHBoxLayout()
 		self.chunk_progress = QProgressBar()
 		self.chunk_progress.setRange(0, 100)
@@ -77,9 +110,8 @@ class ProgressDialog(QDialog):
 		chunk_h.addWidget(self.chunk_count_label)
 		layout.addLayout(chunk_h)
 		
-		# store total for percent calculations
 		self._total = total
-		
+
 		button_layout = QHBoxLayout()
 		self.cancel_btn = QPushButton("Cancel")
 		self.cancel_btn.setIcon(qta.icon('fa6s.xmark'))
@@ -101,7 +133,10 @@ class ProgressDialog(QDialog):
 
 	def update_progress(self, value, filename, chunk_pos, chunk_current, chunk_total, success_count, failed_count):
 		# value = global index, chunk_pos = position within current chunk
-		self.file_label.setText(f"Processing: {filename}")
+		short = _truncate_text(filename)
+		self.file_label.setText(f"Processing: {short}")
+		# keep full filename available on hover
+		self.file_label.setToolTip(filename)
 		# overall percent
 		if self._total > 0:
 			percent_global = int((value / self._total) * 100)
@@ -118,6 +153,42 @@ class ProgressDialog(QDialog):
 		self.chunk_count_label.setText(f"{chunk_pos} / {chunk_total} (Chunk)")
 		self.chunk_label.setText(f"Chunk: {chunk_current} / {chunk_total} (file {chunk_pos})")
 		self.status_label.setText(f"Success: {success_count} | Failed: {failed_count}")
+
+	def setup_chunk_table(self, chunk_idx, total_chunks, filenames):
+		self.chunk_table.clearContents()
+		self.chunk_table.setRowCount(len(filenames))
+		for i, fname in enumerate(filenames):
+			num_item = QTableWidgetItem(str(i + 1))
+			num_item.setTextAlignment(Qt.AlignCenter)
+			self.chunk_table.setItem(i, 0, num_item)
+			# display truncated filename and preserve full name as tooltip
+			short = _truncate_text(fname)
+			fname_item = QTableWidgetItem(short)
+			fname_item.setToolTip(fname)
+			self.chunk_table.setItem(i, 1, fname_item)
+			status_item = QTableWidgetItem("Pending")
+			status_item.setTextAlignment(Qt.AlignCenter)
+			self.chunk_table.setItem(i, 2, status_item)
+
+	def update_file_row_status(self, row_idx, success, error=""):
+		if row_idx < 0 or row_idx >= self.chunk_table.rowCount():
+			return
+		if success:
+			color = QColor(theme.get_color('success'))
+			color.setAlpha(int(0.45 * 255))
+			status_text = "Success"
+		else:
+			color = QColor(theme.get_color('error'))
+			color.setAlpha(int(0.18 * 255))
+			status_text = "Failed"
+		bg_brush = QBrush(color)
+		for col in range(self.chunk_table.columnCount()):
+			item = self.chunk_table.item(row_idx, col)
+			if item:
+				item.setBackground(bg_brush)
+		status_item = self.chunk_table.item(row_idx, 2)
+		if status_item:
+			status_item.setText(status_text)
 
 	def _cancel_thread(self):
 		if self._thread is not None and self._thread.isRunning():
@@ -170,7 +241,9 @@ class ResultDialog(QDialog):
 		
 		if failed_files:
 			for idx, (filename, error) in enumerate(failed_files):
-				self.failed_table.setItem(idx, 0, QTableWidgetItem(filename))
+				name_item = QTableWidgetItem(_truncate_text(filename))
+				name_item.setToolTip(filename)
+				self.failed_table.setItem(idx, 0, name_item)
 				self.failed_table.setItem(idx, 1, QTableWidgetItem(error))
 		
 		failed_layout.addWidget(self.failed_table)
@@ -442,6 +515,8 @@ class ImageMetadataWriterThread(QThread):
 	# args: global_index, total, filename, chunk_pos, chunk_index, chunk_total, success_count, failed_count
 	progress = Signal(int, int, str, int, int, int, int, int)
 	finished = Signal(int, int, float, list)
+	chunk_started = Signal(int, int, list)
+	file_result = Signal(int, bool, str)
 
 	def __init__(self, db, rows):
 		super().__init__()
@@ -465,6 +540,9 @@ class ImageMetadataWriterThread(QThread):
 			chunk_end = min(chunk_start + self.chunk_size, total)
 			chunk = self.rows[chunk_start:chunk_end]
 			chunk_total = len(chunk)
+
+			chunk_filenames = [row[2] for row in chunk]
+			self.chunk_started.emit(chunk_idx + 1, total_chunks, chunk_filenames)
 			
 			for idx_in_chunk, row in enumerate(chunk):
 				if self.isInterruptionRequested():
@@ -482,9 +560,16 @@ class ImageMetadataWriterThread(QThread):
 					tag_list = [t.strip() for t in tags.split(',')] if tags else []
 					write_metadata_pyexiv2(filepath, title, description, tag_list)
 					self.success_count += 1
+					self.file_result.emit(idx_in_chunk, True, "")
 				except Exception as e:
 					self.failed_count += 1
 					self.errors.append((filename, str(e)))
+					self.file_result.emit(idx_in_chunk, False, str(e))
+				
+				time.sleep(0.05)
+
+			if not self.isInterruptionRequested():
+				time.sleep(0.15)
 		
 		elapsed_time = time.time() - start_time
 		self.finished.emit(self.success_count, self.failed_count, elapsed_time, self.errors)
@@ -493,6 +578,8 @@ class VideoMetadataWriterThread(QThread):
 	# args: global_index, total, filename, chunk_pos, chunk_index, chunk_total, success_count, failed_count
 	progress = Signal(int, int, str, int, int, int, int, int)
 	finished = Signal(int, int, float, list)
+	chunk_started = Signal(int, int, list)
+	file_result = Signal(int, bool, str)
 
 	def __init__(self, db, rows):
 		super().__init__()
@@ -541,6 +628,9 @@ class VideoMetadataWriterThread(QThread):
 			chunk_end = min(chunk_start + self.chunk_size, total)
 			chunk = video_rows[chunk_start:chunk_end]
 			chunk_total = len(chunk)
+
+			chunk_filenames = [row[2] for row in chunk]
+			self.chunk_started.emit(chunk_idx + 1, total_chunks, chunk_filenames)
 			
 			for idx_in_chunk, row in enumerate(chunk):
 				if self.isInterruptionRequested():
@@ -586,11 +676,19 @@ class VideoMetadataWriterThread(QThread):
 						if result is None:
 							self.failed_count += 1
 							self.errors.append((filename, "exiftool error (no result)"))
+							self.file_result.emit(idx_in_chunk, False, "exiftool error (no result)")
 						else:
 							self.success_count += 1
+							self.file_result.emit(idx_in_chunk, True, "")
 				except Exception as e:
 					self.failed_count += 1
 					self.errors.append((filename, str(e)))
+					self.file_result.emit(idx_in_chunk, False, str(e))
+				
+				time.sleep(0.05)
+
+			if not self.isInterruptionRequested():
+				time.sleep(0.15)
 		
 		elapsed_time = time.time() - start_time
 		self.finished.emit(self.success_count, self.failed_count, elapsed_time, self.errors)
@@ -605,8 +703,12 @@ def write_metadata_to_images(db, parent=None):
 	
 	def on_progress(idx, total, filename, chunk_pos, chunk_current, chunk_total, success_count, failed_count):
 		dialog.update_progress(idx, filename, chunk_pos, chunk_current, chunk_total, success_count, failed_count)
-		dialog.repaint()
-		QCoreApplication.processEvents()
+	
+	def on_chunk_started(chunk_idx, total_chunks, filenames):
+		dialog.setup_chunk_table(chunk_idx, total_chunks, filenames)
+	
+	def on_file_result(row_idx, success, error):
+		dialog.update_file_row_status(row_idx, success, error)
 	
 	def on_finished(success_count, failed_count, elapsed_time, errors):
 		# Close progress dialog first
@@ -620,6 +722,8 @@ def write_metadata_to_images(db, parent=None):
 	
 	thread = ImageMetadataWriterThread(db, rows)
 	thread.progress.connect(on_progress)
+	thread.chunk_started.connect(on_chunk_started)
+	thread.file_result.connect(on_file_result)
 	thread.finished.connect(on_finished)
 	dialog.set_thread(thread)
 	QTimer.singleShot(0, thread.start)
@@ -638,8 +742,12 @@ def write_metadata_to_videos(db, parent=None):
 	
 	def on_progress(idx, total, filename, chunk_pos, chunk_current, chunk_total, success_count, failed_count):
 		dialog.update_progress(idx, filename, chunk_pos, chunk_current, chunk_total, success_count, failed_count)
-		dialog.repaint()
-		QCoreApplication.processEvents()
+	
+	def on_chunk_started(chunk_idx, total_chunks, filenames):
+		dialog.setup_chunk_table(chunk_idx, total_chunks, filenames)
+	
+	def on_file_result(row_idx, success, error):
+		dialog.update_file_row_status(row_idx, success, error)
 	
 	def on_finished(success_count, failed_count, elapsed_time, errors):
 		# Close progress dialog first
@@ -653,6 +761,8 @@ def write_metadata_to_videos(db, parent=None):
 	
 	thread = VideoMetadataWriterThread(db, rows)
 	thread.progress.connect(on_progress)
+	thread.chunk_started.connect(on_chunk_started)
+	thread.file_result.connect(on_file_result)
 	thread.finished.connect(on_finished)
 	dialog.set_thread(thread)
 	QTimer.singleShot(0, thread.start)

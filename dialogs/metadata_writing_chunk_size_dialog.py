@@ -21,7 +21,7 @@ class MetadataWritingChunkSizeDialog(QDialog):
 	def _load_chunk_size(self):
 		with open(self.config_path, encoding="utf-8") as f:
 			config = json.load(f)
-		return config.get('chunk_size', 20)
+		return config['chunk_size']
 	
 	def _setup_ui(self):
 		layout = QVBoxLayout()
@@ -48,11 +48,13 @@ class MetadataWritingChunkSizeDialog(QDialog):
 		
 		chunk_layout.addWidget(QLabel("Files per chunk:"))
 		
+		self._pending_chunk_size = self.current_chunk_size
 		self.chunk_spinbox = QSpinBox()
-		self.chunk_spinbox.setMinimum(5)
+		self.chunk_spinbox.setMinimum(1)
 		self.chunk_spinbox.setMaximum(200)
 		self.chunk_spinbox.setValue(self.current_chunk_size)
 		self.chunk_spinbox.setSuffix(" files")
+		self.chunk_spinbox.valueChanged.connect(lambda v: setattr(self, '_pending_chunk_size', v))
 		chunk_layout.addWidget(self.chunk_spinbox)
 		
 		chunk_layout.addStretch()
@@ -76,7 +78,8 @@ class MetadataWritingChunkSizeDialog(QDialog):
 		self.setLayout(layout)
 	
 	def _save_chunk_size(self):
-		new_chunk_size = self.chunk_spinbox.value()
+		new_chunk_size = self._pending_chunk_size
+		print(f"[ChunkSize] Saving chunk_size={new_chunk_size} to {self.config_path}")
 		
 		with open(self.config_path, encoding="utf-8") as f:
 			config = json.load(f)
@@ -86,4 +89,5 @@ class MetadataWritingChunkSizeDialog(QDialog):
 		with open(self.config_path, 'w', encoding="utf-8") as f:
 			json.dump(config, f, indent=4, ensure_ascii=False)
 		
+		print(f"[ChunkSize] Saved successfully.")
 		self.accept()
