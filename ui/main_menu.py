@@ -60,7 +60,6 @@ MENU_TOOLTIPS = {
     
     # Tools menu
     "prompt_generator": "Generate AI prompts for image/video creation",
-    "imagen_generator": "Generate images using Google's Imagen AI",
     "batch_audio_remover": "Remove audio from multiple video files in batch",
     "envato_elements_metadata": "Generate metadata for Envato Elements mockups",
     "action_sequencer": "Automate actions for Photoshop and Illustrator",
@@ -641,16 +640,6 @@ def setup_main_menu(window):
         window._prompt_injector_dialog.activateWindow()
     prompt_injector_action.triggered.connect(open_prompt_injector)
     tools_menu.addAction(prompt_injector_action)
-
-    imagen_generator_action = QAction(qta.icon('fa6s.image'), "Imagen Generator", window)
-    imagen_generator_action.setToolTip(MENU_TOOLTIPS["imagen_generator"])
-    imagen_generator_action.setStatusTip(MENU_TOOLTIPS["imagen_generator"])
-    def open_imagen_generator():
-        from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
-        dlg = ImagenGeneratorDialog(window)
-        dlg.exec()
-    imagen_generator_action.triggered.connect(open_imagen_generator)
-    tools_menu.addAction(imagen_generator_action)
 
     batch_audio_remover_action = QAction(qta.icon('fa6s.volume-xmark'), "Batch Audio Remover", window)
     batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])

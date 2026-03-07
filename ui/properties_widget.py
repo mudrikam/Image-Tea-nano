@@ -180,7 +180,7 @@ class TagsPillWidget(QWidget):
         for i, tag in enumerate(tags):
             pill = self._create_pill(tag, i)
             self.flow_layout.addWidget(pill)
-        self.setVisible(True)
+        self.setMinimumHeight(0)
 
     def _create_pill(self, tag_text, index):
         container = QWidget()
@@ -252,7 +252,7 @@ class TagsPillWidget(QWidget):
                 child.widget().deleteLater()
         self.tags = []
         self.similar_indices = set()
-        self.setVisible(False)
+        self.setMinimumHeight(18)
 
     def _delete_tag(self, tag_text):
         self.tags = [t for t in self.tags if t.strip() != tag_text.strip()]
