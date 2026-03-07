@@ -630,10 +630,10 @@ class AddApiKeyDialog(QDialog):
         csv_btn_layout_top.addWidget(self.test_all_btn)
         self.topup_btn = QPushButton()
         self.topup_btn.setObjectName('topup_btn')
-        self.topup_btn.setText("Topup API Key")
+        self.topup_btn.setText("Top Up API Key")
         self.topup_btn.setIcon(qta.icon('fa6s.coins', color=theme.get_color('white')))
         self.topup_btn.setIconSize(self.topup_btn.iconSize())
-        self.topup_btn.setToolTip("Topup saldo api key Desainia API")
+        self.topup_btn.setToolTip("Top up Desainia API key balance")
         self.topup_btn.setStyleSheet(f"""
             QPushButton#topup_btn {{
                 background-color: {theme.get_color('primary')};
