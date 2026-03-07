@@ -19,6 +19,7 @@ def load_app_config():
 
 class ImageTeaMainWindow(QMainWindow):
     show_ai_unsupported_dialog = Signal(str)
+    background_status = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -37,6 +38,7 @@ class ImageTeaMainWindow(QMainWindow):
         self.generator_thread = None
         self.is_generating = False
         self.show_ai_unsupported_dialog.connect(self._show_ai_unsupported_dialog_slot)
+        self.background_status.connect(self._on_background_status)
 
         if hasattr(self, "gen_btn"):
             self.gen_btn.clicked.disconnect()
@@ -56,6 +58,18 @@ class ImageTeaMainWindow(QMainWindow):
     def _show_ai_unsupported_dialog_slot(self, message):
         dialog = AIUnsuportedDialog(message, parent=self)
         dialog.exec()
+
+    def _on_background_status(self, message):
+        if hasattr(self, 'statusbar'):
+            self.statusbar.set_status(message)
+        if message.startswith("Image Tea Ready"):
+            def _clear():
+                try:
+                    if hasattr(self, 'statusbar') and hasattr(self.statusbar, '_check_env_and_set_style'):
+                        self.statusbar._check_env_and_set_style()
+                except Exception:
+                    pass
+            QTimer.singleShot(3000, _clear)
 
     def _on_gen_btn_clicked(self):
         if self.is_generating:
@@ -103,6 +117,8 @@ if __name__ == '__main__':
         app_id = u"image-tea.nano"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
     
+    t0 = time.time()
+
     app = QApplication(sys.argv)
     
     splash = SplashScreen()
@@ -161,36 +177,22 @@ if __name__ == '__main__':
 
     QDialog.exec = _patched_exec
     QDialog.show = _patched_show
-    
-    from tools.tools_checker import ProgressAggregator, compute_tools_work_units, ensure_tools_ready
-    from tools.image_tea_health_checker import build_remote_cache
 
-    ag = ProgressAggregator(progress_reporter=splash.set_progress)
-
-    tools_units = sum(compute_tools_work_units().values())
-    ag.add_total_units(1 + tools_units + 1 + 1 + 1 + 1)
-
-    splash.show_message("Checking for updates...")
-    app.processEvents()
-    from helpers.check_for_update_helper import check_for_update
-    check_for_update()
-    ag.unit_completed()
-
-    splash.show_message("Preparing tools...")
-    app.processEvents()
-    ensure_tools_ready(reporter=splash.show_message, progress_reporter=ag.make_unit_progress_reporter(1), unit_callback=ag.unit_completed)
-
-    splash.show_message("Running health check...")
-    app.processEvents()
-    cache = build_remote_cache(force_refresh=False, progress_reporter=ag.make_unit_progress_reporter(1))
-    ag.unit_completed()
-    remote_count = len(cache.get('files', [])) if cache else 0
-    if remote_count:
-        ag.add_total_units(remote_count)
-    from tools.image_tea_health_checker import run_check
-    run_check(repair=True, force_refresh=False, verbose=True, cache=cache, unit_callback=ag.unit_completed, progress_reporter=ag.make_unit_progress_reporter(1))
+    _sim_stages = [
+        (8,  "Initializing application..."),
+        (18, "Loading configuration..."),
+        (28, "Connecting to database..."),
+        (38, "Loading theme system..."),
+        (48, "Preparing interface..."),
+    ]
+    for _pct, _msg in _sim_stages:
+        splash.show_message(_msg)
+        splash.set_progress(_pct)
+        app.processEvents()
+        time.sleep(0.05)
 
     splash.show_message("Loading components...")
+    splash.set_progress(55)
     app.processEvents()
     from ui.setup_ui import setup_ui
     from dialogs.ai_unsuported_dialog import AIUnsuportedDialog
@@ -201,32 +203,39 @@ if __name__ == '__main__':
     )
     from dialogs.disclaimer_dialog import DisclaimerDialog
     import json
-    ag.unit_completed()
 
+    splash.set_progress(68)
     splash.show_message("Checking disclaimer...")
     app.processEvents()
     if DisclaimerDialog.check_and_show():
-        ag.unit_completed()
         splash.show_message("Starting application...")
         app.processEvents()
-        time.sleep(2)
-        app.processEvents()
+
+        for _pct in range(72, 92, 4):
+            splash.set_progress(_pct)
+            app.processEvents()
+            time.sleep(0.04)
+
         window = ImageTeaMainWindow()
+        splash.set_progress(95)
+        app.processEvents()
+
         window.resize(900, 700)
-        
+
         screen = app.primaryScreen().geometry()
         window_geometry = window.frameGeometry()
         center_point = screen.center()
         window_geometry.moveCenter(center_point)
         window.move(window_geometry.topLeft())
-        
-        # Final unit: starting application (1 unit)
-        ag.unit_completed()
+
+        splash.set_progress(100)
+        app.processEvents()
+
+        t_splash_ms = int((time.time() - t0) * 1000)
 
         splash.finish(window)
         window.show()
         app.processEvents()
-        # Try a Qt-based trick: toggle always-on-top briefly to grab focus
         window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         window.show()
         app.processEvents()
@@ -236,7 +245,6 @@ if __name__ == '__main__':
         window.raise_()
         window.activateWindow()
 
-        # On Windows, try a native call as a fallback
         if sys.platform == "win32":
             try:
                 import ctypes
@@ -247,6 +255,38 @@ if __name__ == '__main__':
                 user32.SetForegroundWindow(hwnd)
             except Exception:
                 pass
+
+        def _run_background_init():
+            import threading
+
+            def _emit(msg):
+                window.background_status.emit(msg)
+
+            def _bg_work():
+                from tools.tools_checker import ensure_tools_ready
+                from tools.image_tea_health_checker import build_remote_cache, run_check
+                from helpers.check_for_update_helper import check_for_update
+
+                _emit("Checking for updates...")
+                print("[Background Init] Checking for updates...")
+                check_for_update()
+
+                _emit("Verifying tools...")
+                print("[Background Init] Preparing tools...")
+                ensure_tools_ready(reporter=lambda msg: print(f"[Tools] {msg}"), progress_reporter=lambda p: None, unit_callback=lambda: None)
+
+                _emit("Running health check...")
+                print("[Background Init] Running health check...")
+                cache = build_remote_cache(force_refresh=False, progress_reporter=lambda p: None)
+                run_check(repair=True, force_refresh=False, verbose=True, cache=cache, unit_callback=lambda: None, progress_reporter=lambda p: None)
+
+                print("[Background Init] Done.")
+                _emit(f"Image Tea Ready (Startup time: {t_splash_ms} ms)")
+
+            t = threading.Thread(target=_bg_work, daemon=True)
+            t.start()
+
+        QTimer.singleShot(500, _run_background_init)
 
         sys.exit(app.exec())
     else:

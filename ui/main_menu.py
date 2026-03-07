@@ -24,16 +24,8 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 from dialogs.about_dialog import AboutDialog
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.update_notice_dialog import UpdateNoticeDialog
-from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
-from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
-from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
-from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
-from dialogs.tools.action_sequencer import ActionSequencerDialog
-from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
-from dialogs.tools.image_upscaler_tool import ImageUpscalerDialog
-from dialogs.tools.theme_editor_dialog import ThemeEditorDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -296,6 +288,7 @@ def setup_main_menu(window):
     def load_themes_menu():
         themes_submenu.clear()
         try:
+            from dialogs.tools.theme_editor_dialog import ThemeEditorDialog
             editor_action = QAction(qta.icon('fa6s.pen-to-square'), "Theme Editor...", window)
             editor_action.triggered.connect(lambda: ThemeEditorDialog(window).exec())
             themes_submenu.addAction(editor_action)
@@ -374,6 +367,7 @@ def setup_main_menu(window):
             print(f"Theme changed to '{themes_data['themes'][theme_id]['name']}'. Restart required to apply changes.")
     
     def open_theme_editor():
+        from dialogs.tools.theme_editor_dialog import ThemeEditorDialog
         dialog = ThemeEditorDialog(window)
         dialog.theme_changed.connect(lambda theme_id: load_themes_menu())
         dialog.exec()
@@ -628,16 +622,17 @@ def setup_main_menu(window):
     prompt_generator_action.setToolTip(MENU_TOOLTIPS["prompt_generator"])
     prompt_generator_action.setStatusTip(MENU_TOOLTIPS["prompt_generator"])
     def open_prompt_generator():
+        from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
         dlg = PromptGeneratorDialog(window)
         dlg.exec()
     prompt_generator_action.triggered.connect(open_prompt_generator)
     tools_menu.addAction(prompt_generator_action)
 
-    from dialogs.tools.prompt_injector import PromptInjectorDialog
     prompt_injector_action = QAction(qta.icon('fa6s.bolt'), "Prompt Injector", window)
     prompt_injector_action.setToolTip("Inject prompts/clicks using points and clipboard")
     prompt_injector_action.setStatusTip("Inject prompts/clicks using points and clipboard")
     def open_prompt_injector():
+        from dialogs.tools.prompt_injector import PromptInjectorDialog
         if not hasattr(window, '_prompt_injector_dialog') or not window._prompt_injector_dialog:
             window._prompt_injector_dialog = PromptInjectorDialog(None)
             window._prompt_injector_dialog.destroyed.connect(lambda: setattr(window, '_prompt_injector_dialog', None))
@@ -651,6 +646,7 @@ def setup_main_menu(window):
     imagen_generator_action.setToolTip(MENU_TOOLTIPS["imagen_generator"])
     imagen_generator_action.setStatusTip(MENU_TOOLTIPS["imagen_generator"])
     def open_imagen_generator():
+        from dialogs.tools.imagen_generator_tool import ImagenGeneratorDialog
         dlg = ImagenGeneratorDialog(window)
         dlg.exec()
     imagen_generator_action.triggered.connect(open_imagen_generator)
@@ -660,6 +656,7 @@ def setup_main_menu(window):
     batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])
     batch_audio_remover_action.setStatusTip(MENU_TOOLTIPS["batch_audio_remover"])
     def open_batch_audio_remover():
+        from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
         dlg = BatchAudioRemoverDialog(window)
         dlg.exec()
     batch_audio_remover_action.triggered.connect(open_batch_audio_remover)
@@ -669,6 +666,7 @@ def setup_main_menu(window):
     envato_elements_action.setToolTip(MENU_TOOLTIPS["envato_elements_metadata"])
     envato_elements_action.setStatusTip(MENU_TOOLTIPS["envato_elements_metadata"])
     def open_envato_elements():
+        from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
         if not hasattr(window, '_envato_elements_dialog') or not window._envato_elements_dialog:
             window._envato_elements_dialog = EnvatoElementsMetadataDialog(None)
             window._envato_elements_dialog.destroyed.connect(lambda: setattr(window, '_envato_elements_dialog', None))
@@ -682,6 +680,7 @@ def setup_main_menu(window):
     action_sequencer_action.setToolTip(MENU_TOOLTIPS["action_sequencer"])
     action_sequencer_action.setStatusTip(MENU_TOOLTIPS["action_sequencer"])
     def open_action_sequencer():
+        from dialogs.tools.action_sequencer import ActionSequencerDialog
         if not hasattr(window, '_action_sequencer_dialog') or not window._action_sequencer_dialog:
             window._action_sequencer_dialog = ActionSequencerDialog(None)
             window._action_sequencer_dialog.destroyed.connect(lambda: setattr(window, '_action_sequencer_dialog', None))
@@ -695,6 +694,7 @@ def setup_main_menu(window):
     video_upscaler_action.setToolTip(MENU_TOOLTIPS["video_upscaler"])
     video_upscaler_action.setStatusTip(MENU_TOOLTIPS["video_upscaler"])
     def open_video_upscaler():
+        from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
         if not hasattr(window, '_video_upscaler_dialog') or not window._video_upscaler_dialog:
             window._video_upscaler_dialog = VideoUpscalerDialog(None)
             window._video_upscaler_dialog.destroyed.connect(lambda: setattr(window, '_video_upscaler_dialog', None))
@@ -708,6 +708,7 @@ def setup_main_menu(window):
     image_upscaler_action.setToolTip(MENU_TOOLTIPS["image_upscaler"])
     image_upscaler_action.setStatusTip(MENU_TOOLTIPS["image_upscaler"])
     def open_image_upscaler():
+        from dialogs.tools.image_upscaler_tool import ImageUpscalerDialog
         if not hasattr(window, '_image_upscaler_dialog') or not window._image_upscaler_dialog:
             window._image_upscaler_dialog = ImageUpscalerDialog(None)
             window._image_upscaler_dialog.destroyed.connect(lambda: setattr(window, '_image_upscaler_dialog', None))
@@ -717,11 +718,11 @@ def setup_main_menu(window):
     image_upscaler_action.triggered.connect(open_image_upscaler)
     tools_menu.addAction(image_upscaler_action)
 
-    from dialogs.tools.pngtree_zipper_tool import PngtreeZipperDialog
     pngtree_zipper_action = QAction(qta.icon('fa6s.file-zipper'), "Pngtree Zipper", window)
     pngtree_zipper_action.setToolTip(MENU_TOOLTIPS["pngtree_zipper"])
     pngtree_zipper_action.setStatusTip(MENU_TOOLTIPS["pngtree_zipper"])
     def open_pngtree_zipper():
+        from dialogs.tools.pngtree_zipper_tool import PngtreeZipperDialog
         if not hasattr(window, '_pngtree_zipper_dialog') or not window._pngtree_zipper_dialog:
             window._pngtree_zipper_dialog = PngtreeZipperDialog(None)
             window._pngtree_zipper_dialog.destroyed.connect(lambda: setattr(window, '_pngtree_zipper_dialog', None))
