@@ -172,7 +172,6 @@ class TagsPillWidget(QWidget):
         tags = [tag.strip() for tag in tags_text.split(',') if tag.strip()]
         self.tags = tags
         self.similar_indices = set()
-        # Detect similar tags
         for i, tag in enumerate(tags):
             for j in range(i + 1, len(tags)):
                 if _is_similar(tag, tags[j]):
@@ -181,6 +180,7 @@ class TagsPillWidget(QWidget):
         for i, tag in enumerate(tags):
             pill = self._create_pill(tag, i)
             self.flow_layout.addWidget(pill)
+        self.setMinimumHeight(0)
 
     def _create_pill(self, tag_text, index):
         container = QWidget()
@@ -252,6 +252,7 @@ class TagsPillWidget(QWidget):
                 child.widget().deleteLater()
         self.tags = []
         self.similar_indices = set()
+        self.setMinimumHeight(18)
 
     def _delete_tag(self, tag_text):
         self.tags = [t for t in self.tags if t.strip() != tag_text.strip()]
@@ -599,6 +600,13 @@ class PropertiesWidget(QWidget):
                     field.clear_tags()
                 else:
                     field.setText("")
+            reset_label_texts = [
+                "Filepath", "Filename", "Title", "Description", "Tags",
+                "Status", "File Type", "Original Filename",
+                "Shutterstock Category", "Adobe Stock Category"
+            ]
+            for label_widget, label_text in zip(self.label_widgets, reset_label_texts):
+                label_widget.setText(f"<b>{label_text}:</b>")
             if self.db:
                 files = self.db.get_all_files()
                 if files:

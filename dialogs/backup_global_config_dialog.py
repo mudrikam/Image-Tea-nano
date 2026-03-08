@@ -696,13 +696,6 @@ def _deep_merge_ai_config(repo_config, backup_config, prefer_repo_default=False)
 			merged['prompt_generator']['settings'].update(backup_config['prompt_generator']['settings'])
 			print("Preserved prompt_generator settings from backup")
 	
-	if 'imagen_generator' in backup_config:
-		if 'settings' in backup_config['imagen_generator']:
-			if 'settings' not in merged['imagen_generator']:
-				merged['imagen_generator']['settings'] = {}
-			merged['imagen_generator']['settings'].update(backup_config['imagen_generator']['settings'])
-			print("Preserved imagen_generator settings from backup")
-	
 	for key in ['shutterstock_category_map', 'adobe_stock_category_map', 'file_types', 
 				'video_proxy_presets', 'aspect_ratios', 'person_generation_options', 
 				'sample_image_sizes', 'generation_modes']:

@@ -7,14 +7,6 @@ import os
 import sys
 import subprocess
 from config import BASE_PATH
-from dialogs.csv_exporter_dialog import CSVExporterDialog
-from dialogs.edit_prompt_dialog import EditPromptDialog
-from dialogs.custom_prompt_dialog import CustomPromptDialog
-from dialogs.batch_rename_dialog import BatchRenameDialog
-from dialogs.read_documentation_dialog import ReadDocumentationDialog
-from dialogs.donation_dialog import DonateDialog
-from dialogs.add_api_key_dialog import AddApiKeyDialog
-from dialogs.file_metadata_dialog import FileMetadataDialog
 from helpers.file_importer import import_files
 from helpers.metadata_helper.metadata_operation import write_metadata_to_images, write_metadata_to_videos
 from ui.main_menu import run_updater
@@ -220,7 +212,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.i-cursor', icon_color_hover),
         "Rename",
         "Batch rename selected files in the table. \nThis does NOT modify metadata. \nBut renaming your files directly on disk. \nUSE WITH CAUTION. \nRollback is supported via the dialog by Undo Rename button.",
-        lambda: BatchRenameDialog(window, table_widget=window.table, db=window.db).exec(),
+        lambda: (lambda: __import__('dialogs.batch_rename_dialog', fromlist=['BatchRenameDialog']).BatchRenameDialog(window, table_widget=window.table, db=window.db).exec())(),
         window, icon_size, obj_name='toolbar_rename')
     toolbar.addAction(batch_rename_action)
 
@@ -258,7 +250,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.file-csv', icon_color_hover),
         "Export",
         "Export metadata to CSV file in the table \nYou can choose the destination and filename. \nUseful for backup or further processing. \nSupports common CSV format \nthat can be used for microstock submissions.",
-        lambda: CSVExporterDialog(window).exec(),
+        lambda: (lambda: __import__('dialogs.csv_exporter_dialog', fromlist=['CSVExporterDialog']).CSVExporterDialog(window).exec())(),
         window, icon_size, obj_name='toolbar_export')
     toolbar.addAction(export_metadata_action)
 
@@ -284,11 +276,12 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.comment', icon_color_hover),
         "Custom",
         "Use a custom prompt for AI metadata generation. \nUse this to override the default prompt temporarily. \nUseful for one-off generations with different requirements. \nDoes not modify the saved system prompt. \nBut don't forget to clear it after use if you want to revert to the default prompt.",
-        lambda: CustomPromptDialog(window).exec(),
+        lambda: (lambda: __import__('dialogs.custom_prompt_dialog', fromlist=['CustomPromptDialog']).CustomPromptDialog(window).exec())(),
         window, icon_size, obj_name='toolbar_custom')
     toolbar.addAction(custom_prompt_action)
 
     def open_add_api_dialog():
+        from dialogs.add_api_key_dialog import AddApiKeyDialog
         dlg = AddApiKeyDialog(window)
         result = dlg.exec()
         if hasattr(window, 'api_key_section'):
@@ -331,7 +324,7 @@ def setup_main_toolbar(window: QWidget):
         make_icon('fa6s.circle-dollar-to-slot', icon_color_hover),
         "Donate",
         "Support development of this application by making a donation. \nYour contributions help fund new features and improvements. \nAny amount is appreciated, no matter how small. \nThank you for supporting the project!",
-        lambda: DonateDialog(window).exec(),
+        lambda: (lambda: __import__('dialogs.donation_dialog', fromlist=['DonateDialog']).DonateDialog(window).exec())(),
         window, icon_size, obj_name='toolbar_donate')
 
     wa_action = create_toolbar_button_with_label(
@@ -368,6 +361,7 @@ def setup_main_toolbar(window: QWidget):
 
     def open_documentation_toolbar():
         if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
+            from dialogs.read_documentation_dialog import ReadDocumentationDialog
             window._read_documentation_dialog = ReadDocumentationDialog(None)
             window._read_documentation_dialog.destroyed.connect(lambda: setattr(window, '_read_documentation_dialog', None))
             if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
@@ -402,5 +396,6 @@ def open_edit_metadata(window):
             filepath = filepath_item.data(0x0100)
             if not filepath:
                 filepath = filepath_item.text()
+            from dialogs.file_metadata_dialog import FileMetadataDialog
             dialog = FileMetadataDialog(filepath, parent=window)
             dialog.exec()

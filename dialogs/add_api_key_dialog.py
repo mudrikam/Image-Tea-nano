@@ -185,7 +185,7 @@ class ModelManagerDialog(QDialog):
     def __init__(self, model_list: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Model Manager")
-        self.setFixedWidth(520)
+        self.setFixedWidth(550)
         self.model_list = {k: list(v) for k, v in (model_list or {}).items()}
         layout = QVBoxLayout()
         openrouter_hint = QLabel("If you're using OpenRouter, please select 'OpenAI' for Service.")
@@ -628,6 +628,26 @@ class AddApiKeyDialog(QDialog):
         layout.addLayout(csv_btn_layout_bottom)
 
         csv_btn_layout_top.addWidget(self.test_all_btn)
+        self.topup_btn = QPushButton()
+        self.topup_btn.setObjectName('topup_btn')
+        self.topup_btn.setText("Top Up API Key")
+        self.topup_btn.setIcon(qta.icon('fa6s.coins', color=theme.get_color('white')))
+        self.topup_btn.setIconSize(self.topup_btn.iconSize())
+        self.topup_btn.setToolTip("Top up Desainia API key balance")
+        self.topup_btn.setStyleSheet(f"""
+            QPushButton#topup_btn {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 4px 12px;
+            }}
+            QPushButton#topup_btn:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+        """)
+        self.topup_btn.clicked.connect(self._open_topup_dialog)
+        csv_btn_layout_top.addWidget(self.topup_btn)
         self.new_btn = QPushButton()
         self.new_btn.setText("New")
         self.new_btn.setIcon(qta.icon('fa6s.file-circle-plus', color=theme.get_color('primary')))
@@ -645,12 +665,14 @@ class AddApiKeyDialog(QDialog):
         self.api_table.setColumnCount(7)
         self.api_table.setHorizontalHeaderLabels(["Service", "API", "Endpoint", "Last Tested", "Model", "Note", "Actions"])
         self.api_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        header = self.api_table.horizontalHeader()
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.api_table.setColumnWidth(6, 100)
         self.api_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.api_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.api_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.api_table.setMinimumHeight(200)
         self.api_table.setToolTip("List of all API keys you have added")
-        header = self.api_table.horizontalHeader()
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         self.api_table.setSortingEnabled(True)
@@ -761,6 +783,17 @@ class AddApiKeyDialog(QDialog):
             'note': '',
             'endpoint': ''
         }
+
+    def closeEvent(self, event):
+        self._blink_timer.stop()
+        for attr in ('_test_thread', '_test_thread_row', '_test_all_thread'):
+            t = getattr(self, attr, None)
+            if t is not None and t.isRunning():
+                t.blockSignals(True)
+                t.quit()
+                t.wait(2000)
+        super().closeEvent(event)
+
     def _reset_entry_form(self):
         self.service_combo.setCurrentText(self._reset_entry_form_initial_values['service'])
         self._service_manually_selected = False
@@ -1137,6 +1170,13 @@ class AddApiKeyDialog(QDialog):
             delete_btn.clicked.connect(lambda _, r=row_idx: self._delete_api_key_row(r))
             action_layout.addWidget(test_btn)
             action_layout.addWidget(delete_btn)
+            if endpoint and 'api.desainia.my.id' in str(endpoint):
+                dollar_btn = QPushButton()
+                dollar_btn.setIcon(qta.icon('fa6s.dollar-sign'))
+                dollar_btn.setToolTip("Check credit usage")
+                dollar_btn.setFixedWidth(28)
+                dollar_btn.clicked.connect(lambda _, a=api: self._open_credit_usage_dialog(a))
+                action_layout.addWidget(dollar_btn)
             action_layout.addStretch()
             self.api_table.setCellWidget(row_idx, 6, action_widget)
             if status == "active":
@@ -1942,6 +1982,25 @@ class AddApiKeyDialog(QDialog):
             webbrowser.open(self._get_api_key_link)
         except Exception as e:
             QMessageBox.critical(self, "Buy API Key", f"Failed to open buy API key page: {e}")
+
+    def _open_topup_dialog(self):
+        try:
+            app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
+            with open(app_cfg_path, 'r', encoding='utf-8') as f:
+                app_cfg = json.load(f)
+            topup_url = app_cfg['links']['get_api_key']
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Failed to load topup URL: {e}")
+            return
+        from dialogs.topup_desainia_dialog import TopupDesainiaDialog
+        dlg = TopupDesainiaDialog(topup_url)
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.exec()
+
+    def _open_credit_usage_dialog(self, api_key):
+        from dialogs.credit_usage_dialog import CreditUsageDialog
+        dlg = CreditUsageDialog(api_key, self)
+        dlg.exec()
 
     def export_api_keys_csv(self):
         try:

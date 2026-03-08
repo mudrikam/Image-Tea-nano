@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt, QTimer
 from helpers.check_for_update_helper import show_update_dialog_if_available
 from dialogs.add_api_key_dialog import AddApiKeyDialog
 import qtawesome as qta
-from helpers.video_proxy_helper import get_video_proxy_invoker
 from ui.main_table import ImageTableWidget
 from ui.prompt_section import PromptSectionWidget
 from ui.stats_section import StatsSectionWidget
@@ -19,10 +18,17 @@ from database.db_operation import ImageTeaDB
 from dialogs.guide_tour import GuideOverlay
 from .theme_system import theme
 
+def _init_video_proxy_invoker():
+    try:
+        from helpers.video_proxy_helper import get_video_proxy_invoker
+        invoker = get_video_proxy_invoker(timeout=5)
+        if invoker is None:
+            print('[Startup Warning] VideoProxyInvoker could not be created; video dialogs will not appear.')
+    except Exception as e:
+        print(f'[Startup Warning] VideoProxyInvoker init failed: {e}')
+
 def setup_ui(self):
-    invoker = get_video_proxy_invoker(timeout=5)
-    if invoker is None:
-        print('[Startup Warning] VideoProxyInvoker could not be created; video dialogs will not appear.')
+    QTimer.singleShot(0, lambda: _init_video_proxy_invoker())
 
     setup_main_menu(self)
     try:
@@ -197,7 +203,7 @@ def setup_ui(self):
     self.statusbar = MainStatusBar(self)
     self.setStatusBar(self.statusbar)
     try:
-        QTimer.singleShot(500, lambda: show_update_dialog_if_available(parent=self))
+        QTimer.singleShot(2000, lambda: show_update_dialog_if_available(parent=self))
     except Exception:
         pass
 
