@@ -625,7 +625,6 @@ def setup_main_menu(window):
         dlg = PromptGeneratorDialog(window)
         dlg.exec()
     prompt_generator_action.triggered.connect(open_prompt_generator)
-    tools_menu.addAction(prompt_generator_action)
 
     prompt_injector_action = QAction(qta.icon('fa6s.bolt'), "Prompt Injector", window)
     prompt_injector_action.setToolTip("Inject prompts/clicks using points and clipboard")
@@ -639,7 +638,6 @@ def setup_main_menu(window):
         window._prompt_injector_dialog.raise_()
         window._prompt_injector_dialog.activateWindow()
     prompt_injector_action.triggered.connect(open_prompt_injector)
-    tools_menu.addAction(prompt_injector_action)
 
     batch_audio_remover_action = QAction(qta.icon('fa6s.volume-xmark'), "Batch Audio Remover", window)
     batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])
@@ -649,7 +647,6 @@ def setup_main_menu(window):
         dlg = BatchAudioRemoverDialog(window)
         dlg.exec()
     batch_audio_remover_action.triggered.connect(open_batch_audio_remover)
-    tools_menu.addAction(batch_audio_remover_action)
 
     envato_elements_action = QAction(qta.icon('fa6s.tag'), "Envato Elements Metadata", window)
     envato_elements_action.setToolTip(MENU_TOOLTIPS["envato_elements_metadata"])
@@ -663,7 +660,6 @@ def setup_main_menu(window):
         window._envato_elements_dialog.raise_()
         window._envato_elements_dialog.activateWindow()
     envato_elements_action.triggered.connect(open_envato_elements)
-    tools_menu.addAction(envato_elements_action)
 
     action_sequencer_action = QAction(qta.icon('fa6s.list-check'), "Action Sequencer", window)
     action_sequencer_action.setToolTip(MENU_TOOLTIPS["action_sequencer"])
@@ -677,7 +673,6 @@ def setup_main_menu(window):
         window._action_sequencer_dialog.raise_()
         window._action_sequencer_dialog.activateWindow()
     action_sequencer_action.triggered.connect(open_action_sequencer)
-    tools_menu.addAction(action_sequencer_action)
 
     video_upscaler_action = QAction(qta.icon('fa6s.video'), "Video Upscaler", window)
     video_upscaler_action.setToolTip(MENU_TOOLTIPS["video_upscaler"])
@@ -691,7 +686,6 @@ def setup_main_menu(window):
         window._video_upscaler_dialog.raise_()
         window._video_upscaler_dialog.activateWindow()
     video_upscaler_action.triggered.connect(open_video_upscaler)
-    tools_menu.addAction(video_upscaler_action)
 
     image_upscaler_action = QAction(qta.icon('fa6s.image'), "Image Upscaler", window)
     image_upscaler_action.setToolTip(MENU_TOOLTIPS["image_upscaler"])
@@ -705,7 +699,6 @@ def setup_main_menu(window):
         window._image_upscaler_dialog.raise_()
         window._image_upscaler_dialog.activateWindow()
     image_upscaler_action.triggered.connect(open_image_upscaler)
-    tools_menu.addAction(image_upscaler_action)
 
     pngtree_zipper_action = QAction(qta.icon('fa6s.file-zipper'), "Pngtree Zipper", window)
     pngtree_zipper_action.setToolTip(MENU_TOOLTIPS["pngtree_zipper"])
@@ -719,6 +712,14 @@ def setup_main_menu(window):
         window._pngtree_zipper_dialog.raise_()
         window._pngtree_zipper_dialog.activateWindow()
     pngtree_zipper_action.triggered.connect(open_pngtree_zipper)
+
+    tools_menu.addAction(action_sequencer_action)
+    tools_menu.addAction(prompt_generator_action)
+    tools_menu.addAction(prompt_injector_action)
+    tools_menu.addAction(video_upscaler_action)
+    tools_menu.addAction(image_upscaler_action)
+    tools_menu.addAction(batch_audio_remover_action)
+    tools_menu.addAction(envato_elements_action)
     tools_menu.addAction(pngtree_zipper_action)
 
     extension_menu = QMenu("Extension", menubar)
