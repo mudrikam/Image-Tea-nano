@@ -1288,6 +1288,37 @@ class AddApiKeyDialog(QDialog):
 
     def _on_test_row_result(self, row, status, service, text):
         self._stop_blinking()
+        api_item = self.api_table.item(row, 0)
+        key_item = self.api_table.item(row, 1)
+        if api_item and key_item:
+            svc = service or api_item.text().lower()
+            api_key = key_item.data(Qt.UserRole) if key_item.data(Qt.UserRole) is not None else key_item.text().strip()
+            note = None
+            model = None
+            provider_endpoint = None
+            try:
+                rows = self.db.get_all_api_keys()
+                for r in rows:
+                    if isinstance(r, dict):
+                        if r.get('api') == api_key and str(r.get('service')).lower() == svc:
+                            note = r.get('note')
+                            model = r.get('model')
+                            provider_endpoint = r.get('provider_endpoint') or r.get('endpoint')
+                            break
+                    else:
+                        if len(r) >= 2 and r[1] == api_key and str(r[0]).lower() == svc:
+                            note = r[2] if len(r) > 2 else None
+                            model = r[5] if len(r) > 5 else None
+                            provider_endpoint = r[6] if len(r) > 6 else None
+                            break
+            except Exception as e:
+                print(f"[AddApiKeyDialog] Error fetching row data for status update: {e}")
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            db_status = "active" if status == 'success' else "invalid"
+            try:
+                self.db.set_api_key(svc, api_key, note, now, db_status, model, provider_endpoint=provider_endpoint)
+            except Exception as e:
+                print(f"[AddApiKeyDialog] Error saving test result to db: {e}")
         self._refresh_api_table()
         if status == 'success':
             QMessageBox.information(self, "API Key Test", "API Key is valid and active.")
@@ -1798,7 +1829,10 @@ class AddApiKeyDialog(QDialog):
         vbox.addLayout(hbox)
         close_btn = QPushButton(qta.icon('fa6s.xmark'), "Close")
         close_btn.clicked.connect(dlg.accept)
-        vbox.addWidget(close_btn)
+        hbox_close = QHBoxLayout()
+        hbox_close.addStretch()
+        hbox_close.addWidget(close_btn)
+        vbox.addLayout(hbox_close)
         dlg.setLayout(vbox)
         dlg.exec()
 
