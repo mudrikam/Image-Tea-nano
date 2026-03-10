@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QSizePolicy
 from PySide6.QtGui import QPixmap, QPalette, QColor
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt
 import os
 import datetime
 import json
@@ -38,6 +38,7 @@ class DonateDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Donate")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.setMinimumWidth(350)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -45,60 +46,17 @@ class DonateDialog(QDialog):
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
 
-        # determine lynk id url from config
-        url = None
-        try:
-            cfg_path = os.path.join(BASE_PATH, "configs", "app_config.json")
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            url = cfg.get("links", {}).get("lynk_id")
-        except Exception as e:
-            print(f"[donation_dialog] failed reading config for donation url: {e}")
-
-        def add_qris():
-            image_path = os.path.join(BASE_PATH, "res", "images", "qris.jpeg")
-            img_label = QLabel()
-            img_label.setContentsMargins(0, 0, 0, 0)
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                img_label.setPixmap(pixmap.scaledToWidth(300))
-                img_label.setAlignment(Qt.AlignCenter)
-            else:
-                img_label.setText("QRIS image not found.")
-                img_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(img_label)
-
-        loaded_page = False
-        if url:
-            try:
-                from PySide6.QtWebEngineWidgets import QWebEngineView
-                web = QWebEngineView()
-                web.setUrl(QUrl(url))
-                def _on_load(ok):
-                    nonlocal loaded_page
-                    if not ok:
-                        print(f"[donation_dialog] web page failed to load, falling back to QRIS")
-                        web.setParent(None)
-                        web.deleteLater()
-                        add_qris()
-                    else:
-                        loaded_page = True
-                web.loadFinished.connect(_on_load)
-
-                def _on_render_terminated(status, code):
-                    print(f"[donation_dialog] render process terminated (status={status}, code={code}), falling back to QRIS")
-                    if not loaded_page:
-                        web.setParent(None)
-                        web.deleteLater()
-                        add_qris()
-                web.renderProcessTerminated.connect(_on_render_terminated)
-
-                layout.addWidget(web)
-            except Exception as e:
-                print(f"[donation_dialog] WebEngine unavailable or error: {e}")
-                add_qris()
+        image_path = os.path.join(BASE_PATH, "res", "images", "qris.jpeg")
+        img_label = QLabel()
+        img_label.setContentsMargins(0, 0, 0, 0)
+        pixmap = QPixmap(image_path)
+        if not pixmap.isNull():
+            img_label.setPixmap(pixmap.scaledToWidth(300))
+            img_label.setAlignment(Qt.AlignCenter)
         else:
-            add_qris()
+            img_label.setText("QRIS image not found.")
+            img_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(img_label)
 
         if show_not_today:
             button_layout = QHBoxLayout()
