@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QLineEdit, QTextEdit, QHBoxLayout, QFormLayout, QSpacerItem, QSizePolicy, QToolTip, QComboBox
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QLineEdit, QTextEdit, QHBoxLayout, QFormLayout, QSpacerItem, QSizePolicy, QToolTip, QComboBox, QListView
 from PySide6.QtGui import QPixmap, QImage, QGuiApplication
 from PySide6.QtCore import Qt, QTimer
 import qtawesome as qta
@@ -128,17 +128,18 @@ class FileMetadataDialog(QDialog):
         shutterstock_image_map = {}
         shutterstock_video_map = {}
         adobe_map = {}
+        shutterstock_map = {}
         primary_val = None
         secondary_val = None
         adobe_val = None
         if self.db:
             shutterstock_image_map, shutterstock_video_map, adobe_map = self.db.get_category_maps()
             file_id = file_data[0]
+            ext = os.path.splitext(filepath)[1].lower()
+            is_video = ext in VIDEO_EXTENSIONS
+            shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
             if file_id is not None:
                 mapping = self.db.get_category_mapping_for_file(file_id)
-                ext = os.path.splitext(filepath)[1].lower()
-                is_video = ext in VIDEO_EXTENSIONS
-                shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
                 for m in mapping:
                     if m["platform"] == "shutterstock":
                         cat_name = str(m["category_name"]).lower()
@@ -172,6 +173,13 @@ class FileMetadataDialog(QDialog):
             idx = self.adobe_combo.findData(adobe_val)
             if idx >= 0:
                 self.adobe_combo.setCurrentIndex(idx)
+
+        for combo in [self.shutterstock_primary_combo, self.shutterstock_secondary_combo, self.adobe_combo]:
+            combo.setView(QListView())
+            for i in range(combo.model().rowCount()):
+                item = combo.model().item(i)
+                if item:
+                    item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
 
         form.addRow("Shutterstock Primary:", self.shutterstock_primary_combo)
         form.addRow("Shutterstock Secondary:", self.shutterstock_secondary_combo)
@@ -249,19 +257,18 @@ class FileMetadataDialog(QDialog):
                 break
         if file_id is not None:
             cat_dict = {}
-            primary_val = self.shutterstock_primary_combo.currentData()
-            secondary_val = self.shutterstock_secondary_combo.currentData()
+            primary_val = self.shutterstock_primary_combo.currentData() or None
+            secondary_val = self.shutterstock_secondary_combo.currentData() or None
             adobe_val = self.adobe_combo.currentData()
-            if primary_val or secondary_val:
-                cat_dict["shutterstock"] = {}
-                if primary_val:
-                    cat_dict["shutterstock"]["primary"] = int(primary_val)
-                if secondary_val:
-                    cat_dict["shutterstock"]["secondary"] = int(secondary_val)
+            cat_dict = {
+                "shutterstock": {
+                    "primary": int(primary_val) if primary_val else None,
+                    "secondary": int(secondary_val) if secondary_val else None,
+                }
+            }
             if adobe_val:
                 cat_dict["adobe_stock"] = int(adobe_val)
-            if cat_dict:
-                self.db.save_category_mapping(file_id, cat_dict)
+            self.db.save_category_mapping(file_id, cat_dict)
             
             filetype_val = self.filetype_combo.currentData()
             if filetype_val:
