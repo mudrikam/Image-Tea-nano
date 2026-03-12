@@ -1,82 +1,179 @@
 # Image-Tea-nano
 
-[![Downloads](https://img.shields.io/github/downloads/mudrikam/Image-Tea-nano/total?style=for-the-badge&logo=github)](https://github.com/mudrikam/Image-Tea-nano/releases) [![Release](https://img.shields.io/github/v/release/mudrikam/Image-Tea-nano?style=for-the-badge&logo=github)](https://github.com/mudrikam/Image-Tea-nano/releases) ![WhatsApp Group](https://img.shields.io/badge/Join%20WhatsApp-Group-25D366?logo=whatsapp&style=for-the-badge&link=https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3) 
+[![Downloads](https://img.shields.io/github/downloads/mudrikam/Image-Tea-nano/total?style=for-the-badge&logo=github)](https://github.com/mudrikam/Image-Tea-nano/releases) [![Release](https://img.shields.io/github/v/release/mudrikam/Image-Tea-nano?style=for-the-badge&logo=github)](https://github.com/mudrikam/Image-Tea-nano/releases) [![WhatsApp](https://img.shields.io/badge/Join%20WhatsApp-Group-25D366?logo=whatsapp&style=for-the-badge)](https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3)
 
-### 🎉 Great News  
-## Image-Tea is now fully cross-platform.
+> 🎉 Image-Tea is now fully cross-platform - Windows, Linux, and macOS!
 
 [![Windows](https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white&style=for-the-badge)](#) [![Linux](https://custom-icon-badges.demolab.com/badge/Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](#) [![macOS](https://img.shields.io/badge/macOS-dedede?logo=apple&logoColor=666666&style=for-the-badge)](#)
 
-Recomended API provider to use on Image-Tea:
-
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-94A3B8?logo=openrouter&logoColor=fff&style=for-the-badge)](#) [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-886FBF?logo=googlegemini&logoColor=fff&style=for-the-badge)](#) [![OpenAI](https://custom-icon-badges.demolab.com/badge/OpenAi-10a37f?logo=openai&logoColor=white&style=for-the-badge)](#)
-
-## I'm sick of paying for something this basic. Every time I need a simple metadata generator, I hit a paywall. I'm done with it.
-
-### SO I BUILT MY OWN!
-![Image Tea UI](res/images/ui_screenshot.png)
-
-- It's FREE.
-- No trial. I don't want sweet promises and time limits.
-- No trial. Yes, I already said it. I don't like trials.
-- No need to subscribe to an app, because I don't want to.
-- No sign-ups. No accounts. I don't need your data. I built this to get work done.
-- No tracking. No analytics. I’m not your “usage data”.
-- Portable. Copy the folder, it works. I’m not touching the registry.
-- Same rules every time. Update or skip it, as long as the studio gets what it needs.
-- Skip/Retry/Resume. I decide, not the app.
-- I own the workflow. Not renting it.
-- Easily customisable down to the most basic level.
-- Prompts are fully adjustable. No hidden prompts. No "trust us" prompts.
-- Needs an API key. So what? I don't mind.
-- Need a feature? I just ask Copilot to build it.
-- Works stubbornly and stays resilient.
-- Fast, handles bulk batches with ease.
-- Pause anytime. Continue anytime. Whenever I want.
-- Full documentation. I’m forgetful, so I write everything down.
-- Backup config. I don't like anything unpredictable.
-- Studio first. Desainia Studio’s needs come first. Don’t like it? Don’t use it.
-- Other apps are more complete. Chrome extensions. Multi-platform. Whatever. This works for Desainia Studio. That’s it. I already said it.
-- Want it as an alternative? Go ahead. For us, this is the daily main tool.
-- Can't afford a paid metadata generator? Use Image-Tea. Pay with prayers if that's all you have.
-- If Image-Tea helped and your heart whispers “donate”, just do it. Your heart is right. I agree.
-- If you use Image-Tea and need help, click the WhatsApp link above. It’s not there for decoration.
-- Anyone can use it. I'm tired of being excluded.
-- MIT License. Use it, change it, share it. Don't you dare remove the license.
-- No warranty. I never promised one.
 
 ---
 
-## Aku muak tiap butuh metadata generator yang simpel, ujungnya mentok ditodong bayar. Udah, Ogah.
+## I got tired of hitting a paywall every time I needed a simple metadata generator. So I built my own. 👊
 
-### MAKANYA AKU BIKIN SENDIRI!
+### 🧉 SO I BUILT MY OWN!
 
-- GRATIS.
-- Gak ada trial. Aku gak suka janji manis dan batas waktu.
-- Gak ada trial. Iya, aku ulang. Aku gak suka trial.
-- Gak perlu langganan aplikasi, karena aku gak mau.
-- Gak perlu daftar-daftar. Gak ada akun. Aku gak butuh datamu. Aku cuma mau beres kerjaan.
-- Gak ada ngintip-ngintip. Gak ada analytics. Aku bukan “data pemakaian” kamu.
-- Portable. Tinggal salin folder, langsung jalan. Aku gak mau instal yang nyentuh registry.
-- Aturannya konsisten. Mau update silakan, mau skip juga silakan. Yang penting kebutuhan studio kelar.
-- Skip/Retry/Resume. Aku yang pegang kontrol, bukan aplikasinya.
-- Workflow ini milikku. Bukan sewaan.
-- Bisa dioprek sampai akar-akarnya.
-- Prompt bebas diatur. Gak ada prompt disembunyiin. Gak ada gaya “percaya aja”.
-- Butuh API key? Ya emang. Aku santai.
-- Kurang fitur? Tinggal minta Copilot bikinin.
-- Bandel. Tahan banting. Gak rewel.
-- Ngebut. Nge-batch banyak pun enteng.
-- Mau pause ya pause. Mau lanjut ya lanjut. Sesuka hati.
-- Dokumentasi lengkap. Aku pelupa, jadi semua aku catat.
-- Konfig dibackup. Aku gak suka yang suka berubah-ubah gak jelas.
-- Studio dulu. Kebutuhan Desainia Studio nomor satu. Gak cocok? Ya udah, gak usah pakai.
-- Aplikasi lain mungkin lebih wah: ekstensi Chrome, multi-platform, dll. Ya silakan. Ini yang penting jalan buat Desainia Studio. Udah.
-- Mau dijadiin alternatif? Silakan. Di studio kami, ini alat harian utama.
-- Kalau belum mampu beli yang berbayar, pakai aja Image-Tea. Bayarnya doa juga gapapa.
-- Kalau kepake dan tiba-tiba kepikiran buat donasi, ya ikutin aja. Itu bisikan yang bener.
-- Kalau pakai Image-Tea terus butuh bantuan, klik link WhatsApp di atas. Itu bukan hiasan.
-- Siapa pun boleh pakai. Aku capek “dibatesin”.
-- Lisensi MIT. Pakai, ubah, sebar. Jangan macam-macam hapus lisensinya.
-- Tanpa garansi. Dari awal juga aku gak pernah janji.
+![Image Tea UI](res/images/ui_screenshot.png)
 
+No trial. No subscription. No accounts. No tracking. Just paste your API key and go.
+
+MIT License - use it, change it, share it. Don’t remove the license. 🤝
+
+---
+
+## 🚀 Getting Started
+
+No Python installation required. No setup wizard. Just download and run.
+
+### What you need
+
+- 📶 A stable internet connection (first run only)
+- 🔑 An API key from one of the supported providers above
+- That’s it - seriously
+
+---
+
+### 📥 Step 1 - Download
+
+Grab the latest release from the **[Releases page](https://github.com/mudrikam/Image-Tea-nano/releases)** and extract it anywhere you like. Desktop, USB drive, whatever - it’s fully portable. 📁
+
+---
+
+### ▶️ Step 2 - Run
+
+**🪟 Windows**
+
+Double-click **Image-Tea.exe**
+
+On the very first launch, it will automatically download all required dependencies. Just wait for it to finish - the app will open by itself once it’s ready. ✅
+
+> ⚠️ If Windows shows a SmartScreen warning - click **More info → Run anyway**
+
+**🐧 Linux**
+
+`bash
+chmod +x Launcher.sh
+./Launcher.sh
+`
+
+**🍎 macOS**
+
+`bash
+chmod +x Launcher.sh
+./Launcher.sh
+`
+
+> ⚠️ If macOS blocks it - **System Settings → Privacy & Security → Allow Anyway**
+
+On the first run, the launcher will automatically download and set up everything before opening the app. ✅
+
+---
+
+### 🔑 Step 3 - Add your API key
+
+On first launch, Image-Tea will ask for your API key. Open your provider’s dashboard, copy the key, paste it in - done. 👌
+
+> Your key never leaves your machine. No accounts. No registration.
+
+---
+
+## 🔄 Updates
+
+Image-Tea will let you know on startup when there’s a new version. Update or skip - your call, always. 😎
+
+---
+
+## 🛠️ Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| SmartScreen blocks the exe | Click More info → Run anyway |
+| Download hangs on first run | Check your internet connection and relaunch |
+| App won’t open | Delete the python/Windows folder and relaunch - it will re-download |
+| API key not accepted | Make sure the key is active and has credits |
+| macOS blocks the script | System Settings → Privacy & Security → Allow Anyway |
+| Linux: permission denied | Run chmod +x Launcher.sh first |
+
+Still stuck? Drop a message in the **[WhatsApp Group](https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3)**. 💬
+
+---
+
+## Panduan Singkat
+
+Gak perlu instal Python dulu. Gak perlu setup apa-apa. Tinggal download dan jalankan.
+
+### Yang kamu butuhkan
+
+- 📶 Koneksi internet stabil (cuma saat pertama kali)
+- 🔑 API key dari salah satu provider di atas
+- Udah, itu aja - serius
+
+---
+
+### 📥 Langkah 1 - Download
+
+Ambil versi terbaru di **[halaman Releases](https://github.com/mudrikam/Image-Tea-nano/releases)**, ekstrak di mana aja. Desktop, flashdisk, terserah - portable sepenuhnya. 📁
+
+---
+
+### ▶️ Langkah 2 - Jalankan
+
+**🪟 Windows**
+
+Klik dua kali **Image-Tea.exe**
+
+Saat pertama kali dibuka, aplikasi akan otomatis mengunduh semua dependensi yang dibutuhkan. Tunggu sampai selesai - aplikasi akan terbuka sendiri setelah siap. ✅
+
+> ⚠️ Kalau Windows menampilkan peringatan SmartScreen - klik **More info → Run anyway**
+
+**🐧 Linux**
+
+`bash
+chmod +x Launcher.sh
+./Launcher.sh
+`
+
+**🍎 macOS**
+
+`bash
+chmod +x Launcher.sh
+./Launcher.sh
+`
+
+> ⚠️ Kalau macOS memblokirnya - **System Settings → Privacy & Security → Allow Anyway**
+
+Saat pertama kali dijalankan, launcher akan otomatis download dan setup semuanya sebelum membuka aplikasi. ✅
+
+---
+
+### 🔑 Langkah 3 - Masukkan API key
+
+Saat pertama kali dibuka, Image-Tea akan minta API key. Buka dashboard provider kamu, salin key-nya, tempel di sana - selesai. 👌
+
+> Key kamu gak kemana-mana. Gak ada akun. Gak ada registrasi.
+
+---
+
+## 🔄 Update
+
+Image-Tea kasih tahu kalau ada versi baru pas startup. Mau update atau skip - terserah kamu. 😎
+
+---
+
+## 🛠️ Troubleshooting
+
+| Masalah | Solusi |
+|---|---|
+| SmartScreen blokir exe | Klik More info → Run anyway |
+| Download nyangkut saat pertama buka | Cek koneksi internet lalu buka ulang aplikasinya |
+| Aplikasi gak mau buka | Hapus folder python/Windows lalu buka lagi - dia akan download ulang otomatis |
+| API key ditolak | Pastikan key aktif dan ada kreditnya |
+| macOS blokir script | System Settings → Privacy & Security → Allow Anyway |
+| Linux: permission denied | Jalankan chmod +x Launcher.sh dulu |
+
+Masih stuck? Tanya di **[Grup WhatsApp](https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3)**. 💬
+
+---
+
+<sub>MIT License © Mudrikul Hikam - Desainia Studio ❤️</sub>
