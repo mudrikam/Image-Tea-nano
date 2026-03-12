@@ -239,6 +239,7 @@ class UpscaleWorker(QThread):
                 import torch
                 
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                use_half = device.type != 'cpu'
                 model_path = self.model_info.get('model_file', '')
                 
                 if not Path(model_path).exists():
@@ -254,13 +255,14 @@ class UpscaleWorker(QThread):
                         scale=self.scale,
                         model_path=model_path,
                         model=model,
-                        tile=0,
+                        tile=256,
                         tile_pad=10,
                         pre_pad=0,
-                        half=False,
+                        half=use_half,
                         device=device
                     )
-                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device})")
+                    precision_label = "FP16" if use_half else "FP32"
+                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device}, Precision: {precision_label})")
                     return ('realesrgan', upsampler)
                 except ImportError:
                     self.log_signal.emit("   ⚠️ RealESRGANer not available, using direct PyTorch loading...")
