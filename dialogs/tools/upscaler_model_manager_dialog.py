@@ -31,6 +31,16 @@ def get_default_models_dir() -> Path:
     return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
 
 
+def get_waifu2x_path() -> Path:
+    system = platform.system()
+    bin_name = "waifu2x-ncnn-vulkan.exe" if system == "Windows" else "waifu2x-ncnn-vulkan"
+    return Path(BASE_PATH) / "tools" / "waifu2x" / bin_name
+
+
+def get_waifu2x_models_dir() -> Path:
+    return Path(BASE_PATH) / "tools" / "waifu2x"
+
+
 def has_nvidia_gpu() -> bool:
     """Check if system has NVIDIA GPU."""
     try:
@@ -564,6 +574,28 @@ class UpscalerModelManager:
                 }
                 self.models.append(model_info)
         
+        waifu2x_tool_dir = get_waifu2x_models_dir()
+        if waifu2x_tool_dir.exists():
+            waifu2x_model_map = {
+                "models-cunet": ("waifu2x-cunet", "Waifu2x CUNet (best quality, anime)"),
+                "models-upconv_7_anime_style_art_rgb": ("waifu2x-upconv-anime", "Waifu2x UpConv7 Anime"),
+                "models-upconv_7_photo": ("waifu2x-upconv-photo", "Waifu2x UpConv7 Photo"),
+            }
+            for subdir_name, (model_name, description) in waifu2x_model_map.items():
+                subdir = waifu2x_tool_dir / subdir_name
+                if subdir.exists() and list(subdir.glob("*.param")):
+                    if model_name not in existing_names:
+                        model_info = {
+                            'name': model_name,
+                            'type': 'waifu2x',
+                            'scale': 2,
+                            'noise_level': 3,
+                            'description': description,
+                            'models_dir': str(subdir),
+                            'custom': False
+                        }
+                        self.models.append(model_info)
+        
         self._save_config()
     
     def _detect_scale(self, model_name: str) -> int:
@@ -604,6 +636,9 @@ class UpscalerModelManager:
     
     def get_onnx_models(self) -> List[str]:
         return [m['name'] for m in self.models if m['type'] == 'onnx']
+    
+    def get_waifu2x_models(self) -> List[str]:
+        return [m['name'] for m in self.models if m['type'] == 'waifu2x']
     
     def add_model(self, model_info: Dict) -> bool:
         if any(m['name'] == model_info['name'] for m in self.models):

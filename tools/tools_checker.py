@@ -18,13 +18,17 @@ expected = [
     "ghostscript",
     "cairo",
     "ffmpeg",
-    "realesrgan"
+    "realesrgan",
+    "waifu2x",
+    "rife"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
 EXECUTABLE_REQUIREMENTS = {
     "ffmpeg": ["ffmpeg", "ffprobe"],
-    "realesrgan": ["realesrgan-ncnn-vulkan"]
+    "realesrgan": ["realesrgan-ncnn-vulkan"],
+    "waifu2x": ["waifu2x-ncnn-vulkan"],
+    "rife": ["rife-ncnn-vulkan"]
 }
 
 def get_embedded_python_path():
@@ -409,10 +413,18 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
                     download_and_extract_ffmpeg(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                 elif folder.endswith("realesrgan"):
                     download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("waifu2x"):
+                    download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("rife"):
+                    download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
             else:
-                # For non-Windows we also attempt deterministic download of RealESRGAN into the local tools folder
+                # For non-Windows we also attempt deterministic download of RealESRGAN/Waifu2x/RIFE into the local tools folder
                 if folder.endswith("realesrgan"):
                     download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("waifu2x"):
+                    download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("rife"):
+                    download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                 else:
                     print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
                     if folder.endswith("cairo"):
@@ -421,7 +433,7 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
         else:
             # Folder exists; verify the tool is actually present and usable. If the top-level folder exists but
             # executables or DLLs are missing, attempt deterministic download+extract (Windows) or warn the user (non-Windows).
-            if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo"]:
+            if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo", "waifu2x", "rife"]:
                 ok = is_executable_available(tool_name, folder)
                 if ok:
                     _emit(reporter, f"Preparing tools ({tool_name} ready)")
@@ -444,6 +456,10 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
                             download_and_extract_ffmpeg(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                         elif tool_name == "realesrgan":
                             download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                        elif tool_name == "waifu2x":
+                            download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                        elif tool_name == "rife":
+                            download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                     else:
                         print(f"{tool_name} appears incomplete. Please install or extract the tool into: {folder}")
 
@@ -569,7 +585,7 @@ def _extract_and_flatten_zip(zip_path, target_folder) -> bool:
         return False
 
     try:
-        entries = [e for e in os.listdir(target_folder) if e not in ("realesrgan.zip", "ffmpeg.zip", "ghostscript.zip", "exiftool.zip", "cairo.zip")]
+        entries = [e for e in os.listdir(target_folder) if e not in ("realesrgan.zip", "ffmpeg.zip", "ghostscript.zip", "exiftool.zip", "cairo.zip", "waifu2x.zip", "rife.zip")]
         if len(entries) == 1:
             root = os.path.join(target_folder, entries[0])
             if os.path.isdir(root):
@@ -648,6 +664,110 @@ def download_and_extract_realesrgan(target_folder, reporter=None, progress_repor
     return True
 
 
+def download_and_extract_waifu2x(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    system = platform.system()
+    urls = {
+        "Windows": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-windows.zip",
+        "Darwin": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-macos.zip",
+        "Linux": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-ubuntu.zip"
+    }
+    url = urls.get(system)
+    if not url:
+        print(f"No Waifu2x download URL available for platform: {system}")
+        return False
+
+    zip_path = os.path.join(target_folder, "waifu2x.zip")
+    _emit(reporter, "Preparing tools (downloading waifu2x)")
+    ok = download_with_progress(url, zip_path, progress_reporter=progress_reporter)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download waifu2x)")
+        print("Failed to download Waifu2x; check network, TLS and system policies.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    _emit(reporter, "Preparing tools (extracting waifu2x)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract waifu2x)")
+        print("Failed to extract Waifu2x archive; please extract manually.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    executable_candidate = find_executable_in_folder(target_folder, ["waifu2x-ncnn-vulkan", "waifu2x-ncnn-vulkan.exe"])
+    if executable_candidate and os.name != 'nt':
+        try:
+            st = os.stat(executable_candidate).st_mode
+            if not (st & 0o111):
+                os.chmod(executable_candidate, st | 0o755)
+                print(f"Set executable permission on {executable_candidate}")
+        except Exception as e:
+            print(f"Failed to set executable bit on {executable_candidate}: {e}")
+
+    if not is_executable_available("waifu2x", target_folder):
+        _emit(reporter, "Preparing tools (waifu2x verification failed)")
+        print(f"Error: Waifu2x executable not found in {target_folder} after extraction")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    _emit(reporter, "Preparing tools (waifu2x installed successfully)")
+    return True
+
+
+def download_and_extract_rife(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    system = platform.system()
+    urls = {
+        "Windows": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-windows.zip",
+        "Darwin": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-macos.zip",
+        "Linux": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-ubuntu.zip"
+    }
+    url = urls.get(system)
+    if not url:
+        print(f"No RIFE download URL available for platform: {system}")
+        return False
+
+    zip_path = os.path.join(target_folder, "rife.zip")
+    _emit(reporter, "Preparing tools (downloading rife)")
+    ok = download_with_progress(url, zip_path, progress_reporter=progress_reporter)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download rife)")
+        print("Failed to download RIFE; check network, TLS and system policies.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    _emit(reporter, "Preparing tools (extracting rife)")
+    ok = _extract_and_flatten_zip(zip_path, target_folder)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract rife)")
+        print("Failed to extract RIFE archive; please extract manually.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    executable_candidate = find_executable_in_folder(target_folder, ["rife-ncnn-vulkan", "rife-ncnn-vulkan.exe"])
+    if executable_candidate and os.name != 'nt':
+        try:
+            st = os.stat(executable_candidate).st_mode
+            if not (st & 0o111):
+                os.chmod(executable_candidate, st | 0o755)
+                print(f"Set executable permission on {executable_candidate}")
+        except Exception as e:
+            print(f"Failed to set executable bit on {executable_candidate}: {e}")
+
+    if not is_executable_available("rife", target_folder):
+        _emit(reporter, "Preparing tools (rife verification failed)")
+        print(f"Error: RIFE executable not found in {target_folder} after extraction")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+
+    _emit(reporter, "Preparing tools (rife installed successfully)")
+    return True
+
+
 def find_executable_in_folder(folder, names):
     for root, dirs, files in os.walk(folder):
         for name in names:
@@ -719,7 +839,7 @@ def is_executable_available(tool_name, tool_folder):
     reqs = EXECUTABLE_REQUIREMENTS.get(tool_name, [])
     for base in reqs:
         candidates = [base, f"{base}.exe"]
-        if tool_name == "realesrgan":
+        if tool_name in ("realesrgan", "waifu2x", "rife"):
             found_in_folder = find_executable_in_folder(tool_folder, candidates)
             if not found_in_folder:
                 return False
@@ -761,6 +881,14 @@ def ensure_tool_executable(tool_name, tool_folder, reporter=None, progress_repor
         ok = download_and_extract_realesrgan(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
         if not ok:
             print("Failed to install realesrgan via automatic method.")
+    elif tool_name == "waifu2x":
+        ok = download_and_extract_waifu2x(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not ok:
+            print("Failed to install waifu2x via automatic method.")
+    elif tool_name == "rife":
+        ok = download_and_extract_rife(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not ok:
+            print("Failed to install rife via automatic method.")
     else:
         print(f"No auto-install handler for {tool_name}")
         return False
@@ -781,6 +909,22 @@ def ensure_tool_executable(tool_name, tool_folder, reporter=None, progress_repor
             "Linux": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip"
         }
         dl_url = urls.get(system)
+    elif tool_name == "waifu2x":
+        system = platform.system()
+        urls = {
+            "Windows": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-windows.zip",
+            "Darwin": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-macos.zip",
+            "Linux": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20220728/waifu2x-ncnn-vulkan-20220728-ubuntu.zip"
+        }
+        dl_url = urls.get(system)
+    elif tool_name == "rife":
+        system = platform.system()
+        urls = {
+            "Windows": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-windows.zip",
+            "Darwin": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-macos.zip",
+            "Linux": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-ubuntu.zip"
+        }
+        dl_url = urls.get(system)
     print(f"Manual install required. Please download and install {tool_name} from: {dl_url}")
     return False
 
@@ -790,6 +934,8 @@ def ensure_executables_for_tools(reporter=None, progress_reporter=None, unit_cal
     targets = {
         "ffmpeg": os.path.join(BASE_PATH, "tools", "ffmpeg"),
         "realesrgan": os.path.join(BASE_PATH, "tools", "realesrgan"),
+        "waifu2x": os.path.join(BASE_PATH, "tools", "waifu2x"),
+        "rife": os.path.join(BASE_PATH, "tools", "rife"),
     }
     for name, folder in targets.items():
         if not ensure_tool_executable(name, folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback):

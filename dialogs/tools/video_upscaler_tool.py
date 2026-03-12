@@ -14,12 +14,12 @@ import cv2
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, 
     QPushButton, QComboBox, QProgressBar, QTextEdit, QListWidget, 
-    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QCheckBox, QSpinBox, QMenu
+    QListWidgetItem, QFileDialog, QSizePolicy, QMessageBox, QLineEdit, QApplication, QCheckBox, QSpinBox, QMenu, QTabWidget
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
 import itertools
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QPainter, QColor, QPalette
 import qtawesome as qta
 import traceback
 
@@ -56,6 +56,23 @@ class FileDropListWidget(QListWidget):
         else:
             super().dropEvent(event)
 
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.count() == 0:
+            painter = QPainter(self.viewport())
+            painter.save()
+            painter.setPen(QColor(120, 120, 120))
+            vp = self.viewport()
+            cx = vp.width() // 2
+            cy = vp.height() // 2
+            icon_pix = qta.icon('fa6s.file-arrow-up', color=theme.get_color('text_dark')).pixmap(36, 36)
+            painter.drawPixmap(cx - 18, cy - 36, icon_pix)
+            font = painter.font()
+            font.setPointSize(9)
+            painter.setFont(font)
+            painter.drawText(0, cy + 8, vp.width(), 20, Qt.AlignCenter, "Drag and drop files here")
+            painter.restore()
+
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager, UpscalerModelManagerDialog
@@ -85,6 +102,18 @@ def get_realesrgan_path():
     return Path(BASE_PATH) / "tools" / "realesrgan" / bin_name
 
 
+def get_waifu2x_path():
+    system = platform.system()
+    bin_name = "waifu2x-ncnn-vulkan.exe" if system == "Windows" else "waifu2x-ncnn-vulkan"
+    return Path(BASE_PATH) / "tools" / "waifu2x" / bin_name
+
+
+def get_rife_path():
+    system = platform.system()
+    bin_name = "rife-ncnn-vulkan.exe" if system == "Windows" else "rife-ncnn-vulkan"
+    return Path(BASE_PATH) / "tools" / "rife" / bin_name
+
+
 def get_models_dir():
     return Path(BASE_PATH) / "tools" / "realesrgan" / "models"
 
@@ -94,6 +123,7 @@ TMP_FRAMES_DIR = TEMP_DIR / "tmp_frames"
 OUT_FRAMES_DIR = TEMP_DIR / "out_frames"
 BATCH_INPUT_DIR = TEMP_DIR / "batch_input"
 BATCH_OUTPUT_DIR = TEMP_DIR / "batch_output"
+RIFE_FRAMES_DIR = TEMP_DIR / "rife_frames"
 RESULTS_DIR = TEMP_DIR / "results"
 CONFIG_FILE = Path(BASE_PATH) / "configs" / "video_upscale_config.json"
 
@@ -107,7 +137,9 @@ class UpscaleWorker(QThread):
 
     def __init__(self, video_paths: List[str], model: str, scale: int, batch_size: int = 10, 
                  encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None, remove_audio: bool = False,
-                 tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False, bitrate_mbps: int = 20):
+                 tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False, bitrate_mbps: int = 20,
+                 enable_interpolation: bool = False, target_fps: int = 60, gpu_id: int = -2,
+                 target_crop_size: tuple = None):
         super().__init__()
         self.video_paths = video_paths
         self.model = model
@@ -120,11 +152,17 @@ class UpscaleWorker(QThread):
         self.tint_adjustment = tint_adjustment
         self.resume_mode = resume_mode
         self.bitrate_mbps = bitrate_mbps
+        self.enable_interpolation = enable_interpolation
+        self.target_fps = target_fps
+        self.gpu_id = gpu_id
+        self.target_crop_size = target_crop_size
         self._stop_requested = False
         
         self.ffmpeg_bin = get_ffmpeg_path()
         self.ffprobe_bin = get_ffprobe_path()
         self.realesrgan_bin = get_realesrgan_path()
+        self.waifu2x_bin = get_waifu2x_path()
+        self.rife_bin = get_rife_path()
         self.models_dir = get_models_dir()
         
         from dialogs.tools.upscaler_model_manager_dialog import UpscalerModelManager
@@ -135,6 +173,42 @@ class UpscaleWorker(QThread):
 
     def stop(self):
         self._stop_requested = True
+
+    def _preflight_waifu2x(self) -> bool:
+        if not self.waifu2x_bin.exists():
+            self.log_signal.emit(f"❌ Waifu2x executable missing: {self.waifu2x_bin}")
+            print(f"System Error: Waifu2x executable missing at {self.waifu2x_bin}")
+            return False
+        if platform.system() != 'Windows' and not os.access(self.waifu2x_bin, os.X_OK):
+            try:
+                st = os.stat(self.waifu2x_bin).st_mode
+                os.chmod(self.waifu2x_bin, st | 0o755)
+            except Exception as e:
+                print(f"System Error: Cannot set executable bit on {self.waifu2x_bin}: {e}")
+                self.log_signal.emit(f"❌ OS error: permission issue on {self.waifu2x_bin}")
+                return False
+            if not os.access(self.waifu2x_bin, os.X_OK):
+                self.log_signal.emit(f"❌ OS error: permission denied: {self.waifu2x_bin}")
+                return False
+        return True
+
+    def _preflight_rife(self) -> bool:
+        if not self.rife_bin.exists():
+            self.log_signal.emit(f"❌ RIFE executable missing: {self.rife_bin}")
+            print(f"System Error: RIFE executable missing at {self.rife_bin}")
+            return False
+        if platform.system() != 'Windows' and not os.access(self.rife_bin, os.X_OK):
+            try:
+                st = os.stat(self.rife_bin).st_mode
+                os.chmod(self.rife_bin, st | 0o755)
+            except Exception as e:
+                print(f"System Error: Cannot set executable bit on {self.rife_bin}: {e}")
+                self.log_signal.emit(f"❌ OS error: permission issue on {self.rife_bin}")
+                return False
+            if not os.access(self.rife_bin, os.X_OK):
+                self.log_signal.emit(f"❌ OS error: permission denied: {self.rife_bin}")
+                return False
+        return True
 
     def _preflight_realesrgan(self) -> bool:
         if not self.realesrgan_bin.exists():
@@ -500,6 +574,7 @@ class UpscaleWorker(QThread):
             OUT_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
             BATCH_INPUT_DIR.mkdir(parents=True, exist_ok=True)
             BATCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            RIFE_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
             RESULTS_DIR.mkdir(parents=True, exist_ok=True)
             
             self.progress_signal.emit(0)
@@ -530,6 +605,8 @@ class UpscaleWorker(QThread):
             for f in TMP_FRAMES_DIR.glob("*"):
                 f.unlink()
             for f in OUT_FRAMES_DIR.glob("*"):
+                f.unlink()
+            for f in RIFE_FRAMES_DIR.glob("*"):
                 f.unlink()
             
             if self._stop_requested:
@@ -636,7 +713,107 @@ class UpscaleWorker(QThread):
             
             if self._stop_requested:
                 return False
-            
+
+            if self.enable_interpolation:
+                if not self._preflight_rife():
+                    self.log_signal.emit("❌ RIFE preflight failed; skipping interpolation")
+                    print("RIFE preflight failed; interpolation skipped")
+                else:
+                    self.log_signal.emit(f"")
+                    self.log_signal.emit(f"🎥 PHASE 1.5/3: INTERPOLATING FRAMES")
+                    self.log_signal.emit(f"   Target FPS: {self.target_fps} (source: {fps:.2f})")
+
+                    RIFE_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+                    for f in RIFE_FRAMES_DIR.glob("*"):
+                        f.unlink()
+
+                    rife_cmd = [
+                        str(self.rife_bin),
+                        "-i", str(TMP_FRAMES_DIR),
+                        "-o", str(RIFE_FRAMES_DIR),
+                    ]
+                    if self.gpu_id != -2:
+                        rife_cmd += ["-g", str(self.gpu_id)]
+
+                    startupinfo = None
+                    creationflags = 0
+                    if platform.system() == "Windows":
+                        try:
+                            si = subprocess.STARTUPINFO()
+                            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            si.wShowWindow = subprocess.SW_HIDE
+                            startupinfo = si
+                            creationflags = subprocess.CREATE_NO_WINDOW
+                        except Exception:
+                            startupinfo = None
+
+                    input_frame_count = len(list(TMP_FRAMES_DIR.glob("*.png")))
+                    if fps > 0:
+                        expected_output_frames = max(1, round(input_frame_count * self.target_fps / fps))
+                    else:
+                        expected_output_frames = input_frame_count * 2
+                    self.log_signal.emit(f"   ▶️ Interpolating frames... ({input_frame_count} input frames → ~{expected_output_frames} output frames)")
+                    self.progress_signal.emit(0)
+
+                    rife_proc = subprocess.Popen(
+                        rife_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        startupinfo=startupinfo,
+                        creationflags=creationflags,
+                        cwd=str(self.rife_bin.parent)
+                    )
+
+                    import threading
+                    rife_stderr_lines = []
+
+                    def _read_rife_stderr():
+                        for line in rife_proc.stderr:
+                            stripped = line.rstrip()
+                            if stripped:
+                                rife_stderr_lines.append(stripped)
+
+                    stderr_thread = threading.Thread(target=_read_rife_stderr, daemon=True)
+                    stderr_thread.start()
+
+                    last_logged_done = -1
+                    while rife_proc.poll() is None:
+                        if self._stop_requested:
+                            rife_proc.terminate()
+                            self.log_signal.emit("⚠️ Frame interpolation stopped by user")
+                            break
+                        done = len(list(RIFE_FRAMES_DIR.glob("*.png")))
+                        if expected_output_frames > 0:
+                            pct = min(99, int(done / expected_output_frames * 100))
+                            self.progress_signal.emit(pct)
+                        if done != last_logged_done and done > 0:
+                            self.log_signal.emit(f"   🎞️ Interpolating: {done}/{expected_output_frames} frames")
+                            last_logged_done = done
+                        import time as _time
+                        _time.sleep(0.5)
+
+                    stderr_thread.join(timeout=5)
+
+                    if rife_proc.returncode != 0 and not self._stop_requested:
+                        self.log_signal.emit(f"❌ Frame interpolation failed (rc={rife_proc.returncode}); skipped")
+                        for line in rife_stderr_lines[-20:]:
+                            print(f"RIFE stderr: {line}")
+                    else:
+                        rife_outputs = sorted(RIFE_FRAMES_DIR.glob("*.png"))
+                        if rife_outputs:
+                            for f in TMP_FRAMES_DIR.glob("*"):
+                                f.unlink()
+                            for src in rife_outputs:
+                                shutil.copy2(src, TMP_FRAMES_DIR / src.name)
+                            frame_count = len(rife_outputs)
+                            fps = self.target_fps
+                            self.progress_signal.emit(100)
+                            self.log_signal.emit(f"✅ INTERPOLATION COMPLETE: {frame_count} frames at {fps} FPS")
+                        else:
+                            self.log_signal.emit("⚠️ Interpolation produced no output; original frames retained")
+                            print("RIFE produced no output frames in RIFE_FRAMES_DIR")
+
             self.progress_signal.emit(0)
             self.stats_signal.emit(0, frame_count, 0.0, frame_count, 0.0)
             
@@ -706,6 +883,114 @@ class UpscaleWorker(QThread):
                 elapsed = time.time() - start_time
                 self.progress_signal.emit(100)
                 self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_process)} frames (skipped {skipped_count}) in {elapsed:.2f}s")
+            
+            elif self.model_type == 'waifu2x':
+                if not self._preflight_waifu2x():
+                    return False
+                
+                waifu2x_models_subdir = self.model_info.get('models_dir', '') if self.model_info else ''
+                noise = self.model_info.get('noise_level', 3) if self.model_info else 3
+                
+                frames_to_upscale = [f for f in frame_files if f.name not in existing_upscaled]
+                skipped_frames = len(frame_files) - len(frames_to_upscale)
+                if skipped_frames > 0:
+                    self.log_signal.emit(f"   ⏭️ Skipping {skipped_frames} already upscaled frames")
+                
+                if not frames_to_upscale:
+                    self.log_signal.emit("   ✅ All frames already upscaled, skipping to merge phase")
+                    processed = frame_count
+                else:
+                    num_batches = (len(frames_to_upscale) + self.batch_size - 1) // self.batch_size
+                    processed = skipped_frames
+                    
+                    for batch_idx in range(num_batches):
+                        if self._stop_requested:
+                            return False
+                        
+                        start_idx = batch_idx * self.batch_size
+                        end_idx = min(start_idx + self.batch_size, len(frames_to_upscale))
+                        batch_frames = frames_to_upscale[start_idx:end_idx]
+                        batch_num = batch_idx + 1
+                        
+                        for f in BATCH_INPUT_DIR.glob("*"):
+                            f.unlink()
+                        for f in BATCH_OUTPUT_DIR.glob("*"):
+                            f.unlink()
+                        for frame_file in batch_frames:
+                            shutil.copy2(frame_file, BATCH_INPUT_DIR / frame_file.name)
+                        
+                        cmd = [
+                            str(self.waifu2x_bin),
+                            "-i", str(BATCH_INPUT_DIR),
+                            "-o", str(BATCH_OUTPUT_DIR),
+                            "-n", str(noise),
+                            "-s", str(self.scale),
+                            "-f", "png",
+                        ]
+                        if self.gpu_id != -2:
+                            cmd += ["-g", str(self.gpu_id)]
+                        if waifu2x_models_subdir:
+                            cmd += ["-m", waifu2x_models_subdir]
+                        
+                        self.log_signal.emit(f"   🔁 Running Waifu2x on batch {batch_num}/{num_batches} ({len(batch_frames)} frames)")
+                        
+                        startupinfo = None
+                        creationflags = 0
+                        if platform.system() == "Windows":
+                            try:
+                                si = subprocess.STARTUPINFO()
+                                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                                si.wShowWindow = subprocess.SW_HIDE
+                                startupinfo = si
+                                creationflags = subprocess.CREATE_NO_WINDOW
+                            except Exception:
+                                pass
+                        
+                        try:
+                            proc = subprocess.Popen(
+                                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, cwd=str(self.waifu2x_bin.parent),
+                                startupinfo=startupinfo, creationflags=creationflags
+                            )
+                        except (FileNotFoundError, OSError) as e:
+                            self.log_signal.emit(f"❌ Error launching Waifu2x: {e}")
+                            return False
+                        
+                        last_stdout = []
+                        for line in proc.stdout:
+                            if self._stop_requested:
+                                proc.terminate()
+                                return False
+                            ll = line.strip()
+                            if ll:
+                                last_stdout.append(ll)
+                        proc.wait()
+                        
+                        if proc.returncode != 0:
+                            self.log_signal.emit(f"❌ Waifu2x failed on batch {batch_num} (code={proc.returncode})")
+                            for ln in last_stdout[-10:]:
+                                self.log_signal.emit(f"   {ln}")
+                            return False
+                        
+                        for frame_file in batch_frames:
+                            out_file = BATCH_OUTPUT_DIR / frame_file.name
+                            if out_file.exists():
+                                shutil.copy2(out_file, OUT_FRAMES_DIR / frame_file.name)
+                            else:
+                                self.log_signal.emit(f"   ❌ Missing output for frame: {frame_file.name}")
+                                return False
+                        
+                        processed = skipped_frames + end_idx
+                        elapsed = time.time() - start_time
+                        remaining = max(0, total_frames - processed)
+                        eta = (elapsed / processed) * remaining if processed > 0 else 0.0
+                        progress_pct = int((processed / total_frames) * 100)
+                        self.progress_signal.emit(min(100, progress_pct))
+                        self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
+                    
+                    elapsed = time.time() - start_time
+                    self.progress_signal.emit(100)
+                    self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_upscale)} frames (Waifu2x) in {elapsed:.2f}s")
             
             else:
                 model_to_use = self.model
@@ -778,6 +1063,8 @@ class UpscaleWorker(QThread):
                             "-t", "0",
                             "-f", "png",
                         ]
+                        if self.gpu_id != -2:
+                            cmd += ["-g", str(self.gpu_id)]
                         
                         input_count = len(list(BATCH_INPUT_DIR.glob("*.png")))
                         self.log_signal.emit(f"   🔁 Running RealESRGAN on batch {batch_num}/{num_batches} ({batch_frame_count} frames)")
@@ -1012,6 +1299,12 @@ class UpscaleWorker(QThread):
                 if self.remove_audio:
                     self.log_signal.emit("   🔇 Audio will be removed from output")
 
+                if self.target_crop_size is not None:
+                    cw, ch = self.target_crop_size
+                    vf = f"scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch}"
+                    merge_cmd.extend(["-vf", vf])
+                    self.log_signal.emit(f"   ✂️ Scale-to-fill + crop: {cw}x{ch} (center)")
+
                 merge_cmd.extend(["-c:v", try_codec])
 
                 opt_list = enc_opts.get(try_codec, ["-preset", "medium", "-crf", "18"])
@@ -1153,6 +1446,307 @@ class UpscaleWorker(QThread):
             return False
 
 
+HW_CAP_MARKER = Path(BASE_PATH) / "temp" / ".hw_cap_tested"
+
+class HardwareCapTestWorker(QThread):
+    log_signal = Signal(str)
+    stage_signal = Signal(str)
+    finished_signal = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def run(self):
+        try:
+            test_dir = Path(BASE_PATH) / "temp" / ".hw_cap_test"
+            test_dir.mkdir(parents=True, exist_ok=True)
+
+            # Stage 1: Tool binaries
+            self.stage_signal.emit("Checking binaries...")
+            self.log_signal.emit("[ 1/7 ]  Tool Binaries")
+            realesrgan_bin = get_realesrgan_path()
+            waifu2x_bin = get_waifu2x_path()
+            ffmpeg_bin = get_ffmpeg_path()
+            ffprobe_bin = get_ffprobe_path()
+            rife_bin = get_rife_path()
+            realesrgan_exists = realesrgan_bin.exists()
+            waifu2x_exists = waifu2x_bin.exists()
+            ffmpeg_exists = ffmpeg_bin.exists()
+            ffprobe_exists = ffprobe_bin.exists()
+            rife_exists = rife_bin.exists()
+            self.log_signal.emit(f"   {'✅' if realesrgan_exists else '❌'} RealESRGAN : {realesrgan_bin.name}")
+            self.log_signal.emit(f"   {'✅' if waifu2x_exists else '⚠️'} Waifu2x    : {waifu2x_bin.name}")
+            self.log_signal.emit(f"   {'✅' if ffmpeg_exists else '❌'} FFmpeg     : {ffmpeg_bin.name}")
+            self.log_signal.emit(f"   {'✅' if ffprobe_exists else '❌'} FFprobe    : {ffprobe_bin.name}")
+            self.log_signal.emit(f"   {'✅' if rife_exists else '⚠️'} RIFE       : {rife_bin.name}")
+            binaries_ok = realesrgan_exists and ffmpeg_exists and ffprobe_exists
+
+            # Stage 2: GPU probe
+            self.stage_signal.emit("Detecting GPU...")
+            self.log_signal.emit("[ 2/7 ]  GPU Detection")
+            self.log_signal.emit(f"   Probe  : {realesrgan_bin.name} --help")
+            gpu_ok = self._detect_gpu()
+            self.log_signal.emit(f"   {'✅ GPU probe OK' if gpu_ok else '⚠️ No dedicated GPU found'}")
+
+            # Stage 3: Models
+            self.stage_signal.emit("Checking models...")
+            self.log_signal.emit("[ 3/7 ]  Model Files")
+            models_dir = get_models_dir()
+            model_files = list(models_dir.glob("*.param")) if models_dir.exists() else []
+            self.log_signal.emit(f"   Models dir : {models_dir}")
+            self.log_signal.emit(f"   Found      : {len(model_files)} model(s)")
+            models_ok = len(model_files) > 0
+            if models_ok:
+                for mf in model_files[:5]:
+                    self.log_signal.emit(f"   ✅ {mf.stem}")
+                if len(model_files) > 5:
+                    self.log_signal.emit(f"   ... and {len(model_files) - 5} more")
+            else:
+                self.log_signal.emit("   ❌ No models found in models directory")
+
+            # Stage 4: RealESRGAN upscale test
+            self.stage_signal.emit("Testing RealESRGAN inference...")
+            self.log_signal.emit("[ 4/7 ]  RealESRGAN Upscale Test")
+            realesrgan_ok = False
+            test_out_path = None
+            output_size = None
+            if realesrgan_exists and models_ok:
+                model_name = model_files[0].stem
+                self.log_signal.emit(f"   Model  : {model_name}")
+                self.log_signal.emit(f"   Input  : 64x64 px blank PNG")
+                self.log_signal.emit(f"   Scale  : 2x -> expected 128x128")
+                realesrgan_ok, test_out_path, output_size = self._test_realesrgan(test_dir, model_name)
+                if realesrgan_ok and output_size:
+                    self.log_signal.emit(f"   ✅ Output: {output_size[0]}x{output_size[1]} px")
+                    self.log_signal.emit(f"   ✅ Output is readable by PIL")
+                else:
+                    self.log_signal.emit(f"   ❌ RealESRGAN upscale failed or output invalid")
+            else:
+                self.log_signal.emit("   ⚠️ Skipped (binary or models missing)")
+
+            # Stage 5: FFmpeg encode test
+            self.stage_signal.emit("Testing FFmpeg encode...")
+            self.log_signal.emit("[ 5/7 ]  FFmpeg Encode Test")
+            encode_ok = False
+            encoded_video = None
+            if ffmpeg_exists and test_out_path and test_out_path.exists():
+                self.log_signal.emit(f"   Input  : upscaled frame ({output_size[0]}x{output_size[1]})")
+                self.log_signal.emit(f"   Codec  : libx264, 1 frame")
+                encode_ok, encoded_video = self._test_ffmpeg_encode(test_dir, test_out_path)
+                self.log_signal.emit(f"   {'✅ FFmpeg encode OK' if encode_ok else '❌ FFmpeg encode failed'}")
+            else:
+                self.log_signal.emit("   ⚠️ Skipped (FFmpeg missing or no upscaled frame)")
+
+            # Stage 6: FFprobe readability
+            self.stage_signal.emit("Verifying output video...")
+            self.log_signal.emit("[ 6/7 ]  Output Video Readability")
+            probe_ok = False
+            if ffprobe_exists and encoded_video and encoded_video.exists():
+                self.log_signal.emit(f"   Video  : {encoded_video.name}")
+                probe_ok = self._test_ffprobe_read(encoded_video)
+                self.log_signal.emit(f"   {'✅ FFprobe can read video' if probe_ok else '❌ FFprobe failed to read video'}")
+            else:
+                self.log_signal.emit("   ⚠️ Skipped (FFprobe missing or no encoded video)")
+
+            # Stage 7: RIFE binary
+            self.stage_signal.emit("Testing RIFE...")
+            self.log_signal.emit("[ 7/9 ]  RIFE Interpolation Binary")
+            self.log_signal.emit(f"   Binary : {rife_bin}")
+            if rife_exists:
+                self.log_signal.emit(f"   Input  : 2x 64x64 px test frames")
+                rife_ok = self._test_rife(test_dir)
+                if rife_ok:
+                    self.log_signal.emit(f"   ✅ RIFE interpolation test passed")
+                else:
+                    self.log_signal.emit(f"   ❌ RIFE interpolation test failed")
+            else:
+                self.log_signal.emit(f"   ⚠️ RIFE not installed, skipped")
+
+            # Stage 8: Progressive scale capability
+            self.stage_signal.emit("Testing progressive scale...")
+            self.log_signal.emit("[ 8/9 ]  Progressive Scale Capability")
+            targets = [("HD", 1280, 720), ("Full HD", 1920, 1080), ("2K", 2560, 1440), ("4K", 3840, 2160)]
+            if realesrgan_ok and output_size:
+                base_w, base_h = 640, 480
+                for label, tw, th in targets:
+                    needed_scale = max(tw / base_w, th / base_h)
+                    passes = needed_scale <= 8
+                    self.log_signal.emit(f"   {label} ({tw}x{th}): scale ~{needed_scale:.1f}x -> {'✅ OK' if passes else '⚠️ Requires tiling'}")
+            else:
+                self.log_signal.emit("   ⚠️ Skipped (upscale test did not pass)")
+
+            # Stage 9: Waifu2x inference test
+            self.stage_signal.emit("Testing Waifu2x...")
+            self.log_signal.emit("[ 9/9 ]  Waifu2x Upscale Test")
+            waifu2x_ok = False
+            if waifu2x_exists:
+                self.log_signal.emit(f"   Binary : {waifu2x_bin}")
+                self.log_signal.emit(f"   Input  : 64x64 px blank PNG")
+                self.log_signal.emit(f"   Scale  : 2x -> expected 128x128")
+                waifu2x_ok, waifu2x_size = self._test_waifu2x(test_dir)
+                if waifu2x_ok and waifu2x_size:
+                    self.log_signal.emit(f"   ✅ Output: {waifu2x_size[0]}x{waifu2x_size[1]} px")
+                    self.log_signal.emit(f"   ✅ Output is readable by PIL")
+                else:
+                    self.log_signal.emit(f"   ❌ Waifu2x upscale failed or output invalid")
+            else:
+                self.log_signal.emit("   ⚠️ Waifu2x not installed, skipped")
+
+            overall_ok = realesrgan_ok and encode_ok
+            self.log_signal.emit("")
+            if overall_ok:
+                self.log_signal.emit("✅ Hardware capability test passed")
+                HW_CAP_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                HW_CAP_MARKER.write_text("ok")
+            else:
+                self.log_signal.emit("❌ Hardware capability test FAILED, device may be unsupported")
+                HW_CAP_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                HW_CAP_MARKER.write_text("fail")
+
+            self.finished_signal.emit(overall_ok)
+        except Exception as e:
+            print(f"HardwareCapTestWorker error: {e}")
+            self.log_signal.emit(f"❌ Test error: {e}")
+            self.finished_signal.emit(False)
+
+    def _detect_gpu(self) -> bool:
+        try:
+            realesrgan_bin = get_realesrgan_path()
+            if not realesrgan_bin.exists():
+                return False
+            result = subprocess.run(
+                [str(realesrgan_bin), "--help"],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(realesrgan_bin.parent)
+            )
+            return result.returncode == 0 or "usage" in (result.stdout + result.stderr).lower()
+        except Exception as e:
+            print(f"_detect_gpu error: {e}")
+            return False
+
+    def _test_realesrgan(self, test_dir: Path, model_name: str):
+        try:
+            realesrgan_bin = get_realesrgan_path()
+            models_dir = get_models_dir()
+            test_in = test_dir / "test_in.png"
+            test_out = test_dir / "test_out.png"
+            if test_out.exists():
+                test_out.unlink()
+            img = np.zeros((64, 64, 3), dtype=np.uint8)
+            cv2.imwrite(str(test_in), img)
+            cmd = [
+                str(realesrgan_bin),
+                "-i", str(test_in),
+                "-o", str(test_out),
+                "-m", str(models_dir),
+                "-n", model_name,
+                "-s", "2",
+                "-f", "png",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                    cwd=str(realesrgan_bin.parent))
+            if result.returncode != 0 or not test_out.exists():
+                return False, None, None
+            pil_img = Image.open(str(test_out))
+            pil_img.verify()
+            pil_img = Image.open(str(test_out))
+            return True, test_out, pil_img.size
+        except Exception as e:
+            print(f"_test_realesrgan error: {e}")
+            return False, None, None
+
+    def _test_ffmpeg_encode(self, test_dir: Path, frame_path: Path):
+        try:
+            ffmpeg_bin = get_ffmpeg_path()
+            encoded_video = test_dir / "test_out.mp4"
+            if encoded_video.exists():
+                encoded_video.unlink()
+            cmd = [
+                str(ffmpeg_bin),
+                "-y",
+                "-loop", "1",
+                "-i", str(frame_path),
+                "-c:v", "libx264",
+                "-t", "0.1",
+                "-pix_fmt", "yuv420p",
+                str(encoded_video),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                                    cwd=str(ffmpeg_bin.parent))
+            return result.returncode == 0 and encoded_video.exists(), encoded_video
+        except Exception as e:
+            print(f"_test_ffmpeg_encode error: {e}")
+            return False, None
+
+    def _test_ffprobe_read(self, video_path: Path) -> bool:
+        try:
+            ffprobe_bin = get_ffprobe_path()
+            cmd = [
+                str(ffprobe_bin),
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_streams",
+                str(video_path),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
+                                    cwd=str(ffprobe_bin.parent))
+            return result.returncode == 0 and "codec_name" in result.stdout
+        except Exception as e:
+            print(f"_test_ffprobe_read error: {e}")
+            return False
+
+    def _test_waifu2x(self, test_dir: Path):
+        try:
+            waifu2x_bin = get_waifu2x_path()
+            test_in = test_dir / "test_in.png"
+            test_out_w = test_dir / "test_out_waifu2x.png"
+            if test_out_w.exists():
+                test_out_w.unlink()
+            img = np.zeros((64, 64, 3), dtype=np.uint8)
+            cv2.imwrite(str(test_in), img)
+            cmd = [
+                str(waifu2x_bin),
+                "-i", str(test_in),
+                "-o", str(test_out_w),
+                "-s", "2",
+                "-f", "png",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                    cwd=str(waifu2x_bin.parent))
+            if result.returncode != 0 or not test_out_w.exists():
+                return False, None
+            pil_img = Image.open(str(test_out_w))
+            pil_img.verify()
+            pil_img = Image.open(str(test_out_w))
+            return True, pil_img.size
+        except Exception as e:
+            print(f"_test_waifu2x error: {e}")
+            return False, None
+
+    def _test_rife(self, test_dir: Path) -> bool:
+        try:
+            rife_bin = get_rife_path()
+            rife_in = test_dir / "rife_in"
+            rife_out = test_dir / "rife_out"
+            rife_in.mkdir(parents=True, exist_ok=True)
+            rife_out.mkdir(parents=True, exist_ok=True)
+            img = np.zeros((64, 64, 3), dtype=np.uint8)
+            cv2.imwrite(str(rife_in / "00000000.png"), img)
+            cv2.imwrite(str(rife_in / "00000001.png"), img)
+            cmd = [
+                str(rife_bin),
+                "-i", str(rife_in),
+                "-o", str(rife_out),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                    cwd=str(rife_bin.parent))
+            output_frames = list(rife_out.glob("*.png"))
+            return result.returncode == 0 and len(output_frames) > 0
+        except Exception as e:
+            print(f"_test_rife error: {e}")
+            return False
+
+
 class VideoUpscalerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1162,6 +1756,15 @@ class VideoUpscalerDialog(QDialog):
         
         self.db = ImageTeaDB()
         self.worker: Optional[UpscaleWorker] = None
+        self.hw_worker: Optional[HardwareCapTestWorker] = None
+        self.hw_overlay: Optional[QWidget] = None
+        self._hw_continue_btn = None
+        self._hw_checklist_items = []
+        self._hw_current_stage_idx = -1
+        self._hw_progress_bar = None
+        self._hw_log_view = None
+        self._hw_stage_label = None
+        self._hw_subtitle_label = None
         self.video_files: List[str] = []
         self.output_dir: Optional[str] = None
         self._last_dir = os.path.expanduser("~")
@@ -1177,7 +1780,7 @@ class VideoUpscalerDialog(QDialog):
         self._failed_count = 0
         self._failed_files: List[str] = []
         
-        self.tint_adjustment = (2, -5, 0)
+        self.tint_adjustment = (0, 0, 0)
         
         self.model_manager = UpscalerModelManager()
         
@@ -1196,6 +1799,9 @@ class VideoUpscalerDialog(QDialog):
         
         self.resize(900, 600)
         self._load_config()
+
+        if not HW_CAP_MARKER.exists():
+            QTimer.singleShot(500, self._run_hw_cap_test)
     
     def _load_config(self):
         try:
@@ -1236,6 +1842,19 @@ class VideoUpscalerDialog(QDialog):
                 
                 if 'bitrate' in cfg:
                     self.bitrate_spin.setValue(cfg['bitrate'])
+
+                if 'enable_interpolation' in cfg:
+                    self.interpolation_checkbox.setChecked(bool(cfg['enable_interpolation']))
+                if 'fps_preset' in cfg:
+                    idx = self.fps_combo.findText(cfg['fps_preset'])
+                    if idx >= 0:
+                        self.fps_combo.setCurrentIndex(idx)
+                if 'fps_custom' in cfg:
+                    self.fps_custom_spin.setValue(int(cfg['fps_custom']))
+                if 'backend' in cfg:
+                    idx = self.backend_combo.findText(cfg['backend'])
+                    if idx >= 0:
+                        self.backend_combo.setCurrentIndex(idx)
                 
                 if 'output_dir' in cfg and cfg['output_dir']:
                     self.output_edit.setText(cfg['output_dir'])
@@ -1270,10 +1889,10 @@ class VideoUpscalerDialog(QDialog):
                     remove_audio = config.get('remove_audio', False)
                     self.remove_audio_checkbox.setChecked(bool(remove_audio))
                     
-                    tint_r = config.get('tint_r', 2)
+                    tint_r = config.get('tint_r', 0)
                     self.tint_r_spin.setValue(tint_r)
                     
-                    tint_g = config.get('tint_g', -5)
+                    tint_g = config.get('tint_g', 0)
                     self.tint_g_spin.setValue(tint_g)
                     
                     tint_b = config.get('tint_b', 0)
@@ -1304,6 +1923,10 @@ class VideoUpscalerDialog(QDialog):
             cfg['tint_g'] = self.tint_g_spin.value()
             cfg['tint_b'] = self.tint_b_spin.value()
             cfg['bitrate'] = self.bitrate_spin.value()
+            cfg['enable_interpolation'] = self.interpolation_checkbox.isChecked()
+            cfg['fps_preset'] = self.fps_combo.currentText()
+            cfg['fps_custom'] = self.fps_custom_spin.value()
+            cfg['backend'] = self.backend_combo.currentText()
 
             if self.output_dir:
                 cfg['output_dir'] = self.output_dir.replace('\\', '/')
@@ -1345,73 +1968,89 @@ class VideoUpscalerDialog(QDialog):
         self.btn_clear.setToolTip("Clear the video list")
         self.btn_clear.clicked.connect(self.clear_videos)
         toolbar_layout.addWidget(self.btn_clear)
+
+        self.btn_test_caps = QPushButton(qta.icon('fa6s.microchip'), " Test Capabilities")
+        self.btn_test_caps.setToolTip("Re-run hardware capability test")
+        self.btn_test_caps.clicked.connect(self._rerun_hw_cap_test)
+        toolbar_layout.addWidget(self.btn_test_caps)
         
         toolbar_layout.addStretch()
-        
         main_layout.addLayout(toolbar_layout)
-        
-        settings_layout_row1 = QHBoxLayout()
-        settings_layout_row1.setSpacing(8)
-        
-        settings_layout_row1.addWidget(QLabel("Model:"))
+
+        settings_tabs = QTabWidget()
+
+        tab_model = QWidget()
+        tab_model_layout = QVBoxLayout(tab_model)
+        tab_model_layout.setSpacing(4)
+        tab_model_layout.setContentsMargins(8, 6, 8, 6)
+
+        model_row = QHBoxLayout()
+        model_row.setSpacing(4)
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(180)
+        self.model_combo.setMinimumWidth(150)
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         self.model_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout_row1.addWidget(self.model_combo)
-        
+        model_row.addWidget(self.model_combo, 1)
         self.btn_model_manager = QPushButton(qta.icon('fa6s.gear'), "")
         self.btn_model_manager.setToolTip("Open Model Manager")
         self.btn_model_manager.clicked.connect(self._open_model_manager)
-        settings_layout_row1.addWidget(self.btn_model_manager)
-        
-        settings_layout_row1.addWidget(QLabel("Scale:"))
+        model_row.addWidget(self.btn_model_manager)
+        tab_model_layout.addLayout(model_row)
+
+        scale_row = QHBoxLayout()
+        scale_row.setSpacing(4)
+        scale_row.addWidget(QLabel("Scale:"))
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(["1", "2", "3", "4", "5", "6", "7", "8"])
         self.scale_combo.setCurrentText("2")
         self.scale_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout_row1.addWidget(self.scale_combo)
-        
-        settings_layout_row1.addWidget(QLabel("Batch:"))
+        scale_row.addWidget(self.scale_combo)
+        scale_row.addWidget(QLabel("Batch:"))
         self.batch_combo = QComboBox()
         self.batch_combo.addItems(["5", "10", "15", "20", "25", "30", "35", "40", "45", "50"])
         self.batch_combo.setCurrentText("10")
         self.batch_combo.setToolTip("Frames per batch (higher = faster but more VRAM)")
         self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout_row1.addWidget(self.batch_combo)
-        
-        settings_layout_row1.addWidget(QLabel("Tint R:"))
+        scale_row.addWidget(self.batch_combo)
+        scale_row.addStretch()
+        tab_model_layout.addLayout(scale_row)
+
+        tint_row = QHBoxLayout()
+        tint_row.setSpacing(4)
+        tint_row.addWidget(QLabel("Tint R:"))
         self.tint_r_spin = QSpinBox()
         self.tint_r_spin.setRange(-50, 50)
         self.tint_r_spin.setValue(2)
         self.tint_r_spin.setToolTip("Red channel adjustment (-50 to +50)")
         self.tint_r_spin.valueChanged.connect(self._on_tint_changed)
-        settings_layout_row1.addWidget(self.tint_r_spin)
-        
-        settings_layout_row1.addWidget(QLabel("G:"))
+        tint_row.addWidget(self.tint_r_spin)
+        tint_row.addWidget(QLabel("G:"))
         self.tint_g_spin = QSpinBox()
         self.tint_g_spin.setRange(-50, 50)
         self.tint_g_spin.setValue(-5)
         self.tint_g_spin.setToolTip("Green channel adjustment (-50 to +50)")
         self.tint_g_spin.valueChanged.connect(self._on_tint_changed)
-        settings_layout_row1.addWidget(self.tint_g_spin)
-        
-        settings_layout_row1.addWidget(QLabel("B:"))
+        tint_row.addWidget(self.tint_g_spin)
+        tint_row.addWidget(QLabel("B:"))
         self.tint_b_spin = QSpinBox()
         self.tint_b_spin.setRange(-50, 50)
         self.tint_b_spin.setValue(0)
         self.tint_b_spin.setToolTip("Blue channel adjustment (-50 to +50)")
         self.tint_b_spin.valueChanged.connect(self._on_tint_changed)
-        settings_layout_row1.addWidget(self.tint_b_spin)
-        
-        settings_layout_row1.addStretch()
-        
-        main_layout.addLayout(settings_layout_row1)
-        
-        settings_layout_row2 = QHBoxLayout()
-        settings_layout_row2.setSpacing(8)
-        
-        settings_layout_row2.addWidget(QLabel("Encoder:"))
+        tint_row.addWidget(self.tint_b_spin)
+        tint_row.addStretch()
+        tab_model_layout.addLayout(tint_row)
+        tab_model_layout.addStretch()
+        settings_tabs.addTab(tab_model, "Model & Scale")
+
+        tab_enc = QWidget()
+        tab_enc_layout = QVBoxLayout(tab_enc)
+        tab_enc_layout.setSpacing(4)
+        tab_enc_layout.setContentsMargins(8, 6, 8, 6)
+
+        enc_row = QHBoxLayout()
+        enc_row.setSpacing(4)
+        enc_row.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems([
             "CPU (x264)",
@@ -1423,9 +2062,12 @@ class VideoUpscalerDialog(QDialog):
         self.encoder_combo.setCurrentText("GPU - NVIDIA (NVENC H.264)")
         self.encoder_combo.setToolTip("Video encoder for merging")
         self.encoder_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout_row2.addWidget(self.encoder_combo)
-        
-        settings_layout_row2.addWidget(QLabel("Decoder:"))
+        enc_row.addWidget(self.encoder_combo, 1)
+        tab_enc_layout.addLayout(enc_row)
+
+        dec_row = QHBoxLayout()
+        dec_row.setSpacing(4)
+        dec_row.addWidget(QLabel("Decoder:"))
         self.decoder_combo = QComboBox()
         self.decoder_combo.addItems([
             "Auto (Recommended)",
@@ -1437,29 +2079,110 @@ class VideoUpscalerDialog(QDialog):
         self.decoder_combo.setCurrentText("Auto (Recommended)")
         self.decoder_combo.setToolTip("Hardware acceleration for extraction")
         self.decoder_combo.currentTextChanged.connect(lambda: self._save_config())
-        settings_layout_row2.addWidget(self.decoder_combo)
-        
-        settings_layout_row2.addWidget(QLabel("Bitrate:"))
+        dec_row.addWidget(self.decoder_combo, 1)
+        dec_row.addWidget(QLabel("Bitrate:"))
         self.bitrate_spin = QSpinBox()
         self.bitrate_spin.setRange(1, 200)
         self.bitrate_spin.setValue(20)
         self.bitrate_spin.setSuffix(" Mbps")
         self.bitrate_spin.setToolTip("Output video bitrate in Mbps (1-200)")
         self.bitrate_spin.valueChanged.connect(lambda: self._save_config())
-        settings_layout_row2.addWidget(self.bitrate_spin)
-        
+        dec_row.addWidget(self.bitrate_spin)
+        tab_enc_layout.addLayout(dec_row)
+
+        checks_row = QHBoxLayout()
+        checks_row.setSpacing(8)
         self.remove_audio_checkbox = QCheckBox("Remove Audio")
         self.remove_audio_checkbox.setToolTip("Remove audio track from output video")
         self.remove_audio_checkbox.stateChanged.connect(lambda: self._save_config())
-        settings_layout_row2.addWidget(self.remove_audio_checkbox)
-        
+        checks_row.addWidget(self.remove_audio_checkbox)
         self.retry_failed_checkbox = QCheckBox("Retry Failed Only")
         self.retry_failed_checkbox.setToolTip("Only process files that failed in previous run")
-        settings_layout_row2.addWidget(self.retry_failed_checkbox)
-        
-        settings_layout_row2.addStretch()
-        
-        main_layout.addLayout(settings_layout_row2)
+        checks_row.addWidget(self.retry_failed_checkbox)
+        checks_row.addStretch()
+        tab_enc_layout.addLayout(checks_row)
+        tab_enc_layout.addStretch()
+        settings_tabs.addTab(tab_enc, "Encoding")
+
+        tab_output = QWidget()
+        tab_output_layout = QVBoxLayout(tab_output)
+        tab_output_layout.setSpacing(4)
+        tab_output_layout.setContentsMargins(8, 6, 8, 6)
+
+        res_row = QHBoxLayout()
+        res_row.setSpacing(4)
+        res_row.addWidget(QLabel("Resolution:"))
+        self.resolution_preset_combo = QComboBox()
+        self.resolution_preset_combo.addItems([
+            "Original (use Scale factor)",
+            "HD (1280×720)",
+            "FullHD (1920×1080)",
+            "2K (2560×1440)",
+            "4K (3840×2160)",
+        ])
+        self.resolution_preset_combo.setToolTip(
+            "Auto-calculate scale to reach the target resolution.\n"
+            "Overrides the Scale setting when a preset is selected."
+        )
+        self.resolution_preset_combo.currentTextChanged.connect(lambda: self._save_config())
+        res_row.addWidget(self.resolution_preset_combo, 1)
+        tab_output_layout.addLayout(res_row)
+
+        backend_row = QHBoxLayout()
+        backend_row.setSpacing(4)
+        backend_row.addWidget(QLabel("Backend:"))
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItems(["Auto (GPU)", "GPU (Force)", "CPU (Force)"])
+        self.backend_combo.setToolTip(
+            "Auto (GPU): Let the binary choose automatically.\n"
+            "GPU (Force): Pass -g 0 to ncnn binaries.\n"
+            "CPU (Force): Pass -g -1 to ncnn binaries (slow but compatible)."
+        )
+        self.backend_combo.currentTextChanged.connect(lambda: self._save_config())
+        backend_row.addWidget(self.backend_combo, 1)
+        tab_output_layout.addLayout(backend_row)
+        tab_output_layout.addStretch()
+        settings_tabs.addTab(tab_output, "Output")
+
+        tab_rife = QWidget()
+        tab_rife_layout = QVBoxLayout(tab_rife)
+        tab_rife_layout.setSpacing(4)
+        tab_rife_layout.setContentsMargins(8, 6, 8, 6)
+
+        rife_enable_row = QHBoxLayout()
+        rife_enable_row.setSpacing(4)
+        self.interpolation_checkbox = QCheckBox("Enable RIFE Interpolation")
+        self.interpolation_checkbox.setToolTip("Use RIFE to increase frame rate before upscaling")
+        self.interpolation_checkbox.stateChanged.connect(self._on_interpolation_toggled)
+        rife_enable_row.addWidget(self.interpolation_checkbox)
+        rife_enable_row.addStretch()
+        tab_rife_layout.addLayout(rife_enable_row)
+
+        fps_row = QHBoxLayout()
+        fps_row.setSpacing(4)
+        fps_row.addWidget(QLabel("Target FPS:"))
+        self.fps_combo = QComboBox()
+        self.fps_combo.addItems(["24", "30", "60", "120", "Custom"])
+        self.fps_combo.setCurrentText("60")
+        self.fps_combo.setEnabled(False)
+        self.fps_combo.setToolTip("Target frame rate after interpolation")
+        self.fps_combo.currentTextChanged.connect(self._on_fps_combo_changed)
+        self.fps_combo.currentTextChanged.connect(lambda: self._save_config())
+        fps_row.addWidget(self.fps_combo)
+        self.fps_custom_spin = QSpinBox()
+        self.fps_custom_spin.setRange(1, 240)
+        self.fps_custom_spin.setValue(60)
+        self.fps_custom_spin.setSuffix(" fps")
+        self.fps_custom_spin.setEnabled(False)
+        self.fps_custom_spin.setToolTip("Custom target FPS (1-240)")
+        self.fps_custom_spin.valueChanged.connect(lambda: self._save_config())
+        fps_row.addWidget(self.fps_custom_spin)
+        fps_row.addStretch()
+        tab_rife_layout.addLayout(fps_row)
+        tab_rife_layout.addStretch()
+        settings_tabs.addTab(tab_rife, "Frame Interpolation (RIFE)")
+
+        main_layout.addWidget(settings_tabs)
         
         splitter = QSplitter(Qt.Horizontal)
         
@@ -1623,7 +2346,6 @@ class VideoUpscalerDialog(QDialog):
             ncnn_count = len([m for m in models if m['type'] == 'ncnn'])
             pth_count = len([m for m in models if m['type'] == 'pth'])
             onnx_count = len([m for m in models if m['type'] == 'onnx'])
-            self.log_viewer.append(f"✅ Found {len(models)} model(s) (NCNN: {ncnn_count}, PTH: {pth_count}, ONNX: {onnx_count})")
         else:
             defaults = ["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"]
             self.model_combo.addItems(defaults)
@@ -1659,10 +2381,7 @@ class VideoUpscalerDialog(QDialog):
                 print(f"WARNING - {msg}")
             self.log_viewer.append("")
         else:
-            self.log_viewer.append("✅ All binaries found")
-            self.log_viewer.append(f"   FFmpeg: {ffmpeg}")
-            self.log_viewer.append(f"   RealESRGAN: {realesrgan}")
-            self.log_viewer.append("")
+            pass
 
     def _preflight_realesrgan(self):
         # Deterministic permission checks before launching RealESRGAN
@@ -1692,7 +2411,6 @@ class VideoUpscalerDialog(QDialog):
             s = m.group(1)
             self.scale_combo.setCurrentText(s)
             self.scale_combo.setEnabled(False)
-            self.log_viewer.append(f"🔒 Scale auto-set to {s}x from model {model_name}")
         else:
             self.scale_combo.setEnabled(True)
     
@@ -1891,7 +2609,267 @@ class VideoUpscalerDialog(QDialog):
             files_to_process = self.video_files[:]
         
         self._run_process_with_files(files_to_process)
-    
+
+    def _detect_video_height(self, video_path: str):
+        try:
+            ffprobe = get_ffprobe_path()
+            if not ffprobe.exists():
+                return None
+            cmd = [
+                str(ffprobe), "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=height",
+                "-of", "csv=p=0",
+                video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip())
+        except Exception as e:
+            print(f"_detect_video_height error: {e}")
+        return None
+
+    def _detect_video_dimensions(self, video_path: str):
+        try:
+            ffprobe = get_ffprobe_path()
+            if not ffprobe.exists():
+                return None, None
+            cmd = [
+                str(ffprobe), "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0",
+                video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split(',')
+                if len(parts) >= 2:
+                    return int(parts[0]), int(parts[1])
+        except Exception as e:
+            print(f"_detect_video_dimensions error: {e}")
+        return None, None
+
+    def _on_interpolation_toggled(self, state):
+        enabled = bool(state)
+        self.fps_combo.setEnabled(enabled)
+        self.fps_custom_spin.setEnabled(enabled and self.fps_combo.currentText() == "Custom")
+        self._save_config()
+
+    def _on_fps_combo_changed(self, text):
+        self.fps_custom_spin.setEnabled(self.interpolation_checkbox.isChecked() and text == "Custom")
+
+    def _run_hw_cap_test(self):
+        self._show_hw_overlay()
+        self.hw_worker = HardwareCapTestWorker(self)
+        self.hw_worker.log_signal.connect(self._hw_overlay_log)
+        self.hw_worker.stage_signal.connect(self._hw_overlay_stage)
+        self.hw_worker.finished_signal.connect(self._on_hw_test_finished)
+        self.hw_worker.start()
+
+    def _rerun_hw_cap_test(self):
+        if HW_CAP_MARKER.exists():
+            HW_CAP_MARKER.unlink()
+        self._run_hw_cap_test()
+
+    def _show_hw_overlay(self):
+        win_bg = self.palette().color(QPalette.ColorRole.Window).name()
+        bg_light = theme.get_color('background_light')
+        text_light = theme.get_color('text_light')
+        foreground = theme.get_color('foreground')
+        primary = theme.get_color('primary')
+
+        self._hw_checklist_items = []
+        self._hw_current_stage_idx = -1
+
+        self.hw_overlay = QWidget(self)
+        self.hw_overlay.setObjectName("hw_overlay")
+        self.hw_overlay.setStyleSheet(f"#hw_overlay {{ background: {win_bg}; }}")
+
+        outer_layout = QVBoxLayout(self.hw_overlay)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        outer_layout.addStretch()
+
+        h_wrap = QHBoxLayout()
+        h_wrap.setContentsMargins(0, 0, 0, 0)
+        h_wrap.addStretch()
+
+        card = QWidget()
+        card.setObjectName("hw_card")
+        card.setFixedWidth(500)
+        card.setStyleSheet(
+            f"#hw_card {{ background: {win_bg}; border-radius: 0px; border: none; }}"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(22, 20, 22, 20)
+
+        title_row = QHBoxLayout()
+        title_row.setAlignment(Qt.AlignCenter)
+        title_row.setSpacing(8)
+        title_icon_lbl = QLabel()
+        title_icon_lbl.setStyleSheet("background: transparent;")
+        title_icon_lbl.setPixmap(qta.icon('fa6s.microchip', color=primary).pixmap(16, 16))
+        title_text = QLabel("Hardware Capability Test")
+        title_text.setStyleSheet("font-size: 13px; font-weight: bold; background: transparent;")
+        title_row.addWidget(title_icon_lbl)
+        title_row.addWidget(title_text)
+        card_layout.addLayout(title_row)
+
+        subtitle = QLabel("Testing hardware on first launch, please wait...")
+        subtitle.setStyleSheet("font-size: 10px; background: transparent;")
+        subtitle.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(subtitle)
+        self._hw_subtitle_label = subtitle
+
+        self._hw_progress_bar = QProgressBar()
+        self._hw_progress_bar.setRange(0, 100)
+        self._hw_progress_bar.setValue(0)
+        self._hw_progress_bar.setFixedHeight(4)
+        self._hw_progress_bar.setTextVisible(False)
+        card_layout.addWidget(self._hw_progress_bar)
+
+        checklist_frame = QWidget()
+        checklist_frame.setObjectName("hw_checklist")
+        checklist_frame.setStyleSheet(f"#hw_checklist {{ background: {win_bg}; border-radius: 6px; }}")
+        checklist_layout = QVBoxLayout(checklist_frame)
+        checklist_layout.setSpacing(5)
+        checklist_layout.setContentsMargins(12, 8, 12, 8)
+
+        for stage_name in ["Tool Binaries", "GPU Detection", "Model Files", "RealESRGAN Upscale Test", "FFmpeg Encode Test", "Output Video Readability", "RIFE Binary", "Progressive Scale Capability", "Waifu2x Upscale Test"]:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            icon_lbl = QLabel()
+            icon_lbl.setFixedSize(16, 16)
+            icon_lbl.setStyleSheet("background: transparent;")
+            icon_lbl.setPixmap(qta.icon('fa6s.clock', color=theme.get_color('text_dark')).pixmap(13, 13))
+            text_lbl = QLabel(stage_name)
+            text_lbl.setStyleSheet("font-size: 11px; background: transparent;")
+            status_lbl = QLabel("Pending")
+            status_lbl.setStyleSheet("font-size: 10px; background: transparent;")
+            row.addWidget(icon_lbl)
+            row.addWidget(text_lbl, 1)
+            row.addWidget(status_lbl)
+            checklist_layout.addLayout(row)
+            self._hw_checklist_items.append((icon_lbl, text_lbl, status_lbl))
+
+        card_layout.addWidget(checklist_frame)
+
+        self._hw_log_view = QTextEdit()
+        self._hw_log_view.setReadOnly(True)
+        self._hw_log_view.setStyleSheet(
+            f"QTextEdit {{ font-family: Consolas, 'Courier New', monospace; font-size: 10px; "
+            f"border-radius: 4px; }}"
+        )
+        self._hw_log_view.setFixedHeight(140)
+        card_layout.addWidget(self._hw_log_view)
+
+        self._hw_stage_label = QLabel("")
+        self._hw_stage_label.setStyleSheet(f"color: {primary}; font-size: 11px; font-weight: bold; background: transparent;")
+        self._hw_stage_label.setAlignment(Qt.AlignCenter)
+        self._hw_stage_label.setVisible(False)
+        card_layout.addWidget(self._hw_stage_label)
+
+        self._hw_continue_btn = QPushButton(qta.icon('fa6s.circle-arrow-right', color='white'), " Continue")
+        self._hw_continue_btn.setFixedHeight(32)
+        self._hw_continue_btn.setMinimumWidth(120)
+        self._hw_continue_btn.setStyleSheet(
+            f"QPushButton {{ background: {primary}; color: white; border-radius: 5px; font-weight: bold; padding: 0 16px; }}"
+            f"QPushButton:hover {{ background: {theme.get_color('primary_hover')}; }}"
+        )
+        self._hw_continue_btn.setVisible(False)
+        card_layout.addWidget(self._hw_continue_btn, alignment=Qt.AlignCenter)
+
+        h_wrap.addWidget(card)
+        h_wrap.addStretch()
+        outer_layout.addLayout(h_wrap)
+        outer_layout.addStretch()
+
+        self.hw_overlay.resize(self.size())
+        self.hw_overlay.move(0, 0)
+        self.hw_overlay.show()
+        self.hw_overlay.raise_()
+
+    def _hw_overlay_log(self, msg: str):
+        if self._hw_log_view:
+            self._hw_log_view.append(msg)
+        if msg.startswith("   "):
+            idx = self._hw_current_stage_idx
+            if 0 <= idx < len(self._hw_checklist_items):
+                icon_lbl, _, status_lbl = self._hw_checklist_items[idx]
+                stripped = msg.strip()
+                if '\u2705' in stripped:
+                    icon_lbl.setPixmap(qta.icon('fa6s.circle-check', color=theme.get_color('success')).pixmap(13, 13))
+                    status_lbl.setText("OK")
+                    status_lbl.setStyleSheet(f"color: {theme.get_color('success')}; font-size: 10px; background: transparent;")
+                elif '\u274c' in stripped:
+                    icon_lbl.setPixmap(qta.icon('fa6s.circle-xmark', color=theme.get_color('error')).pixmap(13, 13))
+                    status_lbl.setText("FAILED")
+                    status_lbl.setStyleSheet(f"color: {theme.get_color('error')}; font-size: 10px; background: transparent;")
+                elif '\u26a0' in stripped:
+                    icon_lbl.setPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(13, 13))
+                    status_lbl.setText("N/A")
+                    status_lbl.setStyleSheet(f"color: {theme.get_color('warning')}; font-size: 10px; background: transparent;")
+
+    def _hw_overlay_stage(self, stage: str):
+        self._hw_current_stage_idx += 1
+        idx = self._hw_current_stage_idx
+        total = len(self._hw_checklist_items)
+        primary = theme.get_color('primary')
+        if self._hw_progress_bar and total > 0:
+            self._hw_progress_bar.setValue(int((idx / total) * 90))
+        if 0 <= idx < total:
+            icon_lbl, _, status_lbl = self._hw_checklist_items[idx]
+            icon_lbl.setPixmap(qta.icon('fa6s.arrows-rotate', color=primary).pixmap(13, 13))
+            status_lbl.setText("Running...")
+            status_lbl.setStyleSheet(f"color: {primary}; font-size: 10px; background: transparent;")
+
+    def _hide_hw_overlay(self):
+        if self.hw_overlay:
+            self.hw_overlay.hide()
+            self.hw_overlay.deleteLater()
+            self.hw_overlay = None
+        self._hw_continue_btn = None
+        self._hw_checklist_items = []
+        self._hw_current_stage_idx = -1
+        self._hw_progress_bar = None
+        self._hw_log_view = None
+        self._hw_stage_label = None
+        self._hw_subtitle_label = None
+
+    def _on_hw_test_finished(self, passed: bool):
+        if self._hw_progress_bar:
+            self._hw_progress_bar.setValue(100)
+        if self._hw_subtitle_label:
+            self._hw_subtitle_label.setVisible(False)
+        if self._hw_stage_label:
+            if passed:
+                self._hw_stage_label.setText("All tests passed, hardware is fully supported")
+                self._hw_stage_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-size: 11px; font-weight: bold; background: transparent;")
+            else:
+                self._hw_stage_label.setText("Some tests failed. You can still continue, but some features may not work correctly.")
+                self._hw_stage_label.setWordWrap(True)
+                self._hw_stage_label.setStyleSheet(f"color: {theme.get_color('warning')}; font-size: 11px; font-weight: bold; background: transparent;")
+            self._hw_stage_label.setVisible(True)
+        if self._hw_continue_btn:
+            self._hw_continue_btn.setVisible(True)
+            self._hw_continue_btn.clicked.connect(lambda: self._on_hw_continue(passed))
+
+    def _on_hw_continue(self, passed: bool):
+        self._hide_hw_overlay()
+        if not passed:
+            current_title = self.windowTitle()
+            if "(UNSUPPORTED)" not in current_title:
+                self.setWindowTitle(f"{current_title} (UNSUPPORTED)")
+            self.run_button.setEnabled(False)
+            self.run_button.setToolTip("This device did not pass the hardware capability test")
+            self.log_viewer.append("Hardware capability test FAILED")
+            self.log_viewer.append("   Your device may not support GPU-accelerated upscaling.")
+            self.log_viewer.append("   The RUN button has been disabled.")
+        else:
+            self.log_viewer.append("Hardware capability test passed, upscaler ready to use")
+
     def _run_process_with_files(self, files_to_process: List[str]):
         model_name = self.model_combo.currentText()
         model_info = self.model_manager.get_model_by_name(model_name)
@@ -1957,9 +2935,44 @@ class VideoUpscalerDialog(QDialog):
         output_dir = self.output_edit.text().strip() if self.output_edit.text().strip() else None
         resume_mode = self.retry_failed_checkbox.isChecked()
         bitrate_mbps = self.bitrate_spin.value()
-        
+        enable_interpolation = self.interpolation_checkbox.isChecked()
+        if self.fps_combo.currentText() == "Custom":
+            target_fps = self.fps_custom_spin.value()
+        else:
+            target_fps = int(self.fps_combo.currentText())
+
+        res_preset = self.resolution_preset_combo.currentText()
+        preset_dims = {
+            "HD (1280×720)": (1280, 720),
+            "FullHD (1920×1080)": (1920, 1080),
+            "2K (2560×1440)": (2560, 1440),
+            "4K (3840×2160)": (3840, 2160),
+        }
+        target_crop_size = None
+        if res_preset in preset_dims:
+            target_w, target_h = preset_dims[res_preset]
+            src_w, src_h = self._detect_video_dimensions(files_to_process[0])
+            if src_w and src_h and src_w > 0 and src_h > 0:
+                is_vertical = src_h > src_w
+                if is_vertical:
+                    target_w, target_h = target_h, target_w
+                orientation = "vertical" if is_vertical else "horizontal"
+                self.log_viewer.append(f"📐 Preset '{res_preset}' [{orientation}] → post-process output to {target_w}x{target_h}")
+                target_crop_size = (target_w, target_h)
+
+        backend_text = self.backend_combo.currentText()
+        if backend_text == "GPU (Force)":
+            gpu_id = 0
+        elif backend_text == "CPU (Force)":
+            gpu_id = -1
+        else:
+            gpu_id = -2
+
         self.worker = UpscaleWorker(
-            files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio, self.tint_adjustment, resume_mode, bitrate_mbps
+            files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio,
+            self.tint_adjustment, resume_mode, bitrate_mbps,
+            enable_interpolation=enable_interpolation, target_fps=target_fps, gpu_id=gpu_id,
+            target_crop_size=target_crop_size
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
@@ -1976,6 +2989,7 @@ class VideoUpscalerDialog(QDialog):
         self.btn_load_folder.setEnabled(not running)
         self.btn_load_file.setEnabled(not running)
         self.btn_clear.setEnabled(not running)
+        self.btn_test_caps.setEnabled(not running)
         self.model_combo.setEnabled(not running)
         self.scale_combo.setEnabled(not running and not self._is_scale_locked())
         self.batch_combo.setEnabled(not running)
@@ -1984,6 +2998,15 @@ class VideoUpscalerDialog(QDialog):
         self.remove_audio_checkbox.setEnabled(not running)
         self.retry_failed_checkbox.setEnabled(not running)
         self.bitrate_spin.setEnabled(not running)
+        self.interpolation_checkbox.setEnabled(not running)
+        self.backend_combo.setEnabled(not running)
+        if not running:
+            interp_on = self.interpolation_checkbox.isChecked()
+            self.fps_combo.setEnabled(interp_on)
+            self.fps_custom_spin.setEnabled(interp_on and self.fps_combo.currentText() == "Custom")
+        else:
+            self.fps_combo.setEnabled(False)
+            self.fps_custom_spin.setEnabled(False)
         self.output_edit.setEnabled(not running)
         self.btn_browse_output.setEnabled(not running)
         self.btn_paste_output.setEnabled(not running)
@@ -2123,8 +3146,17 @@ class VideoUpscalerDialog(QDialog):
         self._set_running_state(False)
         self.run_button.setEnabled(True)
     
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.hw_overlay and self.hw_overlay.isVisible():
+            self.hw_overlay.resize(self.size())
+            self.hw_overlay.move(0, 0)
+
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(3000)
+        if self.hw_worker and self.hw_worker.isRunning():
+            self.hw_worker.terminate()
+            self.hw_worker.wait(2000)
         event.accept()
