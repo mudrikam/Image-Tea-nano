@@ -240,6 +240,7 @@ class UpscaleWorker(QThread):
                 
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 use_half = device.type != 'cpu'
+                tile_size = 128 if device.type == 'cpu' else 256
                 model_path = self.model_info.get('model_file', '')
                 
                 if not Path(model_path).exists():
@@ -255,14 +256,14 @@ class UpscaleWorker(QThread):
                         scale=self.scale,
                         model_path=model_path,
                         model=model,
-                        tile=256,
+                        tile=tile_size,
                         tile_pad=10,
                         pre_pad=0,
                         half=use_half,
                         device=device
                     )
                     precision_label = "FP16" if use_half else "FP32"
-                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device}, Precision: {precision_label})")
+                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device}, Precision: {precision_label}, Tile: {tile_size})")
                     return ('realesrgan', upsampler)
                 except ImportError:
                     self.log_signal.emit("   ⚠️ RealESRGANer not available, using direct PyTorch loading...")
@@ -595,13 +596,15 @@ class UpscaleWorker(QThread):
                 video_path
             ]
             result = subprocess.run(ffprobe_cmd, capture_output=True, text=True, check=True)
-            fps_str = result.stdout.strip()
-            if '/' in fps_str:
-                num, den = fps_str.split('/')
+            fps_rational = result.stdout.strip()
+            if '/' in fps_rational:
+                num, den = fps_rational.split('/')
                 fps = float(num) / float(den)
+                fps_str = fps_rational
             else:
-                fps = float(fps_str)
-            self.log_signal.emit(f"   Detected FPS: {fps:.2f}")
+                fps = float(fps_rational)
+                fps_str = fps_rational
+            self.log_signal.emit(f"   Detected FPS: {fps:.2f} ({fps_str})")
             
             self.log_signal.emit("🧹 Cleaning old frames...")
             for f in TMP_FRAMES_DIR.glob("*"):
@@ -729,10 +732,21 @@ class UpscaleWorker(QThread):
                     for f in RIFE_FRAMES_DIR.glob("*"):
                         f.unlink()
 
+                    input_frame_count = len(list(TMP_FRAMES_DIR.glob("*.png")))
+                    if fps > 0:
+                        rife_n = max(2, int((self.target_fps + fps - 0.001) / fps))
+                        expected_output_frames = max(1, round(input_frame_count * rife_n))
+                    else:
+                        rife_n = 2
+                        expected_output_frames = input_frame_count * 2
+
+                    rife_model_dir = self.rife_bin.parent / "rife-v4.6"
                     rife_cmd = [
                         str(self.rife_bin),
                         "-i", str(TMP_FRAMES_DIR),
                         "-o", str(RIFE_FRAMES_DIR),
+                        "-n", str(expected_output_frames),
+                        "-m", str(rife_model_dir),
                     ]
                     if self.gpu_id != -2:
                         rife_cmd += ["-g", str(self.gpu_id)]
@@ -749,12 +763,7 @@ class UpscaleWorker(QThread):
                         except Exception:
                             startupinfo = None
 
-                    input_frame_count = len(list(TMP_FRAMES_DIR.glob("*.png")))
-                    if fps > 0:
-                        expected_output_frames = max(1, round(input_frame_count * self.target_fps / fps))
-                    else:
-                        expected_output_frames = input_frame_count * 2
-                    self.log_signal.emit(f"   ▶️ Interpolating frames... ({input_frame_count} input frames → ~{expected_output_frames} output frames)")
+                    self.log_signal.emit(f"   ▶️ Interpolating frames... ({input_frame_count} input frames → ~{expected_output_frames} output frames, {rife_n}x factor)")
                     self.progress_signal.emit(0)
 
                     rife_proc = subprocess.Popen(
@@ -808,10 +817,16 @@ class UpscaleWorker(QThread):
                                 f.unlink()
                             for src in rife_outputs:
                                 shutil.copy2(src, TMP_FRAMES_DIR / src.name)
-                            frame_count = len(rife_outputs)
-                            fps = self.target_fps
+                            rife_output_count = len(rife_outputs)
+                            frame_count = rife_output_count
+                            if input_frame_count > 0 and fps > 0:
+                                actual_rife_fps = fps * rife_output_count / input_frame_count
+                            else:
+                                actual_rife_fps = float(self.target_fps)
+                            fps = actual_rife_fps
+                            fps_str = f"{actual_rife_fps:.6f}"
                             self.progress_signal.emit(100)
-                            self.log_signal.emit(f"✅ INTERPOLATION COMPLETE: {frame_count} frames at {fps} FPS")
+                            self.log_signal.emit(f"✅ INTERPOLATION COMPLETE: {frame_count} frames, actual fps: {actual_rife_fps:.3f} (target: {self.target_fps})")
                         else:
                             self.log_signal.emit("⚠️ Interpolation produced no output; original frames retained")
                             print("RIFE produced no output frames in RIFE_FRAMES_DIR")
@@ -1062,7 +1077,8 @@ class UpscaleWorker(QThread):
                             "-m", str(self.models_dir),
                             "-n", model_to_use,
                             "-s", str(self.scale),
-                            "-t", "0",
+                            "-t", "128",
+                            "-j", "1:2:2",
                             "-f", "png",
                         ]
                         if self.gpu_id != -2:
@@ -1261,12 +1277,14 @@ class UpscaleWorker(QThread):
             bitrate_kbps = self.bitrate_mbps * 1000
             bitrate_str = f"{bitrate_kbps}k"
             
+            import os as _os
+            cpu_threads = str(max(1, (_os.cpu_count() or 2)))
             enc_opts = {
-                "h264_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str],
-                "hevc_nvenc": ["-preset", "p7", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str],
-                "h264_amf": ["-quality", "quality", "-rc", "vbr_latency", "-b:v", bitrate_str],
-                "h264_qsv": ["-preset", "veryslow", "-b:v", bitrate_str],
-                "libx264": ["-preset", "medium", "-b:v", bitrate_str],
+                "h264_nvenc": ["-preset", "p4", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str, "-bf", "2"],
+                "hevc_nvenc": ["-preset", "p4", "-tune", "hq", "-rc", "vbr", "-b:v", bitrate_str, "-maxrate", bitrate_str, "-bf", "2"],
+                "h264_amf": ["-quality", "balanced", "-rc", "vbr_latency", "-b:v", bitrate_str],
+                "h264_qsv": ["-preset", "medium", "-b:v", bitrate_str],
+                "libx264": ["-preset", "fast", "-b:v", bitrate_str, "-threads", cpu_threads, "-tune", "film"],
             }
 
             detected = self._detect_ffmpeg_encoders()
@@ -1278,9 +1296,13 @@ class UpscaleWorker(QThread):
                 tried.append(try_codec)
                 self.log_signal.emit(f"   🎛️ Trying encoder: {try_codec}")
 
+                output_fps = self.target_fps if self.enable_interpolation else fps
+                output_fps_str = str(self.target_fps) if self.enable_interpolation else fps_str
+                gop_size = max(1, round(output_fps * 2))
+
                 merge_cmd = [
                     str(self.ffmpeg_bin),
-                    "-framerate", str(fps),
+                    "-framerate", fps_str,
                     "-start_number", "1",
                     "-i", str(OUT_FRAMES_DIR / "frame%08d.png"),
                 ]
@@ -1290,31 +1312,41 @@ class UpscaleWorker(QThread):
                         "-i", video_path,
                         "-map", "0:v:0",
                         "-map", "1:a:0?",
-                        "-c:a", "copy",
+                        "-c:a", "aac",
+                        "-ac", "2",
+                        "-movflags", "+faststart",
                     ])
                 else:
                     merge_cmd.extend([
                         "-map", "0:v:0",
                         "-an",
+                        "-movflags", "+faststart",
                     ])
 
                 if self.remove_audio:
                     self.log_signal.emit("   🔇 Audio will be removed from output")
 
+                vf_parts = []
+                if self.enable_interpolation:
+                    vf_parts.append(f"fps={self.target_fps}")
                 if self.target_crop_size is not None:
                     cw, ch = self.target_crop_size
-                    vf = f"scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch}"
-                    merge_cmd.extend(["-vf", vf])
+                    vf_parts.append(f"scale={cw}:{ch}:force_original_aspect_ratio=increase,crop={cw}:{ch}")
                     self.log_signal.emit(f"   ✂️ Scale-to-fill + crop: {cw}x{ch} (center)")
+                if vf_parts:
+                    merge_cmd.extend(["-vf", ",".join(vf_parts)])
 
                 merge_cmd.extend(["-c:v", try_codec])
 
-                opt_list = enc_opts.get(try_codec, ["-preset", "medium", "-crf", "18"])
+                opt_list = enc_opts.get(try_codec, ["-preset", "medium", "-b:v", bitrate_str])
                 merge_cmd.extend(opt_list)
 
                 merge_cmd.extend([
-                    "-r", str(fps),
+                    "-r", output_fps_str,
+                    "-vsync", "cfr",
                     "-pix_fmt", "yuv420p",
+                    "-g", str(gop_size),
+                    "-max_muxing_queue_size", "1024",
                     "-y",
                     str(output_path)
                 ])
@@ -1806,105 +1838,89 @@ class VideoUpscalerDialog(QDialog):
             QTimer.singleShot(500, self._run_hw_cap_test)
     
     def _load_config(self):
+        # Load from disk without triggering save callbacks until complete
+        self._config_loaded = False
         try:
             if CONFIG_FILE.exists():
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                
-                if 'model' in cfg and cfg['model']:
-                    idx = self.model_combo.findText(cfg['model'])
-                    if idx >= 0:
-                        self.model_combo.setCurrentIndex(idx)
-                
-                if 'scale' in cfg:
-                    self.scale_combo.setCurrentText(str(cfg['scale']))
-                
-                if 'batch' in cfg:
-                    self.batch_combo.setCurrentText(str(cfg['batch']))
-                
-                if 'encoder' in cfg:
-                    idx = self.encoder_combo.findText(cfg['encoder'])
-                    if idx >= 0:
-                        self.encoder_combo.setCurrentIndex(idx)
-                
-                if 'decoder' in cfg:
-                    idx = self.decoder_combo.findText(cfg['decoder'])
-                    if idx >= 0:
-                        self.decoder_combo.setCurrentIndex(idx)
-                
-                if 'remove_audio' in cfg:
-                    self.remove_audio_checkbox.setChecked(cfg['remove_audio'])
-                
-                if 'tint_r' in cfg:
-                    self.tint_r_spin.setValue(cfg['tint_r'])
-                if 'tint_g' in cfg:
-                    self.tint_g_spin.setValue(cfg['tint_g'])
-                if 'tint_b' in cfg:
-                    self.tint_b_spin.setValue(cfg['tint_b'])
-                
-                if 'bitrate' in cfg:
-                    self.bitrate_spin.setValue(cfg['bitrate'])
 
-                if 'enable_interpolation' in cfg:
-                    self.interpolation_checkbox.setChecked(bool(cfg['enable_interpolation']))
-                if 'fps_preset' in cfg:
-                    idx = self.fps_combo.findText(cfg['fps_preset'])
-                    if idx >= 0:
-                        self.fps_combo.setCurrentIndex(idx)
-                if 'fps_custom' in cfg:
-                    self.fps_custom_spin.setValue(int(cfg['fps_custom']))
-                if 'backend' in cfg:
-                    idx = self.backend_combo.findText(cfg['backend'])
-                    if idx >= 0:
-                        self.backend_combo.setCurrentIndex(idx)
-                
-                if 'output_dir' in cfg and cfg['output_dir']:
-                    self.output_edit.setText(cfg['output_dir'])
-                    self.output_dir = cfg['output_dir']
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    output_dir = config.get('output_dir', '')
-                    if output_dir:
-                        self.output_edit.setText(output_dir)
-                        self.output_dir = output_dir
-                    
-                    model = config.get('model', '')
-                    if model and self.model_combo.findText(model) >= 0:
-                        self.model_combo.setCurrentText(model)
-                    
-                    scale = config.get('scale', '')
-                    if scale and self.scale_combo.findText(str(scale)) >= 0:
-                        self.scale_combo.setCurrentText(str(scale))
-                    
-                    batch = config.get('batch', '')
-                    if batch and self.batch_combo.findText(str(batch)) >= 0:
-                        self.batch_combo.setCurrentText(str(batch))
-                    
-                    encoder = config.get('encoder', '')
-                    if encoder and self.encoder_combo.findText(encoder) >= 0:
-                        self.encoder_combo.setCurrentText(encoder)
-                    
-                    decoder = config.get('decoder', '')
-                    if decoder and self.decoder_combo.findText(decoder) >= 0:
-                        self.decoder_combo.setCurrentText(decoder)
-                    
-                    remove_audio = config.get('remove_audio', False)
-                    self.remove_audio_checkbox.setChecked(bool(remove_audio))
-                    
-                    tint_r = config.get('tint_r', 0)
-                    self.tint_r_spin.setValue(tint_r)
-                    
-                    tint_g = config.get('tint_g', 0)
-                    self.tint_g_spin.setValue(tint_g)
-                    
-                    tint_b = config.get('tint_b', 0)
-                    self.tint_b_spin.setValue(tint_b)
+                # temporarily block signals while we populate controls
+                widgets_to_block = [
+                    self.model_combo, self.scale_combo, self.batch_combo,
+                    self.encoder_combo, self.decoder_combo,
+                    self.remove_audio_checkbox, self.tint_r_spin,
+                    self.tint_g_spin, self.tint_b_spin,
+                    self.bitrate_spin, self.interpolation_checkbox,
+                    self.fps_combo, self.fps_custom_spin, self.backend_combo,
+                    self.output_edit
+                ]
+                for w in widgets_to_block:
+                    w.blockSignals(True)
+                try:
+                    if 'model' in cfg and cfg['model']:
+                        idx = self.model_combo.findText(cfg['model'])
+                        if idx >= 0:
+                            self.model_combo.setCurrentIndex(idx)
+
+                    if 'scale' in cfg:
+                        self.scale_combo.setCurrentText(str(cfg['scale']))
+
+                    if 'batch' in cfg:
+                        self.batch_combo.setCurrentText(str(cfg['batch']))
+
+                    if 'encoder' in cfg:
+                        idx = self.encoder_combo.findText(cfg['encoder'])
+                        if idx >= 0:
+                            self.encoder_combo.setCurrentIndex(idx)
+
+                    if 'decoder' in cfg:
+                        idx = self.decoder_combo.findText(cfg['decoder'])
+                        if idx >= 0:
+                            self.decoder_combo.setCurrentIndex(idx)
+
+                    if 'remove_audio' in cfg:
+                        self.remove_audio_checkbox.setChecked(cfg['remove_audio'])
+
+                    if 'tint_r' in cfg:
+                        self.tint_r_spin.setValue(cfg['tint_r'])
+                    if 'tint_g' in cfg:
+                        self.tint_g_spin.setValue(cfg['tint_g'])
+                    if 'tint_b' in cfg:
+                        self.tint_b_spin.setValue(cfg['tint_b'])
+
+                    if 'bitrate' in cfg:
+                        self.bitrate_spin.setValue(cfg['bitrate'])
+
+                    if 'enable_interpolation' in cfg:
+                        self.interpolation_checkbox.setChecked(bool(cfg['enable_interpolation']))
+                    if 'fps_preset' in cfg:
+                        idx = self.fps_combo.findText(cfg['fps_preset'])
+                        if idx >= 0:
+                            self.fps_combo.setCurrentIndex(idx)
+                    if 'fps_custom' in cfg:
+                        self.fps_custom_spin.setValue(int(cfg['fps_custom']))
+                    if 'backend' in cfg:
+                        idx = self.backend_combo.findText(cfg['backend'])
+                        if idx >= 0:
+                            self.backend_combo.setCurrentIndex(idx)
+
+                    if 'output_dir' in cfg and cfg['output_dir']:
+                        self.output_edit.setText(cfg['output_dir'])
+                        self.output_dir = cfg['output_dir']
+                finally:
+                    for w in widgets_to_block:
+                        w.blockSignals(False)
+
         except Exception:
             pass
         finally:
             self._config_loaded = True
     
     def _save_config(self):
+        # don't write config while we're still loading previous settings
+        if not getattr(self, '_config_loaded', False):
+            return
         try:
             CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             cfg = {}

@@ -213,6 +213,7 @@ class ImageUpscaleWorker(QThread):
                 
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 use_half = device.type != 'cpu'
+                tile_size = 128 if device.type == 'cpu' else 256
                 model_path = self.model_info.get('model_file', '')
                 
                 if not Path(model_path).exists():
@@ -228,14 +229,14 @@ class ImageUpscaleWorker(QThread):
                         scale=self.scale,
                         model_path=model_path,
                         model=model,
-                        tile=256,
+                        tile=tile_size,
                         tile_pad=10,
                         pre_pad=0,
                         half=use_half,
                         device=device
                     )
                     precision_label = "FP16" if use_half else "FP32"
-                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device}, Precision: {precision_label})")
+                    self.log_signal.emit(f"✅ PyTorch backend initialized via RealESRGANer (Device: {device}, Precision: {precision_label}, Tile: {tile_size})")
                     return ('realesrgan', upsampler)
                 except ImportError:
                     self.log_signal.emit("   ⚠️ RealESRGANer not available, using direct PyTorch loading...")
@@ -267,7 +268,11 @@ class ImageUpscaleWorker(QThread):
                     return None
                 
                 providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-                session = ort.InferenceSession(model_path, providers=providers)
+                import onnxruntime as ort
+                sess_opts = ort.SessionOptions()
+                sess_opts.intra_op_num_threads = max(1, (__import__('os').cpu_count() or 2))
+                sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                session = ort.InferenceSession(model_path, sess_options=sess_opts, providers=providers)
                 
                 provider_used = session.get_providers()[0]
                 self.log_signal.emit(f"✅ ONNX backend initialized (Provider: {provider_used})")
@@ -770,7 +775,8 @@ class ImageUpscaleWorker(QThread):
                     "-m", str(self.models_dir),
                     "-n", model_to_use,
                     "-s", str(self.scale),
-                    "-t", "0",
+                    "-t", "128",
+                    "-j", "1:2:2",
                     "-f", self.output_format,
                 ]
                 if self.gpu_id != -2:
