@@ -26,6 +26,7 @@ from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.update_notice_dialog import UpdateNoticeDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
+from dialogs.logs_dialog import LogsDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -78,7 +79,8 @@ MENU_TOOLTIPS = {
     "readme": "Read detailed documentation on GitHub",
     "tiktok": "Visit our TikTok profile",
     "telegram": "Open our Telegram bot",
-    "documentation": "View built-in help and documentation"
+    "documentation": "View built-in help and documentation",
+    "logs": "View application logs and diagnostics"
 }
 
 def get_app_links():
@@ -490,6 +492,21 @@ def setup_main_menu(window):
         dialog.exec()
     about_action.triggered.connect(show_about)
     help_menu.addAction(about_action)
+
+    logs_action = QAction(qta.icon('fa6s.scroll'), "Logs", window)
+    logs_action.setToolTip(MENU_TOOLTIPS["logs"])
+    logs_action.setStatusTip(MENU_TOOLTIPS["logs"])
+    def open_logs():
+        if not hasattr(window, '_logs_dialog') or not window._logs_dialog:
+            window._logs_dialog = LogsDialog(None)
+            window._logs_dialog.destroyed.connect(lambda: setattr(window, '_logs_dialog', None))
+            if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
+                window._logs_dialog.setWindowIcon(window.windowIcon())
+        window._logs_dialog.show()
+        window._logs_dialog.raise_()
+        window._logs_dialog.activateWindow()
+    logs_action.triggered.connect(open_logs)
+    help_menu.addAction(logs_action)
 
     show_guide_action = QAction(qta.icon('fa6s.lightbulb'), "Show Guide", window)
     show_guide_action.setToolTip("Reset and show the interactive guide tour")

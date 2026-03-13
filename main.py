@@ -112,6 +112,9 @@ class ImageTeaMainWindow(QMainWindow):
         event.accept()
 
 if __name__ == '__main__':
+    from helpers.logging_helper import init_logging
+    init_logging()
+
     if sys.platform == "win32":
         import ctypes
         app_id = u"image-tea.nano"
