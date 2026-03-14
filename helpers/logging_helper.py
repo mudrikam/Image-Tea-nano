@@ -10,12 +10,32 @@ from logging.handlers import RotatingFileHandler
 
 from config import BASE_PATH
 
+
+class _WinSafeRotatingFileHandler(RotatingFileHandler):
+    def doRollover(self):
+        try:
+            if self.stream:
+                self.stream.close()
+                self.stream = None
+            try:
+                with open(self.baseFilename, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+                keep = lines[len(lines) // 2:]
+                with open(self.baseFilename, "w", encoding="utf-8") as f:
+                    f.writelines(keep)
+            except Exception as e:
+                print(f"[logging_helper] Log size trim failed: {e}")
+            self.stream = self._open()
+        except PermissionError:
+            if self.stream is None:
+                self.stream = self._open()
+
 LOG_FILE = os.path.join(BASE_PATH, "temp", "image_tea.log")
 _CLEANUP_STATE = os.path.join(BASE_PATH, "temp", "log_cleanup_state.json")
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(module)s | %(message)s"
 _LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-_MAX_BYTES = 5 * 1024 * 1024
-_BACKUP_COUNT = 3
+_MAX_BYTES = 2 * 1024 * 1024
+_BACKUP_COUNT = 0
 _LOG_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
@@ -80,7 +100,7 @@ def init_logging():
 
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE_FORMAT)
 
-    file_handler = RotatingFileHandler(
+    file_handler = _WinSafeRotatingFileHandler(
         LOG_FILE,
         maxBytes=_MAX_BYTES,
         backupCount=_BACKUP_COUNT,
@@ -123,11 +143,12 @@ def init_logging():
     except Exception as e:
         root_logger.warning("Could not install Qt message handler: %s", e)
 
-    _cleanup_old_logs()
+    _cleanup_by_day()
+    _cleanup_by_size()
     root_logger.info("Logging initialized. Log file: %s", LOG_FILE)
 
 
-def _cleanup_old_logs():
+def _cleanup_by_day():
     if not os.path.exists(LOG_FILE):
         return
     today = date.today().isoformat()
@@ -147,9 +168,24 @@ def _cleanup_old_logs():
         with open(LOG_FILE, "w", encoding="utf-8") as f:
             f.writelines(kept)
     except Exception as e:
-        print(f"[logging_helper] Log cleanup failed: {e}")
+        print(f"[logging_helper] Log day-cleanup failed: {e}")
     try:
         with open(_CLEANUP_STATE, "w", encoding="utf-8") as f:
             json.dump({"last_cleanup": today}, f)
     except Exception:
         pass
+
+
+def _cleanup_by_size():
+    if not os.path.exists(LOG_FILE):
+        return
+    try:
+        if os.path.getsize(LOG_FILE) <= _MAX_BYTES:
+            return
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        keep = lines[len(lines) // 2:]
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(keep)
+    except Exception as e:
+        print(f"[logging_helper] Log size-cleanup failed: {e}")
