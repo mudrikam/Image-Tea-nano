@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont
 import time
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import qtawesome as qta
 
 class ImportWorkerThread(QThread):
@@ -34,47 +35,63 @@ class ImportWorkerThread(QThread):
                 PILLOW_FORMATS.add(ext.lower())
         except ImportError:
             PILLOW_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp', '.eps', '.svg', '.pdf'}
-        
+
         added = 0
         video_exts = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
         extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
-        
-        for idx, path in enumerate(self.file_paths):
-            if self.cancelled:
-                break
-                
-            if os.path.isfile(path):
-                fname = os.path.basename(path)
-                ext = os.path.splitext(path)[1].lower()
-                
-                self.file_started.emit(fname, idx + 1, len(self.file_paths))
-                
-                try:
-                    if ext in video_exts:
-                        t, d, tg = read_metadata_video(path)
-                    elif ext in PILLOW_FORMATS or ext in extra_exts:
-                        t, d, tg = read_metadata_pyexiv2(path)
-                    else:
-                        self.error_occurred.emit(fname, f"Unsupported file extension {ext}")
+        total = len(self.file_paths)
+
+        max_workers = min(os.cpu_count() or 2, 8)
+
+        def read_file_metadata(path):
+            fname = os.path.basename(path)
+            if not os.path.isfile(path):
+                return {'path': path, 'fname': fname, 'success': False, 'error': 'File not found', 't': None, 'd': None, 'tg': None}
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext in video_exts:
+                    t, d, tg = read_metadata_video(path)
+                elif ext in PILLOW_FORMATS or ext in extra_exts:
+                    t, d, tg = read_metadata_pyexiv2(path)
+                else:
+                    return {'path': path, 'fname': fname, 'success': False, 'error': f'Unsupported file extension {ext}', 't': None, 'd': None, 'tg': None}
+                return {'path': path, 'fname': fname, 'success': True, 'error': None, 't': t, 'd': d, 'tg': tg}
+            except Exception as e:
+                return {'path': path, 'fname': fname, 'success': False, 'error': str(e), 't': None, 'd': None, 'tg': None}
+
+        completed_count = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(read_file_metadata, path): path for path in self.file_paths}
+
+            for future in as_completed(futures):
+                if self.cancelled:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+
+                result = future.result()
+                fname = result['fname']
+                completed_count += 1
+
+                self.file_started.emit(fname, completed_count, total)
+
+                if result['success']:
+                    try:
+                        self.db.add_file(
+                            result['path'], fname,
+                            result['t'] if result['t'] else None,
+                            result['d'] if result['d'] else None,
+                            result['tg'] if result['tg'] else None,
+                            status="draft", original_filename=fname
+                        )
+                        added += 1
+                        self.file_completed.emit(True)
+                    except Exception as e:
+                        self.error_occurred.emit(fname, str(e))
                         self.file_completed.emit(False)
-                        continue
-                    
-                    title = t if t else None
-                    description = d if d else None
-                    tags = tg if tg else None
-                    
-                    self.db.add_file(path, fname, title, description, tags, status="draft", original_filename=fname)
-                    added += 1
-                    self.file_completed.emit(True)
-                    
-                except Exception as e:
-                    self.error_occurred.emit(fname, str(e))
+                else:
+                    self.error_occurred.emit(fname, result['error'])
                     self.file_completed.emit(False)
-            else:
-                fname = os.path.basename(path)
-                self.error_occurred.emit(fname, "File not found")
-                self.file_completed.emit(False)
-        
+
         self.import_finished.emit(added)
 
 class ImportProgressDialog(QDialog):
@@ -238,19 +255,33 @@ class ImportProgressDialog(QDialog):
         
     def start_import(self):
         """Mulai proses import"""
-        self.start_time = time.time()
-        
         self.worker_thread = ImportWorkerThread(self.file_paths, self.db, self)
         self.worker_thread.file_started.connect(self.on_file_started)
         self.worker_thread.file_completed.connect(self.on_file_completed)
         self.worker_thread.import_finished.connect(self.on_import_finished)
         self.worker_thread.error_occurred.connect(self.on_error_occurred)
         
+        QTimer.singleShot(150, self._begin_import)
+
+    def _begin_import(self):
+        self.start_time = time.time()
         self.worker_thread.start()
         
+    def _truncate_filename(self, filename, max_len=60):
+        if not filename:
+            return filename
+        if len(filename) <= max_len:
+            return filename
+        base, ext = os.path.splitext(filename)
+        keep = max_len - 3 - len(ext)
+        if keep < 1:
+            return filename[: max_len - 3] + "..."
+        return base[:keep] + "..." + ext
+
     def on_file_started(self, filename, current_index, total_files):
         self.current_file_name = filename
-        self.current_file_label.setText(f"Processing: {filename}")
+        display_name = self._truncate_filename(filename, max_len=70)
+        self.current_file_label.setText(f"Importing: {display_name}")
         self.status_label.setText("Processing...")
         self.adjustSize()
         

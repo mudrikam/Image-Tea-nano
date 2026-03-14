@@ -257,6 +257,7 @@ def setup_main_toolbar(window: QWidget):
     add_vertical_separator(toolbar)
 
     def open_edit_prompt_toolbar():
+        from dialogs.edit_prompt_dialog import EditPromptDialog
         dialog = EditPromptDialog(window)
         result = dialog.exec()
         if result == EditPromptDialog.Accepted and hasattr(window, 'prompt_section'):
@@ -295,6 +296,31 @@ def setup_main_toolbar(window: QWidget):
         open_add_api_dialog,
         window, icon_size, obj_name='toolbar_api_key')
     toolbar.addAction(add_api_action)
+
+    def open_topup_dialog():
+        try:
+            import json
+            config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+            with open(config_path, "r", encoding="utf-8") as f:
+                app_cfg = json.load(f)
+            topup_url = app_cfg.get("links", {}).get("get_api_key")
+            if not topup_url:
+                raise ValueError("Topup URL not found in app_config")
+            from dialogs.topup_desainia_dialog import TopupDesainiaDialog
+            dlg = TopupDesainiaDialog(topup_url, parent=window)
+            dlg.setWindowModality(Qt.ApplicationModal)
+            dlg.exec()
+        except Exception as e:
+            print(f"Failed to open topup dialog: {e}")
+
+    topup_action = create_toolbar_button_with_label(
+        make_icon('fa6s.coins', icon_color),
+        make_icon('fa6s.coins', icon_color_hover),
+        "Top Up",
+        "Top up your API key balance.",
+        open_topup_dialog,
+        window, icon_size, obj_name='toolbar_topup')
+    toolbar.addAction(topup_action)
 
     add_vertical_separator(toolbar)
 
@@ -351,14 +377,6 @@ def setup_main_toolbar(window: QWidget):
         lambda: webbrowser.open(links["tiktok"]),
         window, icon_size, obj_name='toolbar_website')
 
-    readme_action = create_toolbar_button_with_label(
-        make_icon('fa6b.telegram', icon_color),
-        make_icon('fa6b.telegram', icon_color_hover),
-        "Telegram",
-        "Chat with our Telegram bot for support and information.",
-        lambda: webbrowser.open(links["telegram"]),
-        window, icon_size, obj_name='toolbar_telegram')
-
     def open_documentation_toolbar():
         if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
             from dialogs.read_documentation_dialog import ReadDocumentationDialog
@@ -380,7 +398,6 @@ def setup_main_toolbar(window: QWidget):
     
     toolbar.addAction(wa_action)
     toolbar.addAction(website_action)
-    toolbar.addAction(readme_action)
     toolbar.addAction(repo_action)
     toolbar.addAction(donate_action)
     toolbar.addAction(documentation_action)

@@ -54,8 +54,19 @@ class MainStatusBar(QStatusBar):
         self.addPermanentWidget(self.version_commit_widget)
 
         
+        self._versions_behind = 0
         self._check_env_and_set_style()
         self.update_version_and_commit()
+
+    def _parse_version(self, tag):
+        try:
+            parts = tag.lstrip('v').split('.')
+            major = int(parts[0]) if len(parts) > 0 else 0
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            patch = int(parts[2]) if len(parts) > 2 else 0
+            return major * 10000 + minor * 100 + patch
+        except Exception:
+            return 0
 
     def _check_env_and_set_style(self):
         env_path = os.path.join(BASE_PATH, ".env")
@@ -69,9 +80,13 @@ class MainStatusBar(QStatusBar):
                             break
             except Exception:
                 pass
-        if is_development:
+        versions_behind = getattr(self, '_versions_behind', 0)
+        if versions_behind >= 5:
+            self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('warning')}; }}")
+            self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Image Tea is {versions_behind} updates behind, consider updating!</span>')
+        elif is_development:
             self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('error')}; }}")
-            self.status_label.setText(f'<span style="color:{theme.get_color('white')};font-weight:bold;">Development!</span>')
+            self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Development!</span>')
         else:
             self.setStyleSheet("")
             self.status_label.setText("")
@@ -178,13 +193,18 @@ class MainStatusBar(QStatusBar):
                     self.commit_btn.setEnabled(False)
                     self.commit_btn.hide()
                 if tag_remote and tag_local and tag_remote != tag_local:
+                    remote_num = self._parse_version(tag_remote)
+                    local_num = self._parse_version(tag_local)
+                    self._versions_behind = max(0, remote_num - local_num)
                     self.update_btn.setText(f"Update to {tag_remote} Now")
                     self.update_btn.setEnabled(True)
                     self.update_btn.show()
                 else:
+                    self._versions_behind = 0
                     self.update_btn.setText("")
                     self.update_btn.setEnabled(False)
                     self.update_btn.hide()
+                self._check_env_and_set_style()
         else:
             
             self.version_btn.setText("")

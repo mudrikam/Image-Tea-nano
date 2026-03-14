@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QPushButton, QToolTip, QTabWidget, QScrollArea, QFrame, QLayout, QComboBox,
     QSpacerItem, QSizePolicy, QSpinBox, QSlider
 )
-from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent, QItemSelectionModel
+from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent, QItemSelectionModel, QThread
 from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage, QFont
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
@@ -17,6 +17,7 @@ import os
 
 from ui.theme_system import theme
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class NoDataWidget(QWidget):
     """Widget to display 'No files to load' message consistently across all tabs"""
@@ -82,6 +83,110 @@ try:
         PILLOW_FORMATS.add(ext.lower())
 except ImportError:
     PILLOW_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp', '.eps', '.svg', '.pdf'}
+
+
+def _load_image_qimage(filepath, ext, target_size):
+    """Load image from disk into QImage (thread-safe, no QPixmap). Returns QImage or None."""
+    if not filepath or not os.path.isfile(filepath):
+        return None
+    video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v', '.mpeg', '.mpg', '.3gp', '.3gpp'}
+    try:
+        if ext in video_exts:
+            try:
+                import cv2
+                cap = cv2.VideoCapture(filepath)
+                ret, frame = cap.read()
+                cap.release()
+                if ret and frame is not None:
+                    import numpy as np
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = frame_rgb.shape
+                    return QImage(frame_rgb.tobytes(), w, h, ch * w, QImage.Format_RGB888).copy()
+            except Exception as e:
+                print(f"[Thumbnail] Video decode error {filepath}: {e}")
+                return None
+        elif ext in {'.svg', '.eps', '.pdf', '.ai'}:
+            try:
+                from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality
+                temp_folder = ensure_temp_folder()
+                quality = get_compression_quality()
+                filename = os.path.splitext(os.path.basename(filepath))[0] + "_preview.jpg"
+                temp_jpg_path = os.path.join(temp_folder, filename)
+                if not os.path.exists(temp_jpg_path):
+                    if ext == '.svg':
+                        temp_jpg = convert_svg_to_jpg(filepath, temp_jpg_path, quality)
+                    else:
+                        temp_jpg = convert_eps_pdf_to_jpg(filepath, temp_jpg_path, quality)
+                else:
+                    temp_jpg = temp_jpg_path
+                if temp_jpg and os.path.exists(temp_jpg):
+                    from PIL import Image as PilImage
+                    with PilImage.open(temp_jpg) as img:
+                        img.thumbnail((target_size, target_size))
+                        img = img.convert("RGBA")
+                        data = img.tobytes("raw", "RGBA")
+                        return QImage(data, img.width, img.height, img.width * 4, QImage.Format_RGBA8888).copy()
+            except Exception as e:
+                print(f"[Thumbnail] Vector decode error {filepath}: {e}")
+                return None
+        else:
+            try:
+                from PIL import Image as PilImage
+                with PilImage.open(filepath) as img:
+                    img.thumbnail((target_size, target_size))
+                    img = img.convert("RGBA")
+                    data = img.tobytes("raw", "RGBA")
+                    return QImage(data, img.width, img.height, img.width * 4, QImage.Format_RGBA8888).copy()
+            except Exception as e:
+                print(f"[Thumbnail] Pillow decode error {filepath}: {e}")
+                return None
+    except Exception as e:
+        print(f"[Thumbnail] Unexpected error {filepath}: {e}")
+        return None
+
+
+class ThumbnailLoaderThread(QThread):
+    thumbnail_ready = Signal(str, object)   # filepath, QImage or None
+    progress_updated = Signal(int, int)     # current, total
+    all_done = Signal()
+
+    def __init__(self, files_data, target_size, parent=None):
+        super().__init__(parent)
+        self.files_data = files_data
+        self.target_size = target_size
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+    def run(self):
+        total = len(self.files_data)
+        max_workers = min(os.cpu_count() or 2, 4)
+
+        def load_one(file_info):
+            filepath = file_info['filepath']
+            ext = os.path.splitext(filepath)[1].lower()
+            return filepath, _load_image_qimage(filepath, ext, self.target_size)
+
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(load_one, fi): fi for fi in self.files_data}
+            for future in as_completed(futures):
+                if self.cancelled:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                try:
+                    filepath, qimage = future.result()
+                except Exception as e:
+                    fi = futures[future]
+                    filepath = fi['filepath']
+                    qimage = None
+                    print(f"[Thumbnail] Future error {filepath}: {e}")
+                completed += 1
+                self.progress_updated.emit(completed, total)
+                self.thumbnail_ready.emit(filepath, qimage)
+        self.all_done.emit()
+
 
 class FlowLayout(QLayout):
     def __init__(self, parent=None, margin=0, spacing=-1):
@@ -218,7 +323,7 @@ class GridManager:
                 s = int(s)
             except Exception:
                 return None
-            return max(48, min(600, s))
+            return max(48, s)
 
         size = _clamp_size(new_size)
         if size is None:
@@ -262,38 +367,11 @@ class GridManager:
             except Exception as e:
                 print(f"Error resizing widget for {filepath}: {e}")
 
-    def regenerate_pixmap_cache(self):
-        """Regenerate high-resolution pixmap cache for all known filepaths.
-
-        This is somewhat expensive and intended to be called after user stops resizing (debounced).
-        """
-        try:
-            self._pixmap_cache_size = max(300, min(1200, int(self.image_size * 2)))
-        except Exception:
-            self._pixmap_cache_size = max(300, self.image_size * 2)
-
+    def regenerate_pixmap_cache(self, done_callback=None):
+        """Regenerate high-resolution pixmap cache in background after user stops resizing."""
+        self._pixmap_cache_size = max(300, min(1200, int(self.image_size * 2)))
         self._pixmap_cache.clear()
-
-        for filepath in list(self._widget_cache.keys()):
-            try:
-                orig = QPixmap(filepath)
-                if orig and not orig.isNull():
-                    cached = orig.scaled(self._pixmap_cache_size, self._pixmap_cache_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self._pixmap_cache[filepath] = cached
-            except Exception as e:
-                print(f"Error generating cache for {filepath}: {e}")
-
-        for filepath, widget in list(self._widget_cache.items()):
-            try:
-                lbls = [c for c in widget.findChildren(QLabel)]
-                if not lbls:
-                    continue
-                image_label = lbls[0]
-                if filepath in self._pixmap_cache and self._pixmap_cache[filepath] is not None:
-                    pix = self._pixmap_cache[filepath].scaled(self.image_size, self.image_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    image_label.setPixmap(pix)
-            except Exception:
-                pass
+        self._regen_done_callback = done_callback
 
     def set_checked_filepaths(self, checked_filepaths):
         self._checked_filepaths = set(checked_filepaths)
@@ -336,7 +414,7 @@ class GridManager:
                     print(f"Error deleting widget: {e}")
         self.image_items.clear()
 
-    def _create_image_widget(self, file_info):
+    def _create_image_widget(self, file_info, load_image=True):
         filepath = file_info['filepath']
         filename = file_info['filename']
         extension = file_info['extension']
@@ -345,7 +423,8 @@ class GridManager:
 
         if cache_key in self._widget_cache:
             widget = self._widget_cache[cache_key]
-            self._set_image(widget.findChild(QLabel), filepath, status)
+            if load_image:
+                self._set_image(widget.findChild(QLabel), filepath, status)
             widget.setProperty("file_info", file_info)
             return widget
 
@@ -360,7 +439,12 @@ class GridManager:
         image_label.setFixedSize(self.image_size, self.image_size)
         image_label.setAttribute(Qt.WA_Hover, True)
         image_label.setCursor(Qt.PointingHandCursor)
-        self._set_image(image_label, filepath, status)
+        if load_image:
+            self._set_image(image_label, filepath, status)
+        else:
+            image_label.setText("...")
+            self._apply_thumbnail_style(image_label, status)
+        container._image_label = image_label
         
         full_name = f"{filename}{extension}" if not filename.endswith(extension) else filename
         
@@ -433,6 +517,9 @@ class GridManager:
             label.setPixmap(pixmap)
         else:
             label.setText("Cannot preview image")
+        self._apply_thumbnail_style(label, status)
+
+    def _apply_thumbnail_style(self, label, status=''):
         color = None
         if self._status_color_func:
             color = self._status_color_func(status)
@@ -443,7 +530,6 @@ class GridManager:
         border_rgba = f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()/255:.2f})"
         _pr_q_local = QColor(theme.get_color('primary'))
         _pr_rgb_local = f"{_pr_q_local.red()},{_pr_q_local.green()},{_pr_q_local.blue()}"
-        # determine subtle background opacity based on status
         status_alpha = 0.0
         if status == "success":
             status_alpha = 0.18
@@ -1007,7 +1093,7 @@ class ImageTableWidget(QWidget):
         thumbnail_controls_layout.addWidget(self.zoom_label)
         
         self.zoom_preset_combo = QComboBox(self)
-        self.zoom_preset_combo.addItems(["2 Columns", "3 Columns", "4 Columns", "5 Columns", "6 Columns", "7 Columns", "8 Columns"])
+        self.zoom_preset_combo.addItems(["1 Column", "2 Columns", "3 Columns", "4 Columns", "5 Columns", "6 Columns", "7 Columns", "8 Columns", "9 Columns", "10 Columns", "11 Columns", "12 Columns", "13 Columns", "14 Columns", "15 Columns"])
         self.zoom_preset_combo.setCurrentText("4 Columns")
         self.zoom_preset_combo.setFixedWidth(120)
         self.zoom_preset_combo.setFixedHeight(22)
@@ -1017,9 +1103,10 @@ class ImageTableWidget(QWidget):
         thumbnail_controls_layout.addWidget(self.zoom_preset_combo)
         
         self.zoom_slider = QSlider(Qt.Horizontal, self)
-        self.zoom_slider.setRange(48, 600)
+        self.zoom_slider.setRange(48, 800)
         self.zoom_slider.setSingleStep(4)
         self.zoom_slider.setPageStep(16)
+        self.zoom_slider.setValue(150)
         self.zoom_slider.setFixedWidth(220)
         self.zoom_slider.setFixedHeight(22)
         self.zoom_slider.setToolTip("Zoom thumbnails")
@@ -1134,7 +1221,7 @@ class ImageTableWidget(QWidget):
         self._pending_thumb_size = None
         self._thumb_resize_timer = QTimer(self)
         self._thumb_resize_timer.setSingleShot(True)
-        self._thumb_resize_timer.setInterval(300)
+        self._thumb_resize_timer.setInterval(500)
         self._thumb_resize_timer.timeout.connect(self._apply_debounced_thumbnail_resize)
         
         self._resize_recalc_timer = QTimer(self)
@@ -1152,7 +1239,7 @@ class ImageTableWidget(QWidget):
         self._tooltip_timer.timeout.connect(self._show_pending_tooltip)
 
         self.refresh_table()
-        QTimer.singleShot(0, self._recalculate_thumbnail_size_from_columns)
+        QTimer.singleShot(0, self._init_thumbnail_column_count)
 
     def _update_zoom_controls_visibility(self):
         has_files = self.total_count > 0
@@ -1378,13 +1465,21 @@ class ImageTableWidget(QWidget):
     def _on_zoom_preset_changed(self, preset_text):
         """Handle zoom preset selection from dropdown - calculate size based on columns"""
         column_map = {
+            "1 Column": 1,
             "2 Columns": 2,
             "3 Columns": 3,
             "4 Columns": 4,
             "5 Columns": 5,
             "6 Columns": 6,
             "7 Columns": 7,
-            "8 Columns": 8
+            "8 Columns": 8,
+            "9 Columns": 9,
+            "10 Columns": 10,
+            "11 Columns": 11,
+            "12 Columns": 12,
+            "13 Columns": 13,
+            "14 Columns": 14,
+            "15 Columns": 15
         }
         
         columns = column_map.get(preset_text)
@@ -1397,7 +1492,7 @@ class ImageTableWidget(QWidget):
 
                 if hasattr(self, 'zoom_slider'):
                     self.zoom_slider.blockSignals(True)
-                    self.zoom_slider.setValue(int(new_size))
+                    self.zoom_slider.setValue(min(800, max(48, int(new_size))))
                     self.zoom_slider.blockSignals(False)
 
                 self._pending_thumb_size = new_size
@@ -1417,13 +1512,21 @@ class ImageTableWidget(QWidget):
         columns = self._calculate_columns_from_size(current_size)
         
         column_text_map = {
+            1: "1 Column",
             2: "2 Columns",
             3: "3 Columns",
             4: "4 Columns",
             5: "5 Columns",
             6: "6 Columns",
             7: "7 Columns",
-            8: "8 Columns"
+            8: "8 Columns",
+            9: "9 Columns",
+            10: "10 Columns",
+            11: "11 Columns",
+            12: "12 Columns",
+            13: "13 Columns",
+            14: "14 Columns",
+            15: "15 Columns"
         }
         
         selected_preset = column_text_map.get(columns, "4 Columns")
@@ -1435,7 +1538,7 @@ class ImageTableWidget(QWidget):
             self.zoom_preset_combo.blockSignals(False)
         if hasattr(self, 'zoom_slider'):
             self.zoom_slider.blockSignals(True)
-            self.zoom_slider.setValue(int(current_size))
+            self.zoom_slider.setValue(min(800, max(48, int(current_size))))
             self.zoom_slider.blockSignals(False)
     
     def _calculate_thumbnail_size_from_columns(self, columns):
@@ -1449,7 +1552,7 @@ class ImageTableWidget(QWidget):
         total_margins = margin * 2
         
         usable_width = available_width - total_spacing - total_margins
-        thumbnail_size = max(48, min(600, int(usable_width / columns) - 10))
+        thumbnail_size = max(48, int(usable_width / columns) - 10)
         
         return thumbnail_size
     
@@ -1463,20 +1566,30 @@ class ImageTableWidget(QWidget):
         
         usable_width = available_width - (margin * 2)
         
-        columns = max(2, int((usable_width + spacing) / (item_width + spacing)))
+        columns = min(15, max(1, int((usable_width + spacing) / (item_width + spacing))))
         columns = min(8, columns)
         
         return columns
     
+    def _init_thumbnail_column_count(self):
+        """Set default 4-column layout on startup regardless of active tab."""
+        self._current_column_count = 4
+        self.zoom_preset_combo.blockSignals(True)
+        self.zoom_preset_combo.setCurrentText("4 Columns")
+        self.zoom_preset_combo.blockSignals(False)
+
     def _recalculate_thumbnail_size_from_columns(self):
         """Recalculate thumbnail size based on current column count (called on window resize)"""
         if self.tab_widget.currentIndex() != 1:
             return
-        
+
         new_size = self._calculate_thumbnail_size_from_columns(self._current_column_count)
         if new_size != self.grid_manager.image_size:
             self.grid_manager.set_image_size(new_size)
-            self._update_zoom_preset_dropdown(new_size)
+            if hasattr(self, 'zoom_slider'):
+                self.zoom_slider.blockSignals(True)
+                self.zoom_slider.setValue(min(800, max(48, int(new_size))))
+                self.zoom_slider.blockSignals(False)
             QTimer.singleShot(10, self._force_thumbnail_layout_refresh)
 
     def _update_pagination_ui(self):
@@ -1599,17 +1712,45 @@ class ImageTableWidget(QWidget):
             self._refresh_details_cards()
 
     def _apply_debounced_thumbnail_resize(self):
-        """Apply the debounced high-res cache regeneration after user stops resizing thumbnails."""
-        try:
-            if getattr(self, '_pending_thumb_size', None) is None:
-                return
-            target = int(self._pending_thumb_size)
-            self.grid_manager.image_size = target
-            self.grid_manager.regenerate_pixmap_cache()
-                                  
-            QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
-        finally:
-            self._pending_thumb_size = None
+        """Reload thumbnails at HD quality after user stops resizing."""
+        if getattr(self, '_pending_thumb_size', None) is None:
+            return
+        target = int(self._pending_thumb_size)
+        self._pending_thumb_size = None
+
+        self.grid_manager.image_size = target
+        self.grid_manager._pixmap_cache_size = max(300, min(1200, target * 2))
+
+        if hasattr(self, '_thumbnail_loader') and self._thumbnail_loader and self._thumbnail_loader.isRunning():
+            self._thumbnail_loader.cancel()
+
+        files_data = []
+        for filepath, widget in self.grid_manager._widget_cache.items():
+            file_info = widget.property('file_info')
+            if file_info:
+                files_data.append(file_info)
+
+        if not files_data:
+            return
+
+        self._thumbnail_label_map = {}
+        for fi in files_data:
+            widget = self.grid_manager._widget_cache.get(fi['filepath'])
+            if widget and hasattr(widget, '_image_label'):
+                self._thumbnail_label_map[fi['filepath']] = widget._image_label
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(files_data))
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(f"Rendering thumbnails... (0/{len(files_data)})")
+
+        self._thumbnail_loader = ThumbnailLoaderThread(files_data, self.grid_manager._pixmap_cache_size, self)
+        self._thumbnail_loader.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._thumbnail_loader.progress_updated.connect(self._on_thumbnail_progress)
+        self._thumbnail_loader.all_done.connect(self._on_thumbnails_done)
+        self._thumbnail_loader.start()
+
+        QTimer.singleShot(0, self._force_thumbnail_layout_refresh)
 
     def _force_thumbnail_layout_refresh(self):
         """Force thumbnail layout to refresh properly"""
@@ -2024,101 +2165,111 @@ class ImageTableWidget(QWidget):
             self._refresh_details_cards()
 
     def refresh_thumbnail_grid(self):
-                                             
         if self._refreshing_thumbnails:
             return
-        
+
+        if hasattr(self, '_thumbnail_loader') and self._thumbnail_loader and self._thumbnail_loader.isRunning():
+            self._thumbnail_loader.cancel()
+            self._thumbnail_loader.wait()
+
         self._refreshing_thumbnails = True
-        
-        try:
-            self.grid_manager.active_images.clear()
-            
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.progress_label.setText("Loading thumbnails...")
-            
-            from PySide6.QtWidgets import QApplication
-            QApplication.processEvents()
-            
-            files_data = []
-            for row in self._current_rows:
-                file_info = {
-                    'filepath': row[1],
-                    'filename': row[2],
-                    'extension': os.path.splitext(row[2])[1],
-                    'status': row[6] if len(row) > 6 else ""
-                }
-                files_data.append(file_info)
-                
-            self.progress_bar.setMaximum(len(files_data) if files_data else 1)
-                
-                                      
-            current_keys = set(self.grid_manager._widget_cache.keys())
-            new_keys = set(f['filepath'] for f in files_data)
-            for key in current_keys - new_keys:
-                widget = self.grid_manager._widget_cache.pop(key, None)
-                if widget:
-                    widget.deleteLater()
-            while self.thumbnail_flow.count():
-                item = self.thumbnail_flow.takeAt(0)
-                widget = item.widget()
-                if widget:
-                    widget.setParent(None)
-            
-            if not files_data:
-                                                              
-                self.thumbnail_scroll.setVisible(False)
-                self.thumbnail_no_data_overlay.setVisible(True)
-            else:
-                                                              
-                self.thumbnail_scroll.setVisible(True)
-                self.thumbnail_no_data_overlay.setVisible(False)
-                
-                for i, file_info in enumerate(files_data):
-                    widget = self.grid_manager._create_image_widget(file_info)
-                                                                         
-                    tooltip = self._get_tooltip_for_filepath(file_info.get('filepath', ''))
-                    if tooltip:
-                        widget.setToolTip(tooltip)
-                        lbls = [c for c in widget.findChildren(QLabel)]
-                        for lbl in lbls:
-                            lbl.setToolTip(tooltip)
-                    self.thumbnail_flow.addWidget(widget)
-                    
-                                                          
-                    self.progress_bar.setValue(i + 1)
-                    self.progress_label.setText(f"Loading thumbnails... ({i + 1}/{len(files_data)})")
-                    
-                                                                              
-                    if i % 3 == 0:
-                        QApplication.processEvents()
-                        
-                                                                          
-                self.thumbnail_flow.invalidate()
-                self.thumbnail_content.updateGeometry()
-                self.thumbnail_scroll.updateGeometry()
-                
-                                                                           
-                content_rect = self.thumbnail_content.rect()
-                if content_rect.width() > 0:
-                    self.thumbnail_flow.setGeometry(content_rect)
-                
-                                                                              
-                QApplication.processEvents()
-                self.thumbnail_content.update()
-                QApplication.processEvents()
-                
-                self._update_thumbnail_checklist_style()
-            
-                               
+        self.grid_manager.active_images.clear()
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Preparing thumbnails...")
+
+        files_data = []
+        for row in self._current_rows:
+            file_info = {
+                'filepath': row[1],
+                'filename': row[2],
+                'extension': os.path.splitext(row[2])[1],
+                'status': row[6] if len(row) > 6 else ""
+            }
+            files_data.append(file_info)
+
+        self.progress_bar.setMaximum(len(files_data) if files_data else 1)
+
+        current_keys = set(self.grid_manager._widget_cache.keys())
+        new_keys = set(f['filepath'] for f in files_data)
+        for key in current_keys - new_keys:
+            widget = self.grid_manager._widget_cache.pop(key, None)
+            if widget:
+                widget.deleteLater()
+        while self.thumbnail_flow.count():
+            item = self.thumbnail_flow.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+        if not files_data:
+            self.thumbnail_scroll.setVisible(False)
+            self.thumbnail_no_data_overlay.setVisible(True)
             self.progress_bar.setVisible(False)
             self.progress_label.setText("Ready")
-            
-        finally:
             self._refreshing_thumbnails = False
-        
+            return
+
+        self.thumbnail_scroll.setVisible(True)
+        self.thumbnail_no_data_overlay.setVisible(False)
+
+        self._thumbnail_label_map = {}
+        for file_info in files_data:
+            widget = self.grid_manager._create_image_widget(file_info, load_image=False)
+            tooltip = self._get_tooltip_for_filepath(file_info.get('filepath', ''))
+            if tooltip:
+                widget.setToolTip(tooltip)
+                for lbl in widget.findChildren(QLabel):
+                    lbl.setToolTip(tooltip)
+            self.thumbnail_flow.addWidget(widget)
+            if hasattr(widget, '_image_label'):
+                self._thumbnail_label_map[file_info['filepath']] = widget._image_label
+
+        self.thumbnail_flow.invalidate()
+        self.thumbnail_content.updateGeometry()
+        self.thumbnail_scroll.updateGeometry()
+        content_rect = self.thumbnail_content.rect()
+        if content_rect.width() > 0:
+            self.thumbnail_flow.setGeometry(content_rect)
+        self.thumbnail_content.update()
+        self._update_thumbnail_checklist_style()
+
+        self.progress_label.setText(f"Loading thumbnails... (0/{len(files_data)})")
+
+        target_size = self.grid_manager._pixmap_cache_size
+        self._thumbnail_loader = ThumbnailLoaderThread(files_data, target_size, self)
+        self._thumbnail_loader.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._thumbnail_loader.progress_updated.connect(self._on_thumbnail_progress)
+        self._thumbnail_loader.all_done.connect(self._on_thumbnails_done)
+        self._thumbnail_loader.start()
+
         if self.tab_widget.currentIndex() == 1:
             QTimer.singleShot(0, self._sync_thumbnail_selection_with_table)
+
+    def _on_thumbnail_ready(self, filepath, qimage):
+        label = getattr(self, '_thumbnail_label_map', {}).get(filepath)
+        if not label:
+            return
+        if qimage and not qimage.isNull():
+            pixmap = QPixmap.fromImage(qimage)
+            pixmap = pixmap.scaled(
+                self.grid_manager.image_size, self.grid_manager.image_size,
+                Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            label.setPixmap(pixmap)
+            self._preview_cache[filepath] = pixmap
+        else:
+            label.setText("Cannot preview image")
+
+    def _on_thumbnail_progress(self, current, total):
+        self.progress_bar.setValue(current)
+        self.progress_label.setText(f"Loading thumbnails... ({current}/{total})")
+
+    def _on_thumbnails_done(self):
+        self.progress_bar.setVisible(False)
+        self.progress_label.setText("Ready")
+        self._refreshing_thumbnails = False
 
     def _sync_thumbnail_selection_with_table(self):
         selected_rows = self.table.selectionModel().selectedRows()

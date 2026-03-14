@@ -160,7 +160,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 2: Add An API Key',
-                    'description': "Image Tea requires an API key to generate metadata. Click the 'Get API Key' button to obtain keys from providers, or use 'Add API Key' to add your own key. You can also purchase API keys from the community via the 'Add API Key' dialog. Supported services include Gemini, OpenAI, and OpenRouter. Image Tea does not provide API keys. You must use your own.",
+                    'description': "Image Tea requires an API key to generate metadata. Click the 'Get API Key' button to obtain keys from providers, or use 'Add API Key' to add your own key. You can also purchase API keys from the community via the 'Add API Key' dialog. If you need more balance, use the Top Up button on the toolbar to open the top-up dialog. Supported services include Gemini, OpenAI, and OpenRouter. Image Tea does not provide API keys. You must use your own.",
                     'targets': ['api_key_section.get_api_btn', 'api_key_section.add_api_btn']
                 },
                 {
@@ -215,8 +215,8 @@ class GuideOverlay(QWidget):
                 }, 
                 {
                     'title': 'Step 13: Prompt and API Controls',
-                    'description': 'Prompt opens the system prompt editor that controls how AI generates titles, descriptions, and keywords. Custom lets you apply a temporary prompt override for one-off generations. API Key opens the manager where you add or select API keys used to call AI services.',
-                    'targets': ['find:wrapper_toolbar_prompt', 'find:wrapper_toolbar_custom', 'find:wrapper_toolbar_api_key']
+                    'description': 'Prompt opens the system prompt editor that controls how AI generates titles, descriptions, and keywords. Custom lets you apply a temporary prompt override for one-off generations. API Key opens the manager where you add or select API keys used to call AI services. Top Up opens a dialog to add more balance to your API key.',
+                    'targets': ['find:wrapper_toolbar_prompt', 'find:wrapper_toolbar_custom', 'find:wrapper_toolbar_api_key', 'find:wrapper_toolbar_topup']
                 }, 
                 {
                     'title': 'Step 14: App Tools (Relaunch, Update)',
@@ -229,9 +229,9 @@ class GuideOverlay(QWidget):
                     'targets': ['find:wrapper_toolbar_whatsapp']
                 },
                 {
-                    'title': 'Step 16: Community Channels (TikTok, Telegram, Repo)',
-                    'description': 'Click the TikTok or Telegram buttons to find short tutorials and community discussions. Click Repo to open the project repository for source code and issue tracking.',
-                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_telegram', 'find:wrapper_toolbar_repo']
+                    'title': 'Step 16: Community Channels (TikTok, Repo)',
+                    'description': 'Click the TikTok button to find short tutorials. Click Repo to open the project repository for source code and issue tracking.',
+                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_repo']
                 },
                 {
                     'title': 'Step 17: Donate',
@@ -327,9 +327,9 @@ class GuideOverlay(QWidget):
                     'targets': ['find:wrapper_toolbar_whatsapp']
                 },
                 {
-                    'title': 'Langkah 16: Kanal Komunitas (TikTok, Telegram, Repo)',
-                    'description': 'Klik tombol TikTok atau Telegram untuk melihat tutorial singkat dan diskusi komunitas. Klik Repo untuk membuka repositori proyek dan pelacakan isu.',
-                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_telegram', 'find:wrapper_toolbar_repo']
+                    'title': 'Langkah 16: Kanal Komunitas (TikTok, Repo)',
+                    'description': 'Klik tombol TikTok untuk melihat tutorial singkat dan diskusi komunitas. Klik Repo untuk membuka repositori proyek dan pelacakan isu.',
+                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_repo']
                 },
                 {
                     'title': 'Langkah 17: Donasi',
