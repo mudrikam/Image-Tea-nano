@@ -90,10 +90,11 @@ def init_logging():
     file_handler.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
 
-    console_handler = logging.StreamHandler(sys.__stdout__)
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.DEBUG)
-    root_logger.addHandler(console_handler)
+    if sys.__stdout__ is not None:
+        console_handler = logging.StreamHandler(sys.__stdout__)
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(logging.DEBUG)
+        root_logger.addHandler(console_handler)
 
     sys.stdout = StreamToLogger(logging.getLogger("stdout"), logging.INFO)
     sys.stderr = StreamToLogger(logging.getLogger("stderr"), logging.ERROR)
