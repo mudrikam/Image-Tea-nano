@@ -156,15 +156,23 @@ class LogsDialog(QDialog):
 
         self._raw_edit = QTextEdit(tab2)
         self._raw_edit.setReadOnly(True)
-        self._raw_edit.setLineWrapMode(QTextEdit.NoWrap)
+        self._raw_edit.setLineWrapMode(QTextEdit.WidgetWidth)
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.Monospace)
         mono.setPointSize(9)
         self._raw_edit.setFont(mono)
         t2_layout.addWidget(self._raw_edit)
 
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
         self._raw_status = QLabel("", tab2)
-        t2_layout.addWidget(self._raw_status)
+        status_row.addWidget(self._raw_status)
+        status_row.addStretch()
+        self._wrap_cb = QCheckBox("Word wrap", tab2)
+        self._wrap_cb.setChecked(True)
+        self._wrap_cb.toggled.connect(self._on_wrap_toggled)
+        status_row.addWidget(self._wrap_cb)
+        t2_layout.addLayout(status_row)
 
         self._tabs.addTab(tab2, qta.icon("fa6s.file-lines"), "Raw")
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -311,6 +319,9 @@ class LogsDialog(QDialog):
             self._timer.start()
         else:
             self._timer.stop()
+
+    def _on_wrap_toggled(self, checked):
+        self._raw_edit.setLineWrapMode(QTextEdit.WidgetWidth if checked else QTextEdit.NoWrap)
 
     def _on_search_changed(self):
         self._current_page = 0
