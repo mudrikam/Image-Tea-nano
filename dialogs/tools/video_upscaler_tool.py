@@ -139,6 +139,7 @@ class UpscaleWorker(QThread):
                  encoder: str = "CPU", hwaccel: str = "Auto", output_dir: str = None, remove_audio: bool = False,
                  tint_adjustment: tuple = (0, 0, 0), resume_mode: bool = False, bitrate_mbps: int = 20,
                  enable_interpolation: bool = False, target_fps: int = 60, gpu_id: int = -2,
+                 interpolate_only: bool = False,
                  target_crop_size: tuple = None):
         super().__init__()
         self.video_paths = video_paths
@@ -155,6 +156,7 @@ class UpscaleWorker(QThread):
         self.enable_interpolation = enable_interpolation
         self.target_fps = target_fps
         self.gpu_id = gpu_id
+        self.interpolate_only = interpolate_only
         self.target_crop_size = target_crop_size
         self._stop_requested = False
         
@@ -835,8 +837,38 @@ class UpscaleWorker(QThread):
             self.stats_signal.emit(0, frame_count, 0.0, frame_count, 0.0)
             
             self.log_signal.emit(f"")
-            self.log_signal.emit(f"🚀 PHASE 2/3: UPSCALING FRAMES")
-            self.log_signal.emit(f"   🧩 Model: {self.model} (Type: {self.model_type.upper()}) | Scale: {self.scale}x | Batch: {self.batch_size}")
+            skip_upscale = False
+            start_time = time.time()
+            if self.interpolate_only:
+                skip_upscale = True
+                self.log_signal.emit("⚡ Interpolate-only mode enabled: skipping upscaling")
+                # Copy interpolated frames to output directory for merging
+                if OUT_FRAMES_DIR.exists():
+                    for f in OUT_FRAMES_DIR.glob("*.png"):
+                        try:
+                            f.unlink()
+                        except Exception:
+                            pass
+                OUT_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+                for src in TMP_FRAMES_DIR.glob("*.png"):
+                    shutil.copy2(src, OUT_FRAMES_DIR / src.name)
+                # Rename to frame%08d.png so ffmpeg merge finds the sequence
+                output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
+                for idx, frame_file in enumerate(output_frames, start=1):
+                    new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
+                    if frame_file != new_name:
+                        try:
+                            frame_file.rename(new_name)
+                        except Exception:
+                            pass
+                frame_files = sorted(OUT_FRAMES_DIR.glob("frame*.png"))
+                total_frames = len(frame_files)
+                processed = total_frames
+                self.progress_signal.emit(100)
+                self.stats_signal.emit(total_frames, total_frames, 0.0, 0, 0.0)
+            else:
+                self.log_signal.emit(f"🚀 PHASE 2/3: UPSCALING FRAMES")
+                self.log_signal.emit(f"   🧩 Model: {self.model} (Type: {self.model_type.upper()}) | Scale: {self.scale}x | Batch: {self.batch_size}")
             
             existing_upscaled = set()
             if self.resume_mode and OUT_FRAMES_DIR.exists():
@@ -844,15 +876,18 @@ class UpscaleWorker(QThread):
                 if existing_upscaled:
                     self.log_signal.emit(f"   🔄 Resume mode: Found {len(existing_upscaled)} existing upscaled frames")
             else:
-                for f in OUT_FRAMES_DIR.glob("*"):
-                    f.unlink()
+                # In interpolate-only mode, we already prepared OUT_FRAMES_DIR and should not delete it
+                if not skip_upscale:
+                    for f in OUT_FRAMES_DIR.glob("*"):
+                        f.unlink()
             
-            frame_files = sorted(TMP_FRAMES_DIR.glob("*.png"))
-            total_frames = len(frame_files)
-            start_time = time.time()
-            processed = 0
+            if not skip_upscale:
+                frame_files = sorted(TMP_FRAMES_DIR.glob("*.png"))
+                total_frames = len(frame_files)
+                start_time = time.time()
+                processed = 0
             
-            if self.model_type in ['pth', 'onnx']:
+            if not skip_upscale and self.model_type in ['pth', 'onnx']:
                 backend = self._init_upscaler_backend()
                 if backend is None:
                     self.log_signal.emit("❌ Failed to initialize backend")
@@ -1009,7 +1044,7 @@ class UpscaleWorker(QThread):
                     self.progress_signal.emit(100)
                     self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_upscale)} frames (Waifu2x) in {elapsed:.2f}s")
             
-            else:
+            elif not skip_upscale:
                 model_to_use = self.model
                 if re.search(r"x([1-8])", model_to_use, re.IGNORECASE):
                     self.log_signal.emit(f"   Using model {model_to_use} (contains scale)")
@@ -1259,13 +1294,19 @@ class UpscaleWorker(QThread):
                 self.progress_signal.emit(100)
                 elapsed = time.time() - start_time
                 self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
-            
+
             if self._stop_requested:
                 return False
-            
-            self.progress_signal.emit(0)
-            self.log_signal.emit(f"")
-            self.log_signal.emit(f"🎞️ PHASE 3/3: MERGING TO VIDEO")
+
+            # If we skipped upscaling, we already set stats and progress above
+            if not skip_upscale:
+                self.progress_signal.emit(0)
+                self.log_signal.emit(f"")
+                self.log_signal.emit(f"🎞️ PHASE 3/3: MERGING TO VIDEO")
+            else:
+                # Still need to enter merge phase but skip redundant logs/reset
+                self.progress_signal.emit(0)
+                self.log_signal.emit(f"🎞️ PHASE 3/3: MERGING TO VIDEO")
             
             merge_frames = sorted(OUT_FRAMES_DIR.glob("frame*.png"))
             total_merge_frames = len(merge_frames)
@@ -1409,7 +1450,9 @@ class UpscaleWorker(QThread):
                     break
 
                 self.log_signal.emit(f"⚠️ FFmpeg merge failed with {try_codec}")
-                last_err = "".join(stderr_lines[-20:])
+                last_err = "".join(stderr_lines[-40:])
+                for line in last_err.strip().splitlines():
+                    self.log_signal.emit(f"   🧩 {line}")
                 if try_codec != "libx264":
                     self.log_signal.emit("   🔁 Trying next fallback encoder...")
                 else:
@@ -2089,6 +2132,8 @@ class VideoUpscalerDialog(QDialog):
 
                     if 'enable_interpolation' in cfg:
                         self.interpolation_checkbox.setChecked(bool(cfg['enable_interpolation']))
+                    if 'interpolate_only' in cfg:
+                        self.interpolate_only_checkbox.setChecked(bool(cfg['interpolate_only']))
                     if 'fps_preset' in cfg:
                         idx = self.fps_combo.findText(cfg['fps_preset'])
                         if idx >= 0:
@@ -2106,6 +2151,15 @@ class VideoUpscalerDialog(QDialog):
                 finally:
                     for w in widgets_to_block:
                         w.blockSignals(False)
+
+                # Ensure target FPS controls reflect loaded interpolation state
+                interp_on = self.interpolation_checkbox.isChecked()
+                self.fps_combo.setEnabled(interp_on)
+                self.fps_custom_spin.setEnabled(interp_on and self.fps_combo.currentText() == "Custom")
+
+                # Apply the same logic as if the user toggled interpolation manually
+                # so toggling via config reload does not leave FPS controls disabled.
+                self._on_interpolation_toggled(self.interpolation_checkbox.checkState())
 
         except Exception:
             pass
@@ -2137,6 +2191,7 @@ class VideoUpscalerDialog(QDialog):
             cfg['tint_b'] = self.tint_b_spin.value()
             cfg['bitrate'] = self.bitrate_spin.value()
             cfg['enable_interpolation'] = self.interpolation_checkbox.isChecked()
+            cfg['interpolate_only'] = self.interpolate_only_checkbox.isChecked()
             cfg['fps_preset'] = self.fps_combo.currentText()
             cfg['fps_custom'] = self.fps_custom_spin.value()
             cfg['backend'] = self.backend_combo.currentText()
@@ -2225,6 +2280,12 @@ class VideoUpscalerDialog(QDialog):
         self.batch_combo.setToolTip("Frames per batch (higher = faster but more VRAM)")
         self.batch_combo.currentTextChanged.connect(lambda: self._save_config())
         scale_row.addWidget(self.batch_combo)
+
+        self.interpolate_only_checkbox = QCheckBox("Interpolate Only")
+        self.interpolate_only_checkbox.setToolTip("Only run frame interpolation (RIFE) and skip the upscaling step")
+        self.interpolate_only_checkbox.stateChanged.connect(lambda _: self._save_config())
+        scale_row.addWidget(self.interpolate_only_checkbox)
+
         scale_row.addStretch()
         tab_model_layout.addLayout(scale_row)
 
@@ -2233,14 +2294,14 @@ class VideoUpscalerDialog(QDialog):
         tint_row.addWidget(QLabel("Tint R:"))
         self.tint_r_spin = QSpinBox()
         self.tint_r_spin.setRange(-50, 50)
-        self.tint_r_spin.setValue(2)
+        self.tint_r_spin.setValue(0)
         self.tint_r_spin.setToolTip("Red channel adjustment (-50 to +50)")
         self.tint_r_spin.valueChanged.connect(self._on_tint_changed)
         tint_row.addWidget(self.tint_r_spin)
         tint_row.addWidget(QLabel("G:"))
         self.tint_g_spin = QSpinBox()
         self.tint_g_spin.setRange(-50, 50)
-        self.tint_g_spin.setValue(-5)
+        self.tint_g_spin.setValue(0)
         self.tint_g_spin.setToolTip("Green channel adjustment (-50 to +50)")
         self.tint_g_spin.valueChanged.connect(self._on_tint_changed)
         tint_row.addWidget(self.tint_g_spin)
@@ -3185,6 +3246,7 @@ class VideoUpscalerDialog(QDialog):
             files_to_process, model, scale, batch_size, encoder, hwaccel, output_dir, remove_audio,
             self.tint_adjustment, resume_mode, bitrate_mbps,
             enable_interpolation=enable_interpolation, target_fps=target_fps, gpu_id=gpu_id,
+            interpolate_only=self.interpolate_only_checkbox.isChecked(),
             target_crop_size=target_crop_size
         )
         self.worker.log_signal.connect(self.append_log)
