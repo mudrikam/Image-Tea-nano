@@ -1099,6 +1099,7 @@ class UpscaleWorker(QThread):
                         
                         input_count = len(list(BATCH_INPUT_DIR.glob("*.png")))
                         self.log_signal.emit(f"   🔁 Running RealESRGAN on batch {batch_num}/{num_batches} ({batch_frame_count} frames)")
+                        print(f"[RealESRGAN] tile={_ncnn_tile} scale={self.scale} model={model_to_use} batch={batch_num}/{num_batches} gpu_id={self.gpu_id} cmd={' '.join(cmd)}")
 
                         attempts = 0
                         max_attempts = 2

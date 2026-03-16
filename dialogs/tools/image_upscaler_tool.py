@@ -803,7 +803,9 @@ class ImageUpscaleWorker(QThread):
                 ]
                 if self.gpu_id != -2:
                     cmd += ["-g", str(self.gpu_id)]
-                
+
+                print(f"[RealESRGAN] tile={_ncnn_tile} scale={self.scale} model={model_to_use} batch={batch_num}/{num_batches} gpu_id={self.gpu_id} cmd={' '.join(cmd)}")
+
                 startupinfo = None
                 creationflags = 0
                 if platform.system() == "Windows":
