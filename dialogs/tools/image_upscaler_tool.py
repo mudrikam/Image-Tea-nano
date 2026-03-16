@@ -101,6 +101,7 @@ BATCH_OUTPUT_DIR = TEMP_DIR / "batch_output"
 RESULTS_DIR = TEMP_DIR / "results"
 CONFIG_FILE = Path(BASE_PATH) / "configs" / "image_upscale_config.json"
 HW_CAP_MARKER = Path(BASE_PATH) / "temp" / ".hw_cap_tested"
+HW_PROFILE_FILE = Path(BASE_PATH) / "temp" / "device_profile.json"
 
 
 class ImageUpscaleWorker(QThread):
@@ -213,7 +214,15 @@ class ImageUpscaleWorker(QThread):
                 
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 use_half = device.type != 'cpu'
-                tile_size = 128 if device.type == 'cpu' else 256
+                try:
+                    import json as _pth_json
+                    if HW_PROFILE_FILE.exists():
+                        _pth_profile = _pth_json.loads(HW_PROFILE_FILE.read_text())
+                        tile_size = _pth_profile.get('optimal_tile', 128 if device.type == 'cpu' else 256)
+                    else:
+                        tile_size = 128 if device.type == 'cpu' else 256
+                except Exception:
+                    tile_size = 128 if device.type == 'cpu' else 256
                 model_path = self.model_info.get('model_file', '')
                 
                 if not Path(model_path).exists():
@@ -730,7 +739,20 @@ class ImageUpscaleWorker(QThread):
                     if found:
                         self.log_signal.emit(f"   🔧 Using model {found} for scale {self.scale}x")
                         model_to_use = found
-            
+
+            # Load optimal tile size from device profile
+            _ncnn_tile = 128
+            try:
+                import json as _json
+                if HW_PROFILE_FILE.exists():
+                    _profile = _json.loads(HW_PROFILE_FILE.read_text())
+                    _ncnn_tile = _profile.get('optimal_tile', 128)
+                    self.log_signal.emit(f"   ⚙️ Device profile tile: {_ncnn_tile} (from device_profile.json)")
+                else:
+                    self.log_signal.emit(f"   ⚙️ No device profile, using default tile: {_ncnn_tile}")
+            except Exception as e:
+                print(f"Failed to read device profile for tile: {e}")
+
             for batch_idx in range(num_batches):
                 if self._stop_requested:
                     self.finished_signal.emit(False, "⚠️ Process stopped by user")
@@ -775,7 +797,7 @@ class ImageUpscaleWorker(QThread):
                     "-m", str(self.models_dir),
                     "-n", model_to_use,
                     "-s", str(self.scale),
-                    "-t", "128",
+                    "-t", str(_ncnn_tile),
                     "-j", "1:2:2",
                     "-f", self.output_format,
                 ]
@@ -981,31 +1003,37 @@ class ImageHardwareCapTestWorker(QThread):
 
     def run(self):
         try:
+            import json as _json
+            import datetime as _dt
             test_dir = Path(BASE_PATH) / "temp" / ".hw_cap_test"
             test_dir.mkdir(parents=True, exist_ok=True)
 
             # Stage 1: Tool binaries
             self.stage_signal.emit("Checking binaries...")
-            self.log_signal.emit("[ 1/5 ]  Tool Binaries")
+            self.log_signal.emit("[ 1/6 ]  Tool Binaries")
             realesrgan_bin = get_realesrgan_path()
             waifu2x_bin = get_waifu2x_path()
-            self.log_signal.emit(f"   RealESRGAN : {realesrgan_bin}")
             realesrgan_exists = realesrgan_bin.exists()
-            self.log_signal.emit(f"   {'✅ RealESRGAN found' if realesrgan_exists else '❌ RealESRGAN missing'}")
-            self.log_signal.emit(f"   Waifu2x    : {waifu2x_bin}")
             waifu2x_exists = waifu2x_bin.exists()
-            self.log_signal.emit(f"   {'✅ Waifu2x found' if waifu2x_exists else '⚠️ Waifu2x not installed'}")
+            self.log_signal.emit(f"   {'✅' if realesrgan_exists else '❌'} RealESRGAN : {realesrgan_bin.name}")
+            self.log_signal.emit(f"   {'✅' if waifu2x_exists else '⚠️'} Waifu2x    : {waifu2x_bin.name}")
 
-            # Stage 2: GPU probe
-            self.stage_signal.emit("Detecting GPU...")
-            self.log_signal.emit("[ 2/5 ]  GPU Detection")
-            self.log_signal.emit(f"   Probe  : {realesrgan_bin.name} --help")
-            gpu_ok = self._detect_gpu()
-            self.log_signal.emit(f"   {'✅ GPU probe OK' if gpu_ok else '⚠️ No dedicated GPU found'}")
+            # Stage 2: Hardware probe (RAM, VRAM, GPU name)
+            self.stage_signal.emit("Probing hardware...")
+            self.log_signal.emit("[ 2/6 ]  Hardware Probe")
+            hw_info = self._probe_hardware_info()
+            ram_gb = hw_info['ram_mb'] / 1024.0
+            self.log_signal.emit(f"   RAM      : {hw_info['ram_mb']:,} MB ({ram_gb:.1f} GB)")
+            self.log_signal.emit(f"   GPU      : {hw_info['gpu_name']}")
+            if hw_info['vram_mb'] > 0:
+                self.log_signal.emit(f"   VRAM     : {hw_info['vram_mb']:,} MB ({hw_info['vram_mb']/1024:.1f} GB)")
+            else:
+                self.log_signal.emit(f"   VRAM     : Not detected (may be AMD/Intel/CPU-only)")
+            self.log_signal.emit(f"   {'✅ Dedicated GPU detected' if hw_info['gpu_detected'] else '⚠️ No dedicated GPU (CPU-only mode)'}")
 
             # Stage 3: Models
             self.stage_signal.emit("Checking models...")
-            self.log_signal.emit("[ 3/5 ]  Model Files")
+            self.log_signal.emit("[ 3/6 ]  Model Files")
             models_dir = get_models_dir()
             model_files = list(models_dir.glob("*.param")) if models_dir.exists() else []
             self.log_signal.emit(f"   Models dir : {models_dir}")
@@ -1019,20 +1047,25 @@ class ImageHardwareCapTestWorker(QThread):
             else:
                 self.log_signal.emit("   ❌ No models found in models directory")
 
-            # Stage 4: RealESRGAN upscale test
+            # Stage 4: RealESRGAN upscale test + tile benchmark
             self.stage_signal.emit("Testing RealESRGAN inference...")
-            self.log_signal.emit("[ 4/5 ]  RealESRGAN Upscale Test")
+            self.log_signal.emit("[ 4/6 ]  RealESRGAN Upscale Test")
             realesrgan_ok = False
+            test_out_path = None
             output_size = None
+            optimal_tile = 128
             if realesrgan_exists and models_ok:
                 model_name = model_files[0].stem
                 self.log_signal.emit(f"   Model  : {model_name}")
                 self.log_signal.emit(f"   Input  : 64x64 px blank PNG")
                 self.log_signal.emit(f"   Scale  : 2x -> expected 128x128")
-                realesrgan_ok, output_size = self._test_realesrgan(test_dir, model_name)
+                realesrgan_ok, test_out_path, output_size = self._test_realesrgan(test_dir, model_name)
                 if realesrgan_ok and output_size:
                     self.log_signal.emit(f"   ✅ Output: {output_size[0]}x{output_size[1]} px")
                     self.log_signal.emit(f"   ✅ Output is readable by PIL")
+                    self.log_signal.emit(f"   🔍 Benchmarking optimal tile size (256x256 test image)...")
+                    optimal_tile = self._benchmark_tile_size(test_dir, model_name)
+                    self.log_signal.emit(f"   ✅ Optimal tile size: {optimal_tile}")
                 else:
                     self.log_signal.emit(f"   ❌ RealESRGAN upscale failed or output invalid")
             else:
@@ -1068,6 +1101,42 @@ class ImageHardwareCapTestWorker(QThread):
             else:
                 self.log_signal.emit("   ⚠️ Waifu2x not installed, skipped")
 
+            # Derive recommended_batch from vram / tile
+            vram_mb = hw_info['vram_mb']
+            if not hw_info['gpu_detected']:
+                recommended_batch = 5
+            elif vram_mb >= 10000:
+                recommended_batch = 30
+            elif vram_mb >= 6000:
+                recommended_batch = 20
+            elif vram_mb >= 4000:
+                recommended_batch = 10
+            elif vram_mb >= 2000:
+                recommended_batch = 8
+            else:
+                recommended_batch = 5
+
+            # Save device profile JSON
+            profile = {
+                "tested_at": _dt.datetime.now().isoformat(),
+                "ram_mb": hw_info['ram_mb'],
+                "gpu_detected": hw_info['gpu_detected'],
+                "gpu_name": hw_info['gpu_name'],
+                "vram_mb": hw_info['vram_mb'],
+                "optimal_tile": optimal_tile,
+                "recommended_batch": recommended_batch,
+                "realesrgan_ok": realesrgan_ok,
+                "waifu2x_ok": waifu2x_ok,
+            }
+            try:
+                HW_PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                HW_PROFILE_FILE.write_text(_json.dumps(profile, indent=2))
+                self.log_signal.emit(f"")
+                self.log_signal.emit(f"💾 Device profile saved: {HW_PROFILE_FILE.name}")
+                self.log_signal.emit(f"   Tile: {optimal_tile} | Batch: {recommended_batch} | VRAM: {vram_mb} MB | RAM: {hw_info['ram_mb']} MB")
+            except Exception as e:
+                print(f"Failed to save device profile: {e}")
+
             overall_ok = realesrgan_exists and realesrgan_ok and models_ok
             self.log_signal.emit("")
             if overall_ok:
@@ -1100,6 +1169,137 @@ class ImageHardwareCapTestWorker(QThread):
             print(f"ImageHardwareCapTestWorker._detect_gpu error: {e}")
             return False
 
+    def _probe_hardware_info(self) -> dict:
+        info = {
+            'ram_mb': 0,
+            'gpu_detected': False,
+            'gpu_name': 'Unknown',
+            'vram_mb': 0,
+        }
+
+        # RAM detection
+        try:
+            import psutil
+            info['ram_mb'] = psutil.virtual_memory().total // (1024 * 1024)
+        except ImportError:
+            try:
+                if platform.system() == 'Windows':
+                    result = subprocess.run(
+                        ['wmic', 'computersystem', 'get', 'TotalPhysicalMemory'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    lines = [l.strip() for l in result.stdout.splitlines() if l.strip().isdigit()]
+                    if lines:
+                        info['ram_mb'] = int(lines[0]) // (1024 * 1024)
+                else:
+                    with open('/proc/meminfo') as f:
+                        for line in f:
+                            if line.startswith('MemTotal'):
+                                info['ram_mb'] = int(line.split()[1]) // 1024
+                                break
+            except Exception as e:
+                print(f"RAM probe error: {e}")
+        except Exception as e:
+            print(f"RAM psutil error: {e}")
+
+        # GPU + VRAM via nvidia-smi (NVIDIA)
+        try:
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
+                capture_output=True, text=True, timeout=8
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split(',')
+                if len(parts) >= 2:
+                    info['gpu_name'] = parts[0].strip()
+                    info['vram_mb'] = int(parts[1].strip())
+                    info['gpu_detected'] = True
+        except Exception:
+            pass
+
+        # Fallback: WMIC for AMD/Intel VRAM on Windows
+        if info['vram_mb'] == 0 and platform.system() == 'Windows':
+            try:
+                result = subprocess.run(
+                    ['wmic', 'path', 'win32_VideoController', 'get', 'AdapterRAM,Name', '/format:csv'],
+                    capture_output=True, text=True, timeout=8
+                )
+                for line in result.stdout.splitlines():
+                    if ',' in line and not line.strip().startswith('Node'):
+                        parts = line.strip().split(',')
+                        if len(parts) >= 3 and parts[1].strip().isdigit() and int(parts[1].strip()) > 0:
+                            info['vram_mb'] = int(parts[1].strip()) // (1024 * 1024)
+                            if info['gpu_name'] == 'Unknown':
+                                info['gpu_name'] = parts[2].strip()
+                            info['gpu_detected'] = True
+                            break
+            except Exception as e:
+                print(f"WMIC VRAM probe error: {e}")
+
+        # Final fallback: check if realesrgan binary runs (indicates Vulkan/GPU accessible)
+        if not info['gpu_detected']:
+            try:
+                realesrgan_bin = get_realesrgan_path()
+                if realesrgan_bin.exists():
+                    result = subprocess.run(
+                        [str(realesrgan_bin), '--help'],
+                        capture_output=True, text=True, timeout=10,
+                        cwd=str(realesrgan_bin.parent)
+                    )
+                    out = (result.stdout + result.stderr).lower()
+                    if 'vulkan' in out or 'gpu' in out or result.returncode == 0:
+                        info['gpu_detected'] = True
+                        if info['gpu_name'] == 'Unknown':
+                            info['gpu_name'] = 'GPU (Vulkan / non-NVIDIA)'
+            except Exception:
+                pass
+
+        return info
+
+    def _benchmark_tile_size(self, test_dir: Path, model_name: str) -> int:
+        realesrgan_bin = get_realesrgan_path()
+        models_dir = get_models_dir()
+        test_img_path = test_dir / "tile_bench.png"
+        bench_out = test_dir / "tile_bench_out.png"
+
+        bench_img = np.zeros((256, 256, 3), dtype=np.uint8)
+        cv2.imwrite(str(test_img_path), bench_img)
+
+        for tile in [512, 256, 128, 64]:
+            if bench_out.exists():
+                try:
+                    bench_out.unlink()
+                except Exception:
+                    pass
+            cmd = [
+                str(realesrgan_bin),
+                "-i", str(test_img_path),
+                "-o", str(bench_out),
+                "-m", str(models_dir),
+                "-n", model_name,
+                "-s", "2",
+                "-t", str(tile),
+                "-f", "png",
+            ]
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                                        cwd=str(realesrgan_bin.parent))
+                if result.returncode == 0 and bench_out.exists():
+                    self.log_signal.emit(f"   Tile {tile}: ✅ passed")
+                    return tile
+                out_combined = (result.stdout + result.stderr).lower()
+                if 'out of memory' in out_combined or 'oom' in out_combined:
+                    self.log_signal.emit(f"   Tile {tile}: ❌ out of memory, trying smaller")
+                else:
+                    self.log_signal.emit(f"   Tile {tile}: ❌ failed, trying smaller")
+            except subprocess.TimeoutExpired:
+                self.log_signal.emit(f"   Tile {tile}: ⏱️ timeout, trying smaller")
+            except Exception as e:
+                self.log_signal.emit(f"   Tile {tile}: ❌ error: {e}")
+
+        self.log_signal.emit(f"   Tile 64: using as minimum fallback")
+        return 64
+
     def _test_realesrgan(self, test_dir: Path, model_name: str):
         try:
             realesrgan_bin = get_realesrgan_path()
@@ -1122,14 +1322,14 @@ class ImageHardwareCapTestWorker(QThread):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
                                     cwd=str(realesrgan_bin.parent))
             if result.returncode != 0 or not test_out.exists():
-                return False, None
+                return False, None, None
             pil_img = Image.open(str(test_out))
             pil_img.verify()
             pil_img = Image.open(str(test_out))
-            return True, pil_img.size
+            return True, test_out, pil_img.size
         except Exception as e:
             print(f"ImageHardwareCapTestWorker._test_realesrgan error: {e}")
-            return False, None
+            return False, None, None
 
     def _test_waifu2x(self, test_dir: Path):
         try:
@@ -1292,7 +1492,7 @@ class ImageUpscalerDialog(QDialog):
         checklist_layout.setSpacing(5)
         checklist_layout.setContentsMargins(12, 8, 12, 8)
 
-        for stage_name in ["Tool Binaries", "GPU Detection", "Model Files", "RealESRGAN Upscale Test", "Progressive Scale Capability", "Waifu2x Upscale Test"]:
+        for stage_name in ["Tool Binaries", "Hardware Probe", "Model Files", "RealESRGAN Upscale Test", "Progressive Scale Capability", "Waifu2x Upscale Test"]:
             row = QHBoxLayout()
             row.setSpacing(8)
             icon_lbl = QLabel()
