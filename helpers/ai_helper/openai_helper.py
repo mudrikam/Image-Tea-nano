@@ -415,7 +415,12 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         "Title, description, and tags must reflect motion, scene, and activity visible across the frames."
                     )
                     frame_prompt = f"{video_context}\n\n{prompt}"
-                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, frame_prompt, None, timeout=180, frame_paths=frame_paths)
+                    compressed_frames = []
+                    for fp in frame_paths:
+                        cf = compress_and_save_image(fp)
+                        if cf:
+                            compressed_frames.append(cf)
+                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, frame_prompt, None, timeout=180, frame_paths=compressed_frames)
                 else:
                     text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, compressed_path, timeout=180)
                 used_custom_endpoint = True

@@ -237,6 +237,12 @@ def get_compression_quality():
         config_json = json.load(f)
     return config_json["compression_quality"]
 
+def get_compression_max_size():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_json = json.load(f)
+    return config_json["compression_max_size"]
+
 def cleanup_temp_folder():
     temp_folder = ensure_temp_folder()
     for filename in os.listdir(temp_folder):
@@ -516,6 +522,7 @@ def compress_and_save_image(image_path):
     cleanup_temp_folder()
     temp_folder = ensure_temp_folder()
     quality = get_compression_quality()
+    max_size = get_compression_max_size()
     ext = os.path.splitext(image_path)[1].lower()
     filename = os.path.splitext(os.path.basename(image_path))[0] + ".jpg"
     save_path = os.path.join(temp_folder, filename)
@@ -528,6 +535,10 @@ def compress_and_save_image(image_path):
         try:
             with Image.open(image_path) as img:
                 rgb_img = img.convert("RGB")
+                w, h = rgb_img.size
+                if w > max_size or h > max_size:
+                    rgb_img.thumbnail((max_size, max_size), Image.LANCZOS)
+                    print(f"[Compression] Resized from {w}x{h} to {rgb_img.size[0]}x{rgb_img.size[1]}")
                 rgb_img.save(
                     save_path,
                     "JPEG",

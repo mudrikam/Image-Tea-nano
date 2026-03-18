@@ -27,6 +27,7 @@
   "max_description_length": 150,
   "required_tag_count": 30,
   "compression_quality": 80,
+  "compression_max_size": 1568,
   "batch_size": 3,
   "provider_endpoints": {
     "openai": "https://api.openai.com/v1",
