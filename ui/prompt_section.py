@@ -1,10 +1,207 @@
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QSpinBox, QSizePolicy, QLabel, QSpacerItem, QVBoxLayout, QFrame, QComboBox
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QSpinBox, QSizePolicy, QLabel, QSpacerItem, QVBoxLayout, QFrame, QComboBox, QDialog, QSlider, QPushButton
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QFont
 import qtawesome as qta
 import json
 import os
 from config import BASE_PATH
 from ui.theme_system import theme
+
+
+class CompressionQualityDialog(QDialog):
+    _PREVIEW_PATH = os.path.join(BASE_PATH, "res", "images", "ayam_geprek.jpg")
+
+    def __init__(self, current_value, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Image Compression Quality")
+        self.setFixedWidth(460)
+
+        self._PREVIEW_W = 432
+        self._PREVIEW_H = 200
+        self._orig_img = None
+        self._left_half = None
+        try:
+            from PIL import Image
+            from io import BytesIO
+            with Image.open(self._PREVIEW_PATH) as img:
+                img_rgb = img.convert("RGB")
+                orig_w, orig_h = img_rgb.size
+                scale = max(self._PREVIEW_W / orig_w, self._PREVIEW_H / orig_h)
+                new_w = int(orig_w * scale)
+                new_h = int(orig_h * scale)
+                img_rgb = img_rgb.resize((new_w, new_h), Image.LANCZOS)
+                left = (new_w - self._PREVIEW_W) // 2
+                top = (new_h - self._PREVIEW_H) // 2
+                img_rgb = img_rgb.crop((left, top, left + self._PREVIEW_W, top + self._PREVIEW_H))
+                self._orig_img = img_rgb.copy()
+            buf100 = BytesIO()
+            self._orig_img.save(buf100, "JPEG", quality=100)
+            orig_pix = QPixmap.fromImage(QImage.fromData(buf100.getvalue()))
+            self._left_half = orig_pix.copy(0, 0, self._PREVIEW_W // 2, self._PREVIEW_H)
+        except Exception as e:
+            print(f"[CompressionQualityDialog] Failed to load preview image: {e}")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        title_lbl = QLabel("Image Compression Quality")
+        title_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {theme.get_color('foreground')};")
+        layout.addWidget(title_lbl)
+
+        info_lbl = QLabel("Lower value = higher compression, smaller file size, more efficient data usage.\nHigher value = better visual quality, larger file size.")
+        info_lbl.setWordWrap(True)
+        info_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 11px;")
+        layout.addWidget(info_lbl)
+
+        warning_row = QHBoxLayout()
+        warning_row.setSpacing(5)
+        warning_icon = QLabel()
+        warning_icon.setPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(13, 13))
+        warning_icon.setFixedWidth(16)
+        warning_lbl = QLabel("Does NOT apply to video input. May affect model output quality.")
+        warning_lbl.setWordWrap(True)
+        warning_lbl.setStyleSheet(f"color: {theme.get_color('warning')}; font-size: 10px;")
+        warning_row.addWidget(warning_icon, 0, Qt.AlignTop)
+        warning_row.addWidget(warning_lbl, 1)
+        layout.addLayout(warning_row)
+
+        method_lbl = QLabel("Uses lossy JPEG compression to reduce file size before upload for AI processing.")
+        method_lbl.setWordWrap(True)
+        method_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px; font-style: italic;")
+        layout.addWidget(method_lbl)
+
+        if self._orig_img is not None:
+            preview_container = QWidget()
+            preview_container.setFixedHeight(220)
+            pc_layout = QVBoxLayout(preview_container)
+            pc_layout.setContentsMargins(0, 0, 0, 0)
+            pc_layout.setSpacing(2)
+            label_row = QHBoxLayout()
+            label_row.setContentsMargins(0, 0, 0, 0)
+            before_lbl = QLabel("Before (Original)")
+            before_lbl.setAlignment(Qt.AlignCenter)
+            before_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+            after_lbl = QLabel("After (Compressed)")
+            after_lbl.setAlignment(Qt.AlignCenter)
+            after_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+            label_row.addWidget(before_lbl)
+            label_row.addWidget(after_lbl)
+            pc_layout.addLayout(label_row)
+            self.preview_lbl = QLabel()
+            self.preview_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            self.preview_lbl.setFixedSize(self._PREVIEW_W, self._PREVIEW_H)
+            pc_layout.addWidget(self.preview_lbl, 0, Qt.AlignCenter)
+            layout.addWidget(preview_container)
+        else:
+            self.preview_lbl = None
+
+        val_row = QHBoxLayout()
+        val_row.setSpacing(8)
+        self.value_lbl = QLabel()
+        self.value_lbl.setAlignment(Qt.AlignCenter)
+        self.value_lbl.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {theme.get_color('foreground')};")
+        self.quality_desc = QLabel()
+        self.quality_desc.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        val_row.addStretch()
+        val_row.addWidget(self.value_lbl)
+        val_row.addWidget(self.quality_desc)
+        val_row.addStretch()
+        layout.addLayout(val_row)
+
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(1, 100)
+        self.slider.setValue(current_value)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+        self.slider.setTickInterval(10)
+        layout.addWidget(self.slider)
+
+        ends_layout = QHBoxLayout()
+        low_lbl = QLabel("1 — Small")
+        low_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+        high_lbl = QLabel("100 — Large")
+        high_lbl.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+        high_lbl.setAlignment(Qt.AlignRight)
+        ends_layout.addWidget(low_lbl)
+        ends_layout.addWidget(high_lbl)
+        layout.addLayout(ends_layout)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.btn_ok = QPushButton("Apply")
+        self.btn_ok.setIcon(qta.icon('fa6s.check'))
+        self.btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setIcon(qta.icon('fa6s.xmark'))
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        self.slider.valueChanged.connect(self._update_display)
+        self._update_display(current_value)
+
+    def _update_display(self, value):
+        self.value_lbl.setText(str(value))
+        if value >= 80:
+            desc = "High Quality"
+            color = theme.get_color('success')
+        elif value >= 50:
+            desc = "Medium Quality"
+            color = theme.get_color('warning')
+        else:
+            desc = "Low Quality"
+            color = theme.get_color('error')
+        self.quality_desc.setText(desc)
+        self.quality_desc.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {color};")
+
+        if self.preview_lbl is not None and self._orig_img is not None and self._left_half is not None:
+            try:
+                from io import BytesIO
+                buf = BytesIO()
+                self._orig_img.save(buf, "JPEG", quality=value)
+                comp_pix = QPixmap.fromImage(QImage.fromData(buf.getvalue()))
+                right_half = comp_pix.copy(self._PREVIEW_W // 2, 0, self._PREVIEW_W - self._PREVIEW_W // 2, self._PREVIEW_H)
+
+                combined = QPixmap(self._PREVIEW_W, self._PREVIEW_H)
+                combined.fill(QColor(0, 0, 0, 0))
+                painter = QPainter(combined)
+                painter.drawPixmap(0, 0, self._left_half)
+                painter.drawPixmap(self._PREVIEW_W // 2, 0, right_half)
+                painter.setPen(QColor(theme.get_color('gray')))
+                painter.drawLine(self._PREVIEW_W // 2, 0, self._PREVIEW_W // 2, self._PREVIEW_H)
+                painter.end()
+
+                self.preview_lbl.setPixmap(combined)
+            except Exception as e:
+                print(f"[CompressionQualityDialog] Preview update error: {e}")
+
+    def get_value(self):
+        return self.slider.value()
+
+
+class ClickableSpinBox(QSpinBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._showing_dialog = False
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if not self._showing_dialog:
+            QTimer.singleShot(0, self._open_dialog)
+
+    def _open_dialog(self):
+        if not self.hasFocus() or self._showing_dialog:
+            return
+        self._showing_dialog = True
+        try:
+            dlg = CompressionQualityDialog(self.value(), self)
+            if dlg.exec() == QDialog.Accepted:
+                self.setValue(dlg.get_value())
+        finally:
+            self._showing_dialog = False
+            self.clearFocus()
+
 
 class PromptSectionWidget(QWidget):
     def __init__(self, parent=None):
@@ -167,11 +364,11 @@ class PromptSectionWidget(QWidget):
         compression_header.addWidget(compression_label)
         compression_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
         compression_group.addLayout(compression_header)
-        self.cache_spin = QSpinBox()
+        self.cache_spin = ClickableSpinBox()
         self.cache_spin.setRange(1, 100)
         self.cache_spin.setFixedWidth(fixed_width)
         self.cache_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.cache_spin.setToolTip("Image Compression quality (1-100).\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality. \nThis method uses lossy compression \nto reduce file size before upload for processing.")
+        self.cache_spin.setToolTip("Image Compression quality (1-100).\nClick to open quality slider.\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality. \nThis method uses lossy compression \nto reduce file size before upload for processing.")
         compression_group.addWidget(self.cache_spin)
         
         compression_wrapper = QWidget()

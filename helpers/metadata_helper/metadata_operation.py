@@ -241,13 +241,39 @@ class ResultDialog(QDialog):
 		
 		summary_group = QGroupBox("Summary")
 		summary_layout = QVBoxLayout()
-		summary_layout.setSpacing(5)
-		
+		summary_layout.setSpacing(8)
+
 		total_chunks = (total_files + chunk_size - 1) // chunk_size
-		summary_layout.addWidget(QLabel(f"Total Files: {total_files} | Chunks: {total_chunks} ({chunk_size} files/chunk)"))
-		summary_layout.addWidget(QLabel(f"Success: {success_count} | Failed: {failed_count}"))
-		summary_layout.addWidget(QLabel(f"Elapsed Time: {elapsed_time:.2f} seconds"))
-		
+		total_lbl = QLabel(f"Total Files: {total_files}  |  Chunks: {total_chunks}  ({chunk_size} files/chunk)")
+		total_lbl.setStyleSheet(f"font-size: 12px; color: {theme.get_color('foreground')};")
+		summary_layout.addWidget(total_lbl)
+
+		result_row = QHBoxLayout()
+		result_row.setSpacing(16)
+
+		success_icon = QLabel()
+		success_icon.setPixmap(qta.icon('fa6s.check', color=theme.get_color('success')).pixmap(16, 16))
+		success_text = QLabel(f"Success: {success_count}")
+		success_text.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {theme.get_color('success')};")
+
+		failed_color = theme.get_color('error') if failed_count > 0 else theme.get_color('gray')
+		failed_icon = QLabel()
+		failed_icon.setPixmap(qta.icon('fa6s.xmark', color=failed_color).pixmap(16, 16))
+		failed_text = QLabel(f"Failed: {failed_count}")
+		failed_text.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {failed_color};")
+
+		result_row.addWidget(success_icon)
+		result_row.addWidget(success_text)
+		result_row.addSpacing(8)
+		result_row.addWidget(failed_icon)
+		result_row.addWidget(failed_text)
+		result_row.addStretch()
+		summary_layout.addLayout(result_row)
+
+		elapsed_lbl = QLabel(f"Elapsed Time: {elapsed_time:.2f} seconds")
+		elapsed_lbl.setStyleSheet(f"font-size: 11px; color: {theme.get_color('gray')};")
+		summary_layout.addWidget(elapsed_lbl)
+
 		summary_group.setLayout(summary_layout)
 		layout.addWidget(summary_group)
 		
