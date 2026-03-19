@@ -519,7 +519,6 @@ def convert_svg_to_jpg(input_path, output_path, quality):
         return None
 
 def compress_and_save_image(image_path):
-    cleanup_temp_folder()
     temp_folder = ensure_temp_folder()
     quality = get_compression_quality()
     max_size = get_compression_max_size()

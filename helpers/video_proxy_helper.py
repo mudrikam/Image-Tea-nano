@@ -90,8 +90,13 @@ def extract_video_frames(video_path, frame_count=None, output_dir=None):
         print(f"[VideoProxy] Invalid video duration: {duration}")
         return []
     
-    interval = duration / (frame_count + 1)
-    
+    if frame_count == 1:
+        timestamps = [duration / 2]
+    else:
+        end = max(0.0, duration - 0.1)
+        step = end / (frame_count - 1)
+        timestamps = [i * step for i in range(frame_count)]
+
     base_name = os.path.splitext(os.path.basename(video_path))[0]
     extracted_frames = []
     
@@ -107,7 +112,7 @@ def extract_video_frames(video_path, frame_count=None, output_dir=None):
         return []
     
     for i in range(frame_count):
-        timestamp = interval * (i + 1)
+        timestamp = timestamps[i]
         output_path = os.path.join(output_dir, f"{base_name}_frame_{i+1:03d}.jpg")
         
         cmd = [
@@ -932,7 +937,12 @@ class BatchFrameExtractionWorker(QThread):
             return []
 
         frame_count = self.frame_count
-        interval = duration / (frame_count + 1)
+        if frame_count == 1:
+            timestamps = [duration / 2]
+        else:
+            end = max(0.0, duration - 0.1)
+            step = end / (frame_count - 1)
+            timestamps = [i * step for i in range(frame_count)]
 
         ffmpeg_exec = None
         if platform.system() == "Windows":
@@ -957,7 +967,7 @@ class BatchFrameExtractionWorker(QThread):
                 "frame_info": f"Extracting frame {i + 1} / {frame_count}",
             })
 
-            timestamp = interval * (i + 1)
+            timestamp = timestamps[i]
             output_path = os.path.join(temp_folder, f"{base_name}_frame_{i+1:03d}.jpg")
             cmd = [ffmpeg_exec, "-ss", str(timestamp), "-i", video_path, "-vframes", "1", "-q:v", "2", "-y", output_path]
             try:

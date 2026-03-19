@@ -18,6 +18,7 @@ from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, tra
 from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_generation_time
 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
 from helpers.video_proxy_helper import batch_process_videos_with_dialog, batch_extract_frames_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting, get_prefer_frame_analysis, extract_video_frames, cleanup_video_temp_folder, BatchFrameExtractionWorker, BatchVideoProxyWorker
+from helpers.image_compression_helper import cleanup_temp_folder
 
 from ui.theme_system import theme
 
@@ -2564,6 +2565,7 @@ def _run_next_batch(window):
     worker.signals.progress.connect(on_progress)
     worker.signals.finished.connect(on_finished)
     worker.signals.timing_updated.connect(on_timing_updated)
+    cleanup_temp_folder()
     worker.start()
 
 def stop_generate_metadata(window):
