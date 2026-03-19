@@ -60,6 +60,7 @@
     }
   },
   "video_frame_count": 5,
+  "prefer_frame_analysis": true,
   "model_list": {
     "gemini": [
       "gemini-2.5-flash",

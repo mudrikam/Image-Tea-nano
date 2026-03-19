@@ -156,7 +156,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None):
+def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -211,117 +211,149 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
             try:
                 endpoint_image_path = None
-                if not is_video:
+                endpoint_frame_paths = None
+                if is_video and preextracted_frames:
+                    compressed_frames = []
+                    for fp in preextracted_frames:
+                        cf = compress_and_save_image(fp)
+                        if cf:
+                            compressed_frames.append(cf)
+                    endpoint_frame_paths = compressed_frames if compressed_frames else None
+                elif not is_video:
                     endpoint_image_path = compress_and_save_image(image_path)
                     if not endpoint_image_path:
                         print(f"[Gemini ERROR] Failed to compress image for custom endpoint: {image_path}")
                         return '', '', '', {}, '', f"[Gemini ERROR] Failed to compress image: {image_path}", 0, 0, 0
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180)
+                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180, frame_paths=endpoint_frame_paths)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[Gemini][CustomEndpoint] {e}")
                 raise
         if is_video:
-            if proxy_path:
-                video_to_upload = proxy_path
-                print(f"[Gemini] Using pre-proxied video: {os.path.basename(proxy_path)}")
+            if preextracted_frames:
+                print(f"[Gemini] Using {len(preextracted_frames)} pre-extracted frames (prefer frame analysis mode)...")
+                uploaded_frames = []
+                uploaded_frame_ids = []
+                for fp in preextracted_frames:
+                    compressed = compress_and_save_image(fp)
+                    if compressed:
+                        fobj = client.files.upload(file=compressed)
+                        fid = fobj.name if hasattr(fobj, 'name') else getattr(fobj, 'id', None)
+                        if fid:
+                            uploaded_frame_ids.append(fid)
+                        uploaded_frames.append(fobj)
+                if not uploaded_frames:
+                    print(f"[Gemini ERROR] No frames could be uploaded for {image_path}")
+                    return '', '', '', {}, '', f"[Gemini ERROR] Failed to upload frames for video: {image_path}", 0, 0, 0
+                video_context = (
+                    f"[VIDEO FRAME CONTEXT] The {len(uploaded_frames)} images below are evenly-spaced frames "
+                    f"extracted from the video file '{filename}'. "
+                    "You MUST generate metadata that describes the VIDEO as a whole — NOT a single photo or portrait. "
+                    "Title, description, and tags must reflect motion, scene, and activity visible across the frames."
+                )
+                contents = [video_context] + uploaded_frames + [prompt]
+                uploaded_file_id = uploaded_frame_ids
             else:
-                proxy_setting = get_video_proxy_setting()
-                if proxy_setting == "Off":
-                    video_to_upload = image_path
-                    print(f"[Gemini] Video proxy is Off, using original video: {os.path.basename(image_path)}")
+                if proxy_path:
+                    video_to_upload = proxy_path
+                    print(f"[Gemini] Using pre-proxied video: {os.path.basename(proxy_path)}")
                 else:
-                    result_container = [None]
-                    finished_event = threading.Event()
-
-                    def dialog_factory(video_path, proxy_setting, stop_flag, result_container, finished_event):
-                        try:
-                            parent = QApplication.instance().activeWindow() if QApplication.instance() else None
-                            dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': 1})
-                            dlg.set_current_file(0, os.path.basename(video_path))
-                            proxy_worker = VideoProxyWorker(video_path, proxy_setting)
-
-                            def on_progress(data):
-                                try:
-                                    dlg.update_progress(data)
-                                    QApplication.processEvents()
-                                except Exception as e:
-                                    print(f"[Gemini] Dialog progress update error: {e}")
-
-                            def on_finished(result):
-                                if isinstance(result, str) and result:
-                                    result_container[0] = (result, None)
-                                else:
-                                    result_container[0] = (None, 'proxy failed or cancelled')
-                                try:
-                                    if dlg and dlg.isVisible():
-                                        dlg.close()
-                                except Exception as e:
-                                    print(f"[Gemini] Error closing dialog after proxy finished: {e}")
-                                finished_event.set()
-
-                            proxy_worker.progress_update.connect(on_progress)
-                            proxy_worker.finished.connect(on_finished)
-
-                            def on_cancel_clicked():
-                                proxy_worker.stop()
-                                if stop_flag:
-                                    stop_flag['stop'] = True
-                                dlg.request_stop()
-
-                            try:
-                                dlg.cancel_button.clicked.disconnect()
-                            except Exception as e:
-                                print(f"[Gemini] Warning: failed to disconnect cancel button: {e}")
-                            dlg.cancel_button.clicked.connect(on_cancel_clicked)
-
-                            proxy_worker.start()
-                            dlg.exec()
-                        except Exception as e:
-                            print(f"[Gemini] Dialog factory error: {e}")
-                            try:
-                                result_container[0] = (None, f"dialog factory error: {e}")
-                            except Exception as e2:
-                                print(f"[Gemini] Failed to set result container after dialog factory error: {e2}")
-                            try:
-                                finished_event.set()
-                            except Exception as e2:
-                                print(f"[Gemini] Failed to set finished_event after dialog factory error: {e2}")
-                            raise
-
-                    invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
-                    if not invoked:
-                        print(f"[Gemini ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered.")
-                        return '', '', '', {}, '', '[Gemini ERROR] Video proxy dialog invocation failed', 0, 0, 0
+                    proxy_setting = get_video_proxy_setting()
+                    if proxy_setting == "Off":
+                        video_to_upload = image_path
+                        print(f"[Gemini] Video proxy is Off, using original video: {os.path.basename(image_path)}")
                     else:
-                        if not finished_event.wait(600):
-                            print("[Gemini ERROR] Video proxy dialog timeout")
-                            return '', '', '', {}, '', '[Gemini ERROR] Video proxy timeout', 0, 0, 0
-                        proxy_result, proxy_err = result_container[0]
-                        if proxy_err:
-                            print(f"[Gemini ERROR] Video proxy failed: {proxy_err}")
-                            return '', '', '', {}, '', f"[Gemini ERROR] Video proxy failed: {proxy_err}", 0, 0, 0
-                        video_to_upload = proxy_result or image_path
+                        result_container = [None]
+                        finished_event = threading.Event()
 
-            myfile = client.files.upload(file=video_to_upload)
-            uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
-            status = None
-            max_wait_seconds = 600
-            poll_interval = 1
-            waited = 0
-            while waited < max_wait_seconds:
-                if stop_flag and stop_flag.get('stop'):
+                        def dialog_factory(video_path, proxy_setting, stop_flag, result_container, finished_event):
+                            try:
+                                parent = QApplication.instance().activeWindow() if QApplication.instance() else None
+                                dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': 1})
+                                dlg.set_current_file(0, os.path.basename(video_path))
+                                proxy_worker = VideoProxyWorker(video_path, proxy_setting)
+
+                                def on_progress(data):
+                                    try:
+                                        dlg.update_progress(data)
+                                        QApplication.processEvents()
+                                    except Exception as e:
+                                        print(f"[Gemini] Dialog progress update error: {e}")
+
+                                def on_finished(result):
+                                    if isinstance(result, str) and result:
+                                        result_container[0] = (result, None)
+                                    else:
+                                        result_container[0] = (None, 'proxy failed or cancelled')
+                                    try:
+                                        if dlg and dlg.isVisible():
+                                            dlg.close()
+                                    except Exception as e:
+                                        print(f"[Gemini] Error closing dialog after proxy finished: {e}")
+                                    finished_event.set()
+
+                                proxy_worker.progress_update.connect(on_progress)
+                                proxy_worker.finished.connect(on_finished)
+
+                                def on_cancel_clicked():
+                                    proxy_worker.stop()
+                                    if stop_flag:
+                                        stop_flag['stop'] = True
+                                    dlg.request_stop()
+
+                                try:
+                                    dlg.cancel_button.clicked.disconnect()
+                                except Exception as e:
+                                    print(f"[Gemini] Warning: failed to disconnect cancel button: {e}")
+                                dlg.cancel_button.clicked.connect(on_cancel_clicked)
+
+                                proxy_worker.start()
+                                dlg.exec()
+                            except Exception as e:
+                                print(f"[Gemini] Dialog factory error: {e}")
+                                try:
+                                    result_container[0] = (None, f"dialog factory error: {e}")
+                                except Exception as e2:
+                                    print(f"[Gemini] Failed to set result container after dialog factory error: {e2}")
+                                try:
+                                    finished_event.set()
+                                except Exception as e2:
+                                    print(f"[Gemini] Failed to set finished_event after dialog factory error: {e2}")
+                                raise
+
+                        invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
+                        if not invoked:
+                            print(f"[Gemini ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered.")
+                            return '', '', '', {}, '', '[Gemini ERROR] Video proxy dialog invocation failed', 0, 0, 0
+                        else:
+                            if not finished_event.wait(600):
+                                print("[Gemini ERROR] Video proxy dialog timeout")
+                                return '', '', '', {}, '', '[Gemini ERROR] Video proxy timeout', 0, 0, 0
+                            proxy_result, proxy_err = result_container[0]
+                            if proxy_err:
+                                print(f"[Gemini ERROR] Video proxy failed: {proxy_err}")
+                                return '', '', '', {}, '', f"[Gemini ERROR] Video proxy failed: {proxy_err}", 0, 0, 0
+                            video_to_upload = proxy_result or image_path
+
+                myfile = client.files.upload(file=video_to_upload)
+                uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
+                status = None
+                max_wait_seconds = 600
+                poll_interval = 1
+                waited = 0
+                while waited < max_wait_seconds:
+                    if stop_flag and stop_flag.get('stop'):
+                        return '', '', '', '', '', 0, 0, 0
+                    fileinfo = client.files.get(name=uploaded_file_id)
+                    status = getattr(fileinfo, 'state', None) or getattr(fileinfo, 'status', None)
+                    if status == 'ACTIVE':
+                        break
+                    time.sleep(poll_interval)
+                    waited += poll_interval
+                if status != 'ACTIVE':
+                    print(f"[Gemini ERROR] File {uploaded_file_id} not ACTIVE after upload, status: {status}")
                     return '', '', '', '', '', 0, 0, 0
-                fileinfo = client.files.get(name=uploaded_file_id)
-                status = getattr(fileinfo, 'state', None) or getattr(fileinfo, 'status', None)
-                if status == 'ACTIVE':
-                    break
-                time.sleep(poll_interval)
-                waited += poll_interval
-            if status != 'ACTIVE':
-                print(f"[Gemini ERROR] File {uploaded_file_id} not ACTIVE after upload, status: {status}")
-                return '', '', '', '', '', 0, 0, 0
-            contents = [myfile, prompt]
+                contents = [myfile, prompt]
         else:
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
@@ -460,15 +492,17 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
         return '', '', '', {}, '', f"[Gemini ERROR] {err_str}", 0, 0, 0
     finally:
         if uploaded_file_id:
-            try:
-                client.files.delete(name=uploaded_file_id)
-                print(f"[Gemini] File {uploaded_file_id} deleted from server")
+            ids_to_delete = uploaded_file_id if isinstance(uploaded_file_id, list) else [uploaded_file_id]
+            for fid in ids_to_delete:
                 try:
-                    client.files.get(name=uploaded_file_id)
-                    print(f"[Gemini] Verification: file {uploaded_file_id} still exists after delete")
+                    client.files.delete(name=fid)
+                    print(f"[Gemini] File {fid} deleted from server")
+                    try:
+                        client.files.get(name=fid)
+                        print(f"[Gemini] Verification: file {fid} still exists after delete")
+                    except Exception:
+                        print(f"[Gemini] Verification: file {fid} not found (deleted).")
                 except Exception:
-                    print(f"[Gemini] Verification: file {uploaded_file_id} not found (deleted).")
-            except Exception:
-                print(f"[Gemini] File {uploaded_file_id} auto cleanup by Gemini")
+                    print(f"[Gemini] File {fid} auto cleanup by Gemini")
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_gemini_generation_time(duration_ms)

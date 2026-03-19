@@ -59,7 +59,7 @@ class CompressionQualityDialog(QDialog):
         warning_icon = QLabel()
         warning_icon.setPixmap(qta.icon('fa6s.triangle-exclamation', color=theme.get_color('warning')).pixmap(13, 13))
         warning_icon.setFixedWidth(16)
-        warning_lbl = QLabel("Does NOT apply to video input. May affect model output quality.")
+        warning_lbl = QLabel("When Prefer Frame Analysis is enabled, also applies to video frames. May affect model output quality.")
         warning_lbl.setWordWrap(True)
         warning_lbl.setStyleSheet(f"color: {theme.get_color('warning')}; font-size: 10px;")
         warning_row.addWidget(warning_icon, 0, Qt.AlignTop)
@@ -368,7 +368,7 @@ class PromptSectionWidget(QWidget):
         self.cache_spin.setRange(1, 100)
         self.cache_spin.setFixedWidth(fixed_width)
         self.cache_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.cache_spin.setToolTip("Image Compression quality (1-100).\nClick to open quality slider.\nLower value = higher image compression, \nmore efficient internet data usage. \nDOES NOT WORK ON VIDEO INPUT. \nMay effect model output quality. \nThis method uses lossy compression \nto reduce file size before upload for processing.")
+        self.cache_spin.setToolTip("Image Compression quality (1-100).\nClick to open quality slider.\nLower value = higher image compression, \nmore efficient internet data usage. \nAlso applies to video frames when Prefer Frame Analysis is enabled. \nMay effect model output quality. \nThis method uses lossy compression \nto reduce file size before upload for processing.")
         compression_group.addWidget(self.cache_spin)
         
         compression_wrapper = QWidget()

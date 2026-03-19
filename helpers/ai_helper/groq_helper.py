@@ -154,7 +154,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None):
+def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None, preextracted_frames=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -165,16 +165,20 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
         
         frame_paths = []
         if is_video:
-            print(f"[Groq] Video detected. Extracting frames for processing...")
-            frame_paths = extract_video_frames(image_path)
-            if not frame_paths:
-                error_message = (
-                    "[Groq ERROR] Failed to extract frames from video. "
-                    "Please ensure FFmpeg is installed and the video file is valid."
-                )
-                print(error_message)
-                return '', '', '', {}, '', error_message, 0, 0, 0
-            print(f"[Groq] Extracted {len(frame_paths)} frames from video")
+            if preextracted_frames:
+                frame_paths = preextracted_frames
+                print(f"[Groq] Using {len(frame_paths)} pre-extracted frames for video")
+            else:
+                print(f"[Groq] Video detected. Extracting frames for processing...")
+                frame_paths = extract_video_frames(image_path)
+                if not frame_paths:
+                    error_message = (
+                        "[Groq ERROR] Failed to extract frames from video. "
+                        "Please ensure FFmpeg is installed and the video file is valid."
+                    )
+                    print(error_message)
+                    return '', '', '', {}, '', error_message, 0, 0, 0
+                print(f"[Groq] Extracted {len(frame_paths)} frames from video")
         
         client = Groq(api_key=api_key)
         

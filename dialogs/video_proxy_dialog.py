@@ -4,9 +4,19 @@ import qtawesome as qta
 from ui.theme_system import theme
 
 class VideoProxyDialog(QDialog):
-    def __init__(self, parent=None, batch_info=None):
+    def __init__(self, parent=None, batch_info=None, mode='proxy'):
         super().__init__(parent)
-        self.setWindowTitle("Video Proxy Processing")
+        self._mode = mode
+        if mode == 'frame_extraction':
+            self.setWindowTitle("Video Frame Extraction")
+            _title_text = "Extracting Video Frames for AI Processing"
+            _settings_header = "Extracting frames with settings:"
+            self._default_status = "Please wait: extracting frames..."
+        else:
+            self.setWindowTitle("Video Proxy Processing")
+            _title_text = "Creating Video Proxy for AI Processing"
+            _settings_header = "Creating video proxy with settings:"
+            self._default_status = "Please wait: creating video proxy..."
         self.setModal(True)
         self.setMinimumWidth(480)
         self.batch_info = batch_info or {}
@@ -17,7 +27,7 @@ class VideoProxyDialog(QDialog):
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
-        title_label = QLabel("Creating Video Proxy for AI Processing")
+        title_label = QLabel(_title_text)
         title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(title_label)
 
@@ -42,7 +52,7 @@ class VideoProxyDialog(QDialog):
 
         info_grid = QVBoxLayout()
         info_grid.setSpacing(6)
-        settings_label = QLabel("Creating video proxy with settings:")
+        settings_label = QLabel(_settings_header)
         settings_label.setStyleSheet(f"font-weight: bold; color: {theme.get_color('primary')};")
         self.settings_detail_label = QLabel("-")
         self.settings_detail_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
@@ -78,7 +88,7 @@ class VideoProxyDialog(QDialog):
         self.progress_bar.setTextVisible(False)
         progress_layout.addWidget(self.progress_bar)
 
-        self.status_label = QLabel("Please wait: creating video proxy...")
+        self.status_label = QLabel(self._default_status)
         self.status_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 11px;")
         progress_layout.addWidget(self.status_label)
 
@@ -104,7 +114,7 @@ class VideoProxyDialog(QDialog):
         self.filename_label.setText(f"Filename: {filename}")
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setTextVisible(False)
-        self.status_label.setText("Please wait: creating video proxy...")
+        self.status_label.setText(self._default_status)
         self.status_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 11px;")
 
     def set_total_files(self, total):
@@ -121,7 +131,7 @@ class VideoProxyDialog(QDialog):
             preset_name = data.get("preset", "-")
             preset_label = data.get("preset_label", "-")
             self.settings_detail_label.setText(f"{preset_name} ({preset_label})")
-            self.status_label.setText("Please wait: creating video proxy...")
+            self.status_label.setText(self._default_status)
             self.progress_bar.setRange(0, 0)
             self.progress_bar.setTextVisible(False)
         elif status == "processing":
@@ -130,10 +140,14 @@ class VideoProxyDialog(QDialog):
             self.progress_bar.setValue(progress)
             self.progress_bar.setTextVisible(True)
             self.progress_bar.setFormat(f"{progress}%")
-            current_time = data.get("current_time", 0)
-            duration = data.get("duration", 0)
-            if duration > 0:
-                self.status_label.setText(f"Encoding: {current_time:.1f}s / {duration:.1f}s")
+            frame_info = data.get("frame_info")
+            if frame_info:
+                self.status_label.setText(frame_info)
+            else:
+                current_time = data.get("current_time", 0)
+                duration = data.get("duration", 0)
+                if duration > 0:
+                    self.status_label.setText(f"Encoding: {current_time:.1f}s / {duration:.1f}s")
         elif status == "completed":
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
@@ -154,4 +168,4 @@ class VideoProxyDialog(QDialog):
             self.cancel_button.setText(" Close")
             self.cancel_button.setIcon(qta.icon('fa6s.check'))
         else:
-            self.status_label.setText("Please wait: creating video proxy...")
+            self.status_label.setText(self._default_status)

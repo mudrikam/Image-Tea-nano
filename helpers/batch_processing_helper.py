@@ -17,7 +17,7 @@ from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_gen
 from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox, track_blackbox_generation_time
 from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_generation_time
 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-from helpers.video_proxy_helper import batch_process_videos_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting
+from helpers.video_proxy_helper import batch_process_videos_with_dialog, batch_extract_frames_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting, get_prefer_frame_analysis, extract_video_frames, cleanup_video_temp_folder, BatchFrameExtractionWorker, BatchVideoProxyWorker
 
 from ui.theme_system import theme
 
@@ -886,16 +886,19 @@ def batch_generate_metadata(window):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
             proxy_path = None
+            preextracted_frames = None
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
             
             target_service = service_override if service_override else service
             target_service = target_service.lower() if target_service else 'gemini'
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -905,7 +908,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -916,7 +919,7 @@ def batch_generate_metadata(window):
                     print(f"[{service_name} ERROR] {error_message}")
             elif target_service == "groq":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -926,7 +929,7 @@ def batch_generate_metadata(window):
                     print(f"[Groq ERROR] {error_message}")
             elif target_service == "blackbox":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -936,7 +939,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -975,16 +978,19 @@ def batch_generate_metadata(window):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
             proxy_path = None
+            preextracted_frames = None
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
             
             target_service = service_override if service_override else service
             target_service = target_service.lower() if target_service else 'gemini'
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -994,7 +1000,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1005,7 +1011,7 @@ def batch_generate_metadata(window):
                     print(f"[{service_name} ERROR] {error_message}")
             elif target_service == "groq":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1015,7 +1021,7 @@ def batch_generate_metadata(window):
                     print(f"[Groq ERROR] {error_message}")
             elif target_service == "blackbox":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1025,7 +1031,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1063,10 +1069,13 @@ def batch_generate_metadata(window):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
             proxy_path = None
+            preextracted_frames = None
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1092,10 +1101,13 @@ def batch_generate_metadata(window):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
             proxy_path = None
+            preextracted_frames = None
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint)
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1121,7 +1133,11 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
+            preextracted_frames = None
+            if hasattr(window, '_batch_processing_state'):
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1146,7 +1162,11 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
+            preextracted_frames = None
+            if hasattr(window, '_batch_processing_state'):
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1172,10 +1192,13 @@ def batch_generate_metadata(window):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
             proxy_path = None
+            preextracted_frames = None
             if hasattr(window, '_batch_processing_state'):
                 video_proxy_map = window._batch_processing_state.get('video_proxy_map', {})
                 proxy_path = video_proxy_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
+                video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                preextracted_frames = video_frame_map.get(image_path)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1243,8 +1266,12 @@ def batch_generate_metadata(window):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             try:
+                preextracted_frames = None
+                if hasattr(window, '_batch_processing_state'):
+                    video_frame_map = window._batch_processing_state.get('video_frame_map', {})
+                    preextracted_frames = video_frame_map.get(image_path)
                 # Use the appropriate helper function with the custom endpoint
-                result = helper_func(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint)
+                result = helper_func(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
                 # Result is a tuple: (title, description, tags, category, filetype, error_message, token_input, token_output, token_total)
                 title, description, tags, category, filetype, error_message, token_input, token_output, token_total = result
                 return {
@@ -1283,29 +1310,10 @@ def batch_generate_metadata(window):
 
     batch_size = get_batch_size()
     total_files = len(rows)
-    
+
     video_proxy_map = {}
-    proxy_setting = get_video_proxy_setting()
-    if proxy_setting != "Off":
-        video_files = []
-        for row in rows:
-            filepath = row[1]
-            ext = os.path.splitext(filepath)[1].lower()
-            if ext in VIDEO_EXTENSIONS:
-                video_files.append(filepath)
-        
-        if video_files:
-            print(f"[BATCH] Pre-processing {len(video_files)} video(s) with proxy setting: {proxy_setting}")
-            video_proxy_map = batch_process_videos_with_dialog(video_files, stop_flag)
-            
-            if stop_flag and stop_flag.get('stop'):
-                print("[BATCH] Video proxy processing cancelled by user")
-                window.table.progress_bar.setVisible(False)
-                window.table.set_progress_info('', visible=False)
-                return
-            
-            print(f"[BATCH] Video proxy pre-processing complete: {len(video_proxy_map)} videos processed")
-    
+    video_frame_map = {}
+
     # Create batches based on mode
     if is_parallel_mode and api_keys_list:
         # For parallel mode, create rounds where multiple APIs work simultaneously
@@ -1344,7 +1352,8 @@ def batch_generate_metadata(window):
         'current_api_index': 0,
         'batch_retry_count': 0,
         'batch_same_api_retry': 0,
-        'video_proxy_map': video_proxy_map
+        'video_proxy_map': video_proxy_map,
+        'video_frame_map': video_frame_map
     }
     window.is_generating = True
     
@@ -1788,6 +1797,123 @@ def _on_parallel_round_completed(window, state, round_tasks, worker_results):
     else:
         _on_generation_finished(window, state['errors'])
 
+def _preprocess_frames_for_batch(window):
+    from dialogs.video_proxy_dialog import VideoProxyDialog
+    state = window._batch_processing_state
+    stop_flag = state.get('stop_flag')
+    batch = state['_current_batch']
+
+    video_frame_map = state.get('video_frame_map', {})
+    video_files = [
+        row[1] for row in batch
+        if os.path.splitext(row[1])[1].lower() in VIDEO_EXTENSIONS and row[1] not in video_frame_map
+    ]
+    if not video_files:
+        _run_next_batch(window)
+        return
+
+    print(f"[BATCH {state['current'] + 1}] Extracting frames for {len(video_files)} video(s)...")
+    dlg = VideoProxyDialog(parent=window, batch_info={'total_files': len(video_files)}, mode='frame_extraction')
+    worker = BatchFrameExtractionWorker(video_files)
+
+    def on_progress(data):
+        status = data.get("status")
+        if status == "file_start":
+            dlg.set_current_file(data.get("file_index", 0), data.get("filename", ""))
+        elif status == "file_done":
+            dlg.update_batch_progress(data.get("completed_count", 0))
+        else:
+            dlg.update_progress(data)
+        QApplication.processEvents()
+
+    def on_all_finished(results):
+        state['video_frame_map'].update(results)
+        dlg.close()
+
+    def on_cancel():
+        worker.stop()
+        if stop_flag:
+            stop_flag['stop'] = True
+        dlg.request_stop()
+
+    worker.progress_update.connect(on_progress)
+    worker.all_finished.connect(on_all_finished)
+    try:
+        dlg.cancel_button.clicked.disconnect()
+    except Exception:
+        pass
+    dlg.cancel_button.clicked.connect(on_cancel)
+    worker.start()
+    dlg.exec()
+
+    if stop_flag and stop_flag.get('stop'):
+        print(f"[BATCH {state['current'] + 1}] Frame extraction cancelled")
+        window.table.progress_bar.setVisible(False)
+        window.table.set_progress_info('', visible=False)
+        return
+
+    _run_next_batch(window)
+
+
+def _preprocess_proxy_for_batch(window):
+    from dialogs.video_proxy_dialog import VideoProxyDialog
+    state = window._batch_processing_state
+    stop_flag = state.get('stop_flag')
+    batch = state['_current_batch']
+    proxy_setting = get_video_proxy_setting()
+
+    video_proxy_map = state.get('video_proxy_map', {})
+    video_files = [
+        row[1] for row in batch
+        if os.path.splitext(row[1])[1].lower() in VIDEO_EXTENSIONS and row[1] not in video_proxy_map
+    ]
+    if not video_files:
+        _run_next_batch(window)
+        return
+
+    print(f"[BATCH {state['current'] + 1}] Creating proxy for {len(video_files)} video(s) with setting: {proxy_setting}...")
+    dlg = VideoProxyDialog(parent=window, batch_info={'total_files': len(video_files)})
+    worker = BatchVideoProxyWorker(video_files, proxy_setting)
+
+    def on_progress(data):
+        status = data.get("status")
+        if status == "file_start":
+            dlg.set_current_file(data.get("file_index", 0), data.get("filename", ""))
+        elif status == "file_done":
+            dlg.update_batch_progress(data.get("completed_count", 0))
+        else:
+            dlg.update_progress(data)
+        QApplication.processEvents()
+
+    def on_all_finished(results):
+        state['video_proxy_map'].update(results)
+        dlg.close()
+
+    def on_cancel():
+        worker.stop()
+        if stop_flag:
+            stop_flag['stop'] = True
+        dlg.request_stop()
+
+    worker.progress_update.connect(on_progress)
+    worker.all_finished.connect(on_all_finished)
+    try:
+        dlg.cancel_button.clicked.disconnect()
+    except Exception:
+        pass
+    dlg.cancel_button.clicked.connect(on_cancel)
+    worker.start()
+    dlg.exec()
+
+    if stop_flag and stop_flag.get('stop'):
+        print(f"[BATCH {state['current'] + 1}] Proxy creation cancelled")
+        window.table.progress_bar.setVisible(False)
+        window.table.set_progress_info('', visible=False)
+        return
+
+    _run_next_batch(window)
+
+
 def _run_next_batch(window):
     state = window._batch_processing_state
     if state.get('should_stop', False):
@@ -1869,7 +1995,28 @@ def _run_next_batch(window):
         api_key = state['api_key']
         service = state['service']
         model = state['model']
-    
+
+    # Per-batch video pre-processing: only process this batch's videos, not all upfront
+    state['_current_batch'] = batch
+    if not is_parallel_mode:
+        batch_video_files = [
+            row[1] for row in batch
+            if os.path.splitext(row[1])[1].lower() in VIDEO_EXTENSIONS
+        ]
+        if batch_video_files:
+            prefer_frame = get_prefer_frame_analysis()
+            proxy_setting = get_video_proxy_setting()
+            video_frame_map = state.get('video_frame_map', {})
+            video_proxy_map = state.get('video_proxy_map', {})
+            if prefer_frame:
+                if any(v not in video_frame_map for v in batch_video_files):
+                    _preprocess_frames_for_batch(window)
+                    return
+            elif proxy_setting != "Off":
+                if any(v not in video_proxy_map for v in batch_video_files):
+                    _preprocess_proxy_for_batch(window)
+                    return
+
     row_map = state['row_map']
     metadata_func = state['metadata_func']
     rows = state['rows']

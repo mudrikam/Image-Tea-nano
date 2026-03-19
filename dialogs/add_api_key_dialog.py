@@ -599,12 +599,12 @@ class AddApiKeyDialog(QDialog):
         self.search_edit.textChanged.connect(self._apply_table_search)
         csv_btn_layout_bottom = QHBoxLayout()
         self.export_csv_btn = QPushButton()
-        self.export_csv_btn.setText("Export CSV")
+        self.export_csv_btn.setText("Backup Keys")
         self.export_csv_btn.setIcon(qta.icon('fa6s.file-csv'))
         self.export_csv_btn.setIconSize(self.export_csv_btn.iconSize())
-        self.export_csv_btn.setToolTip("Export API key list to CSV")
+        self.export_csv_btn.setToolTip("Backup API key list to CSV")
         self.import_csv_btn = QPushButton()
-        self.import_csv_btn.setText("Import CSV")
+        self.import_csv_btn.setText("Import Keys")
         self.import_csv_btn.setIcon(qta.icon('fa6s.file-import'))
         self.import_csv_btn.setIconSize(self.import_csv_btn.iconSize())
         self.import_csv_btn.setToolTip("Import API key list from CSV")
@@ -2041,7 +2041,7 @@ class AddApiKeyDialog(QDialog):
             rows = self.db.get_all_api_keys()
         except Exception as e:
             print(f"Error fetching API keys for export: {e}")
-            QMessageBox.critical(self, "Export CSV", "Failed to fetch API Key data.")
+            QMessageBox.critical(self, "Backup Keys", "Failed to fetch API Key data.")
             return
         now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         home_dir = os.path.expanduser("~")
@@ -2084,10 +2084,10 @@ class AddApiKeyDialog(QDialog):
                     except Exception:
                         api_encoded = api
                     writer.writerow([service, api_encoded, endpoint or '', last_tested, note, status, model])
-            QMessageBox.information(self, "Export CSV", f"API Keys exported successfully to:\n{file_path}")
+            QMessageBox.information(self, "Backup Keys", f"API Keys exported successfully to:\n{file_path}")
         except Exception as e:
             print(f"Error exporting API keys to CSV: {e}")
-            QMessageBox.critical(self, "Export CSV", "Failed to write CSV file.")
+            QMessageBox.critical(self, "Backup Keys", "Failed to write CSV file.")
 
     def import_api_keys_csv(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2140,10 +2140,10 @@ class AddApiKeyDialog(QDialog):
                     except Exception as e:
                         print(f"Error saving API key: {e}")
             self._refresh_api_table()
-            QMessageBox.information(self, "Import CSV", f"Import finished.\nImported: {imported}\nSkipped (already exists): {skipped}")
+            QMessageBox.information(self, "Import Keys", f"Import finished.\nImported: {imported}\nSkipped (already exists): {skipped}")
         except Exception as e:
             print(f"Error importing API keys from CSV: {e}")
-            QMessageBox.critical(self, "Import CSV", "Failed to import API keys from CSV.")
+            QMessageBox.critical(self, "Import Keys", "Failed to import API keys from CSV.")
 
     def test_all_api_keys(self):
         if self._test_all_running:

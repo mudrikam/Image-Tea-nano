@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QPushButton, QGroupBox, QMessageBox, QSizePolicy
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QPushButton, QGroupBox, QMessageBox, QSizePolicy, QCheckBox
 from PySide6.QtCore import Qt
 import qtawesome as qta
 import json
@@ -88,6 +88,25 @@ class VideoProxyPromptSettingsDialog(QDialog):
         outer.addLayout(row_widget('fa6s.sliders', 'CRF:', self.crf_spin))
         outer.addLayout(row_widget('fa6s.images', 'Frames:', self.frame_count_spin))
 
+        pfa_row = QHBoxLayout()
+        pfa_row.setSpacing(4)
+        pfa_ic = QLabel()
+        pfa_ic.setPixmap(qta.icon('fa6s.film').pixmap(14, 14))
+        pfa_ic.setFixedWidth(14)
+        pfa_row.addWidget(pfa_ic)
+        pfa_spacer = QLabel()
+        pfa_spacer.setFixedWidth(70)
+        pfa_row.addWidget(pfa_spacer)
+        self.prefer_frame_check = QCheckBox('Prefer Frame Analysis')
+        self.prefer_frame_check.setToolTip(
+            'When enabled, frames are extracted from the video and sent to the AI model instead of the full video.\n'
+            'Works with all AI providers including Gemini. Default: enabled.'
+        )
+        pfa_row.addWidget(self.prefer_frame_check)
+        pfa_row.addStretch()
+        outer.addLayout(pfa_row)
+        self._load_prefer_frame()
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         self.save_btn = QPushButton('Save')
@@ -123,6 +142,16 @@ class VideoProxyPromptSettingsDialog(QDialog):
             print(f"Failed to load video frame count: {e}")
             self.frame_count_spin.setValue(5)
 
+    def _load_prefer_frame(self):
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            prefer_frame = cfg.get('prefer_frame_analysis', True)
+            self.prefer_frame_check.setChecked(bool(prefer_frame))
+        except Exception as e:
+            print(f"Failed to load prefer_frame_analysis: {e}")
+            self.prefer_frame_check.setChecked(True)
+
     def _on_preset_changed(self, name):
         p = self.presets.get(name, {})
         self.label_edit.setText(p.get('label', ''))
@@ -150,6 +179,7 @@ class VideoProxyPromptSettingsDialog(QDialog):
         }
         cfg['video_proxy_presets'] = presets
         cfg['video_frame_count'] = self.frame_count_spin.value()
+        cfg['prefer_frame_analysis'] = self.prefer_frame_check.isChecked()
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)

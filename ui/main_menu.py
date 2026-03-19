@@ -373,6 +373,17 @@ def setup_main_menu(window):
         dialog.theme_changed.connect(lambda theme_id: load_themes_menu())
         dialog.exec()
     
+    edit_menu.addSeparator()
+    video_proxy_settings_action = QAction(qta.icon('fa6s.video'), "Video Proxy Settings", window)
+    video_proxy_settings_action.setToolTip("Edit video proxy presets (bitrate, CRF, resolution)")
+    video_proxy_settings_action.setStatusTip("Edit video proxy presets (bitrate, CRF, resolution)")
+    def open_video_proxy_settings():
+        dlg = VideoProxyPromptSettingsDialog(window)
+        dlg.exec()
+    video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
+    edit_menu.addAction(video_proxy_settings_action)
+
+    edit_menu.addSeparator()
     load_themes_menu()
     edit_menu.addMenu(themes_submenu)
 
@@ -443,15 +454,6 @@ def setup_main_menu(window):
         dialog.exec()
     custom_prompt_action.triggered.connect(open_custom_prompt)
     prompt_menu.addAction(custom_prompt_action)
-
-    video_proxy_settings_action = QAction(qta.icon('fa6s.video'), "Video Proxy Settings", window)
-    video_proxy_settings_action.setToolTip("Edit video proxy presets (bitrate, CRF, resolution)")
-    video_proxy_settings_action.setStatusTip("Edit video proxy presets (bitrate, CRF, resolution)")
-    def open_video_proxy_settings():
-        dlg = VideoProxyPromptSettingsDialog(window)
-        dlg.exec()
-    video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
-    prompt_menu.addAction(video_proxy_settings_action)
 
     api_action = QAction("API Key Manager", window)
     api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])

@@ -154,7 +154,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None):
+def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_flag=None, provider_endpoint=None, preextracted_frames=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -165,16 +165,20 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
         
         frame_paths = []
         if is_video:
-            print(f"[Blackbox] Video detected. Extracting frames for processing...")
-            frame_paths = extract_video_frames(image_path)
-            if not frame_paths:
-                error_message = (
-                    "[Blackbox ERROR] Failed to extract frames from video. "
-                    "Please ensure FFmpeg is installed and the video file is valid."
-                )
-                print(error_message)
-                return '', '', '', {}, '', error_message, 0, 0, 0
-            print(f"[Blackbox] Extracted {len(frame_paths)} frames from video")
+            if preextracted_frames:
+                frame_paths = preextracted_frames
+                print(f"[Blackbox] Using {len(frame_paths)} pre-extracted frames for video")
+            else:
+                print(f"[Blackbox] Video detected. Extracting frames for processing...")
+                frame_paths = extract_video_frames(image_path)
+                if not frame_paths:
+                    error_message = (
+                        "[Blackbox ERROR] Failed to extract frames from video. "
+                        "Please ensure FFmpeg is installed and the video file is valid."
+                    )
+                    print(error_message)
+                    return '', '', '', {}, '', error_message, 0, 0, 0
+                print(f"[Blackbox] Extracted {len(frame_paths)} frames from video")
         
         try:
             cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')

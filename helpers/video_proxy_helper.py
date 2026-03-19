@@ -66,6 +66,13 @@ def get_video_frame_count():
     return int(config.get("video_frame_count", 5))
 
 
+def get_prefer_frame_analysis():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    return bool(config.get("prefer_frame_analysis", True))
+
+
 def extract_video_frames(video_path, frame_count=None, output_dir=None):
     if frame_count is None:
         frame_count = get_video_frame_count()
@@ -853,6 +860,196 @@ class BatchVideoProxyWorker(QThread):
             return None
         
         return output_path
+
+
+class BatchFrameExtractionWorker(QThread):
+    progress_update = Signal(dict)
+    all_finished = Signal(dict)
+
+    def __init__(self, video_files, frame_count=None):
+        super().__init__()
+        self.video_files = video_files
+        self.frame_count = frame_count if frame_count is not None else get_video_frame_count()
+        self.stop_flag = False
+        self.results = {}
+
+    def stop(self):
+        self.stop_flag = True
+
+    def run(self):
+        cleanup_video_temp_folder()
+        temp_folder = ensure_video_temp_folder()
+        total_files = len(self.video_files)
+
+        try:
+            from helpers.image_compression_helper import get_compression_quality, get_compression_max_size
+            quality = get_compression_quality()
+            max_size = get_compression_max_size()
+        except Exception:
+            quality = 80
+            max_size = 1568
+
+        for idx, video_path in enumerate(self.video_files):
+            if self.stop_flag:
+                self.all_finished.emit(self.results)
+                return
+
+            filename = os.path.basename(video_path)
+            self.progress_update.emit({
+                "status": "file_start",
+                "file_index": idx,
+                "filename": filename,
+                "total_files": total_files
+            })
+            self.progress_update.emit({
+                "status": "starting",
+                "preset": "Frame Extraction",
+                "preset_label": f"{self.frame_count} frames · Q{quality} · max {max_size}px",
+            })
+
+            frames = self._extract_frames(video_path, temp_folder)
+            if frames:
+                self.results[video_path] = frames
+
+            self.progress_update.emit({
+                "status": "file_done",
+                "file_index": idx,
+                "completed_count": idx + 1,
+                "total_files": total_files
+            })
+
+        self.progress_update.emit({"status": "batch_complete"})
+        self.all_finished.emit(self.results)
+
+    def _extract_frames(self, video_path, temp_folder):
+        video_info = get_video_info(video_path)
+        if not video_info or not video_info.get('duration'):
+            self.progress_update.emit({"status": "error", "error": f"Cannot get duration for {os.path.basename(video_path)}"})
+            return []
+
+        duration = video_info['duration']
+        if duration <= 0:
+            return []
+
+        frame_count = self.frame_count
+        interval = duration / (frame_count + 1)
+
+        ffmpeg_exec = None
+        if platform.system() == "Windows":
+            if os.path.isfile(FFMPEG_PATH) and os.access(FFMPEG_PATH, os.X_OK):
+                ffmpeg_exec = FFMPEG_PATH
+        else:
+            ffmpeg_exec = shutil.which("ffmpeg")
+        if not ffmpeg_exec:
+            self.progress_update.emit({"status": "error", "error": "ffmpeg not available"})
+            return []
+
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        extracted_frames = []
+        for i in range(frame_count):
+            if self.stop_flag:
+                return extracted_frames
+
+            progress = int((i / frame_count) * 100)
+            self.progress_update.emit({
+                "status": "processing",
+                "progress": progress,
+                "frame_info": f"Extracting frame {i + 1} / {frame_count}",
+            })
+
+            timestamp = interval * (i + 1)
+            output_path = os.path.join(temp_folder, f"{base_name}_frame_{i+1:03d}.jpg")
+            cmd = [ffmpeg_exec, "-ss", str(timestamp), "-i", video_path, "-vframes", "1", "-q:v", "2", "-y", output_path]
+            try:
+                _run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+                if os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
+                    extracted_frames.append(output_path)
+                    print(f"[FrameExtraction] Frame {i+1}/{frame_count} at {timestamp:.2f}s: {output_path}")
+                else:
+                    print(f"[FrameExtraction] Failed to extract frame {i+1} at {timestamp:.2f}s")
+            except Exception as e:
+                print(f"[FrameExtraction] Error extracting frame {i+1}: {e}")
+
+        self.progress_update.emit({
+            "status": "completed",
+        })
+        return extracted_frames
+
+
+def batch_extract_frames_with_dialog(video_files, stop_flag=None):
+    if not video_files:
+        return {}
+
+    result_container = [None]
+    finished_event = threading.Event()
+
+    def dialog_factory(video_files, stop_flag, result_container, finished_event):
+        try:
+            from dialogs.video_proxy_dialog import VideoProxyDialog
+            parent = QApplication.instance().activeWindow() if QApplication.instance() else None
+            dlg = VideoProxyDialog(parent=parent, batch_info={'total_files': len(video_files)}, mode='frame_extraction')
+
+            worker = BatchFrameExtractionWorker(video_files)
+
+            def on_progress(data):
+                try:
+                    status = data.get("status")
+                    if status == "file_start":
+                        file_idx = data.get("file_index", 0)
+                        filename = data.get("filename", "")
+                        dlg.set_current_file(file_idx, filename)
+                    elif status == "file_done":
+                        completed = data.get("completed_count", 0)
+                        dlg.update_batch_progress(completed)
+                    else:
+                        dlg.update_progress(data)
+                    QApplication.processEvents()
+                except Exception as e:
+                    print(f"[BatchFrameExtraction] Dialog progress update error: {e}")
+
+            def on_all_finished(results):
+                result_container[0] = results
+                try:
+                    if dlg and dlg.isVisible():
+                        dlg.close()
+                except Exception as e:
+                    print(f"[BatchFrameExtraction] Error closing dialog: {e}")
+                finished_event.set()
+
+            worker.progress_update.connect(on_progress)
+            worker.all_finished.connect(on_all_finished)
+
+            def on_cancel_clicked():
+                worker.stop()
+                if stop_flag:
+                    stop_flag['stop'] = True
+                dlg.request_stop()
+
+            try:
+                dlg.cancel_button.clicked.disconnect()
+            except Exception:
+                pass
+            dlg.cancel_button.clicked.connect(on_cancel_clicked)
+
+            worker.start()
+            dlg.exec()
+
+        except Exception as e:
+            print(f"[BatchFrameExtraction] Dialog factory error: {e}")
+            result_container[0] = {}
+            finished_event.set()
+
+    invoked = invoke_in_main_thread(dialog_factory, (video_files, stop_flag, result_container, finished_event))
+
+    if not invoked:
+        print("[BatchFrameExtraction] Could not invoke dialog on main thread")
+        return {}
+
+    if not finished_event.wait(1800):
+        print("[BatchFrameExtraction] Timeout waiting for batch frame extraction")
+        return {}
+
+    return result_container[0] if result_container[0] else {}
 
 
 def batch_process_videos_with_dialog(video_files, stop_flag=None):

@@ -186,7 +186,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None):
+def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -198,16 +198,23 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         
         frame_paths = []
         if is_video and not is_openrouter:
-            print(f"[OpenAI] Video detected. Extracting frames for processing...")
-            frame_paths = extract_video_frames(image_path)
-            if not frame_paths:
-                error_message = (
-                    "[OpenAI ERROR] Failed to extract frames from video. "
-                    "Please ensure FFmpeg is installed and the video file is valid."
-                )
-                print(error_message)
-                return '', '', '', {}, '', error_message, 0, 0, 0
-            print(f"[OpenAI] Extracted {len(frame_paths)} frames from video")
+            if preextracted_frames:
+                frame_paths = preextracted_frames
+                print(f"[OpenAI] Using {len(frame_paths)} pre-extracted frames for video")
+            else:
+                print(f"[OpenAI] Video detected. Extracting frames for processing...")
+                frame_paths = extract_video_frames(image_path)
+                if not frame_paths:
+                    error_message = (
+                        "[OpenAI ERROR] Failed to extract frames from video. "
+                        "Please ensure FFmpeg is installed and the video file is valid."
+                    )
+                    print(error_message)
+                    return '', '', '', {}, '', error_message, 0, 0, 0
+                print(f"[OpenAI] Extracted {len(frame_paths)} frames from video")
+        elif is_video and is_openrouter and preextracted_frames:
+            frame_paths = preextracted_frames
+            print(f"[OpenAI/OpenRouter] Using {len(frame_paths)} pre-extracted frames for video (prefer frame mode)")
         
         client = create_openai_client(api_key)
         if not prompt:
@@ -249,7 +256,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 filename=filename,
                 is_video=is_video
             )
-        if is_video and is_openrouter:
+        if is_video and is_openrouter and not frame_paths:
             if proxy_path:
                 video_to_upload = proxy_path
                 print(f"[OpenAI] Using pre-proxied video: {os.path.basename(proxy_path)}")
