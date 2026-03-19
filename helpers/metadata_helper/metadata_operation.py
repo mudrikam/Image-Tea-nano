@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QProgressBar, QSize
 				   QTableWidgetItem, QHeaderView, QFileDialog, QGroupBox, QMessageBox, QApplication)
 from PySide6.QtGui import QIcon, QColor, QBrush
 import os
+import re
 import shutil
 import platform
 import exiftool
@@ -22,6 +23,13 @@ def _get_chunk_size():
 	with open(os.path.join(BASE_PATH, "configs", "app_config.json"), encoding="utf-8") as f:
 		app_config = json.load(f)
 	return app_config['chunk_size']
+
+
+def _sanitize_keyword(keyword):
+	if not keyword:
+		return keyword
+	sanitized = re.sub(r'[^\w\s]', '', str(keyword)).strip()
+	return sanitized if sanitized else None
 
 
 def _truncate_text(text: str, max_len: int = 60) -> str:
@@ -393,6 +401,8 @@ def write_metadata_pyexiv2(file_path, title, description, tag_list):
 			tag_list = [t.strip() for t in tag_list.split(',') if t.strip()]
 		elif not isinstance(tag_list, list):
 			tag_list = []
+		tag_list = [_sanitize_keyword(t) for t in tag_list]
+		tag_list = [t for t in tag_list if t]
 		subject_str = ', '.join(tag_list)
 		xmp_update = {}
 		iptc_update = {}
@@ -711,6 +721,8 @@ class VideoMetadataWriterThread(QThread):
 							tag_list = tags
 						else:
 							tag_list = []
+						tag_list = [_sanitize_keyword(t) for t in tag_list]
+						tag_list = [t for t in tag_list if t]
 						if tag_list:
 							joined_comma = ",".join(tag_list)
 							joined_semi = "; ".join(tag_list)
