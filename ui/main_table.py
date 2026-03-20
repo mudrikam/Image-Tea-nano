@@ -2279,7 +2279,7 @@ class ImageTableWidget(QWidget):
             return
         words = full_text.split(" ")
         state = [0]
-        interval = max(30, 1000 // max(1, len(words)))
+        interval = max(20, 667 // max(1, len(words)))
         timer = QTimer(self)
         timer.setInterval(interval)
         def _tick():

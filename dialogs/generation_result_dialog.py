@@ -9,9 +9,9 @@ from ui.theme_system import theme
 
 class GenerationResultDialog(QDialog):
     def __init__(self, parent=None, total_files=0, success_count=0, failed_count=0,
-                 token_input=0, token_output=0, token_total=0, total_time_ms=0):
+                 token_input=0, token_output=0, token_total=0, total_time_ms=0, stopped=False, stopped_count=0):
         super().__init__(parent)
-        self.setWindowTitle("Generation Complete")
+        self.setWindowTitle("Generation Stopped" if stopped else "Generation Complete")
         self.setFixedWidth(350)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
@@ -37,10 +37,13 @@ class GenerationResultDialog(QDialog):
         # --- Header ---
         header_layout = QHBoxLayout()
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa6s.circle-check', color=theme.get_color('success')).pixmap(28, 28))
+        if stopped:
+            icon_lbl.setPixmap(qta.icon('fa6s.hand', color=theme.get_color('warning')).pixmap(28, 28))
+        else:
+            icon_lbl.setPixmap(qta.icon('fa6s.circle-check', color=theme.get_color('success')).pixmap(28, 28))
         header_text = QVBoxLayout()
         header_text.setSpacing(1)
-        title_lbl = QLabel("Generation Complete")
+        title_lbl = QLabel("Stopped by User" if stopped else "Generation Complete")
         title_lbl.setStyleSheet("font-size: 16px; font-weight: bold;")
         subtitle_lbl = QLabel(f"{success_count} success  ·  {failed_count} failed  ·  {total_files} total")
         subtitle_lbl.setStyleSheet("font-size: 10px; opacity: 0.6;")
@@ -97,6 +100,8 @@ class GenerationResultDialog(QDialog):
         files_vbox.addWidget(make_row("Total Files", total_files, bold=True))
         files_vbox.addWidget(make_row("Success", success_count, 'success', bold=True))
         files_vbox.addWidget(make_row("Failed", failed_count, 'error' if failed_count > 0 else None))
+        if stopped:
+            files_vbox.addWidget(make_row("Stopped", stopped_count, 'warning'))
         layout.addWidget(files_frame)
 
         # --- Performance section ---

@@ -2757,30 +2757,33 @@ def _on_generation_finished(window, errors, stopped=False):
             api_count = len(state.get('api_keys_list', []))
             window.statusbar.showMessage(f"Rolling APIs completed using {api_count} API keys", 5000)
 
-        total_time_ms = 0
-        if hasattr(window, '_gen_total_time_start'):
-            total_time_ms = int((time.perf_counter() - window._gen_total_time_start) * 1000)
-        token_input = getattr(window, '_session_token_input', 0)
-        token_output = getattr(window, '_session_token_output', 0)
-        token_total = getattr(window, '_session_token_total', 0)
-        success_count = window.db.get_files_count(status_filter='success')
-        failed_count = window.db.get_files_count(status_filter='failed')
-        total_files = success_count + failed_count
-        dlg = GenerationResultDialog(
-            parent=window,
-            total_files=total_files,
-            success_count=success_count,
-            failed_count=failed_count,
-            token_input=token_input,
-            token_output=token_output,
-            token_total=token_total,
-            total_time_ms=total_time_ms
-        )
-        tw_queue = getattr(window.table, '_tw_queue', None)
-        if tw_queue:
-            window.table._pending_result_dialog = dlg
-        else:
-            dlg.exec()
+    total_time_ms = 0
+    if hasattr(window, '_gen_total_time_start'):
+        total_time_ms = int((time.perf_counter() - window._gen_total_time_start) * 1000)
+    token_input = getattr(window, '_session_token_input', 0)
+    token_output = getattr(window, '_session_token_output', 0)
+    token_total = getattr(window, '_session_token_total', 0)
+    success_count = window.db.get_files_count(status_filter='success')
+    failed_count = window.db.get_files_count(status_filter='failed')
+    stopped_count = window.db.get_files_count(status_filter='stopped') if stopped else 0
+    total_files = success_count + failed_count + stopped_count
+    dlg = GenerationResultDialog(
+        parent=window,
+        total_files=total_files,
+        success_count=success_count,
+        failed_count=failed_count,
+        token_input=token_input,
+        token_output=token_output,
+        token_total=token_total,
+        total_time_ms=total_time_ms,
+        stopped=stopped,
+        stopped_count=stopped_count
+    )
+    tw_queue = getattr(window.table, '_tw_queue', None)
+    if tw_queue:
+        window.table._pending_result_dialog = dlg
+    else:
+        dlg.exec()
     
     print("[CLEANUP] Generation finished cleanup completed.")
 
