@@ -95,11 +95,9 @@ def setup_ui(self):
     btn_row_layout = QHBoxLayout()
     self.stats_section = StatsSectionWidget(self)
     self.stats_section.db = self.db
-    btn_row_layout.addWidget(self.stats_section)
+    btn_row_layout.addWidget(self.stats_section, stretch=1)
 
     self.table.stats_changed.connect(self.stats_section.update_stats)
-
-    btn_row_layout.addStretch()
 
     gen_group_layout = QVBoxLayout()
     self.gen_mode_combo = QComboBox()

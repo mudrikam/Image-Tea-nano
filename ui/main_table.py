@@ -1166,7 +1166,6 @@ class ImageTableWidget(QWidget):
         self.tab_widget.addTab(self.thumbnail_tab, qta.icon("fa6s.images"), "Thumbnail") 
         self.tab_widget.addTab(self.details_tab, qta.icon("fa6s.list"), "Details")
         self.tab_widget.addTab(self.add_files_tab, qta.icon("fa6s.folder-plus"), "Add Files")
-        self.tab_widget.setStyleSheet(f"QTabBar::tab {{ color: {theme.get_color('text_dark')}; }} QTabBar::tab:selected {{ color: {theme.get_color('primary')}; }}")
         self.tab_widget.currentChanged.connect(self._update_tab_icons)
         self._update_tab_icons(self.tab_widget.currentIndex())
         

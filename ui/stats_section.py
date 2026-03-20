@@ -1,18 +1,71 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton
-from PySide6.QtGui import QFont
-from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
-import qtawesome as qta
-from PySide6.QtCore import Qt, QTimer
+import logging
 import time
 from datetime import datetime, timedelta
+
+import qtawesome as qta
+from PySide6.QtCore import QObject, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QSizePolicy
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from .theme_system import theme
+
+_LEVEL_COLOR_KEYS = {
+    "DEBUG":    "text_dark",
+    "INFO":     "success",
+    "WARNING":  "warning",
+    "ERROR":    "error",
+    "CRITICAL": "secondary",
+}
+
+_LOG_FMT = "%(asctime)s | %(levelname)-8s | %(module)s | %(message)s"
+_LOG_DATE_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+class _LogSignalEmitter(QObject):
+    new_record = Signal(str, str)
+
+
+class _InlineLogHandler(logging.Handler):
+    def __init__(self, emitter: _LogSignalEmitter):
+        super().__init__()
+        self._emitter = emitter
+        self.setFormatter(logging.Formatter(_LOG_FMT, datefmt=_LOG_DATE_FMT))
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            level = record.levelname
+            line = self.format(record)
+            self._emitter.new_record.emit(level, line)
+        except Exception:
+            pass
+
 
 class StatsSectionWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         main_vbox = QVBoxLayout(self)
         main_vbox.setContentsMargins(0, 0, 0, 0)
-        main_vbox.setSpacing(2)
+        main_vbox.setSpacing(0)
+
+        self._tab_widget = QTabWidget(self)
+        self._tab_widget.setDocumentMode(True)
+        main_vbox.addWidget(self._tab_widget)
+
+        # --- Tab 1: Statistics ---
+        stats_tab = QWidget()
+        stats_layout = QVBoxLayout(stats_tab)
+        stats_layout.setContentsMargins(0, 4, 0, 0)
+        stats_layout.setSpacing(2)
 
         hbox = QHBoxLayout()
         hbox.setContentsMargins(0, 0, 0, 0)
@@ -110,7 +163,25 @@ class StatsSectionWidget(QWidget):
         hbox.addLayout(time_stats_layout)
         hbox.addStretch(1)
 
-        main_vbox.addLayout(hbox)
+        stats_layout.addLayout(hbox)
+
+        # --- Tab 2: Logs ---
+        logs_tab = QWidget()
+        logs_layout = QVBoxLayout(logs_tab)
+        logs_layout.setContentsMargins(0, 0, 0, 0)
+        logs_layout.setSpacing(0)
+
+        self._log_text = QTextEdit()
+        self._log_text.setReadOnly(True)
+        self._log_text.setLineWrapMode(QTextEdit.WidgetWidth)
+        log_font = QFont("Consolas", 8)
+        log_font.setStyleHint(QFont.Monospace)
+        self._log_text.setFont(log_font)
+        logs_layout.addWidget(self._log_text)
+
+        icon_color = theme.get_color('gray')
+        self._tab_widget.addTab(stats_tab, qta.icon("fa6s.chart-bar", color=icon_color), "Statistics")
+        self._tab_widget.addTab(logs_tab, qta.icon("fa6s.terminal", color=icon_color), "Logs")
 
         self._last_gen_time = 0
         self._avg_time = 0
@@ -118,35 +189,68 @@ class StatsSectionWidget(QWidget):
         self._last_time = 0
         self._total_time = 0
 
-        # Estimation tracking variables
-        self._generation_start_time = None  # When generate button is clicked
+        self._generation_start_time = None
         self._current_total = 0
         self._current_success = 0
         self._current_failed = 0
         self._current_selected = 0
-        self._processing_target = 0  # Total files being processed in current batch
+        self._processing_target = 0
 
         self._donation_dialog_shown_token = False
 
         self.reset_token_btn.clicked.connect(self._reset_token_stats)
-        
-        # Timer for real-time updates
+
         self._update_timer = QTimer()
         self._update_timer.timeout.connect(self._update_estimation_stats)
-        self._update_timer.setInterval(1000)  # Update every 1 second
+        self._update_timer.setInterval(1000)
+
+        # Realtime log handler with debounce
+        self._pending_log_records: list = []
+        self._log_emitter = _LogSignalEmitter()
+        self._log_handler = _InlineLogHandler(self._log_emitter)
+        self._log_emitter.new_record.connect(self._on_new_log_record)
+        logging.getLogger().addHandler(self._log_handler)
+
+        self._log_debounce_timer = QTimer(self)
+        self._log_debounce_timer.setSingleShot(True)
+        self._log_debounce_timer.setInterval(150)
+        self._log_debounce_timer.timeout.connect(self._flush_log_records)
+
+    def _on_new_log_record(self, level: str, line: str):
+        self._pending_log_records.append((level, line))
+        self._log_debounce_timer.start()
+
+    def _flush_log_records(self):
+        if not self._pending_log_records:
+            return
+        records = self._pending_log_records[:]
+        self._pending_log_records.clear()
+
+        cursor = self._log_text.textCursor()
+        cursor.movePosition(QTextCursor.End)
+
+        for level, text in records:
+            color = theme.get_color(_LEVEL_COLOR_KEYS.get(level, "foreground"))
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(color))
+            cursor.insertText(text + "\n", fmt)
+
+        self._log_text.setTextCursor(cursor)
+        self._log_text.ensureCursorVisible()
+
+        doc = self._log_text.document()
+        if doc.lineCount() > 600:
+            trim_cursor = QTextCursor(doc)
+            trim_cursor.movePosition(QTextCursor.Start)
+            trim_cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor, doc.lineCount() - 400)
+            trim_cursor.removeSelectedText()
 
     def start_generation_timer(self):
-        """Start the elapsed time counter when generate button is clicked"""
-        # Reset timer first to ensure fresh start
         self.reset_estimation_timer()
-        
-        # Start fresh generation timer
         self._generation_start_time = time.time()
-        # Start the real-time update timer
         self._update_timer.start()
 
     def set_processing_target(self, target_count):
-        """Set the total number of files that will be processed"""
         self._processing_target = target_count
 
     def update_stats(self, total, selected, failed, success=0, draft=0):
