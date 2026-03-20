@@ -307,15 +307,15 @@ class ImagePreviewWidget(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(160)
-        self.setMaximumHeight(220)
-        self.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.setMaximumHeight(16777215)
+        self.setAlignment(Qt.AlignCenter)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.NoFrame)
         self.setDragMode(QGraphicsView.NoDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._pixmap_item = None
@@ -324,23 +324,23 @@ class ImagePreviewWidget(QGraphicsView):
         self._zoom = 1.0
         self._panning = False
         self._pan_start = QPoint()
-        self._fit_done = False
+        self._user_zoomed = False
         self.setCursor(Qt.ArrowCursor)
         self._no_preview_text = None
 
     def set_pixmap(self, pixmap, filepath=None):
         self._scene.clear()
         self._pixmap_item = None
+        self._no_preview_text = None
         self._current_pixmap = pixmap
         self._filepath = filepath
         self._zoom = 1.0
-        self._fit_done = False
+        self._user_zoomed = False
         if pixmap:
             self._pixmap_item = self._scene.addPixmap(pixmap)
             self._scene.setSceneRect(self._pixmap_item.boundingRect())
             self.resetTransform()
             QTimer.singleShot(0, self._fit_to_view)
-            QTimer.singleShot(100, self._fit_to_view)
         else:
             self._scene.setSceneRect(0, 0, self.width(), self.height())
             self.resetTransform()
@@ -349,39 +349,37 @@ class ImagePreviewWidget(QGraphicsView):
     def clear(self):
         self._scene.clear()
         self._pixmap_item = None
+        self._no_preview_text = None
         self._current_pixmap = None
         self._filepath = None
         self._zoom = 1.0
-        self._fit_done = False
+        self._user_zoomed = False
         self.resetTransform()
         self._scene.setSceneRect(0, 0, self.width(), self.height())
         self._show_no_preview_message("No Preview")
 
     def _fit_to_view(self):
-        if self._pixmap_item and not self._fit_done:
-            pix_rect = self._pixmap_item.boundingRect()
-            view_width = self.viewport().width()
-            did_fit = False
-            if pix_rect.width() > 0 and view_width > 0:
-                scale_factor = view_width / pix_rect.width()
-                self.resetTransform()
-                self.scale(scale_factor, scale_factor)
-                did_fit = True
-            else:
-                self.resetTransform()
-            try:
-                self.centerOn(self._pixmap_item)
-                h = self.horizontalScrollBar()
-                v = self.verticalScrollBar()
-                h.setValue((h.minimum() + h.maximum()) // 2)
-                v.setValue((v.minimum() + v.maximum()) // 2)
-            except Exception:
-                pass
-            if did_fit:
-                self._fit_done = True
+        if not self._pixmap_item or self._user_zoomed:
+            return
+        vw = self.viewport().width()
+        vh = self.viewport().height()
+        pix_rect = self._pixmap_item.boundingRect()
+        pw = pix_rect.width()
+        ph = pix_rect.height()
+        if vw <= 0 or vh <= 0 or pw <= 0 or ph <= 0:
+            return
+        scale = min(vw / pw, vh / ph)
+        self.resetTransform()
+        self.scale(scale, scale)
+        self.centerOn(self._pixmap_item)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._fit_to_view)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.setFixedHeight(self.width())
         self._fit_to_view()
         self._position_no_preview_text()
 
@@ -397,9 +395,10 @@ class ImagePreviewWidget(QGraphicsView):
         elif self._zoom > 10.0:
             self._zoom = 10.0
             return
+        self._user_zoomed = True
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.scale(factor, factor)
-        self._fit_done = True
+        self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton and self._pixmap_item is not None:
@@ -411,9 +410,8 @@ class ImagePreviewWidget(QGraphicsView):
         super().mousePressEvent(event)
 
     def reset_zoom(self):
-        self.resetTransform()
+        self._user_zoomed = False
         self._zoom = 1.0
-        self._fit_done = False
         self._fit_to_view()
 
     def mouseMoveEvent(self, event: QMouseEvent):
@@ -476,8 +474,10 @@ class PropertiesWidget(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        self._scroll = scroll
 
         content = QWidget()
+        content.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.content_layout = QVBoxLayout(content)
         self.content_layout.setAlignment(Qt.AlignTop)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
@@ -526,6 +526,8 @@ class PropertiesWidget(QWidget):
                 value_label.setWordWrap(True)
                 value_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
                 value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                value_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+                value_label.setMinimumWidth(0)
                 if label_text in ("Title", "Description", "Shutterstock Category", "Adobe Stock Category"):
                     value_label.setStyleSheet("font-size: 11pt;")
                 else:
