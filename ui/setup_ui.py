@@ -90,7 +90,7 @@ def setup_ui(self):
 
     main_content_layout.addWidget(self.table, stretch=3)
     main_content_layout.addWidget(self.properties_widget, stretch=1)
-    layout.addLayout(main_content_layout)
+    layout.addLayout(main_content_layout, stretch=1)
 
     btn_row_layout = QHBoxLayout()
     self.stats_section = StatsSectionWidget(self)
