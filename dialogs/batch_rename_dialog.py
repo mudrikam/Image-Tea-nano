@@ -1,13 +1,15 @@
 import os
+import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QComboBox, QRadioButton, QButtonGroup, QGroupBox,
     QFormLayout, QLineEdit, QCheckBox, QLabel, QHBoxLayout, QSpinBox, QPushButton, QWidget, QMessageBox,
-    QProgressDialog
+    QProgressDialog, QTabWidget, QSplitter, QScrollArea, QInputDialog
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from datetime import datetime
 import re
 import qtawesome as qta
+from ui.theme_system import theme
 
 class UndoRenameWorkerThread(QThread):
     progress_updated = Signal(int, str)  # current, status_text
@@ -120,13 +122,16 @@ class BatchRenameDialog(QDialog):
         "date": "#d32f2f",
         "title": "#9508d1",
     }
+    PRESETS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "batch_rename_presets.json")
 
     def __init__(self, parent=None, table_widget=None, db=None):
         super().__init__(parent)
         self.setWindowTitle("Batch Rename")
-        self.setFixedWidth(400)
+        self.setWindowFlags(self.windowFlags() | Qt.MSWindowsFixedSizeDialogHint)
+        self.setFixedWidth(620)
         self.table_widget = table_widget
         self.db = db
+        self.pattern_order = ["prefix", "title", "suffix"]
 
         layout = QVBoxLayout(self)
 
@@ -134,93 +139,213 @@ class BatchRenameDialog(QDialog):
         self.combo_mode.addItem("Rename All")
         self.combo_mode.addItem("Selected Only")
         self.combo_mode.setCurrentIndex(0)
+        self.combo_mode.setToolTip("Rename All: process every file in the database.\nSelected Only: process only the checked rows in the table.")
         layout.addWidget(self.combo_mode)
 
-        self.radio_same_as_title = QRadioButton("Same as Title", self)
-        self.radio_custom = QRadioButton("Custom", self)
+        self.tab_widget = QTabWidget(self)
+        layout.addWidget(self.tab_widget)
 
-        self.button_group = QButtonGroup(self)
-        self.button_group.addButton(self.radio_same_as_title)
-        self.button_group.addButton(self.radio_custom)
-        self.radio_same_as_title.setChecked(True)
+        self._build_same_as_title_tab()
+        self._build_custom_naming_tab()
 
-        layout.addWidget(self.radio_same_as_title)
-        layout.addWidget(self.radio_custom)
+        self.info_label = QLabel(
+            "<b>Info:</b> After renaming, you can restore the previous filename using Undo Rename if needed.",
+            self
+        )
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label)
 
-        self.rename_group = QGroupBox("Custom Name", self)
-        self.rename_group.setEnabled(False)
-        group_layout = QFormLayout(self.rename_group)
+        undo_layout = QHBoxLayout()
+        self.undo_btn = QPushButton("Undo Rename", self)
+        self.undo_btn.setIcon(qta.icon('fa6s.rotate-left'))
+        self.undo_btn.setToolTip("Restore file names to what they were before the last rename.")
+        undo_layout.addWidget(self.undo_btn)
+        undo_layout.addStretch()
+        layout.addLayout(undo_layout)
+        self.rename_btn = QPushButton("Rename", self)
+        self.rename_btn.setIcon(qta.icon('fa6s.pen-to-square', color=theme.get_color('white')))
+        self.rename_btn.setToolTip("Start renaming files using the active tab settings.")
+        self.rename_btn.setMinimumHeight(36)
+        self.rename_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 5px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}
+            QPushButton:pressed {{ background-color: {theme.get_color('primary_pressed')}; }}
+            QPushButton:disabled {{ background-color: {theme.get_color('button_disabled_bg')}; color: {theme.get_color('button_disabled_fg')}; }}
+        """)
+        layout.addWidget(self.rename_btn)
 
-        self.prefix_edit = QLineEdit(self.rename_group)
-        group_layout.addRow("Prefix", self.prefix_edit)
+        self.rename_btn.clicked.connect(self.do_rename)
+        self.undo_btn.clicked.connect(self.do_undo_rename)
 
-        self.suffix_edit = QLineEdit(self.rename_group)
-        group_layout.addRow("Suffix", self.suffix_edit)
+        self.setLayout(layout)
+        self.update_preview()
+
+    def _build_same_as_title_tab(self):
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+
+        san_group = QGroupBox("Sanitization Options")
+        san_layout = QVBoxLayout(san_group)
+
+        self.sat_remove_special_checkbox = QCheckBox("Remove Special Characters")
+        self.sat_remove_special_checkbox.setToolTip("Strip special characters from the title (e.g. @, #, $, %, &) before using it as the filename.")
+        self.sat_replace_space_checkbox = QCheckBox("Replace space with underscore")
+        self.sat_replace_space_checkbox.setToolTip("Replace all spaces in the title with underscores (_).")
+        self.sat_sanitize_checkbox = QCheckBox("Sanitize filename (alphanumeric only)")
+        self.sat_sanitize_checkbox.setToolTip("Keep only letters (A-Z) and digits (0-9) in the filename.\nAll other characters including spaces and underscores will be removed.")
+        san_layout.addWidget(self.sat_remove_special_checkbox)
+        san_layout.addWidget(self.sat_replace_space_checkbox)
+        san_layout.addWidget(self.sat_sanitize_checkbox)
+        tab_layout.addWidget(san_group)
+
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Preset:"))
+        self.sat_preset_combo = QComboBox()
+        self.sat_preset_combo.setMinimumWidth(140)
+        self.sat_preset_combo.setToolTip("Select a saved sanitization preset. Settings are applied automatically.")
+        preset_layout.addWidget(self.sat_preset_combo)
+        self.sat_preset_save_btn = QPushButton()
+        self.sat_preset_save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
+        self.sat_preset_save_btn.setFixedWidth(30)
+        self.sat_preset_save_btn.setToolTip("Save the current sanitization settings as a new preset.")
+        self.sat_preset_delete_btn = QPushButton()
+        self.sat_preset_delete_btn.setIcon(qta.icon('fa6s.trash'))
+        self.sat_preset_delete_btn.setFixedWidth(30)
+        self.sat_preset_delete_btn.setToolTip("Delete the currently selected preset.")
+        preset_layout.addWidget(self.sat_preset_save_btn)
+        preset_layout.addWidget(self.sat_preset_delete_btn)
+        preset_layout.addStretch()
+        tab_layout.addLayout(preset_layout)
+
+        self.sat_preview_label = QLabel("Preview: ")
+        self.sat_preview_label.setTextFormat(Qt.RichText)
+        self.sat_preview_label.setWordWrap(True)
+        tab_layout.addWidget(self.sat_preview_label)
+
+        tab_layout.addStretch()
+        self.tab_widget.addTab(tab, "Same as Title")
+
+        self.sat_remove_special_checkbox.toggled.connect(self.update_preview)
+        self.sat_replace_space_checkbox.toggled.connect(self.update_preview)
+        self.sat_sanitize_checkbox.toggled.connect(self.update_preview)
+        self.sat_preset_combo.currentIndexChanged.connect(lambda: self._load_preset("same_as_title"))
+        self.sat_preset_save_btn.clicked.connect(lambda: self._save_preset("same_as_title"))
+        self.sat_preset_delete_btn.clicked.connect(lambda: self._delete_preset("same_as_title"))
+
+    def _build_custom_naming_tab(self):
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+
+        splitter = QSplitter(Qt.Horizontal)
+
+        left_widget = QWidget()
+        left_layout = QFormLayout(left_widget)
+        left_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.prefix_edit = QLineEdit()
+        self.prefix_edit.setToolTip("Text prepended to the filename.\nExample: \"mystore\" → mystore_Title.jpg")
+        left_layout.addRow("Prefix", self.prefix_edit)
+
+        self.suffix_edit = QLineEdit()
+        self.suffix_edit.setToolTip("Text appended to the filename, before the extension.\nExample: \"v2\" → Title_v2.jpg")
+        left_layout.addRow("Suffix", self.suffix_edit)
 
         numbering_layout = QHBoxLayout()
-        self.numbering_checkbox = QCheckBox("Add Numbering", self.rename_group)
-        self.numbering_spin = QSpinBox(self.rename_group)
+        self.numbering_checkbox = QCheckBox("Add Numbering")
+        self.numbering_checkbox.setToolTip("Append a sequential number to each filename.")
+        self.numbering_spin = QSpinBox()
         self.numbering_spin.setMinimum(1)
         self.numbering_spin.setMaximum(10)
         self.numbering_spin.setValue(3)
         self.numbering_spin.setEnabled(False)
+        self.numbering_spin.setToolTip("Number of digits in the sequence.\nExample: 3 digits → 001, 002, 003, ...")
         numbering_layout.addWidget(self.numbering_checkbox)
-        numbering_layout.addWidget(QLabel("Digits:", self.rename_group))
+        numbering_layout.addWidget(QLabel("Digits:"))
         numbering_layout.addWidget(self.numbering_spin)
-        group_layout.addRow(numbering_layout)
+        left_layout.addRow(numbering_layout)
         self.numbering_checkbox.toggled.connect(self.numbering_spin.setEnabled)
 
-        self.timestamp_combo = QComboBox(self.rename_group)
+        self.timestamp_combo = QComboBox()
         self.timestamp_combo.addItem("None")
         self.timestamp_combo.addItem("Timestamp")
         self.timestamp_combo.addItem("Date")
-        group_layout.addRow("Timestamp/Date", self.timestamp_combo)
+        self.timestamp_combo.setToolTip("None: no date/time appended.\nTimestamp: append full datetime (YYYYmmdd_HHMMSS).\nDate: append date only (YYYY-MM-DD).")
+        left_layout.addRow("Timestamp/Date", self.timestamp_combo)
 
-        self.remove_special_checkbox = QCheckBox("Remove Special Characters", self.rename_group)
-        group_layout.addRow(self.remove_special_checkbox)
+        self.remove_special_checkbox = QCheckBox("Remove Special Characters")
+        self.remove_special_checkbox.setToolTip("Strip special characters from the output filename (e.g. @, #, $, %) to ensure compatibility across all operating systems.")
+        left_layout.addRow(self.remove_special_checkbox)
 
-        self.replace_space_checkbox = QCheckBox("Replace space with underscore", self.rename_group)
-        group_layout.addRow(self.replace_space_checkbox)
+        self.replace_space_checkbox = QCheckBox("Replace space with underscore")
+        self.replace_space_checkbox.setToolTip("Replace all spaces in the output filename with underscores (_).")
+        left_layout.addRow(self.replace_space_checkbox)
 
-        self.sanitize_checkbox = QCheckBox("Sanitize filename (alphanumeric only)", self.rename_group)
-        group_layout.addRow(self.sanitize_checkbox)
+        self.sanitize_checkbox = QCheckBox("Sanitize filename (alphanumeric only)")
+        self.sanitize_checkbox.setToolTip("Keep only letters (A-Z) and digits (0-9) in the output filename.\nAll other characters including spaces and underscores will be removed.")
+        left_layout.addRow(self.sanitize_checkbox)
 
-        self.radio_default_pattern = QRadioButton("Default Pattern", self.rename_group)
-        self.radio_custom_pattern = QRadioButton("Custom Pattern", self.rename_group)
-        self.pattern_mode_group = QButtonGroup(self.rename_group)
+        splitter.addWidget(left_widget)
+
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(4, 4, 4, 4)
+
+        self.radio_default_pattern = QRadioButton("Default Pattern")
+        self.radio_default_pattern.setToolTip("Use the default pattern: {prefix}_{title}_{suffix}")
+        self.radio_custom_pattern = QRadioButton("Custom Pattern")
+        self.radio_custom_pattern.setToolTip("Arrange the variables in custom order using the checklist below.")
+        self.pattern_mode_group = QButtonGroup(right_widget)
         self.pattern_mode_group.addButton(self.radio_default_pattern)
         self.pattern_mode_group.addButton(self.radio_custom_pattern)
         self.radio_default_pattern.setChecked(True)
         pattern_mode_layout = QHBoxLayout()
         pattern_mode_layout.addWidget(self.radio_default_pattern)
         pattern_mode_layout.addWidget(self.radio_custom_pattern)
-        group_layout.addRow("Pattern Mode", pattern_mode_layout)
+        right_layout.addLayout(pattern_mode_layout)
 
-        self.pattern_edit = QLineEdit(self.rename_group)
+        self.pattern_edit = QLineEdit()
         self.pattern_edit.setText("{prefix}_{title}_{suffix}")
         self.pattern_edit.setReadOnly(True)
-        group_layout.addRow("Pattern", self.pattern_edit)
+        self.pattern_edit.setToolTip("Filename pattern built from the variable checklist below.\nAuto-generated \u2014 not directly editable.")
+        right_layout.addWidget(QLabel("Pattern:"))
+        right_layout.addWidget(self.pattern_edit)
 
-        variable_names = [
-            "prefix", "original", "number", "suffix", "timestamp", "date", "title"
-        ]
-        self.checklist_widget = QWidget(self.rename_group)
+        variable_names = ["prefix", "original", "number", "suffix", "timestamp", "date", "title"]
+        VAR_TOOLTIPS = {
+            "prefix": "Text from the Prefix field.",
+            "original": "Original filename without extension.",
+            "number": "Sequential number based on the Digits setting.",
+            "suffix": "Text from the Suffix field.",
+            "timestamp": "Date and time the rename was run (format: YYYYmmdd_HHMMSS).",
+            "date": "Date the rename was run (format: YYYY-MM-DD).",
+            "title": "File title from the database metadata.",
+        }
+        self.checklist_widget = QWidget()
         self.checklist_layout = QVBoxLayout(self.checklist_widget)
         self.checklist_layout.setContentsMargins(0, 0, 0, 0)
         self.check_vars = []
-        self.pattern_order = [var for var in ["prefix", "title", "suffix"]]
-        for i, var in enumerate(variable_names):
+        for var in variable_names:
             h = QHBoxLayout()
-            cb = QCheckBox(self.checklist_widget)
+            cb = QCheckBox()
             cb.setChecked(var in self.pattern_order)
-            color_label = QLabel(f"{{{var}}}", self.checklist_widget)
+            cb.setToolTip(f"Check to include {{{var}}} in the filename pattern.")
+            color_label = QLabel(f"{{{var}}}")
             color_label.setStyleSheet(f"color: {self.VAR_COLORS[var]}; font-weight: bold;")
-            left_btn = QPushButton(self.checklist_widget)
+            color_label.setToolTip(VAR_TOOLTIPS[var])
+            left_btn = QPushButton()
             left_btn.setIcon(qta.icon('fa6s.angle-left'))
             left_btn.setFixedWidth(28)
-            right_btn = QPushButton(self.checklist_widget)
+            left_btn.setToolTip(f"Move {{{var}}} left in the pattern order.")
+            right_btn = QPushButton()
             right_btn.setIcon(qta.icon('fa6s.angle-right'))
             right_btn.setFixedWidth(28)
+            right_btn.setToolTip(f"Move {{{var}}} right in the pattern order.")
             h.addWidget(cb)
             h.addWidget(color_label)
             h.addWidget(left_btn)
@@ -230,39 +355,42 @@ class BatchRenameDialog(QDialog):
             cb.stateChanged.connect(self.update_checklist_pattern)
             left_btn.clicked.connect(lambda checked, v=var: self.move_pattern_var(v, -1))
             right_btn.clicked.connect(lambda checked, v=var: self.move_pattern_var(v, 1))
-        group_layout.addRow("Checklist Variables", self.checklist_widget)
+        right_layout.addWidget(QLabel("Checklist Variables:"))
+        right_layout.addWidget(self.checklist_widget)
+        right_layout.addStretch()
 
-        self.preview_label = QLabel("Preview: ", self.rename_group)
-        self.preview_label.setTextFormat(Qt.RichText)
-        self.preview_label.setWordWrap(True)
-        group_layout.addRow(self.preview_label)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([220, 220])
+        tab_layout.addWidget(splitter)
 
-        layout.addWidget(self.rename_group)
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Preset:"))
+        self.cn_preset_combo = QComboBox()
+        self.cn_preset_combo.setMinimumWidth(140)
+        self.cn_preset_combo.setToolTip("Select a saved custom naming preset. Settings are applied automatically.")
+        preset_layout.addWidget(self.cn_preset_combo)
+        self.cn_preset_save_btn = QPushButton()
+        self.cn_preset_save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
+        self.cn_preset_save_btn.setFixedWidth(30)
+        self.cn_preset_save_btn.setToolTip("Save the current custom naming configuration as a new preset.")
+        self.cn_preset_delete_btn = QPushButton()
+        self.cn_preset_delete_btn.setIcon(qta.icon('fa6s.trash'))
+        self.cn_preset_delete_btn.setFixedWidth(30)
+        self.cn_preset_delete_btn.setToolTip("Delete the currently selected preset.")
+        preset_layout.addWidget(self.cn_preset_save_btn)
+        preset_layout.addWidget(self.cn_preset_delete_btn)
+        preset_layout.addStretch()
+        tab_layout.addLayout(preset_layout)
 
-        self.info_label = QLabel(
-            "<b>Info:</b> After renaming, you can restore the previous filename using Undo Rename if needed.",
-            self
-        )
-        self.info_label.setWordWrap(True)
-        layout.addWidget(self.info_label)
+        self.cn_preview_label = QLabel("Preview: ")
+        self.cn_preview_label.setTextFormat(Qt.RichText)
+        self.cn_preview_label.setWordWrap(True)
+        tab_layout.addWidget(self.cn_preview_label)
 
-        btn_layout = QHBoxLayout()
-        self.undo_btn = QPushButton("Undo Rename", self)
-        self.undo_btn.setIcon(qta.icon('fa6s.rotate-left'))
-        btn_layout.addWidget(self.undo_btn)
-        self.rename_btn = QPushButton("Rename", self)
-        self.rename_btn.setIcon(qta.icon('fa6s.pen-to-square'))
-        btn_layout.addWidget(self.rename_btn)
+        self.tab_widget.addTab(tab, "Custom Naming")
 
-        layout.addLayout(btn_layout)
-        self.rename_btn.clicked.connect(self.do_rename)
-        self.undo_btn.clicked.connect(self.do_undo_rename)
-
-        self.radio_same_as_title.toggled.connect(self._on_radio_toggle)
-        self.radio_custom.toggled.connect(self._on_radio_toggle)
         self.radio_default_pattern.toggled.connect(self._on_pattern_mode_toggle)
         self.radio_custom_pattern.toggled.connect(self._on_pattern_mode_toggle)
-
         self.prefix_edit.textChanged.connect(self.update_preview)
         self.suffix_edit.textChanged.connect(self.update_preview)
         self.pattern_edit.textChanged.connect(self.update_preview)
@@ -272,13 +400,121 @@ class BatchRenameDialog(QDialog):
         self.remove_special_checkbox.toggled.connect(self.update_preview)
         self.replace_space_checkbox.toggled.connect(self.update_preview)
         self.sanitize_checkbox.toggled.connect(self.update_preview)
+        self.cn_preset_combo.currentIndexChanged.connect(lambda: self._load_preset("custom_naming"))
+        self.cn_preset_save_btn.clicked.connect(lambda: self._save_preset("custom_naming"))
+        self.cn_preset_delete_btn.clicked.connect(lambda: self._delete_preset("custom_naming"))
 
-        self.setLayout(layout)
-        self.update_preview()
         self._on_pattern_mode_toggle()
+        self._refresh_preset_combos()
 
-    def _on_radio_toggle(self):
-        self.rename_group.setEnabled(self.radio_custom.isChecked())
+    def _load_presets_data(self):
+        if not os.path.exists(self.PRESETS_FILE):
+            return {"presets": []}
+        with open(self.PRESETS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _save_presets_data(self, data):
+        with open(self.PRESETS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+
+    def _refresh_preset_combos(self):
+        data = self._load_presets_data()
+        sat_names = [""] + [p["name"] for p in data["presets"] if p["type"] == "same_as_title"]
+        cn_names = [""] + [p["name"] for p in data["presets"] if p["type"] == "custom_naming"]
+        self.sat_preset_combo.blockSignals(True)
+        self.sat_preset_combo.clear()
+        self.sat_preset_combo.addItems(sat_names)
+        self.sat_preset_combo.blockSignals(False)
+        self.cn_preset_combo.blockSignals(True)
+        self.cn_preset_combo.clear()
+        self.cn_preset_combo.addItems(cn_names)
+        self.cn_preset_combo.blockSignals(False)
+
+    def _save_preset(self, preset_type):
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        data = self._load_presets_data()
+        data["presets"] = [p for p in data["presets"] if not (p["name"] == name and p["type"] == preset_type)]
+        if preset_type == "same_as_title":
+            preset = {
+                "type": "same_as_title",
+                "name": name,
+                "remove_special": self.sat_remove_special_checkbox.isChecked(),
+                "replace_space": self.sat_replace_space_checkbox.isChecked(),
+                "sanitize": self.sat_sanitize_checkbox.isChecked()
+            }
+        else:
+            preset = {
+                "type": "custom_naming",
+                "name": name,
+                "prefix": self.prefix_edit.text(),
+                "suffix": self.suffix_edit.text(),
+                "numbering": self.numbering_checkbox.isChecked(),
+                "digits": self.numbering_spin.value(),
+                "timestamp_mode": self.timestamp_combo.currentText(),
+                "remove_special": self.remove_special_checkbox.isChecked(),
+                "replace_space": self.replace_space_checkbox.isChecked(),
+                "sanitize": self.sanitize_checkbox.isChecked(),
+                "pattern_mode": "custom" if self.radio_custom_pattern.isChecked() else "default",
+                "pattern_order": list(self.pattern_order)
+            }
+        data["presets"].append(preset)
+        self._save_presets_data(data)
+        print(f"[batch_rename] Preset '{name}' ({preset_type}) saved.")
+        self._refresh_preset_combos()
+
+    def _delete_preset(self, preset_type):
+        combo = self.sat_preset_combo if preset_type == "same_as_title" else self.cn_preset_combo
+        name = combo.currentText()
+        if not name:
+            return
+        data = self._load_presets_data()
+        before = len(data["presets"])
+        data["presets"] = [p for p in data["presets"] if not (p["name"] == name and p["type"] == preset_type)]
+        if len(data["presets"]) < before:
+            self._save_presets_data(data)
+            print(f"[batch_rename] Preset '{name}' ({preset_type}) deleted.")
+        self._refresh_preset_combos()
+
+    def _load_preset(self, preset_type):
+        combo = self.sat_preset_combo if preset_type == "same_as_title" else self.cn_preset_combo
+        name = combo.currentText()
+        if not name:
+            return
+        data = self._load_presets_data()
+        preset = next((p for p in data["presets"] if p["name"] == name and p["type"] == preset_type), None)
+        if preset is None:
+            print(f"[batch_rename] Preset '{name}' ({preset_type}) not found.")
+            return
+        if preset_type == "same_as_title":
+            self.sat_remove_special_checkbox.setChecked(preset["remove_special"])
+            self.sat_replace_space_checkbox.setChecked(preset["replace_space"])
+            self.sat_sanitize_checkbox.setChecked(preset["sanitize"])
+        else:
+            self.prefix_edit.setText(preset["prefix"])
+            self.suffix_edit.setText(preset["suffix"])
+            self.numbering_checkbox.setChecked(preset["numbering"])
+            self.numbering_spin.setValue(preset["digits"])
+            idx = self.timestamp_combo.findText(preset["timestamp_mode"])
+            if idx >= 0:
+                self.timestamp_combo.setCurrentIndex(idx)
+            self.remove_special_checkbox.setChecked(preset["remove_special"])
+            self.replace_space_checkbox.setChecked(preset["replace_space"])
+            self.sanitize_checkbox.setChecked(preset["sanitize"])
+            if preset["pattern_mode"] == "custom":
+                self.radio_custom_pattern.setChecked(True)
+            else:
+                self.radio_default_pattern.setChecked(True)
+            self.pattern_order = list(preset["pattern_order"])
+            for cb, _, _, var, _ in self.check_vars:
+                cb.blockSignals(True)
+                cb.setChecked(var in self.pattern_order)
+                cb.blockSignals(False)
+            self.update_checklist_pattern()
+        print(f"[batch_rename] Preset '{name}' ({preset_type}) loaded.")
+        self.update_preview()
 
     def _on_pattern_mode_toggle(self):
         custom_enabled = self.radio_custom_pattern.isChecked()
@@ -325,6 +561,76 @@ class BatchRenameDialog(QDialog):
         self.update_checklist_pattern()
 
     def update_preview(self):
+        self._update_sat_preview()
+        self._update_cn_preview()
+
+    def _compute_preview_html(self, pattern, example_vars, sanitize_fn, remove_special, replace_space, sanitize_alnum):
+        def _san_alnum(s):
+            v = re.sub(r'[^A-Za-z0-9]', '', s)
+            return v if v else 'file'
+
+        sanitized_vars = {}
+        for k, v in example_vars.items():
+            if not v:
+                sanitized_vars[k] = v
+                continue
+            val = v
+            if sanitize_alnum:
+                val = _san_alnum(val)
+            else:
+                if remove_special:
+                    val = re.sub(r'[^A-Za-z0-9_-]', '', val)
+                if replace_space:
+                    val = val.replace(' ', '_')
+            sanitized_vars[k] = val
+
+        try:
+            preview_raw = pattern.format(**sanitized_vars)
+        except Exception:
+            return "Invalid pattern"
+
+        preview_raw = re.sub(r'_{2,}', '_', preview_raw)
+        preview_raw = re.sub(r'_+\.', '.', preview_raw)
+        preview_raw = re.sub(r'\._+', '.', preview_raw)
+        preview_raw = re.sub(r'^_+|_+$', '', preview_raw)
+
+        if sanitize_alnum:
+            final = re.sub(r'[^A-Za-z0-9]', '', preview_raw)
+            preview_html = final if final else 'file'
+        else:
+            preview_html = preview_raw
+
+        var_spans = []
+        for var, color in self.VAR_COLORS.items():
+            val = sanitized_vars.get(var, "")
+            if not val:
+                continue
+            display_val = val
+            if sanitize_alnum:
+                display_val = re.sub(r'[^A-Za-z0-9]', '', val)
+            if not display_val:
+                continue
+            marker = f"__VAR_{var.upper()}__"
+            preview_html = re.sub(re.escape(display_val), marker, preview_html, count=1)
+            var_spans.append((marker, f'<span style="color:{color};font-weight:bold;">{display_val}</span>'))
+
+        for marker, span in var_spans:
+            preview_html = preview_html.replace(marker, span, 1)
+
+        return preview_html
+
+    def _update_sat_preview(self):
+        remove_special = self.sat_remove_special_checkbox.isChecked()
+        replace_space = self.sat_replace_space_checkbox.isChecked()
+        sanitize_alnum = self.sat_sanitize_checkbox.isChecked()
+        example_title = "Title Example"
+        example_vars = {"title": example_title}
+        preview_html = self._compute_preview_html(
+            "{title}", example_vars, None, remove_special, replace_space, sanitize_alnum
+        )
+        self.sat_preview_label.setText(f"Preview: {preview_html}")
+
+    def _update_cn_preview(self):
         prefix = self.prefix_edit.text()
         suffix = self.suffix_edit.text()
         numbering = self.numbering_checkbox.isChecked()
@@ -332,6 +638,8 @@ class BatchRenameDialog(QDialog):
         timestamp_mode = self.timestamp_combo.currentText()
         remove_special = self.remove_special_checkbox.isChecked()
         replace_space = self.replace_space_checkbox.isChecked()
+        sanitize_alnum = self.sanitize_checkbox.isChecked()
+
         if self.radio_default_pattern.isChecked():
             pattern = "{prefix}_{title}_{suffix}"
         else:
@@ -343,9 +651,7 @@ class BatchRenameDialog(QDialog):
         timestamp_val = today_timestamp if (timestamp_mode == "Timestamp" or "{timestamp}" in pattern) else ""
         date_val = today_date if (timestamp_mode == "Date" or "{date}" in pattern) else ""
 
-        example_title = "Title Example"
-        # Basic sanitization for preview: remove punctuation characters used only for example
-        example_title = re.sub(r'[.,\-]', '', example_title)
+        example_title = re.sub(r'[.,\-]', '', "Title Example")
         example_vars = {
             "prefix": prefix,
             "original": "original_name",
@@ -355,70 +661,8 @@ class BatchRenameDialog(QDialog):
             "date": date_val,
             "title": example_title
         }
-
-        def _sanitize_alnum(s):
-            v = re.sub(r'[^A-Za-z0-9]', '', s)
-            return v if v else 'file'
-
-        # Prepare per-variable sanitized values according to selected options
-        sanitized_vars = {}
-        for k, v in example_vars.items():
-            if not v:
-                sanitized_vars[k] = v
-                continue
-            val = v
-            if self.sanitize_checkbox.isChecked():
-                val = _sanitize_alnum(val)
-            else:
-                if remove_special:
-                    val = re.sub(r'[^A-Za-z0-9_-]', '', val)
-                if replace_space:
-                    val = val.replace(' ', '_')
-            sanitized_vars[k] = val
-
-        try:
-            preview_raw = pattern.format(**sanitized_vars)
-        except Exception:
-            preview_raw = "Invalid pattern"
-
-        preview_raw = re.sub(r'_{2,}', '_', preview_raw)
-        preview_raw = re.sub(r'_+\.', '.', preview_raw)
-        preview_raw = re.sub(r'\._+', '.', preview_raw)
-        preview_raw = re.sub(r'^_+|_+$', '', preview_raw)
-
-        # If sanitize is checked, perform a final sanitization on the combined name
-        final_sanitized = None
-        if self.sanitize_checkbox.isChecked():
-            final_sanitized = re.sub(r'[^A-Za-z0-9]', '', preview_raw)
-            if not final_sanitized:
-                final_sanitized = 'file'
-            preview_html = final_sanitized
-        else:
-            preview_html = preview_raw
-
-        var_spans = []
-        for var, color in self.VAR_COLORS.items():
-            val = sanitized_vars[var]
-            if not val:
-                continue
-            display_val = val
-            if self.sanitize_checkbox.isChecked():
-                # reflect final sanitization per variable (removes separators too)
-                display_val = re.sub(r'[^A-Za-z0-9]', '', val)
-            marker = f"__VAR_{var.upper()}__"
-            preview_html = re.sub(
-                re.escape(display_val),
-                marker,
-                preview_html,
-                count=1
-            )
-            var_spans.append((marker, f'<span style="color:{color};font-weight:bold;">{display_val}</span>'))
-
-        # No global post-processing required; values were sanitized individually above
-        for marker, span in var_spans:
-            preview_html = preview_html.replace(marker, span, 1)
-
-        self.preview_label.setText(f"Preview: {preview_html}")
+        preview_html = self._compute_preview_html(pattern, example_vars, None, remove_special, replace_space, sanitize_alnum)
+        self.cn_preview_label.setText(f"Preview: {preview_html}")
 
     def _sanitize_windows_filename(self, name):
         # Remove Windows forbidden characters: <>:"/\|?* and control chars
@@ -496,14 +740,14 @@ class BatchRenameDialog(QDialog):
         def sanitize_windows_filename(name):
             return self._sanitize_windows_filename(name)
 
-        if self.radio_same_as_title.isChecked():
+        if self.tab_widget.currentIndex() == 0:
             def pattern_func(file_info, idx):
                 base, ext = os.path.splitext(file_info['filename'])
                 title = file_info['title'] or base
                 title = sanitize_title(title)
-                remove_special = self.remove_special_checkbox.isChecked()
-                replace_space = self.replace_space_checkbox.isChecked()
-                sanitize_name = self.sanitize_checkbox.isChecked()
+                remove_special = self.sat_remove_special_checkbox.isChecked()
+                replace_space = self.sat_replace_space_checkbox.isChecked()
+                sanitize_name = self.sat_sanitize_checkbox.isChecked()
 
                 if sanitize_name:
                     title = re.sub(r'[^A-Za-z0-9]', '', title)

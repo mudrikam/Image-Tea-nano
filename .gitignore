@@ -238,3 +238,5 @@ configs/video_upscale_config.json
 configs/image_upscale_config.json
 configs/upscaler_models_config.json
 configs\upscaler_models_config.json
+configs/batch_rename_presets.json
+configs\batch_rename_presets.json
