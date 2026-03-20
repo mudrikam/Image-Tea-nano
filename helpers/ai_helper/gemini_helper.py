@@ -224,7 +224,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                     if not endpoint_image_path:
                         print(f"[Gemini ERROR] Failed to compress image for custom endpoint: {image_path}")
                         return '', '', '', {}, '', f"[Gemini ERROR] Failed to compress image: {image_path}", 0, 0, 0
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180, frame_paths=endpoint_frame_paths)
+                text, token_input, token_output, token_total = CustomEndpointHelper.call_endpoint_with_usage(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180, frame_paths=endpoint_frame_paths)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[Gemini][CustomEndpoint] {e}")
@@ -397,12 +397,11 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             else:
                 text = str(response)
         else:
-            # custom endpoint path: `text` already contains the response body/string
-            token_input = 0
-            token_output = 0
-            token_total = 0
+            # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():
                 text = ''
+            if 'token_input' not in locals():
+                token_input = token_output = token_total = 0
 
         
         print("="*80)

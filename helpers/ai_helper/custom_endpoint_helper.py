@@ -76,6 +76,88 @@ class CustomEndpointHelper:
 
 
     @staticmethod
+    def _extract_usage_from_response(resp_json: dict) -> tuple:
+        if not isinstance(resp_json, dict):
+            return 0, 0, 0
+        usage = resp_json.get("usage")
+        if isinstance(usage, dict):
+            token_input = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+            token_output = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+            token_total = usage.get("total_tokens") or (token_input + token_output)
+            return token_input, token_output, token_total
+        return 0, 0, 0
+
+    @staticmethod
+    def call_endpoint_with_usage(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> tuple:
+        """Same as call_endpoint but returns (text, token_input, token_output, token_total)."""
+        CustomEndpointHelper.validate_url(endpoint)
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        prov = (provider or "").lower()
+        payload = None
+
+        if image_path:
+            data_url = CustomEndpointHelper._image_path_to_data_url(image_path)
+
+        if prov in ("openai", "openrouter", "blackbox", "maia"):
+            use_chat_messages = False
+            try:
+                ep = (endpoint or "").lower()
+                if ep.rstrip('/').endswith('/chat/completions') or ep.rstrip('/').endswith('/v1/chat/completions'):
+                    use_chat_messages = True
+            except Exception:
+                use_chat_messages = False
+
+            if use_chat_messages or not use_chat_messages:
+                if frame_paths:
+                    content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                elif image_path:
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+                else:
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+        elif prov == "gemini":
+            contents = [prompt]
+            if frame_paths:
+                contents = [CustomEndpointHelper._image_path_to_data_url(fp) for fp in frame_paths] + [prompt]
+            elif image_path:
+                contents = [data_url, prompt]
+            payload = {"model": model or "", "contents": contents}
+        elif prov == "groq":
+            messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+            if frame_paths:
+                for fp in frame_paths:
+                    messages[0]["content"].append({"type": "image_url", "image_url": {"url": CustomEndpointHelper._image_path_to_data_url(fp)}})
+            elif image_path:
+                messages[0]["content"].append({"type": "image_url", "image_url": {"url": data_url}})
+            payload = {"model": model or "", "messages": messages}
+        else:
+            if frame_paths:
+                content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+            elif image_path:
+                payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            else:
+                payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+
+        try:
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+        except Exception as e:
+            raise RuntimeError(f"Request to custom endpoint failed: {e}")
+
+        if resp.status_code >= 400:
+            body = resp.text or "<no body>"
+            raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
+
+        try:
+            j = resp.json()
+            text = CustomEndpointHelper._extract_text_from_response(j)
+            token_input, token_output, token_total = CustomEndpointHelper._extract_usage_from_response(j)
+            return text, token_input, token_output, token_total
+        except Exception:
+            return resp.text or "", 0, 0, 0
+
+    @staticmethod
     def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> str:
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

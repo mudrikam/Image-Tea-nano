@@ -11,6 +11,7 @@ from config import BASE_PATH
 from dialogs.get_api_key_dialog import GetApiKeyDialog
 from dialogs.api_call_warning_dialog import ApiCallWarningDialog
 from dialogs.ai_helper_error_code_dialog import invoker
+from dialogs.generation_result_dialog import GenerationResultDialog
 from helpers.ai_helper.gemini_helper import generate_metadata_gemini, track_gemini_generation_time
 from helpers.ai_helper.openai_helper import generate_metadata_openai, track_openai_generation_time
 from helpers.ai_helper.groq_helper import generate_metadata_groq, track_groq_generation_time
@@ -1366,6 +1367,9 @@ def batch_generate_metadata(window):
     
     _set_gen_btn_stop_state(window, True)
     window._gen_total_time_start = time.perf_counter()
+    window._session_token_input = 0
+    window._session_token_output = 0
+    window._session_token_total = 0
     _run_next_batch(window)
 
 def _gen_btn_style_string(bg_color, text_color=None, pressed_color=None, hover_color=None):
@@ -1596,8 +1600,9 @@ def _run_parallel_round(window, state, round_tasks):
                 
                 if token_total > 0 and title:
                     window.db.insert_api_token_stats(image_path, result_service, result_model, token_input, token_output, token_total)
-                
-                # Update UI row colors
+                    window._session_token_input = getattr(window, '_session_token_input', 0) + token_input
+                    window._session_token_output = getattr(window, '_session_token_output', 0) + token_output
+                    window._session_token_total = getattr(window, '_session_token_total', 0) + token_total
                 for row_idx in range(table_widget.rowCount()):
                     item = table_widget.item(row_idx, 1)
                     if item and item.data(Qt.UserRole) == image_path:
@@ -2200,6 +2205,9 @@ def _run_next_batch(window):
             # This handles rolling API cases where first API failed but second succeeded
             if token_total > 0 and title:  # If we got content and tokens were used
                 window.db.insert_api_token_stats(image_path, result_service, result_model, token_input, token_output, token_total)
+                window._session_token_input = getattr(window, '_session_token_input', 0) + token_input
+                window._session_token_output = getattr(window, '_session_token_output', 0) + token_output
+                window._session_token_total = getattr(window, '_session_token_total', 0) + token_total
             
             # Update UI row colors in current table view (if visible)
             for row_idx in range(table_widget.rowCount()):
@@ -2748,6 +2756,31 @@ def _on_generation_finished(window, errors, stopped=False):
         elif is_rolling_mode and hasattr(window, 'statusbar'):
             api_count = len(state.get('api_keys_list', []))
             window.statusbar.showMessage(f"Rolling APIs completed using {api_count} API keys", 5000)
+
+        total_time_ms = 0
+        if hasattr(window, '_gen_total_time_start'):
+            total_time_ms = int((time.perf_counter() - window._gen_total_time_start) * 1000)
+        token_input = getattr(window, '_session_token_input', 0)
+        token_output = getattr(window, '_session_token_output', 0)
+        token_total = getattr(window, '_session_token_total', 0)
+        success_count = window.db.get_files_count(status_filter='success')
+        failed_count = window.db.get_files_count(status_filter='failed')
+        total_files = success_count + failed_count
+        dlg = GenerationResultDialog(
+            parent=window,
+            total_files=total_files,
+            success_count=success_count,
+            failed_count=failed_count,
+            token_input=token_input,
+            token_output=token_output,
+            token_total=token_total,
+            total_time_ms=total_time_ms
+        )
+        tw_queue = getattr(window.table, '_tw_queue', None)
+        if tw_queue:
+            window.table._pending_result_dialog = dlg
+        else:
+            dlg.exec()
     
     print("[CLEANUP] Generation finished cleanup completed.")
 

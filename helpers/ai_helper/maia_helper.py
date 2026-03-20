@@ -274,7 +274,7 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
             try:
                 endpoint_image_path = compressed_path if not is_video else None
-                text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'maia', model, prompt, endpoint_image_path, timeout=180)
+                text, token_input, token_output, token_total = CustomEndpointHelper.call_endpoint_with_usage(api_key, provider_endpoint, 'maia', model, prompt, endpoint_image_path, timeout=180)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[Maia][CustomEndpoint] {e}")
@@ -317,10 +317,11 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
             if not text:
                 text = str(response)
         else:
-            # custom endpoint path: `text` already provided by helper
-            token_input = token_output = token_total = 0
+            # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():
                 text = ''
+            if 'token_input' not in locals():
+                token_input = token_output = token_total = 0
 
         print("="*80)
         print("MAIA ROUTER RAW TEXT:")

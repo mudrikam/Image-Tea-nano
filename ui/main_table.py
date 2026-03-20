@@ -19,6 +19,7 @@ from ui.theme_system import theme
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 class NoDataWidget(QWidget):
     """Widget to display 'No files to load' message consistently across all tabs"""
     def __init__(self, parent=None):
@@ -1638,6 +1639,35 @@ class ImageTableWidget(QWidget):
 
     def _populate_table_with_rows(self, rows):
         """Populate table with given rows"""
+        # Rescue any in-progress typewriter state before row destruction.
+        # _tw_queue and _typewriter_timers use row_idx which becomes invalid after setRowCount(0).
+        # Convert them to filepath-based tracking and re-add to _typewriter_pending.
+        _tw_queue_now = getattr(self, '_tw_queue', [])
+        _tw_timers_now = getattr(self, '_typewriter_timers', {})
+        if _tw_queue_now or _tw_timers_now:
+            rescued_fps = set()
+            for row_idx, col, _full_text in _tw_queue_now:
+                fp_item = self.table.item(row_idx, 1)
+                if fp_item:
+                    fp = fp_item.data(Qt.UserRole) or fp_item.text()
+                    if fp:
+                        rescued_fps.add(fp)
+            for (row_idx, col) in list(_tw_timers_now.keys()):
+                timer = _tw_timers_now[(row_idx, col)]
+                timer.stop()
+                timer.deleteLater()
+                fp_item = self.table.item(row_idx, 1)
+                if fp_item:
+                    fp = fp_item.data(Qt.UserRole) or fp_item.text()
+                    if fp:
+                        rescued_fps.add(fp)
+            self._typewriter_timers = {}
+            self._tw_queue = []
+            if rescued_fps:
+                if not hasattr(self, '_typewriter_pending'):
+                    self._typewriter_pending = set()
+                self._typewriter_pending.update(rescued_fps)
+
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         
@@ -1659,16 +1689,29 @@ class ImageTableWidget(QWidget):
             checkbox_item = QTableWidgetItem()
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             checkbox_item.setCheckState(Qt.Unchecked)
+            checkbox_item.setTextAlignment(Qt.AlignCenter)
             checkbox_item.setData(Qt.UserRole, row[0])
             self.table.setItem(row_idx, 0, checkbox_item)
             display_values = list(row[1:7])
+            _pending_fps = getattr(self, '_typewriter_pending', set())
+            _row_fp = row[1] if len(row) > 1 else None
+            _is_pending = bool(_row_fp and _row_fp in _pending_fps)
+            status_val = row[6] if len(row) > 6 and row[6] is not None else ""
             if len(display_values) > 0:
                 short_fp = self._shorten_filepath(display_values[0])
                 fp_item = QTableWidgetItem(short_fp)
                 fp_item.setData(Qt.UserRole, display_values[0])
                 self.table.setItem(row_idx, 1, fp_item)
                 for col, val in enumerate(display_values[1:], start=2):
-                    item = QTableWidgetItem(str(val) if val is not None else "")
+                    is_processing_col = col in (3, 4, 5)
+                    should_blank = is_processing_col and (
+                        _is_pending or status_val in ("processing", "stopping")
+                    )
+                    if should_blank:
+                        item = QTableWidgetItem("")
+                        item.setData(Qt.UserRole + 1, str(val) if val is not None else "")
+                    else:
+                        item = QTableWidgetItem(str(val) if val is not None else "")
                     if col == 2:
                         item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                     self.table.setItem(row_idx, col, item)
@@ -1682,7 +1725,6 @@ class ImageTableWidget(QWidget):
             tag_count_item = QTableWidgetItem(str(tag_count))
             tag_count_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 7, tag_count_item)
-            status_val = row[6] if len(row) > 6 and row[6] is not None else ""
             status_item = QTableWidgetItem(str(status_val))
             status_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row_idx, 8, status_item)
@@ -1702,6 +1744,26 @@ class ImageTableWidget(QWidget):
         
         self.table.blockSignals(False)
         self.table.setUpdatesEnabled(True)
+
+        pending = getattr(self, '_typewriter_pending', set())
+        if pending:
+            queue = []
+            for row_idx in range(self.table.rowCount()):
+                fp_item = self.table.item(row_idx, 1)
+                if not fp_item:
+                    continue
+                fp = fp_item.data(Qt.UserRole) or fp_item.text()
+                if fp not in pending:
+                    continue
+                for col in (3, 4, 5):
+                    item = self.table.item(row_idx, col)
+                    if item:
+                        full_text = item.data(Qt.UserRole + 1) or ""
+                        queue.append((row_idx, col, full_text))
+            self._typewriter_pending.clear()
+            if queue:
+                self._tw_queue = queue
+                QTimer.singleShot(0, self._run_typewriter_queue)
 
     def _on_tab_changed(self, idx):
         if self.tab_widget.tabText(idx) == "Thumbnail":
@@ -2048,6 +2110,14 @@ class ImageTableWidget(QWidget):
             self._show_row_spinner(row_idx)
         else:
             self._hide_row_spinner(row_idx)
+        if status == "success":
+            fp_item = self.table.item(row_idx, 1)
+            if fp_item:
+                fp = fp_item.data(Qt.UserRole) or fp_item.text()
+                if fp:
+                    if not hasattr(self, '_typewriter_pending'):
+                        self._typewriter_pending = set()
+                    self._typewriter_pending.add(fp)
         
                                             
         if 0 <= row_idx < len(self._current_rows):
@@ -2138,14 +2208,117 @@ class ImageTableWidget(QWidget):
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             self.table.setItem(row_idx, 0, checkbox_item)
 
+    def _start_typewriter(self, row_idx, col, full_text):
+        if not hasattr(self, '_typewriter_timers'):
+            self._typewriter_timers = {}
+        key = (row_idx, col)
+        existing = self._typewriter_timers.get(key)
+        if existing:
+            existing.stop()
+            existing.deleteLater()
+            self._typewriter_timers.pop(key, None)
+        if not full_text:
+            item = self.table.item(row_idx, col)
+            if item:
+                item.setText("")
+            return
+        state = [0]
+        timer = QTimer(self)
+        timer.setInterval(40)
+        def _tick():
+            pos = state[0]
+            item = self.table.item(row_idx, col)
+            if item is None:
+                timer.stop()
+                timer.deleteLater()
+                self._typewriter_timers.pop(key, None)
+                return
+            end = min(pos + 2, len(full_text))
+            item.setText(full_text[:end])
+            state[0] = end
+            if end >= len(full_text):
+                timer.stop()
+                timer.deleteLater()
+                self._typewriter_timers.pop(key, None)
+        timer.timeout.connect(_tick)
+        self._typewriter_timers[key] = timer
+        item = self.table.item(row_idx, col)
+        if item:
+            item.setText("")
+        timer.start()
+
+    def _run_typewriter_queue(self):
+        if not hasattr(self, '_tw_queue') or not self._tw_queue:
+            self.table.scrollToItem(
+                self.table.item(self.table.currentRow() if self.table.currentRow() >= 0 else 0, 0)
+                or self.table.item(0, 0),
+                QAbstractItemView.PositionAtCenter
+            )
+            self.table.horizontalScrollBar().setValue(0)
+            if hasattr(self, '_pending_result_dialog') and self._pending_result_dialog is not None:
+                dlg = self._pending_result_dialog
+                self._pending_result_dialog = None
+                dlg.exec()
+            return
+        row_idx, col, full_text = self._tw_queue.pop(0)
+        item = self.table.item(row_idx, col)
+        if item:
+            self.table.scrollToItem(item, QAbstractItemView.EnsureVisible)
+        if not hasattr(self, '_typewriter_timers'):
+            self._typewriter_timers = {}
+        key = (row_idx, col)
+        existing = self._typewriter_timers.get(key)
+        if existing:
+            existing.stop()
+            existing.deleteLater()
+            self._typewriter_timers.pop(key, None)
+        if not full_text:
+            if item:
+                item.setText("")
+            self._run_typewriter_queue()
+            return
+        words = full_text.split(" ")
+        state = [0]
+        interval = max(30, 1000 // max(1, len(words)))
+        timer = QTimer(self)
+        timer.setInterval(interval)
+        def _tick():
+            pos = state[0]
+            it = self.table.item(row_idx, col)
+            if it is None:
+                timer.stop()
+                timer.deleteLater()
+                self._typewriter_timers.pop(key, None)
+                self._run_typewriter_queue()
+                return
+            end = min(pos + 1, len(words))
+            it.setText(" ".join(words[:end]))
+            state[0] = end
+            if end >= len(words):
+                timer.stop()
+                timer.deleteLater()
+                self._typewriter_timers.pop(key, None)
+                self._run_typewriter_queue()
+        timer.timeout.connect(_tick)
+        self._typewriter_timers[key] = timer
+        if item:
+            item.setText("")
+        timer.start()
+
     def update_row_data(self, row_idx, row_data):
         display_values = list(row_data[1:7])
         if len(display_values) > 0:
             display_values[0] = self._shorten_filepath(display_values[0])
+        _animated_cols = {2, 3, 4}
         for col, val in enumerate(display_values):
-            item = self.table.item(row_idx, col + 1)
+            table_col = col + 1
+            item = self.table.item(row_idx, table_col)
             if item:
-                item.setText(str(val) if val is not None else "")
+                text = str(val) if val is not None else ""
+                if col in _animated_cols:
+                    self._start_typewriter(row_idx, table_col, text)
+                else:
+                    item.setText(text)
         title_val = row_data[3] if len(row_data) > 3 and row_data[3] is not None else ""
         title_len = len(title_val)
         title_len_item = self.table.item(row_idx, 6)

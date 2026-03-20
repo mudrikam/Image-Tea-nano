@@ -427,9 +427,9 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         cf = compress_and_save_image(fp)
                         if cf:
                             compressed_frames.append(cf)
-                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, frame_prompt, None, timeout=180, frame_paths=compressed_frames)
+                    text, token_input, token_output, token_total = CustomEndpointHelper.call_endpoint_with_usage(api_key, provider_endpoint, 'openai', model, frame_prompt, None, timeout=180, frame_paths=compressed_frames)
                 else:
-                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, 'openai', model, prompt, compressed_path, timeout=180)
+                    text, token_input, token_output, token_total = CustomEndpointHelper.call_endpoint_with_usage(api_key, provider_endpoint, 'openai', model, prompt, compressed_path, timeout=180)
                 used_custom_endpoint = True
             except Exception as e:
                 print(f"[OpenAI][CustomEndpoint] {e}")
@@ -519,12 +519,11 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             if not text:
                 text = str(response)
         else:
-            # custom endpoint path: `text` already holds the returned string
-            token_input = 0
-            token_output = 0
-            token_total = 0
+            # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():
                 text = ''
+            if 'token_input' not in locals():
+                token_input = token_output = token_total = 0
 
         print("="*80)
         print("OPENAI RAW TEXT:")
