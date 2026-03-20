@@ -1783,6 +1783,7 @@ class ImageTableWidget(QWidget):
 
         self.grid_manager.image_size = target
         self.grid_manager._pixmap_cache_size = max(300, min(1200, target * 2))
+        self.grid_manager._pixmap_cache.clear()
 
         if hasattr(self, '_thumbnail_loader') and self._thumbnail_loader and self._thumbnail_loader.isRunning():
             self._thumbnail_loader.cancel()
@@ -2461,13 +2462,14 @@ class ImageTableWidget(QWidget):
         if not label:
             return
         if qimage and not qimage.isNull():
-            pixmap = QPixmap.fromImage(qimage)
-            pixmap = pixmap.scaled(
+            hd_pixmap = QPixmap.fromImage(qimage)
+            self.grid_manager._pixmap_cache[filepath] = hd_pixmap
+            self._preview_cache[filepath] = hd_pixmap
+            display_pixmap = hd_pixmap.scaled(
                 self.grid_manager.image_size, self.grid_manager.image_size,
                 Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
-            label.setPixmap(pixmap)
-            self._preview_cache[filepath] = pixmap
+            label.setPixmap(display_pixmap)
         else:
             label.setText("Cannot preview image")
 
