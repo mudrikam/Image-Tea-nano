@@ -174,6 +174,7 @@ class StatsSectionWidget(QWidget):
         self._log_text = QTextEdit()
         self._log_text.setReadOnly(True)
         self._log_text.setLineWrapMode(QTextEdit.WidgetWidth)
+        self._log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         log_font = QFont("Consolas", 8)
         log_font.setStyleHint(QFont.Monospace)
         self._log_text.setFont(log_font)
