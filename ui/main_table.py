@@ -1697,6 +1697,8 @@ class ImageTableWidget(QWidget):
                 item = self.table.item(row_idx, col)
                 if item:
                     item.setToolTip(tooltip)
+            if status_val in ("processing", "stopping"):
+                self._show_row_spinner(row_idx)
         
         self.table.blockSignals(False)
         self.table.setUpdatesEnabled(True)
@@ -2042,6 +2044,10 @@ class ImageTableWidget(QWidget):
         status_item = self.table.item(row_idx, status_col)
         if status_item:
             status_item.setText(status.capitalize())
+        if status in ("processing", "stopping"):
+            self._show_row_spinner(row_idx)
+        else:
+            self._hide_row_spinner(row_idx)
         
                                             
         if 0 <= row_idx < len(self._current_rows):
@@ -2100,6 +2106,37 @@ class ImageTableWidget(QWidget):
         _blk_col = QColor(theme.get_color('black'))
         _blk_col.setAlpha(int(0.1 * 255))
         return _blk_col
+
+    def _show_row_spinner(self, row_idx):
+        if self.table.cellWidget(row_idx, 0) is not None:
+            return
+        checkbox_item = self.table.takeItem(row_idx, 0)
+        if checkbox_item:
+            if not hasattr(self, '_spinner_saved_items'):
+                self._spinner_saved_items = {}
+            self._spinner_saved_items[row_idx] = checkbox_item
+        warn_q = QColor(theme.get_color('warning'))
+        warn_q.setAlpha(int(0.45 * 255))
+        bg_css = f"rgba({warn_q.red()},{warn_q.green()},{warn_q.blue()},{warn_q.alpha()/255:.2f})"
+        btn = QPushButton(self.table)
+        btn.setFlat(True)
+        btn.setFocusPolicy(Qt.NoFocus)
+        btn.setEnabled(False)
+        btn.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        btn.setStyleSheet(f"background-color: {bg_css}; border: none;")
+        spin_anim = qta.Spin(btn, autostart=True, interval=50, step=45)
+        spin_icon = qta.icon('fa6s.spinner', color=theme.get_color('warning'), animation=spin_anim)
+        btn.setIcon(spin_icon)
+        btn.setIconSize(QSize(14, 14))
+        self.table.setCellWidget(row_idx, 0, btn)
+
+    def _hide_row_spinner(self, row_idx):
+        if self.table.cellWidget(row_idx, 0) is not None:
+            self.table.removeCellWidget(row_idx, 0)
+        if hasattr(self, '_spinner_saved_items') and row_idx in self._spinner_saved_items:
+            checkbox_item = self._spinner_saved_items.pop(row_idx)
+            checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            self.table.setItem(row_idx, 0, checkbox_item)
 
     def update_row_data(self, row_idx, row_data):
         display_values = list(row_data[1:7])
