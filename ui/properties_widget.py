@@ -306,7 +306,7 @@ class TagsPillWidget(QWidget):
 class ImagePreviewWidget(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(160)
+        self.setMinimumHeight(60)
         self.setMaximumHeight(16777215)
         self.setAlignment(Qt.AlignCenter)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -340,6 +340,7 @@ class ImagePreviewWidget(QGraphicsView):
             self._pixmap_item = self._scene.addPixmap(pixmap)
             self._scene.setSceneRect(self._pixmap_item.boundingRect())
             self.resetTransform()
+            self._update_height()
             QTimer.singleShot(0, self._fit_to_view)
         else:
             self._scene.setSceneRect(0, 0, self.width(), self.height())
@@ -357,6 +358,19 @@ class ImagePreviewWidget(QGraphicsView):
         self.resetTransform()
         self._scene.setSceneRect(0, 0, self.width(), self.height())
         self._show_no_preview_message("No Preview")
+
+    def _update_height(self):
+        if not self._pixmap_item:
+            self.setFixedHeight(max(60, self.width()))
+            return
+        pix_rect = self._pixmap_item.boundingRect()
+        pw = pix_rect.width()
+        ph = pix_rect.height()
+        vw = self.viewport().width()
+        if pw <= 0 or vw <= 0:
+            return
+        new_h = int(vw * ph / pw)
+        self.setFixedHeight(max(60, new_h))
 
     def _fit_to_view(self):
         if not self._pixmap_item or self._user_zoomed:
@@ -379,7 +393,7 @@ class ImagePreviewWidget(QGraphicsView):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.setFixedHeight(self.width())
+        self._update_height()
         self._fit_to_view()
         self._position_no_preview_text()
 
