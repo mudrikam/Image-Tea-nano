@@ -225,9 +225,31 @@ def setup_main_menu(window):
         if dlg.exec() == MemberLoginDialog.Accepted:
             if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
                 window.statusbar.update_member_status()
+            _refresh_member_actions()
     login_member_action.triggered.connect(open_login_member)
     file_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
+
+    logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout Member", window)
+    logout_member_action.setToolTip("Logout from member account")
+    logout_member_action.setStatusTip("Logout from member account")
+    def do_logout_member():
+        from helpers.members_helper.members_helper import logout_member
+        logout_member()
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
+        _refresh_member_actions()
+    logout_member_action.triggered.connect(do_logout_member)
+    file_menu.addAction(logout_member_action)
+    window.logout_member_action = logout_member_action
+
+    def _refresh_member_actions():
+        from helpers.members_helper.members_helper import is_logged_in
+        logged_in = is_logged_in()
+        login_member_action.setVisible(not logged_in)
+        logout_member_action.setVisible(logged_in)
+
+    _refresh_member_actions()
 
     file_menu.addSeparator()
 

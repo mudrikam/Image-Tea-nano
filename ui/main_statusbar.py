@@ -78,6 +78,7 @@ class MainStatusBar(QStatusBar):
 
     def _check_env_and_set_style(self):
         from helpers.members_helper.members_helper import is_logged_in, get_session
+        from datetime import datetime
         env_path = os.path.join(BASE_PATH, ".env")
         is_development = False
         if os.path.exists(env_path):
@@ -93,10 +94,50 @@ class MainStatusBar(QStatusBar):
         if is_logged_in():
             session = get_session()
             email = session.get("email", "")
-            self.setStyleSheet(f"QStatusBar {{ background-color: #1a6fbd; }}")
-            self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Member Active</span>')
-            self.member_email_label.setText(email)
-            self.member_email_label.show()
+            status = session.get("status", "active")
+            expires_at = session.get("expires_at")
+
+            days_left = None
+            is_expired = False
+            if expires_at:
+                try:
+                    if isinstance(expires_at, str):
+                        exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                        exp_dt = exp_dt.replace(tzinfo=None)
+                    elif hasattr(expires_at, "year"):
+                        exp_dt = expires_at.replace(tzinfo=None) if hasattr(expires_at, "tzinfo") and expires_at.tzinfo else expires_at
+                    else:
+                        exp_dt = None
+                    if exp_dt:
+                        days_left = (exp_dt - datetime.now().replace(tzinfo=None)).days
+                        is_expired = days_left < 0
+                except Exception:
+                    pass
+
+            member_inactive = (status not in ("active",)) or is_expired
+
+            if member_inactive:
+                self.setStyleSheet(f"QStatusBar {{ background-color: #c0392b; }}")
+                self.status_label.setText(
+                    f'<span style="color:white;font-weight:bold;">Membership expired or inactive. Renew or use your own API key.</span>'
+                )
+                self.member_email_label.setText(email)
+                self.member_email_label.show()
+            elif days_left is not None and days_left <= 7:
+                self.setStyleSheet(f"QStatusBar {{ background-color: #e67e22; }}")
+                self.status_label.setText(
+                    f'<span style="color:white;font-weight:bold;">Member Active</span>'
+                )
+                self.member_email_label.setText(f"{email}  |  Expires in {days_left} day{'s' if days_left != 1 else ''}")
+                self.member_email_label.show()
+            else:
+                self.setStyleSheet(f"QStatusBar {{ background-color: #1a6fbd; }}")
+                self.status_label.setText(
+                    f'<span style="color:{theme.get_color("white")};font-weight:bold;">Member Active</span>'
+                )
+                expiry_text = f"  |  Expires in {days_left} days" if days_left is not None else ""
+                self.member_email_label.setText(f"{email}{expiry_text}")
+                self.member_email_label.show()
         elif versions_behind >= 5:
             self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('warning')}; }}")
             self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Image Tea is {versions_behind} updates behind, consider updating!</span>')

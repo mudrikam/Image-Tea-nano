@@ -225,6 +225,7 @@ backup_configs/
 Sign-Image-Tea.bat
 DesainiaStudio.pfx
 vs code.bat
+.vscode/
 .github/instructions
 .github/copilot-instructions.md
 dev_github_token.json
