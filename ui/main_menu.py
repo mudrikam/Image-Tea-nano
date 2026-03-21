@@ -213,6 +213,24 @@ def setup_main_menu(window):
     file_menu.addAction(backup_configs_action)
     window.backup_configs_action = backup_configs_action
 
+    file_menu.addSeparator()
+
+    login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login Member", window)
+    login_member_action.setToolTip("Login ke akun membership Image Tea")
+    login_member_action.setStatusTip("Login ke akun membership Image Tea")
+    def open_login_member():
+        from dialogs.members.member_login_dialog import MemberLoginDialog
+        from helpers.members_helper.members_helper import is_logged_in
+        dlg = MemberLoginDialog(window)
+        if dlg.exec() == MemberLoginDialog.Accepted:
+            if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+                window.statusbar.update_member_status()
+    login_member_action.triggered.connect(open_login_member)
+    file_menu.addAction(login_member_action)
+    window.login_member_action = login_member_action
+
+    file_menu.addSeparator()
+
     exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
     exit_action.setToolTip(MENU_TOOLTIPS["exit"])
     exit_action.setStatusTip(MENU_TOOLTIPS["exit"])
@@ -383,10 +401,6 @@ def setup_main_menu(window):
     video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
     edit_menu.addAction(video_proxy_settings_action)
 
-    edit_menu.addSeparator()
-    load_themes_menu()
-    edit_menu.addMenu(themes_submenu)
-
     metadata_menu = QMenu("Metadata", menubar)
     metadata_menu.setToolTipsVisible(True)
     write_metadata_images_action = QAction(qta.icon('fa6s.floppy-disk'), "Write Metadata to Images", window)
@@ -433,7 +447,8 @@ def setup_main_menu(window):
     chunk_size_action.triggered.connect(show_chunk_size_dialog)
     metadata_menu.addAction(chunk_size_action)
 
-    prompt_menu = QMenu("Prompt", menubar)
+    prompt_menu = QMenu("Prompt", edit_menu)
+    prompt_menu.setIcon(qta.icon('fa6s.comment-dots'))
     prompt_menu.setToolTipsVisible(True)
     edit_prompt_action = QAction(qta.icon('fa6s.pen-to-square'), "Edit Prompt", window)
     edit_prompt_action.setToolTip(MENU_TOOLTIPS["edit_prompt"])
@@ -454,6 +469,11 @@ def setup_main_menu(window):
         dialog.exec()
     custom_prompt_action.triggered.connect(open_custom_prompt)
     prompt_menu.addAction(custom_prompt_action)
+    edit_menu.addMenu(prompt_menu)
+
+    edit_menu.addSeparator()
+    load_themes_menu()
+    edit_menu.addMenu(themes_submenu)
 
     api_action = QAction("API Key Manager", window)
     api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])
@@ -822,7 +842,6 @@ def setup_main_menu(window):
     menubar.addMenu(file_menu)
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)
-    menubar.addMenu(prompt_menu)
     menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
     menubar.addMenu(extension_menu)

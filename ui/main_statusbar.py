@@ -50,7 +50,15 @@ class MainStatusBar(QStatusBar):
         layout.addWidget(self.commit_btn)
         layout.addWidget(self.update_btn)
         self.version_commit_widget.setLayout(layout)
+
+        self.member_email_label = QLabel("")
+        self.member_email_label.setStyleSheet(
+            f"color: {theme.get_color('white')}; font-size: 12px; padding: 0 8px;"
+        )
+        self.member_email_label.hide()
+
         self.addWidget(self.status_label)
+        self.addPermanentWidget(self.member_email_label)
         self.addPermanentWidget(self.version_commit_widget)
 
         
@@ -69,6 +77,7 @@ class MainStatusBar(QStatusBar):
             return 0
 
     def _check_env_and_set_style(self):
+        from helpers.members_helper.members_helper import is_logged_in, get_session
         env_path = os.path.join(BASE_PATH, ".env")
         is_development = False
         if os.path.exists(env_path):
@@ -81,15 +90,28 @@ class MainStatusBar(QStatusBar):
             except Exception:
                 pass
         versions_behind = getattr(self, '_versions_behind', 0)
-        if versions_behind >= 5:
+        if is_logged_in():
+            session = get_session()
+            email = session.get("email", "")
+            self.setStyleSheet(f"QStatusBar {{ background-color: #1a6fbd; }}")
+            self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Member Active</span>')
+            self.member_email_label.setText(email)
+            self.member_email_label.show()
+        elif versions_behind >= 5:
             self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('warning')}; }}")
             self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Image Tea is {versions_behind} updates behind, consider updating!</span>')
+            self.member_email_label.hide()
         elif is_development:
             self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('error')}; }}")
             self.status_label.setText(f'<span style="color:{theme.get_color("white")};font-weight:bold;">Development!</span>')
+            self.member_email_label.hide()
         else:
             self.setStyleSheet("")
             self.status_label.setText("")
+            self.member_email_label.hide()
+
+    def update_member_status(self):
+        self._check_env_and_set_style()
 
     def eventFilter(self, obj, event):
         

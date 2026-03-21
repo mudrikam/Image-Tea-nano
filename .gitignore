@@ -240,3 +240,5 @@ configs/upscaler_models_config.json
 configs\upscaler_models_config.json
 configs/batch_rename_presets.json
 configs\batch_rename_presets.json
+configs/member_credentials.json
+configs\member_credentials.json
