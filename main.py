@@ -20,6 +20,7 @@ def load_app_config():
 class ImageTeaMainWindow(QMainWindow):
     show_ai_unsupported_dialog = Signal(str)
     background_status = Signal(str)
+    trigger_show_update_dialog = Signal()
 
     def __init__(self):
         super().__init__()
@@ -39,6 +40,7 @@ class ImageTeaMainWindow(QMainWindow):
         self.is_generating = False
         self.show_ai_unsupported_dialog.connect(self._show_ai_unsupported_dialog_slot)
         self.background_status.connect(self._on_background_status)
+        self.trigger_show_update_dialog.connect(self._on_show_update_dialog)
 
         if hasattr(self, "gen_btn"):
             self.gen_btn.clicked.disconnect()
@@ -54,6 +56,10 @@ class ImageTeaMainWindow(QMainWindow):
         self.shutdown_timer = QTimer(self)
         self.shutdown_timer.timeout.connect(self._check_shutdown_signal)
         self.shutdown_timer.start(500)
+
+    def _on_show_update_dialog(self):
+        from helpers.check_for_update_helper import show_update_dialog_if_available
+        show_update_dialog_if_available(parent=self)
 
     def _show_ai_unsupported_dialog_slot(self, message):
         dialog = AIUnsuportedDialog(message, parent=self)
@@ -273,6 +279,7 @@ if __name__ == '__main__':
                 _emit("Checking for updates...")
                 print("[Background Init] Checking for updates...")
                 check_for_update()
+                window.trigger_show_update_dialog.emit()
 
                 _emit("Verifying tools...")
                 print("[Background Init] Preparing tools...")
