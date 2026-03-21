@@ -1,11 +1,14 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QFrame, QProgressBar
+    QPushButton, QCheckBox, QFrame, QProgressBar, QTabWidget, QWidget,
+    QSizePolicy, QStackedWidget
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QUrl
 from PySide6.QtGui import QIcon
 import qtawesome as qta
 import os
+import json
+import webbrowser
 from config import BASE_PATH
 from ui.theme_system import theme
 
@@ -36,15 +39,15 @@ class MemberLoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Member Login")
-        self.setMinimumWidth(380)
         self.setWindowIcon(QIcon(os.path.join(BASE_PATH, "res", "image_tea.ico")))
+        self.resize(380, 400)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 16, 20, 16)
         main_layout.setSpacing(6)
 
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon("fa6s.id-badge", color=theme.get_color("primary")).pixmap(32, 32))
+        icon_label.setPixmap(qta.icon("fa6s.id-badge", color=theme.get_color("primary")).pixmap(48, 48))
         icon_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(icon_label)
 
@@ -58,48 +61,53 @@ class MemberLoginDialog(QDialog):
         separator.setStyleSheet(f"color: {theme.get_color('text_dark')};")
         main_layout.addWidget(separator)
 
+        tabs = QTabWidget()
+        main_layout.addWidget(tabs)
+
+        # --- Login tab ---
+        login_tab = QWidget()
+        login_layout = QVBoxLayout(login_tab)
+        login_layout.setContentsMargins(12, 12, 12, 12)
+        login_layout.setSpacing(8)
+
+        login_layout.addStretch()
+
         email_label = QLabel("Email")
         email_label.setStyleSheet(f"color: {theme.get_color('text_light')};")
-        main_layout.addWidget(email_label)
+        login_layout.addWidget(email_label)
 
         self.email_input = QLineEdit()
         self.email_input.setPlaceholderText("email@example.com")
         self.email_input.setMinimumHeight(34)
-        main_layout.addWidget(self.email_input)
+        login_layout.addWidget(self.email_input)
 
         license_label = QLabel("License Key")
         license_label.setStyleSheet(f"color: {theme.get_color('text_light')};")
-        main_layout.addWidget(license_label)
+        login_layout.addWidget(license_label)
 
         self.license_input = QLineEdit()
         self.license_input.setPlaceholderText("DSNA-XXXX")
         self.license_input.setMinimumHeight(34)
-        main_layout.addWidget(self.license_input)
+        login_layout.addWidget(self.license_input)
 
         self.remember_checkbox = QCheckBox("Remember login")
-        main_layout.addWidget(self.remember_checkbox)
+        login_layout.addWidget(self.remember_checkbox)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
-        main_layout.addWidget(self.progress_bar)
+        login_layout.addWidget(self.progress_bar)
 
         self.error_label = QLabel("")
         self.error_label.setStyleSheet(f"color: {theme.get_color('error')}; font-size: 12px;")
         self.error_label.setAlignment(Qt.AlignCenter)
         self.error_label.setWordWrap(True)
-        main_layout.addWidget(self.error_label)
+        login_layout.addWidget(self.error_label)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
-
-        self.cancel_btn = QPushButton(qta.icon("fa6s.xmark"), "Cancel")
-        self.cancel_btn.setMinimumHeight(34)
-        self.cancel_btn.setCursor(Qt.PointingHandCursor)
-        self.cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(self.cancel_btn)
 
         self.login_btn = QPushButton(qta.icon("fa6s.right-to-bracket", color=theme.get_color("white")), "Login")
         self.login_btn.setMinimumHeight(34)
@@ -112,10 +120,81 @@ class MemberLoginDialog(QDialog):
         self.login_btn.clicked.connect(self._on_login)
         btn_layout.addWidget(self.login_btn)
 
-        main_layout.addLayout(btn_layout)
+        login_layout.addLayout(btn_layout)
+        login_layout.addStretch()
+
+        tabs.addTab(login_tab, qta.icon("fa6s.right-to-bracket"), " Login")
+
+        # --- Register tab ---
+        register_tab = QWidget()
+        register_layout = QVBoxLayout(register_tab)
+        register_layout.setContentsMargins(0, 0, 0, 0)
+        register_layout.setSpacing(0)
+
+        self._register_url = self._load_register_url()
+        self._reg_web_view = None
+
+        self._reg_stack = QStackedWidget()
+
+        reg_fallback = QWidget()
+        reg_fallback_layout = QVBoxLayout(reg_fallback)
+        reg_fallback_layout.setAlignment(Qt.AlignCenter)
+        reg_fallback_layout.setSpacing(10)
+        fallback_icon = QLabel()
+        fallback_icon.setPixmap(qta.icon("fa6s.globe", color=theme.get_color("text_dark")).pixmap(48, 48))
+        fallback_icon.setAlignment(Qt.AlignCenter)
+        fallback_msg = QLabel("Failed to load registration page.")
+        fallback_msg.setAlignment(Qt.AlignCenter)
+        fallback_msg.setStyleSheet(f"color: {theme.get_color('text_dark')};")
+        reg_fallback_layout.addWidget(fallback_icon)
+        reg_fallback_layout.addWidget(fallback_msg)
+        self._reg_stack.addWidget(reg_fallback)
+
+        try:
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+            web_container = QWidget()
+            web_vbox = QVBoxLayout(web_container)
+            web_vbox.setContentsMargins(0, 0, 0, 0)
+            self._reg_web_view = QWebEngineView()
+            self._reg_web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self._reg_web_view.setMinimumHeight(1)
+            self._reg_web_view.load(QUrl(self._register_url))
+            web_vbox.addWidget(self._reg_web_view)
+            self._reg_stack.addWidget(web_container)
+            self._reg_stack.setCurrentIndex(1)
+        except ImportError:
+            pass
+
+        register_layout.addWidget(self._reg_stack, 1)
+
+        reg_btn_row = QHBoxLayout()
+        reg_btn_row.setContentsMargins(8, 6, 8, 6)
+        open_btn = QPushButton(qta.icon("fa6s.arrow-up-right-from-square"), " Open in Browser")
+        open_btn.setMinimumHeight(34)
+        open_btn.setCursor(Qt.PointingHandCursor)
+        open_btn.clicked.connect(lambda: webbrowser.open(self._register_url))
+        reg_btn_row.addWidget(open_btn)
+        reg_btn_row.addStretch()
+        register_layout.addLayout(reg_btn_row)
+
+        tabs.addTab(register_tab, qta.icon("fa6s.user-plus"), " Register")
 
         self._worker = None
         self._load_saved_credentials()
+
+    def closeEvent(self, event):
+        if self._reg_web_view is not None:
+            try:
+                self._reg_web_view.stop()
+            except Exception as e:
+                print(f"[MemberLoginDialog] closeEvent error: {e}")
+        super().closeEvent(event)
+
+    def _load_register_url(self):
+        config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg["links"]["register_member"]
 
     def _load_saved_credentials(self):
         from helpers.members_helper.members_helper import load_saved_credentials
@@ -127,7 +206,6 @@ class MemberLoginDialog(QDialog):
 
     def _set_loading(self, loading: bool):
         self.login_btn.setEnabled(not loading)
-        self.cancel_btn.setEnabled(not loading)
         self.email_input.setEnabled(not loading)
         self.license_input.setEnabled(not loading)
         self.remember_checkbox.setEnabled(not loading)

@@ -216,8 +216,8 @@ def setup_main_menu(window):
     file_menu.addSeparator()
 
     login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login Member", window)
-    login_member_action.setToolTip("Login ke akun membership Image Tea")
-    login_member_action.setStatusTip("Login ke akun membership Image Tea")
+    login_member_action.setToolTip("Login to your Image Tea membership account")
+    login_member_action.setStatusTip("Login to your Image Tea membership account")
     def open_login_member():
         from dialogs.members.member_login_dialog import MemberLoginDialog
         from helpers.members_helper.members_helper import is_logged_in
