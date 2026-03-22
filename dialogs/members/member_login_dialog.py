@@ -1,9 +1,8 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QFrame, QProgressBar, QTabWidget, QWidget,
-    QSizePolicy, QStackedWidget
+    QPushButton, QCheckBox, QFrame, QProgressBar, QTabWidget, QWidget
 )
-from PySide6.QtCore import Qt, QThread, Signal, QUrl
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon
 import qtawesome as qta
 import os
@@ -128,54 +127,51 @@ class MemberLoginDialog(QDialog):
         # --- Register tab ---
         register_tab = QWidget()
         register_layout = QVBoxLayout(register_tab)
-        register_layout.setContentsMargins(0, 0, 0, 0)
-        register_layout.setSpacing(0)
+        register_layout.setContentsMargins(20, 20, 20, 20)
+        register_layout.setSpacing(12)
 
         self._register_url = self._load_register_url()
-        self._reg_web_view = None
 
-        self._reg_stack = QStackedWidget()
+        register_layout.addStretch()
 
-        reg_fallback = QWidget()
-        reg_fallback_layout = QVBoxLayout(reg_fallback)
-        reg_fallback_layout.setAlignment(Qt.AlignCenter)
-        reg_fallback_layout.setSpacing(10)
-        fallback_icon = QLabel()
-        fallback_icon.setPixmap(qta.icon("fa6s.globe", color=theme.get_color("text_dark")).pixmap(48, 48))
-        fallback_icon.setAlignment(Qt.AlignCenter)
-        fallback_msg = QLabel("Failed to load registration page.")
-        fallback_msg.setAlignment(Qt.AlignCenter)
-        fallback_msg.setStyleSheet(f"color: {theme.get_color('text_dark')};")
-        reg_fallback_layout.addWidget(fallback_icon)
-        reg_fallback_layout.addWidget(fallback_msg)
-        self._reg_stack.addWidget(reg_fallback)
+        reg_icon = QLabel()
+        reg_icon.setPixmap(qta.icon("fa6b.whatsapp", color=theme.get_color("primary")).pixmap(48, 48))
+        reg_icon.setAlignment(Qt.AlignCenter)
+        register_layout.addWidget(reg_icon)
 
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-            web_container = QWidget()
-            web_vbox = QVBoxLayout(web_container)
-            web_vbox.setContentsMargins(0, 0, 0, 0)
-            self._reg_web_view = QWebEngineView()
-            self._reg_web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            self._reg_web_view.setMinimumHeight(1)
-            self._reg_web_view.load(QUrl(self._register_url))
-            web_vbox.addWidget(self._reg_web_view)
-            self._reg_stack.addWidget(web_container)
-            self._reg_stack.setCurrentIndex(1)
-        except ImportError:
-            pass
+        reg_title = QLabel("Register Member Image Tea")
+        reg_title.setAlignment(Qt.AlignCenter)
+        reg_title.setStyleSheet("font-size: 13px; font-weight: bold;")
+        register_layout.addWidget(reg_title)
 
-        register_layout.addWidget(self._reg_stack, 1)
+        reg_desc_en = QLabel(
+            "To register as an Image Tea member, please contact the admin or join our WhatsApp group."
+        )
+        reg_desc_en.setAlignment(Qt.AlignCenter)
+        reg_desc_en.setWordWrap(True)
+        reg_desc_en.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 11px;")
+        register_layout.addWidget(reg_desc_en)
 
-        reg_btn_row = QHBoxLayout()
-        reg_btn_row.setContentsMargins(8, 6, 8, 6)
-        open_btn = QPushButton(qta.icon("fa6s.arrow-up-right-from-square"), " Open in Browser")
-        open_btn.setMinimumHeight(34)
-        open_btn.setCursor(Qt.PointingHandCursor)
-        open_btn.clicked.connect(lambda: webbrowser.open(self._register_url))
-        reg_btn_row.addWidget(open_btn)
-        reg_btn_row.addStretch()
-        register_layout.addLayout(reg_btn_row)
+        reg_desc_id = QLabel(
+            "Untuk mendaftar menjadi member Image Tea, silakan hubungi admin atau bergabung ke grup WhatsApp kami."
+        )
+        reg_desc_id.setAlignment(Qt.AlignCenter)
+        reg_desc_id.setWordWrap(True)
+        reg_desc_id.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 11px;")
+        register_layout.addWidget(reg_desc_id)
+
+        wa_btn = QPushButton(qta.icon("fa6b.whatsapp", color=theme.get_color("white")), " Contact via WhatsApp")
+        wa_btn.setMinimumHeight(38)
+        wa_btn.setCursor(Qt.PointingHandCursor)
+        wa_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; border-radius: 5px; "
+            f"padding: 5px 14px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}"
+        )
+        wa_btn.clicked.connect(lambda: webbrowser.open(self._register_url))
+        register_layout.addWidget(wa_btn)
+
+        register_layout.addStretch()
 
         tabs.addTab(register_tab, qta.icon("fa6s.user-plus"), " Register")
 
@@ -183,11 +179,6 @@ class MemberLoginDialog(QDialog):
         self._load_saved_credentials()
 
     def closeEvent(self, event):
-        if self._reg_web_view is not None:
-            try:
-                self._reg_web_view.stop()
-            except Exception as e:
-                print(f"[MemberLoginDialog] closeEvent error: {e}")
         super().closeEvent(event)
 
     def _load_register_url(self):

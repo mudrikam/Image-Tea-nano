@@ -225,6 +225,8 @@ def setup_main_menu(window):
         if dlg.exec() == MemberLoginDialog.Accepted:
             if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
                 window.statusbar.update_member_status()
+            if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'apply_member_limits'):
+                window.prompt_section.apply_member_limits()
             _refresh_member_actions()
     login_member_action.triggered.connect(open_login_member)
     file_menu.addAction(login_member_action)
@@ -238,6 +240,8 @@ def setup_main_menu(window):
         logout_member()
         if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
             window.statusbar.update_member_status()
+        if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
+            window.prompt_section.remove_member_limits()
         _refresh_member_actions()
     logout_member_action.triggered.connect(do_logout_member)
     file_menu.addAction(logout_member_action)

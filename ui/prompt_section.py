@@ -530,6 +530,10 @@ class PromptSectionWidget(QWidget):
             print(f"Failed to load prompt config: {e}")
         self._loading = False
 
+        from helpers.members_helper.members_helper import is_logged_in
+        if is_logged_in():
+            self.apply_member_limits()
+
     def refresh_presets(self):
         self._loading = True
         try:
@@ -603,3 +607,23 @@ class PromptSectionWidget(QWidget):
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Failed to save prompt config: {e}")
+
+    def apply_member_limits(self):
+        self._loading = True
+        self.batch_size_spin.setRange(1, 3)
+        if self.batch_size_spin.value() > 3:
+            self.batch_size_spin.setValue(3)
+        self.batch_size_spin.setEnabled(False)
+        self.delay_combo.setCurrentText("5")
+        self.delay_combo.setEnabled(False)
+        self._loading = False
+        self.save_prompt_config()
+        print("[PromptSection] Member limits applied: batch_size max=3, delay locked=5s")
+
+    def remove_member_limits(self):
+        self._loading = True
+        self.batch_size_spin.setRange(1, 20)
+        self.batch_size_spin.setEnabled(True)
+        self.delay_combo.setEnabled(True)
+        self._loading = False
+        print("[PromptSection] Member limits removed")
