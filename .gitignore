@@ -225,6 +225,7 @@ backup_configs/
 Sign-Image-Tea.bat
 DesainiaStudio.pfx
 vs code.bat
+.vscode/
 .github/instructions
 .github/copilot-instructions.md
 dev_github_token.json
@@ -240,3 +241,5 @@ configs/upscaler_models_config.json
 configs\upscaler_models_config.json
 configs/batch_rename_presets.json
 configs\batch_rename_presets.json
+configs/member_credentials.json
+configs\member_credentials.json

@@ -84,8 +84,6 @@ MENU_TOOLTIPS = {
 }
 
 def get_app_links():
-    import json
-    import os
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -213,6 +211,140 @@ def setup_main_menu(window):
     file_menu.addAction(backup_configs_action)
     window.backup_configs_action = backup_configs_action
 
+    member_menu = QMenu("Member", menubar)
+    member_menu.setToolTipsVisible(True)
+    window.member_menu = member_menu
+
+    login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login", window)
+    login_member_action.setToolTip("Login to your Image Tea membership account")
+    login_member_action.setStatusTip("Login to your Image Tea membership account")
+    def open_login_member():
+        from dialogs.members.member_login_dialog import MemberLoginDialog
+        dlg = MemberLoginDialog(window)
+        if dlg.exec() == MemberLoginDialog.Accepted:
+            if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+                window.statusbar.update_member_status()
+            if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'apply_member_limits'):
+                window.prompt_section.apply_member_limits()
+            _refresh_member_actions()
+            _apply_member_mode()
+    login_member_action.triggered.connect(open_login_member)
+    member_menu.addAction(login_member_action)
+    window.login_member_action = login_member_action
+
+    check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Check Limit", window)
+    check_limit_action.setToolTip("Check your current usage limit")
+    check_limit_action.setStatusTip("Check your current usage limit")
+    def open_check_limit():
+        from helpers.members_helper.members_helper import get_usage_info, refresh_usage_from_supabase
+        from dialogs.member_limit_dialog import MemberLimitDialog
+        refresh_usage_from_supabase()
+        used, limit = get_usage_info()
+        dlg = MemberLimitDialog(window, used, limit)
+        dlg.exec()
+    check_limit_action.triggered.connect(open_check_limit)
+    member_menu.addAction(check_limit_action)
+    window.check_limit_action = check_limit_action
+
+    renew_secret_action = QAction(qta.icon('fa6s.key'), "Renew Member Secret", window)
+    renew_secret_action.setToolTip("Load .env file from admin to update your MEMBER_SECRET")
+    renew_secret_action.setStatusTip("Load .env file from admin to update your MEMBER_SECRET")
+    def do_renew_secret():
+        env_path = os.path.join(BASE_PATH, ".env")
+        file_path, _ = QFileDialog.getOpenFileName(
+            window,
+            "Select .env file from admin",
+            os.path.expanduser("~"),
+            "Env Files (*.env);;All Files (*)",
+        )
+        if not file_path:
+            return
+        new_secret = None
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.upper().startswith("MEMBER_SECRET="):
+                    new_secret = stripped[len("MEMBER_SECRET="):]
+                    break
+        if not new_secret:
+            QMessageBox.warning(window, "Not Found", "MEMBER_SECRET not found in the selected file.")
+            return
+        existing_lines = []
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                existing_lines = f.readlines()
+        replaced = False
+        new_lines = []
+        for line in existing_lines:
+            if line.strip().upper().startswith("MEMBER_SECRET="):
+                new_lines.append(f"MEMBER_SECRET={new_secret}\n")
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"MEMBER_SECRET={new_secret}\n")
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        QMessageBox.information(window, "Success", "MEMBER_SECRET updated successfully.\nRestart Image Tea to apply the changes.")
+    renew_secret_action.triggered.connect(do_renew_secret)
+    member_menu.addAction(renew_secret_action)
+    window.renew_secret_action = renew_secret_action
+
+    logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout", window)
+    logout_member_action.setToolTip("Logout from member account")
+    logout_member_action.setStatusTip("Logout from member account")
+    def do_logout_member():
+        from helpers.members_helper.members_helper import logout_member
+        logout_member()
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
+        if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
+            window.prompt_section.remove_member_limits()
+        _refresh_member_actions()
+        _remove_member_mode()
+    logout_member_action.triggered.connect(do_logout_member)
+    member_menu.addAction(logout_member_action)
+    window.logout_member_action = logout_member_action
+
+    def _refresh_member_actions():
+        from helpers.members_helper.members_helper import is_logged_in
+        logged_in = is_logged_in()
+        login_member_action.setVisible(not logged_in)
+        check_limit_action.setVisible(logged_in)
+        renew_secret_action.setVisible(logged_in)
+        logout_member_action.setVisible(logged_in)
+
+    def _apply_member_mode():
+        from helpers.members_helper.members_helper import get_session
+        session = get_session()
+        name = session.get('name') or ''
+        email = session.get('email') or ''
+        expires_raw = session.get('expires_at') or ''
+        expires = str(expires_raw)[:10] if expires_raw else ''
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        version = cfg['version']
+        window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | Expires {expires} - v{version}")
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.setVisible(False)
+
+    def _remove_member_mode():
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        window.setWindowTitle(f"{cfg['name']} - ({cfg['tagline']}) - v{cfg['version']}")
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.setVisible(True)
+
+    _refresh_member_actions()
+    from helpers.members_helper.members_helper import is_logged_in as _chk_logged_in
+    if _chk_logged_in():
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, _apply_member_mode)
+
+    file_menu.addSeparator()
+
     exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
     exit_action.setToolTip(MENU_TOOLTIPS["exit"])
     exit_action.setStatusTip(MENU_TOOLTIPS["exit"])
@@ -295,7 +427,6 @@ def setup_main_menu(window):
             themes_submenu.addAction(editor_action)
             themes_submenu.addSeparator()
 
-            import json
             config_path = os.path.join('configs', 'app_themes.json')
             with open(config_path, 'r', encoding='utf-8') as f:
                 themes_data = json.load(f)
@@ -383,10 +514,6 @@ def setup_main_menu(window):
     video_proxy_settings_action.triggered.connect(open_video_proxy_settings)
     edit_menu.addAction(video_proxy_settings_action)
 
-    edit_menu.addSeparator()
-    load_themes_menu()
-    edit_menu.addMenu(themes_submenu)
-
     metadata_menu = QMenu("Metadata", menubar)
     metadata_menu.setToolTipsVisible(True)
     write_metadata_images_action = QAction(qta.icon('fa6s.floppy-disk'), "Write Metadata to Images", window)
@@ -433,7 +560,8 @@ def setup_main_menu(window):
     chunk_size_action.triggered.connect(show_chunk_size_dialog)
     metadata_menu.addAction(chunk_size_action)
 
-    prompt_menu = QMenu("Prompt", menubar)
+    prompt_menu = QMenu("Prompt", edit_menu)
+    prompt_menu.setIcon(qta.icon('fa6s.comment-dots'))
     prompt_menu.setToolTipsVisible(True)
     edit_prompt_action = QAction(qta.icon('fa6s.pen-to-square'), "Edit Prompt", window)
     edit_prompt_action.setToolTip(MENU_TOOLTIPS["edit_prompt"])
@@ -454,6 +582,11 @@ def setup_main_menu(window):
         dialog.exec()
     custom_prompt_action.triggered.connect(open_custom_prompt)
     prompt_menu.addAction(custom_prompt_action)
+    edit_menu.addMenu(prompt_menu)
+
+    edit_menu.addSeparator()
+    load_themes_menu()
+    edit_menu.addMenu(themes_submenu)
 
     api_action = QAction("API Key Manager", window)
     api_action.setToolTip(MENU_TOOLTIPS["add_api_key"])
@@ -740,8 +873,10 @@ def setup_main_menu(window):
     tools_menu.addAction(batch_audio_remover_action)
     tools_menu.addAction(envato_elements_action)
     tools_menu.addAction(pngtree_zipper_action)
+    tools_menu.addSeparator()
 
-    extension_menu = QMenu("Extension", menubar)
+    extension_menu = QMenu("Extension", tools_menu)
+    extension_menu.setIcon(qta.icon('fa6s.puzzle-piece'))
     extension_menu.setToolTipsVisible(True)
     
     def populate_extension_menu():
@@ -786,14 +921,13 @@ def setup_main_menu(window):
     
     extension_menu.aboutToShow.connect(populate_extension_menu)
     populate_extension_menu()
+    tools_menu.addMenu(extension_menu)
 
     # Add separator
     tools_menu.addSeparator()
 
     # Add additional tools from config
     def get_additional_tools():
-        import json
-        import os
         config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -822,10 +956,9 @@ def setup_main_menu(window):
     menubar.addMenu(file_menu)
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)
-    menubar.addMenu(prompt_menu)
     menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
-    menubar.addMenu(extension_menu)
     menubar.addMenu(purchase_menu)
+    menubar.addMenu(member_menu)
     menubar.addMenu(help_menu)
     window.setMenuBar(menubar)

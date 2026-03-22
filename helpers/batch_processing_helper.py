@@ -5,7 +5,8 @@ import random
 import threading
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, QByteArray, QTimer
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QMessageBox, QApplication, QDialog
+from PySide6.QtWidgets import QMessageBox, QApplication,QDialog
+from dialogs.member_limit_dialog import show_member_limit_dialog
 import qtawesome as qta
 from config import BASE_PATH
 from dialogs.get_api_key_dialog import GetApiKeyDialog
@@ -22,6 +23,22 @@ from helpers.video_proxy_helper import batch_process_videos_with_dialog, batch_e
 from helpers.image_compression_helper import cleanup_temp_folder
 
 from ui.theme_system import theme
+
+
+
+def _track_member_usage_and_check_limit(window, success_count: int) -> bool:
+    from helpers.members_helper.members_helper import is_logged_in, increment_member_usage, get_usage_info
+    if not is_logged_in() or success_count <= 0:
+        return False
+    increment_member_usage(success_count)
+    used, limit = get_usage_info()
+    if limit > 0 and used >= limit:
+        print(f"[MemberUsage] Limit reached: {used}/{limit}")
+        show_member_limit_dialog(window, used, limit)
+        return True
+    print(f"[MemberUsage] +{success_count} | total: {used}/{limit if limit > 0 else 'unlimited'}")
+    return False
+
 
 def get_batch_size():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
@@ -290,9 +307,34 @@ class BatchWorker(QThread):
                             "image_path": image_path, "error_message": error_message,
                             "service": current_service, "model": current_model
                         }
+                    elif current_service == "blackbox":
+                        t0 = time.perf_counter()
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        t1 = time.perf_counter()
+                        duration_ms = int((t1 - t0) * 1000)
+                        gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
+                        self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
+                        result = {
+                            "title": title, "description": description, "tags": tags, "category": category, "filetype": filetype,
+                            "token_input": token_input, "token_output": token_output, "token_total": token_total,
+                            "image_path": image_path, "error_message": error_message,
+                            "service": current_service, "model": current_model
+                        }
+                    elif current_service == "maia":
+                        t0 = time.perf_counter()
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        t1 = time.perf_counter()
+                        duration_ms = int((t1 - t0) * 1000)
+                        gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
+                        self.signals.timing_updated.emit(gen_time, avg_time, longest_time, last_time)
+                        result = {
+                            "title": title, "description": description, "tags": tags, "category": category, "filetype": filetype,
+                            "token_input": token_input, "token_output": token_output, "token_total": token_total,
+                            "image_path": image_path, "error_message": error_message,
+                            "service": current_service, "model": current_model
+                        }
                     elif current_service == "custom":
-                        # Custom endpoint - use the same approach as other providers
-                        # Try to detect provider type based on endpoint and use appropriate helper
+                        # Custom endpoint - try to detect provider type based on endpoint and use appropriate helper
                         if not current_provider_endpoint:
                             print(f"[CUSTOM ERROR] No endpoint URL provided for custom service")
                             result = {
@@ -572,8 +614,36 @@ def batch_generate_metadata(window):
     api_key = None
     model = None
     service = None
-    
-    if (is_rolling_mode or is_parallel_mode) and api_keys_list:
+
+    # Member session takes priority over local API keys
+    from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+    if is_logged_in():
+        if not is_member_secret_valid():
+            print("[BATCH] Member is logged in but MEMBER_SECRET is invalid or missing. Aborting.")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                window,
+                "Member Secret Invalid",
+                "Your MEMBER_SECRET is missing, invalid, or expired.\n\n"
+                "Please ask the admin for the latest secret and update your .env file:\n"
+                "MEMBER_SECRET=<your_secret>\n\n"
+                "Or add your own API key to generate without membership."
+            )
+            return
+        _member_cfg = get_member_api_config()
+        api_key = _member_cfg["api_key"]
+        model = _member_cfg["model"]
+        service = _member_cfg["service_type"] or "custom"
+        _raw_endpoint = _member_cfg["endpoint"]
+        del _member_cfg
+        # For gemini native, the google.genai SDK handles the URL internally — no endpoint needed.
+        # For blackbox/maia, pass endpoint through. For openai/groq/custom, pass endpoint through.
+        if service == "gemini":
+            provider_endpoint = None
+        else:
+            provider_endpoint = _raw_endpoint
+        del _raw_endpoint
+    elif (is_rolling_mode or is_parallel_mode) and api_keys_list:
         # Use first API key from list for rolling/parallel mode
         first_api = api_keys_list[0]
         api_key = first_api['api_key']
@@ -614,7 +684,8 @@ def batch_generate_metadata(window):
         dlg.exec()
         return
 
-    print(f"[BATCH] Starting batch generation with service: {service}, model: {model}, endpoint: {provider_endpoint}")
+    if not is_logged_in():
+        print(f"[BATCH] Starting batch generation with service: {service}, model: {model}")
 
     mode = "all"
     if hasattr(window, "gen_mode_combo"):
@@ -819,6 +890,29 @@ def batch_generate_metadata(window):
         QMessageBox.critical(window, "File Not Found", msg)
         return
     # --- END FILE EXISTENCE CHECK ---
+
+    # --- MEMBER USAGE LIMIT PRE-CHECK ---
+    from helpers.members_helper.members_helper import is_logged_in as _is_member_logged_in, get_usage_info as _get_usage_info, refresh_usage_from_supabase as _refresh_usage
+    if _is_member_logged_in():
+        _used, _limit = _get_usage_info()
+        if _limit > 0 and _used >= _limit:
+            print(f"[MemberLimit] Local limit reached {_used}/{_limit}, refreshing from Supabase...")
+            _refresh_usage()
+            _used, _limit = _get_usage_info()
+        if _limit > 0:
+            if _used >= _limit:
+                print(f"[MemberLimit] Blocked: already at limit {_used}/{_limit}")
+                show_member_limit_dialog(window, _used, _limit)
+                window.table.progress_bar.setVisible(False)
+                return
+            _remaining = _limit - _used
+            if _remaining < len(rows):
+                rows = rows[:_remaining]
+                row_map = {}
+                for _idx, _row in enumerate(rows):
+                    row_map[_row[1]] = {'batch_index': _idx, 'row_data': _row}
+                print(f"[MemberLimit] Files trimmed to {len(rows)} (remaining quota: {_remaining}/{_limit})")
+    # --- END MEMBER USAGE LIMIT PRE-CHECK ---
 
     # --- WARNING DIALOG FOR > 1000 FILES ---
     if len(rows) >= 1000:
@@ -1717,6 +1811,12 @@ def _on_parallel_round_completed(window, state, round_tasks, worker_results):
     success_count = total_in_round - failed_count
     print(f"[PARALLEL ROUND {state['current'] + 1}] Completed: {success_count} success, {failed_count} failed")
     
+    # Track member usage for this parallel round
+    if _track_member_usage_and_check_limit(window, success_count):
+        state['current'] += 1
+        _on_generation_finished(window, state['errors'])
+        return
+    
     # Handle failures with fallback (try other APIs)
     if failed_files and len(api_keys_list) > 1:
         retry_count = state.get('parallel_retry_count', 0)
@@ -2229,6 +2329,14 @@ def _run_next_batch(window):
                           if isinstance(result, dict) and (not result.get("title") or result.get("error_message")))
         success_count = total_batch - failed_count
         
+        # Track member usage
+        if _track_member_usage_and_check_limit(window, success_count):
+            state['current'] += 1
+            if errors:
+                state['errors'].extend(errors)
+            _on_generation_finished(window, state['errors'])
+            return
+
         # Determine batch status
         batch_completely_failed = (failed_count == total_batch and total_batch > 0)
         batch_partially_failed = (failed_count > 0 and success_count > 0)
