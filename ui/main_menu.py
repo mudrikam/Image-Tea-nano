@@ -84,8 +84,6 @@ MENU_TOOLTIPS = {
 }
 
 def get_app_links():
-    import json
-    import os
     config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
@@ -229,6 +227,7 @@ def setup_main_menu(window):
             if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'apply_member_limits'):
                 window.prompt_section.apply_member_limits()
             _refresh_member_actions()
+            _apply_member_mode()
     login_member_action.triggered.connect(open_login_member)
     member_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
@@ -247,6 +246,52 @@ def setup_main_menu(window):
     member_menu.addAction(check_limit_action)
     window.check_limit_action = check_limit_action
 
+    renew_secret_action = QAction(qta.icon('fa6s.key'), "Renew Member Secret", window)
+    renew_secret_action.setToolTip("Load .env file from admin to update your MEMBER_SECRET")
+    renew_secret_action.setStatusTip("Load .env file from admin to update your MEMBER_SECRET")
+    def do_renew_secret():
+        env_path = os.path.join(BASE_PATH, ".env")
+        file_path, _ = QFileDialog.getOpenFileName(
+            window,
+            "Select .env file from admin",
+            os.path.expanduser("~"),
+            "Env Files (*.env);;All Files (*)",
+        )
+        if not file_path:
+            return
+        new_secret = None
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.upper().startswith("MEMBER_SECRET="):
+                    new_secret = stripped[len("MEMBER_SECRET="):]
+                    break
+        if not new_secret:
+            QMessageBox.warning(window, "Not Found", "MEMBER_SECRET not found in the selected file.")
+            return
+        existing_lines = []
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                existing_lines = f.readlines()
+        replaced = False
+        new_lines = []
+        for line in existing_lines:
+            if line.strip().upper().startswith("MEMBER_SECRET="):
+                new_lines.append(f"MEMBER_SECRET={new_secret}\n")
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"MEMBER_SECRET={new_secret}\n")
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        QMessageBox.information(window, "Success", "MEMBER_SECRET updated successfully.\nRestart Image Tea to apply the changes.")
+    renew_secret_action.triggered.connect(do_renew_secret)
+    member_menu.addAction(renew_secret_action)
+    window.renew_secret_action = renew_secret_action
+
     logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout", window)
     logout_member_action.setToolTip("Logout from member account")
     logout_member_action.setStatusTip("Logout from member account")
@@ -258,6 +303,7 @@ def setup_main_menu(window):
         if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
             window.prompt_section.remove_member_limits()
         _refresh_member_actions()
+        _remove_member_mode()
     logout_member_action.triggered.connect(do_logout_member)
     member_menu.addAction(logout_member_action)
     window.logout_member_action = logout_member_action
@@ -267,9 +313,34 @@ def setup_main_menu(window):
         logged_in = is_logged_in()
         login_member_action.setVisible(not logged_in)
         check_limit_action.setVisible(logged_in)
+        renew_secret_action.setVisible(logged_in)
         logout_member_action.setVisible(logged_in)
 
+    def _apply_member_mode():
+        from helpers.members_helper.members_helper import get_session
+        session = get_session()
+        email = session.get('email') or ''
+        expires_raw = session.get('expires_at') or ''
+        expires = str(expires_raw)[:10] if expires_raw else ''
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        version = cfg['version']
+        window.setWindowTitle(f"Image Tea - Member Mode | {email} | Expires {expires} - v{version}")
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.setVisible(False)
+
+    def _remove_member_mode():
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        window.setWindowTitle(f"{cfg['name']} - ({cfg['tagline']}) - v{cfg['version']}")
+        if hasattr(window, 'api_key_section'):
+            window.api_key_section.setVisible(True)
+
     _refresh_member_actions()
+    from helpers.members_helper.members_helper import is_logged_in as _chk_logged_in
+    if _chk_logged_in():
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, _apply_member_mode)
 
     file_menu.addSeparator()
 
@@ -355,7 +426,6 @@ def setup_main_menu(window):
             themes_submenu.addAction(editor_action)
             themes_submenu.addSeparator()
 
-            import json
             config_path = os.path.join('configs', 'app_themes.json')
             with open(config_path, 'r', encoding='utf-8') as f:
                 themes_data = json.load(f)
@@ -857,8 +927,6 @@ def setup_main_menu(window):
 
     # Add additional tools from config
     def get_additional_tools():
-        import json
-        import os
         config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
