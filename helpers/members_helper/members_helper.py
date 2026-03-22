@@ -21,6 +21,8 @@ MEMBER_SESSION = {
     "expires_at": None,
     "registered_at": None,
     "renewed_at": None,
+    "usage_limit": 0,
+    "used_count": 0,
 }
 
 
@@ -81,6 +83,8 @@ def verify_member(email: str, license_key: str) -> dict:
         "expires_at": row.get("expires_at"),
         "registered_at": row.get("registered_at"),
         "renewed_at": row.get("renewed_at"),
+        "usage_limit": row.get("usage_limit") or 0,
+        "used_count": row.get("used_count") or 0,
     }
 
 
@@ -105,6 +109,8 @@ def login_member(email: str, license_key: str) -> dict:
     MEMBER_SESSION["expires_at"] = member["expires_at"]
     MEMBER_SESSION["registered_at"] = member["registered_at"]
     MEMBER_SESSION["renewed_at"] = member["renewed_at"]
+    MEMBER_SESSION["usage_limit"] = member.get("usage_limit") or 0
+    MEMBER_SESSION["used_count"] = member.get("used_count") or 0
 
     print(f"[MemberHelper] Login success: {member['email']} ({member['nama']})")
     return {
@@ -182,6 +188,71 @@ def verify_member_secret() -> bool:
 
 def is_member_secret_valid() -> bool:
     return verify_member_secret()
+
+
+def increment_member_usage(count: int):
+    MEMBER_SESSION["used_count"] = (MEMBER_SESSION["used_count"] or 0) + count
+    email = MEMBER_SESSION["email"]
+    license_key = MEMBER_SESSION["license"]
+
+    import threading
+    def _sync():
+        try:
+            cfg = _load_supabase_config()
+            response = requests.post(
+                f"{cfg['url']}/rest/v1/rpc/increment_member_usage",
+                headers={
+                    "apikey": cfg["anon_key"],
+                    "Authorization": f"Bearer {cfg['anon_key']}",
+                    "Content-Type": "application/json",
+                },
+                json={"p_email": email, "p_license": license_key, "p_count": count},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, dict) and "used_count" in result:
+                    MEMBER_SESSION["used_count"] = result["used_count"]
+                    MEMBER_SESSION["usage_limit"] = result["usage_limit"]
+                    print(f"[MemberHelper] Usage synced: {result['used_count']}/{result['usage_limit']}")
+            else:
+                print(f"[MemberHelper] increment_member_usage failed: status={response.status_code}")
+        except Exception as e:
+            print(f"[MemberHelper] increment_member_usage error: {e}")
+    threading.Thread(target=_sync, daemon=True).start()
+
+
+def get_usage_info() -> tuple:
+    return (MEMBER_SESSION.get("used_count") or 0, MEMBER_SESSION.get("usage_limit") or 0)
+
+
+def refresh_usage_from_supabase():
+    email = MEMBER_SESSION.get("email")
+    license_key = MEMBER_SESSION.get("license")
+    if not email or not license_key:
+        return
+    try:
+        cfg = _load_supabase_config()
+        response = requests.post(
+            f"{cfg['url']}/rest/v1/rpc/increment_member_usage",
+            headers={
+                "apikey": cfg["anon_key"],
+                "Authorization": f"Bearer {cfg['anon_key']}",
+                "Content-Type": "application/json",
+            },
+            json={"p_email": email, "p_license": license_key, "p_count": 0},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, dict) and "used_count" in result:
+                MEMBER_SESSION["used_count"] = result["used_count"]
+                MEMBER_SESSION["usage_limit"] = result["usage_limit"]
+                print(f"[MemberHelper] Usage refreshed: {result['used_count']}/{result['usage_limit']}")
+        else:
+            print(f"[MemberHelper] refresh_usage failed: status={response.status_code}")
+    except Exception as e:
+        print(f"[MemberHelper] refresh_usage_from_supabase error: {e}")
 
 
 def save_credentials(email: str, license_key: str):

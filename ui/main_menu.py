@@ -213,14 +213,15 @@ def setup_main_menu(window):
     file_menu.addAction(backup_configs_action)
     window.backup_configs_action = backup_configs_action
 
-    file_menu.addSeparator()
+    member_menu = QMenu("Member", menubar)
+    member_menu.setToolTipsVisible(True)
+    window.member_menu = member_menu
 
-    login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login Member", window)
+    login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login", window)
     login_member_action.setToolTip("Login to your Image Tea membership account")
     login_member_action.setStatusTip("Login to your Image Tea membership account")
     def open_login_member():
         from dialogs.members.member_login_dialog import MemberLoginDialog
-        from helpers.members_helper.members_helper import is_logged_in
         dlg = MemberLoginDialog(window)
         if dlg.exec() == MemberLoginDialog.Accepted:
             if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
@@ -229,10 +230,24 @@ def setup_main_menu(window):
                 window.prompt_section.apply_member_limits()
             _refresh_member_actions()
     login_member_action.triggered.connect(open_login_member)
-    file_menu.addAction(login_member_action)
+    member_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
 
-    logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout Member", window)
+    check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Check Limit", window)
+    check_limit_action.setToolTip("Check your current usage limit")
+    check_limit_action.setStatusTip("Check your current usage limit")
+    def open_check_limit():
+        from helpers.members_helper.members_helper import get_usage_info, refresh_usage_from_supabase
+        from dialogs.member_limit_dialog import MemberLimitDialog
+        refresh_usage_from_supabase()
+        used, limit = get_usage_info()
+        dlg = MemberLimitDialog(window, used, limit)
+        dlg.exec()
+    check_limit_action.triggered.connect(open_check_limit)
+    member_menu.addAction(check_limit_action)
+    window.check_limit_action = check_limit_action
+
+    logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout", window)
     logout_member_action.setToolTip("Logout from member account")
     logout_member_action.setStatusTip("Logout from member account")
     def do_logout_member():
@@ -244,13 +259,14 @@ def setup_main_menu(window):
             window.prompt_section.remove_member_limits()
         _refresh_member_actions()
     logout_member_action.triggered.connect(do_logout_member)
-    file_menu.addAction(logout_member_action)
+    member_menu.addAction(logout_member_action)
     window.logout_member_action = logout_member_action
 
     def _refresh_member_actions():
         from helpers.members_helper.members_helper import is_logged_in
         logged_in = is_logged_in()
         login_member_action.setVisible(not logged_in)
+        check_limit_action.setVisible(logged_in)
         logout_member_action.setVisible(logged_in)
 
     _refresh_member_actions()
@@ -786,8 +802,10 @@ def setup_main_menu(window):
     tools_menu.addAction(batch_audio_remover_action)
     tools_menu.addAction(envato_elements_action)
     tools_menu.addAction(pngtree_zipper_action)
+    tools_menu.addSeparator()
 
-    extension_menu = QMenu("Extension", menubar)
+    extension_menu = QMenu("Extension", tools_menu)
+    extension_menu.setIcon(qta.icon('fa6s.puzzle-piece'))
     extension_menu.setToolTipsVisible(True)
     
     def populate_extension_menu():
@@ -832,6 +850,7 @@ def setup_main_menu(window):
     
     extension_menu.aboutToShow.connect(populate_extension_menu)
     populate_extension_menu()
+    tools_menu.addMenu(extension_menu)
 
     # Add separator
     tools_menu.addSeparator()
@@ -870,7 +889,7 @@ def setup_main_menu(window):
     menubar.addMenu(metadata_menu)
     menubar.addAction(api_action)
     menubar.addMenu(tools_menu)
-    menubar.addMenu(extension_menu)
     menubar.addMenu(purchase_menu)
+    menubar.addMenu(member_menu)
     menubar.addMenu(help_menu)
     window.setMenuBar(menubar)
