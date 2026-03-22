@@ -319,13 +319,14 @@ def setup_main_menu(window):
     def _apply_member_mode():
         from helpers.members_helper.members_helper import get_session
         session = get_session()
+        name = session.get('name') or ''
         email = session.get('email') or ''
         expires_raw = session.get('expires_at') or ''
         expires = str(expires_raw)[:10] if expires_raw else ''
         with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
             cfg = json.load(_f)
         version = cfg['version']
-        window.setWindowTitle(f"Image Tea - Member Mode | {email} | Expires {expires} - v{version}")
+        window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | Expires {expires} - v{version}")
         if hasattr(window, 'api_key_section'):
             window.api_key_section.setVisible(False)
 

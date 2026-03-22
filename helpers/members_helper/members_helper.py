@@ -11,7 +11,7 @@ _ENV_PATH = os.path.join(BASE_PATH, ".env")
 MEMBER_SESSION = {
     "logged_in": False,
     "email": None,
-    "nama": None,
+    "name": None,
     "license": None,
     "_api_endpoint": None,
     "_api_key": None,
@@ -72,7 +72,7 @@ def verify_member(email: str, license_key: str) -> dict:
 
     return {
         "id": row["id"],
-        "nama": row["nama"],
+        "name": row["name"],
         "email": row["email"],
         "license": row["license"],
         "_api_endpoint": row["api_endpoint"],
@@ -99,7 +99,7 @@ def login_member(email: str, license_key: str) -> dict:
 
     MEMBER_SESSION["logged_in"] = True
     MEMBER_SESSION["email"] = member["email"]
-    MEMBER_SESSION["nama"] = member["nama"]
+    MEMBER_SESSION["name"] = member["name"]
     MEMBER_SESSION["license"] = member["license"]
     MEMBER_SESSION["_api_endpoint"] = member["_api_endpoint"]
     MEMBER_SESSION["_api_key"] = member["_api_key"]
@@ -112,10 +112,10 @@ def login_member(email: str, license_key: str) -> dict:
     MEMBER_SESSION["usage_limit"] = member.get("usage_limit") or 0
     MEMBER_SESSION["used_count"] = member.get("used_count") or 0
 
-    print(f"[MemberHelper] Login success: {member['email']} ({member['nama']})")
+    print(f"[MemberHelper] Login success: {member['email']} ({member['name']})")
     return {
         "email": member["email"],
-        "nama": member["nama"],
+        "name": member["name"],
         "status": member["status"],
         "expires_at": member["expires_at"],
     }
