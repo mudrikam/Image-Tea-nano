@@ -32,6 +32,10 @@ def _track_member_usage_and_check_limit(window, success_count: int) -> bool:
         return False
     increment_member_usage(success_count)
     used, limit = get_usage_info()
+    if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+        window.statusbar.update_member_status()
+    if hasattr(window, '_apply_member_mode'):
+        window._apply_member_mode()
     if limit > 0 and used >= limit:
         print(f"[MemberUsage] Limit reached: {used}/{limit}")
         show_member_limit_dialog(window, used, limit)

@@ -116,6 +116,14 @@ class MainStatusBar(QStatusBar):
 
             member_inactive = (status not in ("active",)) or is_expired
 
+            used_count = session.get("used_count") or 0
+            usage_limit = session.get("usage_limit") or 0
+            if usage_limit > 0:
+                remaining = max(usage_limit - used_count, 0)
+                remaining_text = f"  |  Remaining: {remaining:,} / {usage_limit:,}"
+            else:
+                remaining_text = ""
+
             if member_inactive:
                 self.setStyleSheet(f"QStatusBar {{ background-color: #c0392b; }}")
                 self.status_label.setText(
@@ -123,20 +131,19 @@ class MainStatusBar(QStatusBar):
                 )
                 self.member_email_label.setText(email)
                 self.member_email_label.show()
-            elif days_left is not None and days_left <= 7:
+            elif usage_limit > 0 and remaining <= usage_limit * 0.1:
                 self.setStyleSheet(f"QStatusBar {{ background-color: #e67e22; }}")
                 self.status_label.setText(
                     f'<span style="color:white;font-weight:bold;">Member Active</span>'
                 )
-                self.member_email_label.setText(f"{email}  |  Expires in {days_left} day{'s' if days_left != 1 else ''}")
+                self.member_email_label.setText(f"{email}{remaining_text}")
                 self.member_email_label.show()
             else:
                 self.setStyleSheet(f"QStatusBar {{ background-color: #1a6fbd; }}")
                 self.status_label.setText(
                     f'<span style="color:{theme.get_color("white")};font-weight:bold;">Member Active</span>'
                 )
-                expiry_text = f"  |  Expires in {days_left} days" if days_left is not None else ""
-                self.member_email_label.setText(f"{email}{expiry_text}")
+                self.member_email_label.setText(f"{email}{remaining_text}")
                 self.member_email_label.show()
         elif versions_behind >= 5:
             self.setStyleSheet(f"QStatusBar {{ background-color: {theme.get_color('warning')}; }}")

@@ -232,15 +232,16 @@ def setup_main_menu(window):
     member_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
 
-    check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Check Limit", window)
-    check_limit_action.setToolTip("Check your current usage limit")
-    check_limit_action.setStatusTip("Check your current usage limit")
+    check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Credit Usage", window)
+    check_limit_action.setToolTip("Check your current credit usage")
+    check_limit_action.setStatusTip("Check your current credit usage")
     def open_check_limit():
-        from helpers.members_helper.members_helper import get_usage_info, refresh_usage_from_supabase
+        from helpers.members_helper.members_helper import get_usage_info, refresh_usage_from_supabase, get_session
         from dialogs.member_limit_dialog import MemberLimitDialog
         refresh_usage_from_supabase()
         used, limit = get_usage_info()
-        dlg = MemberLimitDialog(window, used, limit)
+        session = get_session()
+        dlg = MemberLimitDialog(window, used, limit, session=session)
         dlg.exec()
     check_limit_action.triggered.connect(open_check_limit)
     member_menu.addAction(check_limit_action)
@@ -321,12 +322,17 @@ def setup_main_menu(window):
         session = get_session()
         name = session.get('name') or ''
         email = session.get('email') or ''
-        expires_raw = session.get('expires_at') or ''
-        expires = str(expires_raw)[:10] if expires_raw else ''
+        used_count = session.get('used_count') or 0
+        usage_limit = session.get('usage_limit') or 0
+        if usage_limit > 0:
+            remaining = max(usage_limit - used_count, 0)
+            credit_text = f"Remaining: {remaining:,} / {usage_limit:,}"
+        else:
+            credit_text = "Remaining: Unlimited"
         with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
             cfg = json.load(_f)
         version = cfg['version']
-        window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | Expires {expires} - v{version}")
+        window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | {credit_text} - v{version}")
         if hasattr(window, 'api_key_section'):
             window.api_key_section.setVisible(False)
 
@@ -338,6 +344,7 @@ def setup_main_menu(window):
             window.api_key_section.setVisible(True)
 
     _refresh_member_actions()
+    window._apply_member_mode = _apply_member_mode
     from helpers.members_helper.members_helper import is_logged_in as _chk_logged_in
     if _chk_logged_in():
         from PySide6.QtCore import QTimer
