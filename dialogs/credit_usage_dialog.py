@@ -32,14 +32,15 @@ class CreditCheckThread(QThread):
     result = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, webhook_url: str):
         super().__init__()
         self._api_key = api_key
+        self._webhook_url = webhook_url
 
     def run(self):
         try:
             import requests
-            webhook_url = "https://automation.desainia.my.id/webhook/check-key"
+            webhook_url = self._webhook_url
             payload = {"key": self._api_key}
             resp = requests.post(
                 webhook_url,
@@ -67,9 +68,13 @@ class CreditCheckThread(QThread):
 
 
 class CreditUsageDialog(QDialog):
-    def __init__(self, api_key: str, parent=None):
+    def __init__(self, api_key: str, parent=None, endpoint: str = ''):
         super().__init__(parent)
         self._api_key = api_key
+        if 'api.koboillm.com' in str(endpoint):
+            self._webhook_url = 'https://purchese.desainia.my.id/webhook/check-key-kllm'
+        else:
+            self._webhook_url = 'https://purchese.desainia.my.id/webhook/check-key'
         self._truncated = self._truncate_key(api_key)
         self.setWindowTitle(f"Credit Usage — {self._truncated}")
         self.setFixedWidth(500)
@@ -143,7 +148,7 @@ class CreditUsageDialog(QDialog):
 
         self.setLayout(layout)
 
-        self._thread = CreditCheckThread(api_key)
+        self._thread = CreditCheckThread(api_key, self._webhook_url)
         self._thread.result.connect(self._on_result)
         self._thread.error.connect(self._on_error)
         self._thread.start()

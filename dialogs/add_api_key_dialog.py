@@ -523,6 +523,7 @@ class AddApiKeyDialog(QDialog):
         self.endpoint_edit.addItem("Together AI", "https://api.together.xyz/v1/chat/completions")
         self.endpoint_edit.addItem("Anthropic", "https://api.anthropic.com/v1/messages")
         self.endpoint_edit.addItem("Ollama Local", "http://localhost:11434/v1/chat/completions")
+        self.endpoint_edit.addItem("KoboiLLM", "https://api.koboillm.com/v1/chat/completions")
         self.endpoint_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.endpoint_edit.setToolTip("Enter full endpoint URL including scheme (https://)")
         self.endpoint_edit.currentIndexChanged.connect(self._on_endpoint_combo_changed)
@@ -1170,12 +1171,12 @@ class AddApiKeyDialog(QDialog):
             delete_btn.clicked.connect(lambda _, r=row_idx: self._delete_api_key_row(r))
             action_layout.addWidget(test_btn)
             action_layout.addWidget(delete_btn)
-            if endpoint and 'api.desainia.my.id' in str(endpoint):
+            if endpoint and ('api.desainia.my.id' in str(endpoint) or 'api.koboillm.com' in str(endpoint)):
                 dollar_btn = QPushButton()
                 dollar_btn.setIcon(qta.icon('fa6s.dollar-sign'))
                 dollar_btn.setToolTip("Check credit usage")
                 dollar_btn.setFixedWidth(28)
-                dollar_btn.clicked.connect(lambda _, a=api: self._open_credit_usage_dialog(a))
+                dollar_btn.clicked.connect(lambda _, a=api, e=endpoint: self._open_credit_usage_dialog(a, e))
                 action_layout.addWidget(dollar_btn)
             action_layout.addStretch()
             self.api_table.setCellWidget(row_idx, 6, action_widget)
@@ -1654,6 +1655,8 @@ class AddApiKeyDialog(QDialog):
             self.endpoint_edit.setCurrentText("https://api.anthropic.com/v1/messages")
         elif current == "Ollama Local":
             self.endpoint_edit.setCurrentText("http://localhost:11434/v1/chat/completions")
+        elif current == "KoboiLLM":
+            self.endpoint_edit.setCurrentText("https://api.koboillm.com/v1/chat/completions")
 
     def _on_endpoint_paste(self):
         try:
@@ -2031,9 +2034,9 @@ class AddApiKeyDialog(QDialog):
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.exec()
 
-    def _open_credit_usage_dialog(self, api_key):
+    def _open_credit_usage_dialog(self, api_key, endpoint=''):
         from dialogs.credit_usage_dialog import CreditUsageDialog
-        dlg = CreditUsageDialog(api_key, self)
+        dlg = CreditUsageDialog(api_key, self, endpoint=endpoint)
         dlg.exec()
 
     def export_api_keys_csv(self):
