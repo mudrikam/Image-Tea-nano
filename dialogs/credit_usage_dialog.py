@@ -28,40 +28,78 @@ def _relative_time(iso_str):
         return str(iso_str)
 
 
+KOBOILLM_LLM_KEY_WARNING = (
+    "This API key does not have permission to check credit usage.\n\n"
+    "Currently your API key is an LLM-only key, which can only be used to make "
+    "chat completions. To check your balance, you need a Management Key or the "
+    "default account key.\n\n"
+    "Please contact KoboILLM admin for more details."
+)
+
+
 class CreditCheckThread(QThread):
     result = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, api_key: str, webhook_url: str):
+    def __init__(self, api_key: str, is_koboillm: bool = False):
         super().__init__()
         self._api_key = api_key
-        self._webhook_url = webhook_url
+        self._is_koboillm = is_koboillm
 
     def run(self):
         try:
             import requests
-            webhook_url = self._webhook_url
-            payload = {"key": self._api_key}
-            resp = requests.post(
-                webhook_url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=15
-            )
-            body = resp.text.strip() if resp.text else ""
-            if not body:
-                self.error.emit("API key does not exist or is not recognized by Desainia API.")
-                return
-            try:
-                data = resp.json()
-            except Exception:
-                self.error.emit(f"Invalid response from server (HTTP {resp.status_code}):\n{body[:300]}")
-                return
-            if resp.status_code >= 400:
-                detail = data.get('detail') or data.get('message') or str(data)
-                self.error.emit(f"API key does not exist or is invalid.\n\nServer: {detail}")
-                return
-            self.result.emit(data)
+            if self._is_koboillm:
+                resp = requests.get(
+                    "https://api.koboillm.com/key/info",
+                    params={"key": self._api_key},
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=15
+                )
+                body = resp.text.strip() if resp.text else ""
+                if not body:
+                    self.error.emit("No response from KoboILLM API.")
+                    return
+                try:
+                    data = resp.json()
+                except Exception:
+                    self.error.emit(f"Invalid response from server (HTTP {resp.status_code}):\n{body[:300]}")
+                    return
+                if resp.status_code == 403:
+                    detail = data.get('detail', '')
+                    if 'not allowed to call' in str(detail).lower() or 'llm_api_routes' in str(detail).lower():
+                        self.error.emit(KOBOILLM_LLM_KEY_WARNING)
+                    else:
+                        self.error.emit(f"Access denied.\n\nServer: {detail}")
+                    return
+                if resp.status_code >= 400:
+                    detail = data.get('detail') or data.get('message') or str(data)
+                    self.error.emit(f"API key does not exist or is invalid.\n\nServer: {detail}")
+                    return
+                self.result.emit(data)
+            else:
+                webhook_url = "https://purchese.desainia.my.id/webhook/check-key"
+                payload = {"key": self._api_key}
+                resp = requests.post(
+                    webhook_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=15
+                )
+                body = resp.text.strip() if resp.text else ""
+                if not body:
+                    self.error.emit("API key does not exist or is not recognized by Desainia API.")
+                    return
+                try:
+                    data = resp.json()
+                except Exception:
+                    self.error.emit(f"Invalid response from server (HTTP {resp.status_code}):\n{body[:300]}")
+                    return
+                if resp.status_code >= 400:
+                    detail = data.get('detail') or data.get('message') or str(data)
+                    self.error.emit(f"API key does not exist or is invalid.\n\nServer: {detail}")
+                    return
+                self.result.emit(data)
         except Exception as e:
             self.error.emit(str(e))
             print(f"[CreditCheckThread] Error: {e}")
@@ -71,10 +109,7 @@ class CreditUsageDialog(QDialog):
     def __init__(self, api_key: str, parent=None, endpoint: str = ''):
         super().__init__(parent)
         self._api_key = api_key
-        if 'api.koboillm.com' in str(endpoint):
-            self._webhook_url = 'https://purchese.desainia.my.id/webhook/check-key-kllm'
-        else:
-            self._webhook_url = 'https://purchese.desainia.my.id/webhook/check-key'
+        self._is_koboillm = 'api.koboillm.com' in str(endpoint)
         self._truncated = self._truncate_key(api_key)
         self.setWindowTitle(f"Credit Usage — {self._truncated}")
         self.setFixedWidth(500)
@@ -148,7 +183,7 @@ class CreditUsageDialog(QDialog):
 
         self.setLayout(layout)
 
-        self._thread = CreditCheckThread(api_key, self._webhook_url)
+        self._thread = CreditCheckThread(api_key, is_koboillm=self._is_koboillm)
         self._thread.result.connect(self._on_result)
         self._thread.error.connect(self._on_error)
         self._thread.start()
