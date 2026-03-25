@@ -944,6 +944,26 @@ class _DialogInvoker(QObject):
             except Exception as e:
                 print(f"[Dialog Invoker] Error flushing signature {sig}: {e}")
 
+    def remove_succeeded_files(self, succeeded_paths: set):
+        """Remove files that eventually succeeded (after retries) from the error buffer."""
+        if not succeeded_paths:
+            return
+        basenames = {os.path.basename(p) for p in succeeded_paths}
+        for sig, entry in list(self._buffer.items()):
+            filenames = entry.get('filenames', [])
+            file_map = entry.get('file_map', {})
+            new_filenames = [f for f in filenames if f not in basenames and os.path.basename(f) not in basenames]
+            new_file_map = {f: v for f, v in file_map.items() if f not in basenames and os.path.basename(f) not in basenames}
+            removed = len(filenames) - len(new_filenames)
+            if removed > 0:
+                entry['filenames'] = new_filenames
+                entry['file_map'] = new_file_map
+                entry['count'] = max(0, entry['count'] - removed)
+                print(f"[Dialog Invoker] Removed {removed} succeeded file(s) from error buffer (sig={sig})")
+            if not new_filenames:
+                self._buffer.pop(sig, None)
+                print(f"[Dialog Invoker] All files in signature {sig} succeeded - skipping error dialog")
+
     def clear_buffer(self):
         print("[Dialog Invoker] Clearing buffer")
         for timer in list(self._timers.values()):

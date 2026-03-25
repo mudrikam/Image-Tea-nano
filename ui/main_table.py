@@ -1670,7 +1670,23 @@ class ImageTableWidget(QWidget):
 
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
-        
+
+        # Explicitly stop all spinner animations before rebuilding rows
+        for r in range(self.table.rowCount()):
+            widget = self.table.cellWidget(r, 0)
+            if widget is not None:
+                anim = getattr(widget, '_spin_anim', None)
+                if anim:
+                    try:
+                        anim.stop()
+                    except Exception:
+                        pass
+                self.table.removeCellWidget(r, 0)
+                widget.hide()
+                widget.setParent(None)
+        if hasattr(self, '_spinner_saved_items'):
+            self._spinner_saved_items.clear()
+
         self.table.setRowCount(0)
         
         if not rows:
@@ -1741,6 +1757,8 @@ class ImageTableWidget(QWidget):
                     item.setToolTip(tooltip)
             if status_val in ("processing", "stopping"):
                 self._show_row_spinner(row_idx)
+            else:
+                self._hide_row_spinner(row_idx)
         
         self.table.blockSignals(False)
         self.table.setUpdatesEnabled(True)
@@ -2178,6 +2196,32 @@ class ImageTableWidget(QWidget):
         _blk_col.setAlpha(int(0.1 * 255))
         return _blk_col
 
+    def _hide_all_spinners(self):
+        for row_idx in range(self.table.rowCount()):
+            widget = self.table.cellWidget(row_idx, 0)
+            if widget is not None:
+                anim = getattr(widget, '_spin_anim', None)
+                if anim:
+                    try:
+                        anim.stop()
+                    except Exception:
+                        pass
+                self.table.removeCellWidget(row_idx, 0)
+                widget.hide()
+                widget.setParent(None)
+                if hasattr(self, '_spinner_saved_items') and row_idx in self._spinner_saved_items:
+                    checkbox_item = self._spinner_saved_items.pop(row_idx)
+                    checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                    self.table.setItem(row_idx, 0, checkbox_item)
+                else:
+                    new_cb = QTableWidgetItem()
+                    new_cb.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                    new_cb.setCheckState(Qt.Unchecked)
+                    new_cb.setTextAlignment(Qt.AlignCenter)
+                    self.table.setItem(row_idx, 0, new_cb)
+        if hasattr(self, '_spinner_saved_items'):
+            self._spinner_saved_items.clear()
+
     def _show_row_spinner(self, row_idx):
         if self.table.cellWidget(row_idx, 0) is not None:
             return
@@ -2197,13 +2241,23 @@ class ImageTableWidget(QWidget):
         btn.setStyleSheet(f"background-color: {bg_css}; border: none;")
         spin_anim = qta.Spin(btn, autostart=True, interval=50, step=45)
         spin_icon = qta.icon('fa6s.spinner', color=theme.get_color('warning'), animation=spin_anim)
+        btn._spin_anim = spin_anim
         btn.setIcon(spin_icon)
         btn.setIconSize(QSize(14, 14))
         self.table.setCellWidget(row_idx, 0, btn)
 
     def _hide_row_spinner(self, row_idx):
-        if self.table.cellWidget(row_idx, 0) is not None:
+        widget = self.table.cellWidget(row_idx, 0)
+        if widget is not None:
+            anim = getattr(widget, '_spin_anim', None)
+            if anim:
+                try:
+                    anim.stop()
+                except Exception:
+                    pass
             self.table.removeCellWidget(row_idx, 0)
+            widget.hide()
+            widget.setParent(None)
         if hasattr(self, '_spinner_saved_items') and row_idx in self._spinner_saved_items:
             checkbox_item = self._spinner_saved_items.pop(row_idx)
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -2259,6 +2313,7 @@ class ImageTableWidget(QWidget):
             if hasattr(self, '_pending_result_dialog') and self._pending_result_dialog is not None:
                 dlg = self._pending_result_dialog
                 self._pending_result_dialog = None
+                self._hide_all_spinners()
                 dlg.exec()
             return
         row_idx, col, full_text = self._tw_queue.pop(0)
@@ -3158,8 +3213,8 @@ class ImageTableWidget(QWidget):
         
         base_text = f"Generating metadata ({mode_text})"
         
-        if service and api_key:
-                                               
+        from helpers.members_helper.members_helper import is_logged_in
+        if service and api_key and not is_logged_in():
             masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
             base_text += f" - {service}: {masked_key}"
         

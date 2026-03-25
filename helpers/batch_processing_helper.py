@@ -61,6 +61,12 @@ def get_delay_interval():
         return random.uniform(1, 5)
     return float(delay_value)
 
+def get_max_retries():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    return int(config['max_retries'])
+
 def get_fresh_ai_config():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -1452,6 +1458,7 @@ def batch_generate_metadata(window):
         'current_api_index': 0,
         'batch_retry_count': 0,
         'batch_same_api_retry': 0,
+        'file_retry_count': 0,
         'video_proxy_map': video_proxy_map,
         'video_frame_map': video_frame_map
     }
@@ -1821,10 +1828,10 @@ def _on_parallel_round_completed(window, state, round_tasks, worker_results):
         _on_generation_finished(window, state['errors'])
         return
     
-    # Handle failures with fallback (try other APIs)
-    if failed_files and len(api_keys_list) > 1:
+    # Handle failures with retry (prefer unused APIs; fall back to all if needed)
+    if failed_files:
         retry_count = state.get('parallel_retry_count', 0)
-        max_retries = 2  # Max retry attempts per round
+        max_retries = get_max_retries()
         
         if retry_count < max_retries:
             # Find APIs that haven't been tried for failed files
@@ -1833,43 +1840,44 @@ def _on_parallel_round_completed(window, state, round_tasks, worker_results):
                 used_apis.add(failed_file['api_info']['api_key'])
             
             available_apis = [api for api in api_keys_list if api['api_key'] not in used_apis]
+            if not available_apis:
+                available_apis = api_keys_list
             
-            if available_apis:
-                print(f"[PARALLEL] Retrying {len(failed_files)} failed files with fallback API(s)")
-                state['parallel_retry_count'] = retry_count + 1
-                
-                # Create retry tasks for failed files with available APIs
-                retry_round = []
-                for i, failed_file in enumerate(failed_files):
-                    api_idx = i % len(available_apis)
-                    retry_round.append({
-                        'api_info': available_apis[api_idx],
-                        'files': [failed_file['row']],
-                        'api_index': api_idx
-                    })
-                
-                # Replace current batch with retry tasks
-                state['batches'][state['current']] = retry_round
-                
-                # Delay before retry
-                delay_seconds = get_delay_interval()
-                if delay_seconds > 0:
-                    window.table.set_progress_info(f"Retrying {len(failed_files)} failed files with fallback API(s)...")
-                    def _retry_cb():
-                        if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
-                            _on_generation_finished(window, state['errors'], stopped=True)
-                            window._batch_delay_timer = None
-                            return
+            print(f"[PARALLEL] Retrying {len(failed_files)} failed files (attempt {retry_count + 1}/{max_retries})")
+            state['parallel_retry_count'] = retry_count + 1
+            
+            # Create retry tasks for failed files with available APIs
+            retry_round = []
+            for i, failed_file in enumerate(failed_files):
+                api_idx = i % len(available_apis)
+                retry_round.append({
+                    'api_info': available_apis[api_idx],
+                    'files': [failed_file['row']],
+                    'api_index': api_idx
+                })
+            
+            # Replace current batch with retry tasks
+            state['batches'][state['current']] = retry_round
+            
+            # Delay before retry
+            delay_seconds = get_delay_interval()
+            if delay_seconds > 0:
+                window.table.set_progress_info(f"Retrying {len(failed_files)} failed files (attempt {retry_count + 1}/{max_retries})...")
+                def _retry_cb():
+                    if state.get('should_stop', False) or (stop_flag and stop_flag.get('stop')):
+                        _on_generation_finished(window, state['errors'], stopped=True)
                         window._batch_delay_timer = None
-                        _run_parallel_round(window, state, retry_round)
-                    timer = QTimer(window)
-                    timer.setSingleShot(True)
-                    timer.timeout.connect(_retry_cb)
-                    timer.start(int(delay_seconds * 1000))
-                    window._batch_delay_timer = timer
-                else:
+                        return
+                    window._batch_delay_timer = None
                     _run_parallel_round(window, state, retry_round)
-                return
+                timer = QTimer(window)
+                timer.setSingleShot(True)
+                timer.timeout.connect(_retry_cb)
+                timer.start(int(delay_seconds * 1000))
+                window._batch_delay_timer = timer
+            else:
+                _run_parallel_round(window, state, retry_round)
+            return
     
     # Reset retry counter for next round
     state['parallel_retry_count'] = 0
@@ -2435,7 +2443,7 @@ def _run_next_batch(window):
             # Case 1: Partial failure - retry failed files only with SAME API (parsing errors)
             if batch_partially_failed:
                 retry_count = state.get('batch_same_api_retry', 0)
-                max_same_api_retries = 2  # Retry failed files up to 2 times with same API
+                max_same_api_retries = get_max_retries()
                 
                 if retry_count < max_same_api_retries:
                     print(f"[ROLLING] Batch partially failed ({success_count} succeeded, {failed_count} failed). Retrying failed files with same API (attempt {retry_count + 1}/{max_same_api_retries}).")
@@ -2601,8 +2609,50 @@ def _run_next_batch(window):
                     _on_generation_finished(window, state['errors'], stopped=False)
                     return
         
-        # Reset retry counters when moving to next batch successfully
-        
+        # Normal mode: retry only failed files up to max_retries
+        if not is_parallel_mode and not is_rolling_mode and failed_count > 0:
+            file_retry_count = state.get('file_retry_count', 0)
+            max_file_retries = get_max_retries()
+            if file_retry_count < max_file_retries:
+                failed_rows = []
+                for idx, result in cache_results:
+                    if isinstance(result, dict) and (not result.get("title") or result.get("error_message")):
+                        image_path = result.get("image_path")
+                        for row in batch:
+                            if row[1] == image_path:
+                                failed_rows.append(row)
+                                break
+                if failed_rows:
+                    state['batches'][state['current']] = failed_rows
+                    state['file_retry_count'] = file_retry_count + 1
+                    print(f"[RETRY] Retrying {len(failed_rows)} failed files (attempt {file_retry_count + 1}/{max_file_retries})")
+                    _rmode = state.get('mode', 'all')
+                    _rsvc = state.get('service', '')
+                    _rkey = state.get('api_key', '')
+                    _rlbl = window.table.get_progress_format_text(_rmode, _rsvc, _rkey)
+                    window.table.set_progress_info(f"{_rlbl} (Retrying {len(failed_rows)} failed, attempt {file_retry_count + 1}/{max_file_retries})...")
+                    QApplication.processEvents()
+                    retry_delay = get_delay_interval()
+                    if retry_delay > 0:
+                        def _retry_normal_cb():
+                            _st = getattr(window, '_batch_processing_state', {})
+                            _sf = _st.get('stop_flag')
+                            if _st.get('should_stop', False) or (_sf and _sf.get('stop')):
+                                _on_generation_finished(window, _st.get('errors', []), stopped=True)
+                                window._batch_delay_timer = None
+                                return
+                            window._batch_delay_timer = None
+                            _run_next_batch(window)
+                        _rtimer = QTimer(window)
+                        _rtimer.setSingleShot(True)
+                        _rtimer.timeout.connect(_retry_normal_cb)
+                        _rtimer.start(int(retry_delay * 1000))
+                        window._batch_delay_timer = _rtimer
+                    else:
+                        _run_next_batch(window)
+                    return
+            state['file_retry_count'] = 0
+
         # Reset retry counters when moving to next batch successfully
         if not (is_rolling_mode and (batch_partially_failed or batch_completely_failed)):
             state['batch_retry_count'] = 0
@@ -2641,6 +2691,7 @@ def _run_next_batch(window):
         # (retry logic above would have returned early if retrying)
         state['batch_retry_count'] = 0
         state['batch_same_api_retry'] = 0
+        state['file_retry_count'] = 0
         state['current'] += 1
         if errors:
             state['errors'].extend(errors)
@@ -2792,19 +2843,6 @@ def _on_generation_finished(window, errors, stopped=False):
 
     window.is_generating = False
     
-    # Disable buffering dan flush semua error yang terkumpul
-    try:
-        invoker.disable_buffering()
-        invoker.flush_all()
-        # Re-enable buffering untuk batch berikutnya
-        invoker.enable_buffering()
-    except Exception as e:
-        print(f"[Batch] Failed to flush error dialogs: {e}")
-    
-    # Stop the estimation timer but keep the final stats visible
-    if hasattr(window, "stats_section"):
-        window.stats_section.stop_estimation_timer()
-    
     _set_gen_btn_stop_state(window, False)
     table_widget = window.table.table
     
@@ -2829,7 +2867,6 @@ def _on_generation_finished(window, errors, stopped=False):
         window.table.progress_bar.setMinimum(0)
         window.table.progress_bar.setMaximum(1)
         window.table.progress_bar.setVisible(True)
-        # Clear API info from status bar when stopped
         if hasattr(window, 'statusbar'):
             window.statusbar.set_api_info()
     else:
@@ -2840,7 +2877,6 @@ def _on_generation_finished(window, errors, stopped=False):
         window.table.progress_bar.setMaximum(1)
         window.table.progress_bar.setValue(1)
         window.table.progress_bar.setVisible(True)
-        # Clear API info from status bar when done
         if hasattr(window, 'statusbar'):
             window.statusbar.set_api_info()
     
@@ -2848,8 +2884,35 @@ def _on_generation_finished(window, errors, stopped=False):
         total_time_ms = int((time.perf_counter() - window._gen_total_time_start) * 1000)
         window.stats_section.update_total_time(total_time_ms)
     
+    # Refresh table and hide all spinners BEFORE showing any dialogs
     QApplication.processEvents()
     window.table.refresh_table()
+    if hasattr(window.table, '_hide_all_spinners'):
+        window.table._hide_all_spinners()
+    QApplication.processEvents()
+
+    # Flush buffered error dialogs AFTER table is clean
+    try:
+        invoker.disable_buffering()
+        # Remove files that eventually succeeded after retries from the error buffer
+        try:
+            all_files = window.db.get_all_files()
+            succeeded_paths = {row[1] for row in all_files if row[6] and row[6].lower() == 'success'} if all_files else set()
+            if succeeded_paths:
+                invoker.remove_succeeded_files(succeeded_paths)
+                print(f"[Batch] Filtered {len(succeeded_paths)} succeeded file(s) from error buffer")
+        except Exception as ef:
+            print(f"[Batch] Failed to filter succeeded files from error buffer: {ef}")
+        invoker.flush_all()
+        # Re-enable buffering untuk batch berikutnya
+        invoker.enable_buffering()
+    except Exception as e:
+        print(f"[Batch] Failed to flush error dialogs: {e}")
+    
+    # Stop the estimation timer but keep the final stats visible
+    if hasattr(window, "stats_section"):
+        window.stats_section.stop_estimation_timer()
+    
     update_token_stats_ui(window)
     
     if errors:
@@ -2895,6 +2958,8 @@ def _on_generation_finished(window, errors, stopped=False):
     if tw_queue:
         window.table._pending_result_dialog = dlg
     else:
+        if hasattr(window.table, '_hide_all_spinners'):
+            window.table._hide_all_spinners()
         dlg.exec()
     
     print("[CLEANUP] Generation finished cleanup completed.")

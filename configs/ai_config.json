@@ -38,6 +38,7 @@
     "groq": "https://api.groq.com/v1"
   },
   "delay_interval": "Random",
+  "max_retries": 3,
   "video_proxy_setting": "Auto",
   "video_proxy_presets": {
     "High": {
