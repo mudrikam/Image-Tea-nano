@@ -4,7 +4,7 @@
         "default_country": "WORLD"
     },
     "cache": {
-        "expire_days": 7,
+        "expire_days": 30,
         "use_sqlite": true
     },
     "ui": {

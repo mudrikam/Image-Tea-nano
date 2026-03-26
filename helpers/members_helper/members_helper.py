@@ -23,6 +23,7 @@ MEMBER_SESSION = {
     "renewed_at": None,
     "usage_limit": 0,
     "used_count": 0,
+    "calendarific_api_key": None,
 }
 
 
@@ -35,6 +36,35 @@ def _load_supabase_config() -> dict:
     with open(_SUPABASE_CONFIG_PATH, "r", encoding="utf-8") as f:
         raw = json.load(f)
     return {"url": _d(raw["u"]), "anon_key": _d(raw["k"])}
+
+
+def _fetch_calendarific_key(email: str, license_key: str) -> str:
+    try:
+        cfg = _load_supabase_config()
+        response = requests.post(
+            f"{cfg['url']}/rest/v1/rpc/get_member_calendarific_key",
+            headers={
+                "apikey": cfg["anon_key"],
+                "Authorization": f"Bearer {cfg['anon_key']}",
+                "Content-Type": "application/json",
+            },
+            json={"p_email": email, "p_license": license_key},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, str) and result:
+                print(f"[MemberHelper] Calendarific key fetched for {email}")
+                return result
+        print(f"[MemberHelper] No calendarific key for {email} (status={response.status_code})")
+        return None
+    except Exception as e:
+        print(f"[MemberHelper] _fetch_calendarific_key error: {e}")
+        return None
+
+
+def get_calendarific_api_key() -> str:
+    return MEMBER_SESSION.get("calendarific_api_key")
 
 
 def verify_member(email: str, license_key: str) -> dict:
@@ -111,6 +141,9 @@ def login_member(email: str, license_key: str) -> dict:
     MEMBER_SESSION["renewed_at"] = member["renewed_at"]
     MEMBER_SESSION["usage_limit"] = member.get("usage_limit") or 0
     MEMBER_SESSION["used_count"] = member.get("used_count") or 0
+    MEMBER_SESSION["calendarific_api_key"] = _fetch_calendarific_key(
+        member["email"], member["license"]
+    )
 
     print(f"[MemberHelper] Login success: {member['email']} ({member['name']})")
     return {

@@ -60,6 +60,15 @@ class ConfigTabWidget(QWidget):
         subtitle = QLabel('Manage API key and cache settings for Holiday Calendar.')
         layout.addWidget(subtitle)
 
+        self._member_key_banner = QLabel()
+        self._member_key_banner.setWordWrap(True)
+        self._member_key_banner.setVisible(False)
+        self._member_key_banner.setStyleSheet(
+            'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;'
+            'border-radius: 4px; padding: 6px 10px;'
+        )
+        layout.addWidget(self._member_key_banner)
+
         api_group = QGroupBox('API Settings')
         api_lyt = QVBoxLayout(api_group)
         api_lyt.setSpacing(8)
@@ -162,16 +171,47 @@ class ConfigTabWidget(QWidget):
         outer.addWidget(scroll)
 
     def _load_values(self):
+        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key
         from database.db_operation import ImageTeaDB
-        self._api_key_field.setText(ImageTeaDB().calendarific_get_api_key())
+
+        if is_logged_in():
+            member_cal_key = get_calendarific_api_key()
+            if member_cal_key:
+                self._member_key_banner.setText(
+                    '\u2705 Kamu login sebagai member. API key Calendarific akan diambil secara otomatis '
+                    'dari akun member kamu. Kamu tidak perlu memasukkan API key secara manual.'
+                )
+                self._member_key_banner.setVisible(True)
+                self._api_key_field.setEnabled(False)
+                self._api_key_field.setPlaceholderText('Otomatis dari akun member kamu')
+            else:
+                self._member_key_banner.setText(
+                    '\u26a0\ufe0f Kamu login sebagai member, tetapi belum ada Calendarific API key '
+                    'yang ditetapkan untuk akun kamu. Hubungi admin atau isi API key secara manual.'
+                )
+                self._member_key_banner.setStyleSheet(
+                    'background-color: #fff3cd; color: #856404; border: 1px solid #ffc107;'
+                    'border-radius: 4px; padding: 6px 10px;'
+                )
+                self._member_key_banner.setVisible(True)
+                self._api_key_field.setEnabled(True)
+                self._api_key_field.setText(ImageTeaDB().calendarific_get_api_key())
+        else:
+            self._member_key_banner.setVisible(False)
+            self._api_key_field.setEnabled(True)
+            self._api_key_field.setText(ImageTeaDB().calendarific_get_api_key())
+
         self._base_url_field.setText(config_helper.get_base_url())
         self._default_country_field.setText(config_helper.get_default_country())
         self._expire_days_spin.setValue(config_helper.get_expire_days())
         self._use_sqlite_check.setChecked(config_helper.get_use_sqlite())
 
     def _save(self):
+        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key
         from database.db_operation import ImageTeaDB
-        ImageTeaDB().calendarific_set_api_key(self._api_key_field.text().strip())
+
+        if not (is_logged_in() and get_calendarific_api_key()):
+            ImageTeaDB().calendarific_set_api_key(self._api_key_field.text().strip())
         config_helper.set_base_url(self._base_url_field.text().strip() or 'https://calendarific.com/api/v2')
         config_helper.set_default_country(self._default_country_field.text().strip().upper() or 'US')
         config_helper.set_expire_days(self._expire_days_spin.value())

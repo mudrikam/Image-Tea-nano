@@ -1,7 +1,8 @@
 import os
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout,
-    QSplitter, QTabWidget, QStackedWidget, QLabel, QStatusBar
+    QSplitter, QTabWidget, QStackedWidget, QLabel, QStatusBar,
+    QPushButton, QFrame
 )
 from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QFont, QIcon
@@ -13,6 +14,7 @@ from helpers.tools.holiday_calendar_helper.config_helper import (
     get_default_country, get_ui, set_ui
 )
 from helpers.tools.holiday_calendar_helper import cache_helper
+from helpers.tools.holiday_calendar_helper.api_client import API_KEY_NOT_CONFIGURED
 from helpers.tools.holiday_calendar_helper.api_worker import (
     HolidayWorker, CountriesWorker, WorldHolidayWorker
 )
@@ -181,9 +183,9 @@ class HolidayCalendarDialog(QDialog):
         self._thread_pool.start(worker)
 
         if self._current_month > 0:
-            self._load_holidays(self._current_country, self._current_year, self._current_month)
+            self._load_holidays(self._current_country, self._current_year, self._current_month, show_dialog=False)
         else:
-            self._load_holidays(self._current_country, self._current_year, 0)
+            self._load_holidays(self._current_country, self._current_year, 0, show_dialog=False)
 
     def _on_countries_loaded(self, countries: list):
         self._filter_bar.populate_countries(countries)
@@ -192,7 +194,7 @@ class HolidayCalendarDialog(QDialog):
     def _on_month_selected(self, month: int):
         self._current_month = month
         set_ui('last_month', month)
-        self._load_holidays(self._current_country, self._current_year, month)
+        self._load_holidays(self._current_country, self._current_year, month, show_dialog=True)
 
     def _on_year_changed(self, year: int):
         self._current_year = year
@@ -200,9 +202,9 @@ class HolidayCalendarDialog(QDialog):
         self._memory_cache.clear()
         self._month_counts.clear()
         if self._current_month > 0:
-            self._load_holidays(self._current_country, year, self._current_month)
+            self._load_holidays(self._current_country, year, self._current_month, show_dialog=True)
         else:
-            self._load_holidays(self._current_country, year, 0)
+            self._load_holidays(self._current_country, year, 0, show_dialog=True)
 
     def _on_country_changed(self, code: str):
         self._current_country = code
@@ -210,9 +212,9 @@ class HolidayCalendarDialog(QDialog):
         self._memory_cache.clear()
         self._month_counts.clear()
         if self._current_month > 0:
-            self._load_holidays(code, self._current_year, self._current_month)
+            self._load_holidays(code, self._current_year, self._current_month, show_dialog=True)
         else:
-            self._load_holidays(code, self._current_year, 0)
+            self._load_holidays(code, self._current_year, 0, show_dialog=True)
 
     def _on_view_mode_changed(self, mode: str):
         if mode == 'list':
@@ -226,7 +228,7 @@ class HolidayCalendarDialog(QDialog):
         cache_helper.clear_all()
         self._memory_cache.clear()
         self._month_counts.clear()
-        self._load_holidays(self._current_country, self._current_year, self._current_month, force=True)
+        self._load_holidays(self._current_country, self._current_year, self._current_month, force=True, show_dialog=True)
 
     def _on_holiday_selected(self, holiday: dict):
         self._detail_panel.show_holiday(holiday)
@@ -253,7 +255,7 @@ class HolidayCalendarDialog(QDialog):
     def _set_status(self, msg: str):
         self._status_text.setText(msg)
 
-    def _load_holidays(self, country: str, year: int, month: int, force: bool = False):
+    def _load_holidays(self, country: str, year: int, month: int, force: bool = False, show_dialog: bool = True):
         cache_key = (country, year, month)
 
         # 1. Memory cache (synchronous)
@@ -272,7 +274,18 @@ class HolidayCalendarDialog(QDialog):
                 self._on_holidays_loaded(cached)
                 return
 
-        # 3. Need API fetch
+        # 3. Need API fetch - check key first from main thread before spawning worker
+        from helpers.tools.holiday_calendar_helper.config_helper import get_api_key
+        from helpers.tools.holiday_calendar_helper.api_client import API_KEY_NOT_CONFIGURED
+        if not get_api_key():
+            self._holiday_list.show_error(
+                'No API key configured. Become a member or add your own Calendarific API key.'
+            )
+            self._set_status('No API key — open Configuration tab to set your key')
+            if show_dialog:
+                self._show_api_key_missing_dialog()
+            return
+
         self._holiday_list.show_loading()
 
         if country == 'WORLD':
@@ -315,8 +328,118 @@ class HolidayCalendarDialog(QDialog):
         self._set_status(f'Loaded: {count} holidays')
 
     def _on_fetch_error(self, error: str):
-        self._holiday_list.show_error(error)
-        self._set_status(f'Error: {error}')
+        if error == API_KEY_NOT_CONFIGURED:
+            self._holiday_list.show_error(
+                'No API key configured. Become a member or add your own Calendarific API key.'
+            )
+            self._set_status('No API key — open Configuration tab to set your key')
+        else:
+            self._holiday_list.show_error(error)
+            self._set_status(f'Error: {error}')
+
+    def _show_api_key_missing_dialog(self):
+        import webbrowser
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Calendarific API Key Required')
+        dlg.setFixedWidth(420)
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 14, 16, 12)
+
+        icon_row = QHBoxLayout()
+        icon_row.setSpacing(10)
+        icon_lbl = QLabel()
+        try:
+            icon_lbl.setPixmap(qta.icon('fa6s.calendar-xmark', color=theme.get_color('error')).pixmap(28, 28))
+        except Exception:
+            pass
+        title_lbl = QLabel('No API Key Configured')
+        title_lbl.setStyleSheet('font-size: 16px; font-weight: bold;')
+        icon_row.addWidget(icon_lbl)
+        icon_row.addWidget(title_lbl)
+        icon_row.addStretch()
+        layout.addLayout(icon_row)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
+
+        member_box = QFrame()
+        member_box.setFrameShape(QFrame.Shape.StyledPanel)
+        member_box.setFrameShadow(QFrame.Shadow.Sunken)
+        member_lyt = QVBoxLayout(member_box)
+        member_lyt.setContentsMargins(10, 8, 10, 10)
+        member_lyt.setSpacing(6)
+
+        opt1_title = QLabel('Option 1 - Become a Member (Recommended)')
+        opt1_title.setStyleSheet('font-size: 11px; font-weight: bold;')
+        member_lyt.addWidget(opt1_title)
+
+        opt1_desc = QLabel(
+            'As a member, you get automatic access to the Holiday Calendar '
+            'with no API key needed. The key is provided by Desainia Studio on your behalf.'
+        )
+        opt1_desc.setWordWrap(True)
+        opt1_desc.setStyleSheet('font-size: 11px;')
+        member_lyt.addWidget(opt1_desc)
+
+        member_btn = QPushButton(qta.icon('fa6s.star', color=theme.get_color('white')), ' Become a Member')
+        member_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        member_btn.setStyleSheet(
+            f'background-color: {theme.get_color("primary")}; color: {theme.get_color("white")};'
+            f'font-weight: bold; border-radius: 5px; padding: 5px 14px;'
+        )
+        member_btn.clicked.connect(lambda: (
+            webbrowser.open('https://lynk.id/desainiajob/rrwn88qj8jjl'),
+            dlg.accept()
+        ))
+        member_lyt.addWidget(member_btn)
+        layout.addWidget(member_box)
+
+        own_box = QFrame()
+        own_box.setFrameShape(QFrame.Shape.StyledPanel)
+        own_box.setFrameShadow(QFrame.Shadow.Sunken)
+        own_lyt = QVBoxLayout(own_box)
+        own_lyt.setContentsMargins(10, 8, 10, 10)
+        own_lyt.setSpacing(6)
+
+        opt2_title = QLabel('Option 2 - Use Your Own API Key')
+        opt2_title.setStyleSheet('font-size: 11px; font-weight: bold;')
+        own_lyt.addWidget(opt2_title)
+
+        opt2_desc = QLabel(
+            'Get a free API key at calendarific.com, then paste it in the '
+            'Configuration tab of this tool.'
+        )
+        opt2_desc.setWordWrap(True)
+        opt2_desc.setStyleSheet('font-size: 11px;')
+        own_lyt.addWidget(opt2_desc)
+
+        own_btn_row = QHBoxLayout()
+        get_key_btn = QPushButton(qta.icon('fa6s.arrow-up-right-from-square'), ' Get Free API Key')
+        get_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        get_key_btn.clicked.connect(lambda: webbrowser.open('https://calendarific.com/account/dashboard'))
+        config_btn = QPushButton(qta.icon('fa6s.gear'), ' Open Configuration')
+        config_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        config_btn.clicked.connect(lambda: (
+            self._tab_widget.setCurrentIndex(2),
+            dlg.accept()
+        ))
+        own_btn_row.addWidget(get_key_btn)
+        own_btn_row.addWidget(config_btn)
+        own_btn_row.addStretch()
+        own_lyt.addLayout(own_btn_row)
+        layout.addWidget(own_box)
+
+        close_btn = QPushButton(qta.icon('fa6s.xmark'), ' Close')
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+        dlg.exec()
 
     def closeEvent(self, event):
         event.accept()

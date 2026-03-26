@@ -2,7 +2,8 @@ import concurrent.futures
 from PySide6.QtCore import QRunnable, QObject, Signal, Slot
 from helpers.tools.holiday_calendar_helper import api_client, cache_helper
 from helpers.tools.holiday_calendar_helper.holiday_logger import logger
-from helpers.tools.holiday_calendar_helper.api_client import CalendarificError
+from helpers.tools.holiday_calendar_helper.api_client import CalendarificError, API_KEY_NOT_CONFIGURED
+from helpers.tools.holiday_calendar_helper.config_helper import get_api_key
 
 
 WORLD_COUNTRIES = [
@@ -83,6 +84,10 @@ class WorldHolidayWorker(QRunnable):
         all_holidays = []
         seen = set()
         self.signals.status.emit(f'Fetching world holidays ({len(self.countries)} countries)...')
+
+        if not get_api_key():
+            self.signals.error.emit(API_KEY_NOT_CONFIGURED)
+            return
 
         def fetch_one(code):
             cached = cache_helper.get_holidays(code, self.year, self.month)

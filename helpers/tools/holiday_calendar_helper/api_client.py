@@ -31,10 +31,13 @@ class CalendarificError(Exception):
     pass
 
 
+API_KEY_NOT_CONFIGURED = 'API_KEY_NOT_CONFIGURED'
+
+
 def fetch_holidays(country: str, year: int, month: int) -> list:
     api_key = get_api_key()
     if not api_key:
-        raise CalendarificError('API key is not configured. Set your API key in the Configuration tab.')
+        raise CalendarificError(API_KEY_NOT_CONFIGURED)
 
     base_url = get_base_url()
     params = {

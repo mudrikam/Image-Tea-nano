@@ -24,6 +24,11 @@ _load()
 
 
 def get_api_key() -> str:
+    from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key
+    if is_logged_in():
+        member_key = get_calendarific_api_key()
+        if member_key:
+            return member_key
     from database.db_operation import ImageTeaDB
     return ImageTeaDB().calendarific_get_api_key()
 
