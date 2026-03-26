@@ -1,11 +1,11 @@
 import webbrowser
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont, QCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QGroupBox,
-    QSpinBox, QCheckBox, QScrollArea, QMessageBox
+    QSpinBox, QCheckBox, QScrollArea, QMessageBox, QToolTip
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
 import qtawesome as qta
 from ui.theme_system import theme
 from helpers.tools.holiday_calendar_helper import config_helper, cache_helper
@@ -109,7 +109,7 @@ class ConfigTabWidget(QWidget):
 
         self._default_country_field = QLineEdit()
         self._default_country_field.setPlaceholderText('e.g. US or ID')
-        api_lyt.addWidget(FieldRow('Negara Default', self._default_country_field))
+        api_lyt.addWidget(FieldRow('Default Country', self._default_country_field))
 
         get_key_btn = QPushButton('Get API Key at calendarific.com')
         get_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -144,30 +144,20 @@ class ConfigTabWidget(QWidget):
         clear_cache_btn.clicked.connect(self._clear_cache)
         cache_lyt.addWidget(clear_cache_btn)
         layout.addWidget(cache_group)
+        layout.addStretch()
 
+        save_row = QHBoxLayout()
+        save_row.addStretch()
         save_btn = QPushButton('Save Configuration')
-        save_btn.setFixedHeight(36)
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_btn.setStyleSheet(f'''
-            QPushButton {{
-                background-color: {theme.get_color("primary")};
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background-color: {theme.get_color("primary_hover")}; }}
-            QPushButton:pressed {{ background-color: {theme.get_color("primary_pressed")}; }}
-        ''')
         try:
-            save_btn.setIcon(qta.icon('fa6s.floppy-disk', color='white'))
+            save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
         except Exception:
             pass
         save_btn.clicked.connect(self._save)
-        layout.addWidget(save_btn)
+        save_row.addWidget(save_btn)
+        layout.addLayout(save_row)
 
-        layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
@@ -188,6 +178,7 @@ class ConfigTabWidget(QWidget):
         config_helper.set_use_sqlite(self._use_sqlite_check.isChecked())
         logger.success('Configuration saved.')
         self.config_saved.emit()
+        QToolTip.showText(QCursor.pos(), 'Configuration saved')
 
     def _clear_cache(self):
         reply = QMessageBox.question(
