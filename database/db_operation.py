@@ -1297,3 +1297,65 @@ class ImageTeaDB:
             'created_at': row[13],
             'updated_at': row[14],
         }
+
+    # --- Holiday Calendar cache methods ---
+    def holiday_cache_fetch(self, country: str, year: int, month: int, expire_days: int = 7):
+        import json as _json
+        from datetime import datetime as _dt
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute(
+                'SELECT holidays_json, cached_at FROM holiday_cache WHERE country=? AND year=? AND month=?',
+                (country.upper(), year, month)
+            )
+            row = c.fetchone()
+        if row is None:
+            return None
+        cached_at = _dt.fromisoformat(row['cached_at'])
+        age = (_dt.utcnow() - cached_at).days
+        if age > expire_days:
+            return None
+        return _json.loads(row['holidays_json'])
+
+    def holiday_cache_store(self, country: str, year: int, month: int, holidays: list):
+        import json as _json
+        from datetime import datetime as _dt
+        now = _dt.utcnow().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''INSERT OR REPLACE INTO holiday_cache (country, year, month, holidays_json, cached_at)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (country.upper(), year, month, _json.dumps(holidays), now)
+            )
+            conn.commit()
+
+    def holiday_cache_clear_expired(self, expire_days: int = 7):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                "DELETE FROM holiday_cache WHERE (julianday('now') - julianday(cached_at)) > ?",
+                (expire_days,)
+            )
+            conn.commit()
+
+    def holiday_cache_clear_all(self):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM holiday_cache')
+            conn.commit()
+
+    def calendarific_get_api_key(self) -> str:
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT api_key FROM calendarific_settings ORDER BY id LIMIT 1')
+            row = c.fetchone()
+            return row[0] if row else ''
+
+    def calendarific_set_api_key(self, api_key: str):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM calendarific_settings')
+            c.execute('INSERT INTO calendarific_settings (api_key) VALUES (?)', (api_key,))
+            conn.commit()
