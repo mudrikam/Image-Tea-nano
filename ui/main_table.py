@@ -1723,13 +1723,24 @@ class ImageTableWidget(QWidget):
                     should_blank = is_processing_col and (
                         _is_pending or status_val in ("processing", "stopping")
                     )
-                    if should_blank:
+                    if col == 2:
+                        filepath = display_values[0]
+                        try:
+                            size_bytes = os.path.getsize(filepath)
+                            if size_bytes >= 1024 * 1024:
+                                size_str = f"{size_bytes / (1024 * 1024):.1f}MB"
+                            else:
+                                size_str = f"{size_bytes / 1024:.0f}KB"
+                            display_val = f"{val} ({size_str})"
+                        except Exception:
+                            display_val = str(val) if val is not None else ""
+                        item = QTableWidgetItem(display_val)
+                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                    elif should_blank:
                         item = QTableWidgetItem("")
                         item.setData(Qt.UserRole + 1, str(val) if val is not None else "")
                     else:
                         item = QTableWidgetItem(str(val) if val is not None else "")
-                    if col == 2:
-                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                     self.table.setItem(row_idx, col, item)
             title_val = row[3] if len(row) > 3 and row[3] is not None else ""
             title_len = len(title_val)
