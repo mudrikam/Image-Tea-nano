@@ -243,6 +243,78 @@ def get_compression_max_size():
         config_json = json.load(f)
     return config_json["compression_max_size"]
 
+def get_transparency_background():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_json = json.load(f)
+    return config_json["transparency_background"]
+
+def _make_checker_bg(width, height, square=16):
+    from PIL import ImageDraw
+    tile_size = square * 2
+    tile = Image.new("RGB", (tile_size, tile_size), (255, 255, 255))
+    draw = ImageDraw.Draw(tile)
+    draw.rectangle([0, 0, square - 1, square - 1], fill=(200, 200, 200))
+    draw.rectangle([square, square, tile_size - 1, tile_size - 1], fill=(200, 200, 200))
+    bg = Image.new("RGB", (width, height), (255, 255, 255))
+    for y in range(0, height, tile_size):
+        for x in range(0, width, tile_size):
+            bg.paste(tile, (x, y))
+    return bg
+
+def _composite_on_background(img_path, quality):
+    bg_mode = get_transparency_background()
+    with Image.open(img_path) as img:
+        if img.mode not in ("RGBA", "LA", "PA"):
+            img = img.convert("RGBA")
+        w, h = img.size
+        if bg_mode == "checker":
+            bg = _make_checker_bg(w, h)
+        elif bg_mode == "black":
+            bg = Image.new("RGB", (w, h), (0, 0, 0))
+        else:
+            bg = Image.new("RGB", (w, h), (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        out_path = img_path.replace(".png", ".jpg")
+        if out_path == img_path:
+            out_path = img_path + ".composited.jpg"
+        bg.save(out_path, "JPEG", quality=quality, optimize=True)
+    try:
+        os.remove(img_path)
+    except Exception:
+        pass
+    return out_path
+
+def _resize_if_needed(path, max_size, quality):
+    try:
+        with Image.open(path) as img:
+            w, h = img.size
+            if w <= max_size and h <= max_size:
+                return path
+            mode = img.mode
+            img_copy = img.copy()
+        img_copy.thumbnail((max_size, max_size), Image.LANCZOS)
+        print(f"[Compression] Resized from {w}x{h} to {img_copy.size[0]}x{img_copy.size[1]}")
+        if path.endswith(".png"):
+            if mode in ("RGBA", "LA", "PA"):
+                img_copy.save(path, "PNG", optimize=True)
+            else:
+                img_copy = img_copy.convert("RGB")
+                jpg_path = path[:-4] + ".jpg"
+                img_copy.save(jpg_path, "JPEG", quality=quality, optimize=True)
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                return jpg_path
+        else:
+            img_copy = img_copy.convert("RGB")
+            img_copy.save(path, "JPEG", quality=quality, optimize=True)
+        return path
+    except Exception as e:
+        print(f"[Compression] Error resizing {path}: {e}")
+        return path
+
 def cleanup_temp_folder():
     temp_folder = ensure_temp_folder()
     for filename in os.listdir(temp_folder):
@@ -253,104 +325,169 @@ def cleanup_temp_folder():
         except Exception as e:
             print(f"Error cleaning temp file {file_path}: {e}")
 
-def convert_eps_pdf_to_jpg(input_path, output_path, quality):
+def _gs_render_png(input_path, png_path, width_px=None, height_px=None, dpi=300, tx=None, ty=None, extra_flags=None):
+    args = [
+        GHOSTSCRIPT_PATH,
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dAutoRotatePages=/None",
+    ]
+    if extra_flags:
+        args.extend(extra_flags)
+    if width_px and height_px:
+        args.extend([f"-g{width_px}x{height_px}", f"-r{dpi}"])
+    else:
+        args.extend(["-r300"])
+    args.extend(["-sDEVICE=pngalpha", f"-sOutputFile={png_path}"])
+    if tx is not None and ty is not None:
+        args.extend(["-c", f"{tx} {ty} translate", "-f", input_path])
+    else:
+        args.append(input_path)
+    subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
+
+
+def _parse_bbox_from_gs_output(output):
+    hires_bbox = None
+    int_bbox = None
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("%%HiResBoundingBox:"):
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    hires_bbox = tuple(map(float, parts[-4:]))
+                except Exception:
+                    pass
+        elif line.startswith("%%BoundingBox:"):
+            parts = line.split()
+            if len(parts) >= 5:
+                try:
+                    int_bbox = tuple(map(float, parts[-4:]))
+                except Exception:
+                    pass
+    return hires_bbox or int_bbox
+
+
+def _parse_bbox_from_file(input_path):
+    hires_bbox = None
+    int_bbox = None
     try:
-        png_path = output_path.replace(".jpg", ".png")
-        bbox_args = [
-            GHOSTSCRIPT_PATH,
-            "-dBATCH",
-            "-dNOPAUSE",
-            "-sDEVICE=bbox",
-            input_path
-        ]
-        proc = subprocess.run(bbox_args, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **_NO_WINDOW)
-        output = proc.stdout + proc.stderr
-        bbox = None
-        for line in output.splitlines():
+        with open(input_path, "rb") as f:
+            header = f.read(512)
+        try:
+            header_str = header.decode("latin-1", errors="replace")
+        except Exception:
+            header_str = ""
+        for line in header_str.splitlines():
             line = line.strip()
-            if line.startswith("%%BoundingBox:") or line.startswith("%%HiResBoundingBox:"):
+            if line.startswith("%%HiResBoundingBox:"):
                 parts = line.split()
                 if len(parts) >= 5:
                     try:
-                        llx, lly, urx, ury = map(float, parts[-4:])
-                        bbox = (llx, lly, urx, ury)
+                        hires_bbox = tuple(map(float, parts[-4:]))
                     except Exception:
-                        continue
+                        pass
+            elif line.startswith("%%BoundingBox:"):
+                parts = line.split()
+                if len(parts) >= 5:
+                    try:
+                        vals = list(map(float, parts[-4:]))
+                        if vals != [0, 0, 0, 0]:
+                            int_bbox = tuple(vals)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[EPS] Could not read header from {input_path}: {e}")
+    return hires_bbox or int_bbox
+
+
+def convert_eps_pdf_to_jpg(input_path, output_path, quality):
+    try:
+        png_path = output_path.replace(".jpg", ".png")
         ext = os.path.splitext(input_path)[1].lower()
+        is_eps = ext == ".eps"
+
+        bbox = None
+        if is_eps:
+            bbox = _parse_bbox_from_file(input_path)
+            if not bbox:
+                try:
+                    bbox_args = [
+                        GHOSTSCRIPT_PATH, "-dBATCH", "-dNOPAUSE",
+                        "-dAutoRotatePages=/None", "-sDEVICE=bbox", input_path
+                    ]
+                    proc = subprocess.run(bbox_args, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **_NO_WINDOW)
+                    bbox = _parse_bbox_from_gs_output(proc.stdout + proc.stderr)
+                except Exception as e:
+                    print(f"[EPS] bbox detection failed: {e}")
+
         if ext in (".pdf", ".ai"):
-            args = [
-                GHOSTSCRIPT_PATH,
-                "-dBATCH",
-                "-dNOPAUSE",
-                "-sDEVICE=pngalpha",
-                "-r300",
-                f"-sOutputFile={png_path}",
-                input_path
-            ]
-            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
+            try:
+                _gs_render_png(input_path, png_path)
+            except subprocess.CalledProcessError as e:
+                print(f"[PDF/AI] GS failed: {e}")
+                return None
             if not os.path.exists(png_path):
-                print(f"Ghostscript did not produce output: {png_path}")
+                print(f"[PDF/AI] Ghostscript produced no output: {png_path}")
                 return None
             if image_has_transparency(png_path):
                 return png_path
-            else:
-                jpg_args = [
-                    GHOSTSCRIPT_PATH,
-                    "-dBATCH",
-                    "-dNOPAUSE",
-                    "-sDEVICE=jpeg",
-                    f"-dJPEGQ={quality}",
-                    "-r300",
-                    f"-sOutputFile={output_path}",
-                    input_path
-                ]
-                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
-                if os.path.exists(output_path):
-                    try:
-                        os.remove(png_path)
-                    except Exception:
-                        pass
-                    return output_path
-                else:
-                    print(f"Ghostscript did not produce output: {output_path}")
-                    return None
+            with Image.open(png_path) as img:
+                rgb = img.convert("RGB")
+                rgb.save(output_path, "JPEG", quality=quality, optimize=True)
+            try:
+                os.remove(png_path)
+            except Exception:
+                pass
+            return output_path
+
         if not bbox:
-            args = [
-                GHOSTSCRIPT_PATH,
-                "-dBATCH",
-                "-dNOPAUSE",
-                "-sDEVICE=pngalpha",
-                "-r300",
-                f"-sOutputFile={png_path}",
-                input_path
-            ]
-            subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
-            if not os.path.exists(png_path):
-                print(f"Ghostscript did not produce output: {png_path}")
+            print(f"[EPS] No bounding box found, trying simple render for {input_path}")
+            eps_flags = ["-dEPSCrop"] if is_eps else []
+            rendered = False
+            try:
+                _gs_render_png(input_path, png_path, extra_flags=eps_flags)
+                rendered = os.path.exists(png_path)
+            except subprocess.CalledProcessError as e:
+                print(f"[EPS] Simple render failed: {e}")
+            if not rendered:
+                print(f"[EPS] Trying PIL fallback for {input_path}")
+                try:
+                    gs_dir = os.path.dirname(GHOSTSCRIPT_PATH)
+                    env = os.environ.copy()
+                    if gs_dir and gs_dir not in env.get("PATH", ""):
+                        env["PATH"] = gs_dir + (os.pathsep + env.get("PATH", ""))
+                    old_env = {}
+                    for k, v in env.items():
+                        if k not in os.environ or os.environ[k] != v:
+                            old_env[k] = os.environ.get(k)
+                            os.environ[k] = v
+                    with Image.open(input_path) as img:
+                        img.load(scale=2)
+                        rgb = img.convert("RGB")
+                        rgb.thumbnail((2000, 2000), Image.LANCZOS)
+                        rgb.save(output_path, "JPEG", quality=quality, optimize=True)
+                    for k, v in old_env.items():
+                        if v is None:
+                            os.environ.pop(k, None)
+                        else:
+                            os.environ[k] = v
+                    if os.path.exists(output_path):
+                        return output_path
+                except Exception as e2:
+                    print(f"[EPS] PIL fallback failed: {e2}")
                 return None
             if image_has_transparency(png_path):
                 return png_path
-            else:
-                jpg_args = [
-                    GHOSTSCRIPT_PATH,
-                    "-dBATCH",
-                    "-dNOPAUSE",
-                    "-sDEVICE=jpeg",
-                    f"-dJPEGQ={quality}",
-                    "-r300",
-                    f"-sOutputFile={output_path}",
-                    input_path
-                ]
-                subprocess.run(jpg_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
-                if os.path.exists(output_path):
-                    try:
-                        os.remove(png_path)
-                    except Exception:
-                        pass
-                    return output_path
-                else:
-                    print(f"Ghostscript did not produce output: {output_path}")
-                    return None
+            with Image.open(png_path) as img:
+                rgb = img.convert("RGB")
+                rgb.save(output_path, "JPEG", quality=quality, optimize=True)
+            try:
+                os.remove(png_path)
+            except Exception:
+                pass
+            return output_path
+
         llx, lly, urx, ury = bbox
         width_pt = max(1, urx - llx)
         height_pt = max(1, ury - lly)
@@ -376,56 +513,37 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
             scale_mem = (max_bytes / float(estimated_bytes)) ** 0.5 if estimated_bytes > 0 else 1.0
             scale_dim = min(1.0, float(max_dim) / float(width_px), float(max_dim) / float(height_px))
             scale = min(scale_mem, scale_dim, 1.0)
-            new_width_px = max(1, int(width_px * scale))
-            new_height_px = max(1, int(height_px * scale))
-            new_dpi = max(72, int(dpi * scale))
-            width_px, height_px, dpi = new_width_px, new_height_px, new_dpi
+            width_px = max(1, int(width_px * scale))
+            height_px = max(1, int(height_px * scale))
+            dpi = max(72, int(dpi * scale))
         tx = -llx
         ty = -lly
-        gs_args = [
-            GHOSTSCRIPT_PATH,
-            "-dBATCH",
-            "-dNOPAUSE",
-            f"-g{width_px}x{height_px}",
-            f"-r{dpi}",
-            "-sDEVICE=pngalpha",
-            f"-sOutputFile={png_path}",
-            "-c",
-            f"{tx} {ty} translate",
-            "-f",
-            input_path
-        ]
-        subprocess.run(gs_args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
-        if not os.path.exists(png_path):
-            print(f"Ghostscript did not produce output after bbox rasterize: {png_path}")
+        eps_flags = ["-dEPSCrop"] if is_eps else []
+        rendered = False
+        try:
+            _gs_render_png(input_path, png_path, width_px=width_px, height_px=height_px, dpi=dpi, tx=tx, ty=ty, extra_flags=eps_flags)
+            rendered = os.path.exists(png_path)
+        except subprocess.CalledProcessError as e:
+            print(f"[EPS] bbox render failed ({e}), retrying without translate")
+        if not rendered:
+            try:
+                _gs_render_png(input_path, png_path, extra_flags=["-dEPSCrop"] if is_eps else [])
+                rendered = os.path.exists(png_path)
+            except subprocess.CalledProcessError as e2:
+                print(f"[EPS] fallback render also failed: {e2}")
+        if not rendered:
+            print(f"[EPS] All GS render attempts failed for {input_path}")
             return None
         if image_has_transparency(png_path):
             return png_path
-        else:
-            gs_args_jpg = [
-                GHOSTSCRIPT_PATH,
-                "-dBATCH",
-                "-dNOPAUSE",
-                f"-g{width_px}x{height_px}",
-                f"-r{dpi}",
-                "-sDEVICE=jpeg",
-                f"-dJPEGQ={quality}",
-                f"-sOutputFile={output_path}",
-                "-c",
-                f"{tx} {ty} translate",
-                "-f",
-                input_path
-            ]
-            subprocess.run(gs_args_jpg, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_NO_WINDOW)
-            if os.path.exists(output_path):
-                try:
-                    os.remove(png_path)
-                except Exception:
-                    pass
-                return output_path
-            else:
-                print(f"Ghostscript did not produce output after jpeg rasterize: {output_path}")
-                return None
+        with Image.open(png_path) as img:
+            rgb = img.convert("RGB")
+            rgb.save(output_path, "JPEG", quality=quality, optimize=True)
+        try:
+            os.remove(png_path)
+        except Exception:
+            pass
+        return output_path
     except subprocess.CalledProcessError as e:
         print(f"Ghostscript subprocess error: {e}\nstdout: {getattr(e, 'stdout', '')}\nstderr: {getattr(e, 'stderr', '')}")
         return None
@@ -435,7 +553,10 @@ def convert_eps_pdf_to_jpg(input_path, output_path, quality):
 
 def image_has_transparency(path):
     try:
+        from PIL import ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         with Image.open(path) as img:
+            img.load()
             mode = img.mode
             if mode in ("RGBA", "LA", "PA"):
                 alpha = img.getchannel("A")
@@ -447,11 +568,17 @@ def image_has_transparency(path):
     except Exception as e:
         print(f"Error checking transparency for {path}: {e}")
         return False
+    finally:
+        try:
+            from PIL import ImageFile
+            ImageFile.LOAD_TRUNCATED_IMAGES = False
+        except Exception:
+            pass
 
 
 def convert_svg_to_jpg(input_path, output_path, quality):
     dlopen_original_flags = None
-    if sys.platform == "darwin":
+    if sys.platform == "darwin":  # noqa: E501
         if not _ensure_cairo_loaded():
             print("Cannot render SVG: cairo native library not available on macOS.")
             return None
@@ -512,7 +639,10 @@ def convert_svg_to_jpg(input_path, output_path, quality):
         with Image.open(temp_png) as img:
             rgb_img = img.convert("RGB")
             rgb_img.save(output_path, "JPEG", quality=quality, optimize=True)
-        os.remove(temp_png)
+        try:
+            os.remove(temp_png)
+        except Exception:
+            pass
         return output_path
     except Exception as e:
         print(f"CairoSVG rendering error: {e}")
@@ -527,24 +657,39 @@ def compress_and_save_image(image_path):
     save_path = os.path.join(temp_folder, filename)
 
     if ext in (".eps", ".pdf", ".ai"):
-        return convert_eps_pdf_to_jpg(image_path, save_path, quality)
+        result = convert_eps_pdf_to_jpg(image_path, save_path, quality)
+        if result:
+            result = _resize_if_needed(result, max_size, quality)
+            if result and image_has_transparency(result):
+                result = _composite_on_background(result, quality)
+        return result
     elif ext == ".svg":
-        return convert_svg_to_jpg(image_path, save_path, quality)
+        result = convert_svg_to_jpg(image_path, save_path, quality)
+        if result:
+            result = _resize_if_needed(result, max_size, quality)
+            if result and image_has_transparency(result):
+                result = _composite_on_background(result, quality)
+        return result
     elif ext in PILLOW_FORMATS:
         try:
             with Image.open(image_path) as img:
-                rgb_img = img.convert("RGB")
-                w, h = rgb_img.size
+                has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
+                if has_alpha:
+                    img_copy = img.convert("RGBA")
+                else:
+                    img_copy = img.convert("RGB")
+                w, h = img_copy.size
                 if w > max_size or h > max_size:
-                    rgb_img.thumbnail((max_size, max_size), Image.LANCZOS)
-                    print(f"[Compression] Resized from {w}x{h} to {rgb_img.size[0]}x{rgb_img.size[1]}")
-                rgb_img.save(
-                    save_path,
-                    "JPEG",
-                    quality=quality,
-                    optimize=True
-                )
-                return save_path
+                    img_copy.thumbnail((max_size, max_size), Image.LANCZOS)
+                    print(f"[Compression] Resized from {w}x{h} to {img_copy.size[0]}x{img_copy.size[1]}")
+                if has_alpha:
+                    tmp_png = save_path.replace(".jpg", "_tmp.png")
+                    img_copy.save(tmp_png, "PNG")
+                    result = _composite_on_background(tmp_png, quality)
+                    return result
+                else:
+                    img_copy.save(save_path, "JPEG", quality=quality, optimize=True)
+                    return save_path
         except Exception as e:
             print(f"Error compressing image: {e}")
             return None

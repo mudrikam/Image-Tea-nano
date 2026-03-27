@@ -44,6 +44,7 @@ MENU_TOOLTIPS = {
     "clear_failed": "Remove only files with Failed status",
     "batch_rename": "Rename multiple files with custom patterns",
     "edit_metadata": "Edit metadata for selected file",
+    "transparency_setting": "Set background for transparent images (Checker or White)",
     
     # Metadata menu
     "write_images": "Embed metadata into image files",
@@ -591,6 +592,61 @@ def setup_main_menu(window):
     custom_prompt_action.triggered.connect(open_custom_prompt)
     prompt_menu.addAction(custom_prompt_action)
     edit_menu.addMenu(prompt_menu)
+
+    transparency_submenu = QMenu("Transparency Setting", edit_menu)
+    transparency_submenu.setIcon(qta.icon('fa6s.chess-board'))
+    transparency_submenu.setToolTipsVisible(True)
+
+    def _get_transparency_bg():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg.get("transparency_background", "checker")
+
+    def _set_transparency_bg(value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["transparency_background"] = value
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        load_transparency_menu()
+        if hasattr(window, 'properties_widget'):
+            window.properties_widget.refresh_transparency_bg()
+
+    def load_transparency_menu():
+        transparency_submenu.clear()
+        current = _get_transparency_bg()
+
+        checker_action = QAction("Checker Background", window)
+        checker_action.setCheckable(True)
+        checker_action.setChecked(current == "checker")
+        checker_action.setIcon(qta.icon('fa6s.check') if current == "checker" else qta.icon('fa6s.chess-board'))
+        checker_action.setToolTip("Show a gray checker pattern behind transparent areas (useful for judging transparency edges)")
+        checker_action.setStatusTip("Show a gray checker pattern behind transparent areas (useful for judging transparency edges)")
+        checker_action.triggered.connect(lambda: _set_transparency_bg("checker"))
+        transparency_submenu.addAction(checker_action)
+
+        white_action = QAction("White Background", window)
+        white_action.setCheckable(True)
+        white_action.setChecked(current == "white")
+        white_action.setIcon(qta.icon('fa6s.check') if current == "white" else qta.icon('fa6s.square'))
+        white_action.setToolTip("Show a plain white background behind transparent areas")
+        white_action.setStatusTip("Show a plain white background behind transparent areas")
+        white_action.triggered.connect(lambda: _set_transparency_bg("white"))
+        transparency_submenu.addAction(white_action)
+
+        black_action = QAction("Black Background", window)
+        black_action.setCheckable(True)
+        black_action.setChecked(current == "black")
+        black_action.setIcon(qta.icon('fa6s.check') if current == "black" else qta.icon('fa6s.circle'))
+        black_action.setToolTip("Show a plain black background behind transparent areas")
+        black_action.setStatusTip("Show a plain black background behind transparent areas")
+        black_action.triggered.connect(lambda: _set_transparency_bg("black"))
+        transparency_submenu.addAction(black_action)
+
+    load_transparency_menu()
+    edit_menu.addMenu(transparency_submenu)
 
     edit_menu.addSeparator()
     load_themes_menu()

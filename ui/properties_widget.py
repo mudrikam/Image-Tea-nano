@@ -1,13 +1,15 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy, QScrollArea, QFrame, QHBoxLayout, QLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QPushButton, QMenu
 from PySide6.QtCore import Qt, QRect, QPoint, QSize, QEvent, Signal, QTimer
-from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor, QColor, QAction
+from PySide6.QtGui import QPixmap, QImage, QDesktopServices, QMouseEvent, QWheelEvent, QCursor, QColor, QAction, QPainter
 from PySide6.QtCore import QUrl
 import os
+import json
 import qtawesome as qta
 
 from ui.theme_system import theme
 from dialogs.edit_tag_dialog import EditTagDialog
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
+import config as _app_config
 
 try:
     from PIL import Image
@@ -327,6 +329,53 @@ class ImagePreviewWidget(QGraphicsView):
         self._user_zoomed = False
         self.setCursor(Qt.ArrowCursor)
         self._no_preview_text = None
+        self.setBackgroundBrush(Qt.NoBrush)
+
+    def _get_transparency_bg(self):
+        try:
+            config_path = os.path.join(_app_config.BASE_PATH, "configs", "ai_config.json")
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return cfg.get("transparency_background", "checker")
+        except Exception:
+            return "checker"
+
+    def _build_checker_pixmap(self, sq=8):
+        tile_size = sq * 2
+        img = QImage(tile_size, tile_size, QImage.Format_RGB32)
+        light = QColor(255, 255, 255)
+        dark = QColor(204, 204, 204)
+        p = QPainter(img)
+        p.fillRect(0,        0,        sq, sq, light)
+        p.fillRect(sq,       0,        sq, sq, dark)
+        p.fillRect(0,        sq,       sq, sq, dark)
+        p.fillRect(sq,       sq,       sq, sq, light)
+        p.end()
+        return QPixmap.fromImage(img)
+
+    def drawBackground(self, painter, rect):
+        vw = self.viewport().width()
+        vh = self.viewport().height()
+        bg_mode = self._get_transparency_bg()
+        painter.save()
+        painter.resetTransform()
+        painter.setClipping(False)
+        if bg_mode == "checker":
+            if not hasattr(self, '_checker_pixmap') or self._checker_pixmap is None:
+                self._checker_pixmap = self._build_checker_pixmap(8)
+            painter.drawTiledPixmap(0, 0, vw, vh, self._checker_pixmap)
+        elif bg_mode == "black":
+            painter.fillRect(0, 0, vw, vh, QColor(0, 0, 0))
+        else:
+            painter.fillRect(0, 0, vw, vh, QColor(255, 255, 255))
+        painter.restore()
+
+    def refresh_bg(self):
+        self.viewport().update()
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        self.viewport().update()
 
     def set_pixmap(self, pixmap, filepath=None):
         self._scene.clear()
@@ -564,6 +613,9 @@ class PropertiesWidget(QWidget):
         self._preview_cache = {}
         self._last_preview_filepath = None
 
+    def refresh_transparency_bg(self):
+        self.preview_widget.refresh_bg()
+
     def _add_separator(self):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
@@ -762,22 +814,33 @@ class PropertiesWidget(QWidget):
                     self.preview_widget.clear()
             elif ext in {'.svg', '.eps', '.pdf', '.ai'}:
                 try:
-                    temp_jpg = None
-                    from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality
+                    from helpers.image_compression_helper import (
+                        ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg,
+                        get_compression_quality, _resize_if_needed
+                    )
                     temp_folder = ensure_temp_folder()
                     quality = get_compression_quality()
-                    filename = os.path.splitext(os.path.basename(filepath))[0] + "_preview.jpg"
-                    temp_jpg_path = os.path.join(temp_folder, filename)
-                    if not os.path.exists(temp_jpg_path):
-                        if ext == '.svg':
-                            temp_jpg = convert_svg_to_jpg(filepath, temp_jpg_path, quality)
-                        elif ext in ('.eps', '.pdf', '.ai'):
-                            temp_jpg = convert_eps_pdf_to_jpg(filepath, temp_jpg_path, quality)
+                    base_name = os.path.splitext(os.path.basename(filepath))[0] + "_preview"
+                    temp_jpg_path = os.path.join(temp_folder, base_name + ".jpg")
+                    temp_png_path = os.path.join(temp_folder, base_name + ".png")
+
+                    if os.path.exists(temp_jpg_path):
+                        temp_result = temp_jpg_path
+                    elif os.path.exists(temp_png_path):
+                        temp_result = temp_png_path
                     else:
-                        temp_jpg = temp_jpg_path
-                    if temp_jpg and os.path.exists(temp_jpg):
-                        pixmap = QPixmap(temp_jpg)
+                        if ext == '.svg':
+                            temp_result = convert_svg_to_jpg(filepath, temp_jpg_path, quality)
+                        else:
+                            temp_result = convert_eps_pdf_to_jpg(filepath, temp_jpg_path, quality)
+                        if temp_result:
+                            temp_result = _resize_if_needed(temp_result, 2000, quality)
+
+                    if temp_result and os.path.exists(temp_result):
+                        pixmap = QPixmap(temp_result)
                         if not pixmap.isNull():
+                            if pixmap.width() > 2000 or pixmap.height() > 2000:
+                                pixmap = pixmap.scaled(2000, 2000, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             self._preview_cache[filepath] = pixmap
                             self.preview_widget.set_pixmap(pixmap, filepath)
                         else:
@@ -793,12 +856,16 @@ class PropertiesWidget(QWidget):
             elif ext in PILLOW_FORMATS:
                 pixmap = QPixmap(filepath)
                 if not pixmap.isNull():
+                    if pixmap.width() > 2000 or pixmap.height() > 2000:
+                        pixmap = pixmap.scaled(2000, 2000, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self._preview_cache[filepath] = pixmap
                     self.preview_widget.set_pixmap(pixmap, filepath)
                 else:
                     try:
                         with Image.open(filepath) as img:
                             img = img.convert("RGBA")
+                            if img.width > 2000 or img.height > 2000:
+                                img.thumbnail((2000, 2000), Image.LANCZOS)
                             data = img.tobytes("raw", "RGBA")
                             qimg = QImage(data, img.width, img.height, QImage.Format_RGBA8888)
                             pixmap = QPixmap.fromImage(qimg)
