@@ -67,6 +67,7 @@ MENU_TOOLTIPS = {
     "video_upscaler": "Upscale videos using RealESRGAN AI",
     "image_upscaler": "Upscale images using RealESRGAN AI",
     "pngtree_zipper": "Zip asset files to submit to Pngtree",
+    "holiday_calendar": "Browse and search microstock-relevant holidays by country and date",
     
     # Help menu
     "about": "View application information and credits",
@@ -872,11 +873,25 @@ def setup_main_menu(window):
         window._pngtree_zipper_dialog.activateWindow()
     pngtree_zipper_action.triggered.connect(open_pngtree_zipper)
 
+    holiday_calendar_action = QAction(qta.icon('fa6s.calendar-days'), "Microstock Holiday Calendar", window)
+    holiday_calendar_action.setToolTip(MENU_TOOLTIPS["holiday_calendar"])
+    holiday_calendar_action.setStatusTip(MENU_TOOLTIPS["holiday_calendar"])
+    def open_holiday_calendar():
+        from dialogs.tools.holiday_calendar.holiday_calendar_dialog import HolidayCalendarDialog
+        if not hasattr(window, '_holiday_calendar_dialog') or not window._holiday_calendar_dialog:
+            window._holiday_calendar_dialog = HolidayCalendarDialog(None)
+            window._holiday_calendar_dialog.destroyed.connect(lambda: setattr(window, '_holiday_calendar_dialog', None))
+        window._holiday_calendar_dialog.show()
+        window._holiday_calendar_dialog.raise_()
+        window._holiday_calendar_dialog.activateWindow()
+    holiday_calendar_action.triggered.connect(open_holiday_calendar)
+
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
     tools_menu.addAction(video_upscaler_action)
     tools_menu.addAction(image_upscaler_action)
+    tools_menu.addAction(holiday_calendar_action)
     tools_menu.addAction(batch_audio_remover_action)
     tools_menu.addAction(envato_elements_action)
     tools_menu.addAction(pngtree_zipper_action)

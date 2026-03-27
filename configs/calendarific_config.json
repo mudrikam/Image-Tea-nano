@@ -1,0 +1,15 @@
+{
+    "api": {
+        "base_url": "https://calendarific.com/api/v2",
+        "default_country": "WORLD"
+    },
+    "cache": {
+        "expire_days": 30,
+        "use_sqlite": true
+    },
+    "ui": {
+        "last_country": "WORLD",
+        "last_year": 2026,
+        "last_month": 0
+    }
+}
