@@ -354,6 +354,9 @@ class ImagePreviewWidget(QGraphicsView):
         return QPixmap.fromImage(img)
 
     def drawBackground(self, painter, rect):
+        if not self._pixmap_item:
+            super().drawBackground(painter, rect)
+            return
         vw = self.viewport().width()
         vh = self.viewport().height()
         bg_mode = self._get_transparency_bg()
