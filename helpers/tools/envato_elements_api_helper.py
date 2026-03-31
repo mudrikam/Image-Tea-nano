@@ -39,6 +39,7 @@ TAGLINE (max _TAGLINE_MAX_ characters)
 - Write a compelling marketing message that highlights customer benefits
 - Focus on professional results, ease of use, or unique value
 - Make it engaging and action-oriented
+- Must not exceed _TAGLINE_MAX_ characters
 
 TAGS (exactly _TAGS_EXPECTED_ keywords)
 - Each tag MUST be exactly 1 single word only - absolutely NO spaces, NO hyphens, NO underscores allowed
@@ -75,7 +76,14 @@ You must output valid JSON only with exactly _EXPECTED_FEATURES_ features and _T
   "features": [... _EXPECTED_FEATURES_ items ...],
   "tags": [... _TAGS_EXPECTED_ items ...]
 }}
-REMEMBER: Each output must be unique and different from any previous response, even for the same image. Use the timestamp and hash as a signal to always generate new content."""
+REMEMBER: Each output must be unique and different from any previous response, even for the same image. Use the timestamp and hash as a signal to always generate new content.
+
+PLACEHOLDER RULES:
+- Placeholders such as _ITEM_COUNT_, _WIDTH_, _HEIGHT_, _DPI_ MUST be kept EXACTLY as written
+- DO NOT replace them with numbers or values
+- DO NOT interpret them as variables
+- Output them as plain text exactly as shown
+"""
 
 
 def _is_openrouter_key(api_key: str) -> bool:
