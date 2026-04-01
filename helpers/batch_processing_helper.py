@@ -73,6 +73,12 @@ def get_fresh_ai_config():
         config = json.load(f)
     return config
 
+def is_typewriter_animation_enabled():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    return config.get("typewriter_animation_enabled", True)
+
 def interruptible_sleep(total_seconds, stop_check):
     end_time = time.time() + total_seconds
     while time.time() < end_time:

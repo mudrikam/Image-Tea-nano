@@ -708,5 +708,6 @@
       "Seasonal / Holiday"
     ]
   },
-  "selected_preset": "Default"
+  "selected_preset": "Default",
+  "typewriter_animation_enabled": true
 }

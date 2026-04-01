@@ -45,6 +45,7 @@ MENU_TOOLTIPS = {
     "batch_rename": "Rename multiple files with custom patterns",
     "edit_metadata": "Edit metadata for selected file",
     "transparency_setting": "Set background for transparent images (Checker or White)",
+    "typewriter_animation": "Enable or disable typewriter animation for metadata display",
     
     # Metadata menu
     "write_images": "Embed metadata into image files",
@@ -647,6 +648,50 @@ def setup_main_menu(window):
 
     load_transparency_menu()
     edit_menu.addMenu(transparency_submenu)
+
+    typewriter_submenu = QMenu("Typewriter Animation", edit_menu)
+    typewriter_submenu.setIcon(qta.icon('fa6s.keyboard'))
+    typewriter_submenu.setToolTipsVisible(True)
+
+    def _get_typewriter_enabled():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg.get("typewriter_animation_enabled", True)
+
+    def _set_typewriter_enabled(value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["typewriter_animation_enabled"] = value
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        load_typewriter_menu()
+
+    def load_typewriter_menu():
+        typewriter_submenu.clear()
+        current = _get_typewriter_enabled()
+
+        enabled_action = QAction("Enabled", window)
+        enabled_action.setCheckable(True)
+        enabled_action.setChecked(current)
+        enabled_action.setIcon(qta.icon('fa6s.check') if current else qta.icon('fa6s.keyboard'))
+        enabled_action.setToolTip("Enable typewriter animation for metadata display in table")
+        enabled_action.setStatusTip("Enable typewriter animation for metadata display in table")
+        enabled_action.triggered.connect(lambda: _set_typewriter_enabled(True))
+        typewriter_submenu.addAction(enabled_action)
+
+        disabled_action = QAction("Disabled", window)
+        disabled_action.setCheckable(True)
+        disabled_action.setChecked(not current)
+        disabled_action.setIcon(qta.icon('fa6s.check') if not current else qta.icon('fa6s.keyboard'))
+        disabled_action.setToolTip("Disable typewriter animation for faster table rendering")
+        disabled_action.setStatusTip("Disable typewriter animation for faster table rendering")
+        disabled_action.triggered.connect(lambda: _set_typewriter_enabled(False))
+        typewriter_submenu.addAction(disabled_action)
+
+    load_typewriter_menu()
+    edit_menu.addMenu(typewriter_submenu)
 
     edit_menu.addSeparator()
     load_themes_menu()

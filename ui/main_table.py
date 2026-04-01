@@ -12,10 +12,10 @@ from ui.file_dnd_widget import DragDropWidget
 import qtawesome as qta
 import os
 import html
-import qtawesome as qta
-import os
+import json
 
 from ui.theme_system import theme
+from config import BASE_PATH
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2274,7 +2274,22 @@ class ImageTableWidget(QWidget):
             checkbox_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             self.table.setItem(row_idx, 0, checkbox_item)
 
+    def _is_typewriter_enabled(self):
+        """Check if typewriter animation is enabled in config"""
+        try:
+            config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            return config.get("typewriter_animation_enabled", True)
+        except Exception:
+            return True
+
     def _start_typewriter(self, row_idx, col, full_text):
+        if not self._is_typewriter_enabled():
+            item = self.table.item(row_idx, col)
+            if item:
+                item.setText(full_text)
+            return
         if not hasattr(self, '_typewriter_timers'):
             self._typewriter_timers = {}
         key = (row_idx, col)
@@ -2314,6 +2329,25 @@ class ImageTableWidget(QWidget):
         timer.start()
 
     def _run_typewriter_queue(self):
+        if not self._is_typewriter_enabled():
+            if hasattr(self, '_tw_queue') and self._tw_queue:
+                for row_idx, col, full_text in self._tw_queue:
+                    item = self.table.item(row_idx, col)
+                    if item:
+                        item.setText(full_text)
+                self._tw_queue = []
+            self.table.scrollToItem(
+                self.table.item(self.table.currentRow() if self.table.currentRow() >= 0 else 0, 0)
+                or self.table.item(0, 0),
+                QAbstractItemView.PositionAtCenter
+            )
+            self.table.horizontalScrollBar().setValue(0)
+            if hasattr(self, '_pending_result_dialog') and self._pending_result_dialog is not None:
+                dlg = self._pending_result_dialog
+                self._pending_result_dialog = None
+                self._hide_all_spinners()
+                dlg.exec()
+            return
         if not hasattr(self, '_tw_queue') or not self._tw_queue:
             self.table.scrollToItem(
                 self.table.item(self.table.currentRow() if self.table.currentRow() >= 0 else 0, 0)

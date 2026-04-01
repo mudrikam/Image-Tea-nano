@@ -30,6 +30,7 @@ class ReadDocumentationDialog(QDialog):
 
         self.search_entry = QLineEdit()
         self.search_entry.setPlaceholderText("Search documentation...")
+        self.search_entry.setMinimumWidth(300)
         self.search_icon = QLabel()
         self.search_icon.setPixmap(qta.icon('fa6s.magnifying-glass').pixmap(18, 18))
         self.search_icon.setFixedWidth(22)
