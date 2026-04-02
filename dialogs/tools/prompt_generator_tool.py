@@ -27,13 +27,14 @@ class PromptGeneratorWorker(QThread):
 	prompt_added = Signal()
 	file_processing = Signal(str)
 
-	def __init__(self, db, api_key, service, model, folder_files=None):
+	def __init__(self, db, api_key, service, model, folder_files=None, provider_endpoint=None):
 		super().__init__()
 		self.db = db
 		self.api_key = api_key
 		self.service = service
 		self.model = model
 		self.folder_files = folder_files
+		self.provider_endpoint = provider_endpoint
 		self.stop_flag = {'stop': False}
 
 	def stop(self):
@@ -54,15 +55,16 @@ class PromptGeneratorWorker(QThread):
 			def file_callback(filename):
 				self.file_processing.emit(filename)
 
-			provider_endpoint = None
-			try:
-				rows = self.db.get_all_api_keys()
-				for r in rows:
-					if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
-						provider_endpoint = r[6] if len(r) > 6 else None
-						break
-			except Exception as e:
-				print(f"Error resolving provider_endpoint for Prompt Generator: {e}")
+			provider_endpoint = self.provider_endpoint
+			if provider_endpoint is None:
+				try:
+					rows = self.db.get_all_api_keys()
+					for r in rows:
+						if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
+							provider_endpoint = r[6] if len(r) > 6 else None
+							break
+				except Exception as e:
+					print(f"Error resolving provider_endpoint for Prompt Generator: {e}")
 
 			if self.folder_files is not None:
 				from helpers.tools.prompt_generator_helper import generate_prompts_from_folder
@@ -104,12 +106,13 @@ class PromptGeneratorParametersWorker(QThread):
 	error_occurred = Signal(str)
 	prompt_added = Signal()
 
-	def __init__(self, db, api_key, service, model):
+	def __init__(self, db, api_key, service, model, provider_endpoint=None):
 		super().__init__()
 		self.db = db
 		self.api_key = api_key
 		self.service = service
 		self.model = model
+		self.provider_endpoint = provider_endpoint
 		self.stop_flag = {'stop': False}
 
 	def stop(self):
@@ -127,15 +130,16 @@ class PromptGeneratorParametersWorker(QThread):
 			def prompt_saved_callback():
 				self.prompt_added.emit()
 
-			provider_endpoint = None
-			try:
-				rows = self.db.get_all_api_keys()
-				for r in rows:
-					if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
-						provider_endpoint = r[6] if len(r) > 6 else None
-						break
-			except Exception as e:
-				print(f"Error resolving provider_endpoint for Parameters Worker: {e}")
+			provider_endpoint = self.provider_endpoint
+			if provider_endpoint is None:
+				try:
+					rows = self.db.get_all_api_keys()
+					for r in rows:
+						if len(r) >= 2 and r[1] == self.api_key and str(r[0]).lower() == (self.service or '').lower():
+							provider_endpoint = r[6] if len(r) > 6 else None
+							break
+				except Exception as e:
+					print(f"Error resolving provider_endpoint for Parameters Worker: {e}")
 
 			total_generated = generate_prompts_batch_by_parameters(
 				db=self.db,
@@ -292,6 +296,7 @@ class PromptGeneratorDialog(QDialog):
 		main_layout = QVBoxLayout(self)
 		main_layout.setSpacing(6)
 
+		self._member_mode = False
 		if self.db:
 			self.api_key_section = ApiKeySectionWidget(self.db, self)
 			main_layout.addWidget(self.api_key_section)
@@ -299,6 +304,7 @@ class PromptGeneratorDialog(QDialog):
 			self.api_key = self.api_key_section.get_current_api_key()
 			self.selected_service = self.api_key_section.get_current_service()
 			self.selected_model_name = self.api_key_section.get_current_model()
+			self._check_member_mode()
 
 		splitter = QSplitter(Qt.Horizontal)
 		splitter.setHandleWidth(6)
@@ -1443,7 +1449,35 @@ class PromptGeneratorDialog(QDialog):
 
 		print("Combo lists reloaded successfully")
 
+	def _check_member_mode(self):
+		from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+		if not is_logged_in():
+			if self._member_mode:
+				self._member_mode = False
+				self.api_key_section.setVisible(True)
+				self.api_key = self.api_key_section.get_current_api_key()
+				self.selected_service = self.api_key_section.get_current_service()
+				self.selected_model_name = self.api_key_section.get_current_model()
+				self._append_log("Member logged out, reverted to DB API keys.")
+			return
+		if not is_member_secret_valid():
+			if self._member_mode:
+				self._member_mode = False
+				self.api_key_section.setVisible(True)
+				self._append_log("Member secret invalid, reverted to DB API keys.")
+			return
+		if not self._member_mode:
+			self._member_mode = True
+			self.api_key_section.setVisible(False)
+			member_cfg = get_member_api_config()
+			self.api_key = member_cfg["api_key"]
+			self.selected_service = member_cfg["service_type"] or "custom"
+			self.selected_model_name = member_cfg["model"]
+			self._append_log(f"Member mode active: {self.selected_service} - {self.selected_model_name}")
+
 	def on_api_key_changed(self, api_key, service, model):
+		if self._member_mode:
+			return
 		self.api_key = api_key
 		self.selected_service = service
 		self.selected_model_name = model
@@ -1526,7 +1560,10 @@ class PromptGeneratorDialog(QDialog):
 			print("Error: Database not available for prompt generation")
 			return
 		if not self.api_key or not self.selected_service or not self.selected_model_name:
-			print("Error: API key and model must be selected for prompt generation")
+			if self._member_mode:
+				print("Error: Member API configuration invalid")
+			else:
+				print("Error: API key and model must be selected for prompt generation")
 			return
 		if self.worker and self.worker.isRunning():
 			return
@@ -1566,9 +1603,19 @@ class PromptGeneratorDialog(QDialog):
 		self._append_log(f"Starting generation by reference ({source_label}) — {total_files} file(s) found.")
 		print(f"Starting prompt generation by reference ({source_label})...")
 
+		member_endpoint = None
+		if self._member_mode:
+			try:
+				from helpers.members_helper.members_helper import get_member_api_config
+				member_cfg = get_member_api_config()
+				member_endpoint = member_cfg.get("endpoint")
+			except Exception as e:
+				print(f"Error getting member endpoint: {e}")
+
 		self.worker = PromptGeneratorWorker(
 			self.db, self.api_key, self.selected_service, self.selected_model_name,
-			folder_files=self._ref_folder_files if use_folder else None
+			folder_files=self._ref_folder_files if use_folder else None,
+			provider_endpoint=member_endpoint
 		)
 		self.worker.progress_updated.connect(self.on_generation_progress)
 		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
@@ -1583,7 +1630,10 @@ class PromptGeneratorDialog(QDialog):
 			print("Error: Database not available for prompt generation")
 			return
 		if not self.api_key or not self.selected_service or not self.selected_model_name:
-			print("Error: API key and model must be selected for prompt generation")
+			if self._member_mode:
+				print("Error: Member API configuration invalid")
+			else:
+				print("Error: API key and model must be selected for prompt generation")
 			return
 		if self.worker and self.worker.isRunning():
 			return
@@ -1624,10 +1674,21 @@ class PromptGeneratorDialog(QDialog):
 		self._append_log(f"[Random {req_num}/{self._random_original_num_requests}] Sending request...")
 		self._launch_parameters_worker_bare()
 
+	def _get_member_endpoint(self):
+		if self._member_mode:
+			try:
+				from helpers.members_helper.members_helper import get_member_api_config
+				member_cfg = get_member_api_config()
+				return member_cfg.get("endpoint")
+			except Exception as e:
+				print(f"Error getting member endpoint: {e}")
+		return None
+
 	def _launch_parameters_worker_bare(self):
 		self.progress_bar.setValue(0)
 		self.worker = PromptGeneratorParametersWorker(
-			self.db, self.api_key, self.selected_service, self.selected_model_name
+			self.db, self.api_key, self.selected_service, self.selected_model_name,
+			provider_endpoint=self._get_member_endpoint()
 		)
 		self.worker.progress_updated.connect(self.on_generation_progress)
 		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
@@ -1656,7 +1717,8 @@ class PromptGeneratorDialog(QDialog):
 		print("Starting prompt generation by parameters...")
 
 		self.worker = PromptGeneratorParametersWorker(
-			self.db, self.api_key, self.selected_service, self.selected_model_name
+			self.db, self.api_key, self.selected_service, self.selected_model_name,
+			provider_endpoint=self._get_member_endpoint()
 		)
 		self.worker.progress_updated.connect(self.on_generation_progress)
 		self.worker.progress_value_changed.connect(self.on_progress_value_changed)
@@ -1714,6 +1776,23 @@ class PromptGeneratorDialog(QDialog):
 		if total_generated > 0:
 			self._append_log(f"Done — {total_generated} prompt(s) generated successfully.")
 			print(f"Successfully generated {total_generated} prompts")
+			if self._member_mode:
+				try:
+					from helpers.members_helper.members_helper import increment_member_usage, get_usage_info
+					active_tab = self.left_tabs.currentIndex() if hasattr(self, 'left_tabs') else 0
+					if active_tab == 0:
+						use_folder = hasattr(self, 'ref_source_combo') and self.ref_source_combo.currentData() == 'folder'
+						credits_used = len(self._ref_folder_files) if use_folder else (self.db.get_files_count() if hasattr(self.db, "get_files_count") else 1)
+					else:
+						num_requests = self.param_num_requests_spin.value() if hasattr(self, 'param_num_requests_spin') else 1
+						credits_used = num_requests
+					increment_member_usage(credits_used)
+					used, limit = get_usage_info()
+					self._append_log(f"Member usage: {used}/{limit if limit > 0 else 'unlimited'} credits ({credits_used} request(s))")
+					if hasattr(self.parent(), 'statusbar') and hasattr(self.parent().statusbar, 'update_member_status'):
+						self.parent().statusbar.update_member_status()
+				except Exception as e:
+					print(f"Failed to track member usage for prompt generation: {e}")
 		else:
 			self._append_log("Generation finished — no prompts were produced.")
 			print("No prompts were generated")
@@ -2493,6 +2572,8 @@ class PromptGeneratorDialog(QDialog):
 	def closeEvent(self, event):
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.stop()
+		if hasattr(self, '_member_check_timer'):
+			self._member_check_timer.stop()
 		if self.worker and self.worker.isRunning():
 			self.worker.stop()
 			self.worker.wait()
