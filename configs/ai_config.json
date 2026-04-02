@@ -301,7 +301,8 @@
         "Apply variation level to angle, lighting, background, atmosphere, and visual composition—not artistic style",
         "Avoid repetition between prompts - each must be distinctly different",
         "Focus on creating prompts for similar or related images",
-        "Avoid starting prompt with \"A\" or \"a\", use clear words instead",
+        "STRICTLY FORBIDDEN: Never start a prompt with 'A ', 'An ', 'a ', or 'an '. Always use clear, direct words instead",
+        "STRICTLY FORBIDDEN: Never include variation instructions, parameter names, or meta-text in the prompt output. Text like 'Different angle', 'Change lighting', 'Variation level', or 'light source changes' are YOUR instructions, NOT part of the prompt. Only output the final visual description",
         "Avoid adding commas to prompts",
         "Use \"by\" instead of colon when declaring aspect ratio e.g. \"4 by 3 aspect ratio\""
       ],
@@ -315,7 +316,8 @@
         "Apply variation to camera angle, atmosphere, lighting, background, and scene composition—not artistic style",
         "Include atmospheric changes, lighting transitions, or character actions",
         "Focus on creating engaging video sequences based on the image content",
-        "Avoid starting prompt with \"A\" or \"a\", use clear words instead",
+        "STRICTLY FORBIDDEN: Never start a prompt with 'A ', 'An ', 'a ', or 'an '. Always use clear, direct words instead",
+        "STRICTLY FORBIDDEN: Never include variation instructions, parameter names, or meta-text in the prompt output. Text like 'Different angle', 'Change lighting', 'Variation level', or 'light source changes' are YOUR instructions, NOT part of the prompt. Only output the final visual description",
         "Avoid adding commas to prompts",
         "Use \"by\" instead of colon when declaring aspect ratio e.g. \"4 by 3 aspect ratio\""
       ]
@@ -456,8 +458,8 @@
       "human_model": "No people",
       "language": "English (Default)",
       "mood": "— None —",
-      "num_requests": 4,
-      "prompt_length": 200,
+      "num_requests": 2,
+      "prompt_length": 300,
       "prompt_type": "image_generation",
       "prompts_per_batch": 5,
       "theme": "— None —",
@@ -598,8 +600,8 @@
       "Yes - elderly person"
     ],
     "instructions": {
-      "image_generation": "Generate creative, detailed prompts for AI image generation based on the provided parameters. Create unique, diverse prompts that match the specified theme, mood, color palette, and other parameters. Each prompt should be vivid and descriptive, suitable for generating high-quality images.",
-      "video_generation": "Generate creative, detailed prompts for AI video generation based on the provided parameters. Create dynamic video prompts that describe motion, camera movements, transitions, and temporal elements matching the specified theme, mood, color palette, and other parameters."
+      "image_generation": "Generate creative, detailed prompts for AI image generation based on the provided parameters. Create unique, diverse prompts that match the specified theme, mood, color palette, and other parameters. Each prompt should be vivid and descriptive, suitable for generating high-quality images. STRICTLY FORBIDDEN: Never start a prompt with 'A ', 'An ', 'a ', or 'an '. Always use clear, direct words instead.",
+      "video_generation": "Generate creative, detailed prompts for AI video generation based on the provided parameters. Create dynamic video prompts that describe motion, camera movements, transitions, and temporal elements matching the specified theme, mood, color palette, and other parameters. STRICTLY FORBIDDEN: Never start a prompt with 'A ', 'An ', 'a ', or 'an '. Always use clear, direct words instead."
     },
     "languages": [
       "English (Default)",
