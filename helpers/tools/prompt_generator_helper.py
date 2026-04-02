@@ -107,7 +107,6 @@ def create_prompt_generation_request(instructions, requirements, response_format
             "batch_timestamp": batch_timestamp,
             "prompt_type": prompt_type,
             "aspect_ratio": aspect_ratio,
-            "variation_level": f"{variation_level}/10",
             "variation_description": variation_description
         },
         "requirements": req_list_formatted,
@@ -134,6 +133,12 @@ def create_prompt_generation_request(instructions, requirements, response_format
         prompt_json["context"]["note"] = "Use this metadata as additional context but focus primarily on what you see in the image"
     
     full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
+    
+    print(f"\n{'='*60}")
+    print(f"RAW REQUEST TO AI (generate_prompts_for_file):")
+    print(f"{'='*60}")
+    print(full_prompt)
+    print(f"{'='*60}\n")
     
     return full_prompt
 
@@ -911,7 +916,7 @@ def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, p
         "prompt_type": prompt_type,
         "aspect_ratio": aspect_ratio,
         "prompt_length_chars": prompt_length,
-        "variation_level": f"{variation_level}/10 — {variation_description}",
+        "variation_description": variation_description,
         "human_model": human_model,
     }
     if language and language not in ('English (Default)', ''):
@@ -937,12 +942,11 @@ def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, p
         },
         "parameters": parameters,
         "requirements": [
-            f"Generate exactly {prompts_per_batch} unique, creative prompts (max {prompts_per_batch})",
+            f"Generate exactly {prompts_per_batch} unique, creative prompts",
             f"Each prompt must be approximately {prompt_length} characters long",
             f"Include aspect ratio {aspect_ratio} in each prompt",
-            f"Apply variation level {variation_level}/10: {variation_description}",
+            f"Apply this variation: {variation_description}",
             "All prompts must be distinct from each other",
-            "Base prompts on the provided parameters only (no reference image)",
             f"Human model setting: {human_model}",
         ],
         "response_format": {
@@ -959,7 +963,15 @@ def create_parameters_prompt_request(prompt_type, aspect_ratio, prompt_length, p
         }
     }
 
-    return json.dumps(prompt_json, indent=2, ensure_ascii=False)
+    full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
+    
+    print(f"\n{'='*60}")
+    print(f"RAW REQUEST TO AI (create_parameters_prompt_request):")
+    print(f"{'='*60}")
+    print(full_prompt)
+    print(f"{'='*60}\n")
+    
+    return full_prompt
 
 
 def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_ratio=None, stop_flag=None, provider_endpoint=None):
