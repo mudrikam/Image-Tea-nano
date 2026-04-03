@@ -194,8 +194,10 @@ class MainStatusBar(QStatusBar):
 
     def set_api_info(self, service=None, api_key=None):
         """Set API information in the status bar"""
+        from helpers.members_helper.members_helper import is_logged_in
+        if is_logged_in():
+            return
         if service and api_key:
-            
             masked_key = f"***{api_key[-5:]}" if len(api_key) >= 5 else f"***{api_key}"
             api_text = f"Using API: {service} ({masked_key})"
             self.set_status(api_text)
