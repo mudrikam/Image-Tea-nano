@@ -235,6 +235,17 @@ def setup_main_menu(window):
     member_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
 
+    register_member_action = QAction(qta.icon('fa6s.user-plus'), "Register", window)
+    register_member_action.setToolTip("Register a new Image Tea membership account")
+    register_member_action.setStatusTip("Register a new Image Tea membership account")
+    def open_register_member():
+        from dialogs.members.member_login_dialog import MemberLoginDialog
+        url = MemberLoginDialog.get_register_url()
+        webbrowser.open(url)
+    register_member_action.triggered.connect(open_register_member)
+    member_menu.addAction(register_member_action)
+    window.register_member_action = register_member_action
+
     check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Credit Usage", window)
     check_limit_action.setToolTip("Check your current credit usage")
     check_limit_action.setStatusTip("Check your current credit usage")

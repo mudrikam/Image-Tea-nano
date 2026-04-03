@@ -187,6 +187,13 @@ class MemberLoginDialog(QDialog):
             cfg = json.load(f)
         return cfg["links"]["register_member"]
 
+    @staticmethod
+    def get_register_url():
+        config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg["links"]["register_member"]
+
     def _load_saved_credentials(self):
         from helpers.members_helper.members_helper import load_saved_credentials
         creds = load_saved_credentials()
