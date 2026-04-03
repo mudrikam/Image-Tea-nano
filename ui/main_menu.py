@@ -270,7 +270,7 @@ def setup_main_menu(window):
             window,
             "Select .env file from admin",
             os.path.expanduser("~"),
-            "Env Files (*.env);;All Files (*)",
+            "All Files (*)",
         )
         if not file_path:
             return
