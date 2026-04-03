@@ -358,7 +358,7 @@ class PromptSectionWidget(QWidget):
         compression_header.setContentsMargins(0, 0, 0, 0)
         compression_icon = QLabel()
         compression_icon.setPixmap(qta.icon('fa6s.compress', color=icon_color).pixmap(icon_size, icon_size))
-        compression_label = QLabel("Quality")
+        compression_label = QLabel("Compression")
         compression_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
         compression_header.addWidget(compression_icon)
         compression_header.addWidget(compression_label)

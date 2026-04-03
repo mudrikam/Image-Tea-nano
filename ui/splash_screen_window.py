@@ -38,7 +38,7 @@ class SplashScreen(QWidget):
         image_label.raise_()
         info_layout.setSpacing(10)
         
-        name_label = QLabel(self.config["name"])
+        name_label = QLabel(f"{self.config['name']} v{self.config['version']}")
         name_font = QFont()
         name_font.setPointSize(22)
         name_font.setBold(True)

@@ -35,38 +35,38 @@ class ApiKeySectionWidget(QWidget):
         layout.addWidget(self.api_key_combo)
 
         self.tested_label = QLabel()
-        self.get_api_btn = QPushButton("Get API Key Here")
-        self.get_api_btn.setVisible(False)
-        self.get_api_btn.setMinimumWidth(140)
-        try:
-            self.get_api_btn.setIcon(qta.icon('fa6s.key', color=theme.get_color('white')))
-        except Exception:
-            pass
-        self.get_api_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {theme.get_color('primary')};
-                color: {theme.get_color('white')};
-                border-radius: 4px;
-                padding: 6px 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {theme.get_color('primary_hover')};
-            }}
-        """)
-        self.get_api_btn.setToolTip(
-            "This application requires an API key to function."
-        )
-        app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
-        with open(app_cfg_path, 'r', encoding='utf-8') as f:
-            app_cfg = json.load(f)
-        get_api_link = app_cfg['links']['get_api_key']
-        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(get_api_link)))
         self.tested_label.setText(" - | -")
         self.tested_label.setToolTip(
             "This application requires an API key to function."
         )
         layout.addWidget(self.tested_label)
-        layout.addWidget(self.get_api_btn)
+
+        self.join_member_btn = QPushButton("Join Member")
+        self.join_member_btn.setVisible(False)
+        self.join_member_btn.setMinimumWidth(120)
+        try:
+            self.join_member_btn.setIcon(qta.icon('fa6s.user-check', color=theme.get_color('white')))
+        except Exception:
+            pass
+        self.join_member_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('success')};
+                color: {theme.get_color('white')};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary')};
+            }}
+        """)
+        self.join_member_btn.setToolTip(
+            "Join as a member to generate metadata without needing your own API key."
+        )
+        app_cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "app_config.json")
+        with open(app_cfg_path, 'r', encoding='utf-8') as f:
+            app_cfg = json.load(f)
+        register_member_link = app_cfg['links']['register_member']
+        self.join_member_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(register_member_link)))
+        layout.addWidget(self.join_member_btn)
 
         self.add_api_btn = QPushButton("Add API Key")
         try:
@@ -82,16 +82,41 @@ class ApiKeySectionWidget(QWidget):
         self.add_api_btn.setToolTip("Add a new API Key")
         self.add_api_btn.setVisible(False)
         self.add_api_btn.clicked.connect(lambda: self._open_add_api_dialog())
+        layout.addWidget(self.add_api_btn)
+
+        self.get_api_btn = QPushButton("Get API Key Here")
+        self.get_api_btn.setVisible(False)
+        self.get_api_btn.setMinimumWidth(140)
         try:
-            height = self.get_api_btn.sizeHint().height()
-            if not height or height < 1:
-                height = self.get_api_btn.height()
-            self.add_api_btn.setFixedHeight(height + 4)
-            self.add_api_btn.setMinimumHeight(height + 4)
+            self.get_api_btn.setIcon(qta.icon('fa6s.key'))
         except Exception:
             pass
-        layout.addWidget(self.add_api_btn)
+        try:
+            self.get_api_btn.setStyleSheet("")
+            self.get_api_btn.setFlat(False)
+        except Exception:
+            pass
+        self.get_api_btn.setToolTip(
+            "This application requires an API key to function."
+        )
+        get_api_link = app_cfg['links']['get_api_key']
+        self.get_api_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(get_api_link)))
+        layout.addWidget(self.get_api_btn)
+
         layout.addItem(QSpacerItem(24, 1, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        try:
+            height = self.add_api_btn.sizeHint().height()
+            if not height or height < 1:
+                height = self.add_api_btn.height()
+            self.add_api_btn.setFixedHeight(height + 4)
+            self.add_api_btn.setMinimumHeight(height + 4)
+            self.join_member_btn.setFixedHeight(height)
+            self.join_member_btn.setMinimumHeight(height)
+            self.get_api_btn.setFixedHeight(height + 4)
+            self.get_api_btn.setMinimumHeight(height + 4)
+        except Exception:
+            pass
 
         self.model_combo.installEventFilter(self)
         self.api_key_combo.installEventFilter(self)
@@ -168,6 +193,7 @@ class ApiKeySectionWidget(QWidget):
             self.tested_label.setText(f"{last_tested if last_tested else '-'} | {model if model else '-'}")
             self.tested_label.setVisible(True)
             self.get_api_btn.setVisible(False)
+            self.join_member_btn.setVisible(False)
             try:
                 self.add_api_btn.setVisible(False)
             except Exception:
@@ -184,6 +210,7 @@ class ApiKeySectionWidget(QWidget):
             self.selected_model_name = None
             self.tested_label.setVisible(False)
             self.get_api_btn.setVisible(True)
+            self.join_member_btn.setVisible(True)
             try:
                 self.add_api_btn.setVisible(True)
             except Exception:
@@ -215,6 +242,7 @@ class ApiKeySectionWidget(QWidget):
             self.tested_label.setText(f"{last_tested if last_tested else '-'} | {model if model else '-'}")
             self.tested_label.setVisible(True)
             self.get_api_btn.setVisible(False)
+            self.join_member_btn.setVisible(False)
             try:
                 self.add_api_btn.setVisible(False)
             except Exception:
@@ -229,6 +257,7 @@ class ApiKeySectionWidget(QWidget):
             self.selected_model_name = None
             self.tested_label.setVisible(False)
             self.get_api_btn.setVisible(True)
+            self.join_member_btn.setVisible(True)
             try:
                 self.add_api_btn.setVisible(True)
             except Exception:

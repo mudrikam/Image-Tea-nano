@@ -135,7 +135,7 @@ class MemberLoginDialog(QDialog):
         register_layout.addStretch()
 
         reg_icon = QLabel()
-        reg_icon.setPixmap(qta.icon("fa6b.whatsapp", color=theme.get_color("primary")).pixmap(48, 48))
+        reg_icon.setPixmap(qta.icon("fa6s.cart-shopping", color=theme.get_color("primary")).pixmap(48, 48))
         reg_icon.setAlignment(Qt.AlignCenter)
         register_layout.addWidget(reg_icon)
 
@@ -145,7 +145,7 @@ class MemberLoginDialog(QDialog):
         register_layout.addWidget(reg_title)
 
         reg_desc_en = QLabel(
-            "To register as an Image Tea member, please contact the admin or join our WhatsApp group."
+            "To register as an Image Tea member, please checkout at the link below."
         )
         reg_desc_en.setAlignment(Qt.AlignCenter)
         reg_desc_en.setWordWrap(True)
@@ -153,23 +153,23 @@ class MemberLoginDialog(QDialog):
         register_layout.addWidget(reg_desc_en)
 
         reg_desc_id = QLabel(
-            "Untuk mendaftar menjadi member Image Tea, silakan hubungi admin atau bergabung ke grup WhatsApp kami."
+            "Untuk mendaftar menjadi member Image Tea, silakan checkout di tautan di bawah ini."
         )
         reg_desc_id.setAlignment(Qt.AlignCenter)
         reg_desc_id.setWordWrap(True)
         reg_desc_id.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 11px;")
         register_layout.addWidget(reg_desc_id)
 
-        wa_btn = QPushButton(qta.icon("fa6b.whatsapp", color=theme.get_color("white")), " Contact via WhatsApp")
-        wa_btn.setMinimumHeight(38)
-        wa_btn.setCursor(Qt.PointingHandCursor)
-        wa_btn.setStyleSheet(
+        checkout_btn = QPushButton(qta.icon("fa6s.cart-shopping", color=theme.get_color("white")), " Checkout Now")
+        checkout_btn.setMinimumHeight(38)
+        checkout_btn.setCursor(Qt.PointingHandCursor)
+        checkout_btn.setStyleSheet(
             f"QPushButton {{ background-color: {theme.get_color('primary')}; color: {theme.get_color('white')}; border-radius: 5px; "
             f"padding: 5px 14px; font-weight: bold; }}"
             f"QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}"
         )
-        wa_btn.clicked.connect(lambda: webbrowser.open(self._register_url))
-        register_layout.addWidget(wa_btn)
+        checkout_btn.clicked.connect(lambda: webbrowser.open(self._register_url))
+        register_layout.addWidget(checkout_btn)
 
         register_layout.addStretch()
 
