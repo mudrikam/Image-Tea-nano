@@ -1,0 +1,12 @@
+{
+    "version": "24.14.1",
+    "auto_download": true,
+    "npm_registry": "https://registry.npmjs.org",
+    "npm_strict_ssl": true,
+    "node_options": [],
+    "environment": {
+        "NODE_ENV": "production"
+    },
+    "max_old_space_size": 4096,
+    "allow_unhandled_rejections": "strict"
+}

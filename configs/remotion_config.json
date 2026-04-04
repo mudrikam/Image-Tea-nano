@@ -1,0 +1,19 @@
+{
+    "version": "latest",
+    "bundle_name": "remotion-bundle",
+    "auto_install": true,
+    "npm_registry": "https://registry.npmjs.org",
+    "npm_strict_ssl": true,
+    "render_settings": {
+        "codec": "h264",
+        "pixel_format": "yuv420p",
+        "crf": 18,
+        "frames_per_lambda": 1
+    },
+    "environment": {
+        "NODE_ENV": "production"
+    },
+    "max_old_space_size": 4096,
+    "concurrency": 4,
+    "offthreadvideo_cache_size_in_bytes": null
+}

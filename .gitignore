@@ -219,6 +219,8 @@ tools/ffmpeg/
 tools/realesrgan/
 tools/waifu2x/
 tools/rife/
+tools/nodejs/
+tools/remotion/
 database/db_backups
 backup_configs/
 
