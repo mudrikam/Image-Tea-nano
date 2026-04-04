@@ -1,16 +1,17 @@
 import os
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QTabWidget, QSplitter
+    QDialog, QVBoxLayout, QSplitter, QTabWidget, QWidget
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QShowEvent
 import qtawesome as qta
 from config import BASE_PATH
 from ui.api_key_section import ApiKeySectionWidget
 from database.db_operation import ImageTeaDB
-from dialogs.tools.vibe_video_generator.prompts_widget import PromptsWidget
-from dialogs.tools.vibe_video_generator.collections_widget import CollectionsWidget
-from dialogs.tools.vibe_video_generator.scripts_widget import ScriptsWidget
+from dialogs.tools.vibe_video_generator.vibe_video_menu_widget import MenuWidget
+from dialogs.tools.vibe_video_generator.vibe_video_collections_widget import CollectionsWidget
+from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import ScriptsWidget
+from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
 
 
 class VibeVideoGeneratorDialog(QDialog):
@@ -40,11 +41,19 @@ class VibeVideoGeneratorDialog(QDialog):
         self.selected_model_name = ''
 
         self._setup_ui()
+        QTimer.singleShot(100, self._check_member_mode)
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
         self._check_member_mode()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(6)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+
+        self.menu_widget = MenuWidget(self)
+        main_layout.addWidget(self.menu_widget)
 
         self.api_key_section = ApiKeySectionWidget(self.db, self)
         main_layout.addWidget(self.api_key_section)
@@ -52,11 +61,6 @@ class VibeVideoGeneratorDialog(QDialog):
         self.api_key = self.api_key_section.get_current_api_key()
         self.selected_service = self.api_key_section.get_current_service()
         self.selected_model_name = self.api_key_section.get_current_model()
-
-        self.prompts_widget = PromptsWidget(self)
-        prompts_tabs = QTabWidget()
-        prompts_tabs.addTab(self.prompts_widget, qta.icon('fa6s.message'), 'Prompts')
-        main_layout.addWidget(prompts_tabs)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -67,7 +71,7 @@ class VibeVideoGeneratorDialog(QDialog):
 
         self.scripts_widget = ScriptsWidget(self)
         right_tabs = QTabWidget()
-        right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'Scripts')
+        right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'TypeScript')
         splitter.addWidget(right_tabs)
 
         splitter.setStretchFactor(0, 1)
@@ -76,8 +80,11 @@ class VibeVideoGeneratorDialog(QDialog):
 
         main_layout.addWidget(splitter, 1)
 
+        # Provide references
+        self.menu_widget.collections_widget = self.collections_widget
+        self.menu_widget.scripts_widget = self.scripts_widget
+
     def _check_member_mode(self):
-        from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
         if not is_logged_in():
             if self._member_mode:
                 self._member_mode = False
@@ -107,7 +114,3 @@ class VibeVideoGeneratorDialog(QDialog):
         self.selected_model_name = model
         if self.api_key_changed:
             self.api_key_changed.emit(api_key, service, model)
-
-    def showEvent(self, event: QShowEvent):
-        super().showEvent(event)
-        self._check_member_mode()

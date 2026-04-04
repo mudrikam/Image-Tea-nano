@@ -25,25 +25,23 @@ class SplashScreen(QWidget):
         image_width = self.pixmap.width()
         image_height = self.pixmap.height()
         panel_width = 450
-        overlap = 250
+        overlap = 230
+        total_width = image_width + panel_width - overlap
         
         self.setStyleSheet(f"background-color: {theme.get_color('background_dark')};")
         
         image_label = QLabel(self)
         image_label.setPixmap(self.pixmap)
         image_label.setFixedSize(image_width, image_height)
-        image_label.move(0, 0)
         image_label.lower()
         
         info_widget = QWidget(self)
-        info_widget.setGeometry(image_width - overlap, 0, panel_width, image_height)
         info_widget.setAttribute(Qt.WA_TranslucentBackground)
         info_widget.setStyleSheet("color: white;")
         info_layout = QVBoxLayout(info_widget)
-        info_layout.setContentsMargins(30, 30, 30, 30)
-        info_layout.setSpacing(8)
+        info_layout.setContentsMargins(20, 15, 20, 15)
+        info_layout.setSpacing(4)
         info_widget.raise_()
-        info_layout.setSpacing(10)
         
         name_label = QLabel(f"{self.config['name']} v{self.config['version']}")
         name_font = QFont()
@@ -61,10 +59,10 @@ class SplashScreen(QWidget):
         tagline_label.setWordWrap(True)
         info_layout.addWidget(tagline_label)
         
-        info_layout.addSpacing(10)
+        info_layout.addStretch()
         
         meta_layout = QVBoxLayout()
-        meta_layout.setSpacing(2)
+        meta_layout.setSpacing(1)
         meta_layout.setContentsMargins(0, 0, 0, 0)
 
         version_label = QLabel()
@@ -82,10 +80,7 @@ class SplashScreen(QWidget):
         meta_layout.addWidget(license_label)
 
         info_layout.addLayout(meta_layout)
-        
-        info_layout.addSpacing(10)
 
-        # If update config exists, show update status: Latest (remote), Current (local), Commit
         update_config_path = os.path.join(BASE_PATH, "configs", "update_config.json")
         if os.path.exists(update_config_path):
             try:
@@ -114,7 +109,6 @@ class SplashScreen(QWidget):
                         update_lines.append(f"Commit: {commit}")
 
                     if update_lines:
-                        # compact inline display: versions in primary, current/commit in text_light, small font
                         parts = []
                         if tag_remote:
                             parts.append(f"<span style=\"color:{theme.get_color('primary')}; font-weight:600;\">Latest: {tag_remote}</span>")
@@ -158,7 +152,14 @@ class SplashScreen(QWidget):
         )
         info_layout.addWidget(self.progress_bar)
         
-        self.setFixedSize(image_width + panel_width - overlap, image_height)
+        info_widget.adjustSize()
+        content_height = info_widget.sizeHint().height()
+        window_height = max(image_height, content_height)
+        
+        info_widget.setGeometry(image_width - overlap, 0, panel_width, window_height)
+        image_label.move(0, window_height - image_height)
+        
+        self.setFixedSize(total_width, window_height)
 
     def show_message(self, message):
         self.status_label.setText(message)

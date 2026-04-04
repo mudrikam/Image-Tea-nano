@@ -228,6 +228,7 @@ Sign-Image-Tea.bat
 DesainiaStudio.pfx
 vs code.bat
 .vscode/
+.kilo/
 .github/instructions
 .github/copilot-instructions.md
 dev_github_token.json

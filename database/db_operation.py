@@ -1359,3 +1359,269 @@ class ImageTeaDB:
             c.execute('DELETE FROM calendarific_settings')
             c.execute('INSERT INTO calendarific_settings (api_key) VALUES (?)', (api_key,))
             conn.commit()
+
+    # --- Remotion Collections methods ---
+    def add_remotion_collection(self, name, description=None, parent_collection_id=None, icon='folder', color=None):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'INSERT INTO remotion_collections (name, description, parent_collection_id, icon, color) VALUES (?, ?, ?, ?, ?)',
+                (name, description, parent_collection_id, icon, color)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def get_remotion_collection(self, collection_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE id = ?',
+                (collection_id,)
+            )
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'name': row[1],
+                    'description': row[2],
+                    'parent_collection_id': row[3],
+                    'icon': row[4] or 'folder',
+                    'color': row[5],
+                    'created_at': row[6],
+                    'updated_at': row[7]
+                }
+            return None
+
+    def get_remotion_collections(self, parent_collection_id=None):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if parent_collection_id is None:
+                c.execute(
+                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id IS NULL ORDER BY name COLLATE NOCASE'
+                )
+            else:
+                c.execute(
+                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id = ? ORDER BY name COLLATE NOCASE',
+                    (parent_collection_id,)
+                )
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'description': row[2],
+                'parent_collection_id': row[3],
+                'icon': row[4] or 'folder',
+                'color': row[5],
+                'created_at': row[6],
+                'updated_at': row[7]
+            } for row in c.fetchall()]
+
+    def get_remotion_collection_tree(self):
+        def build_tree(parent_id=None):
+            children = self.get_remotion_collections(parent_id)
+            result = []
+            for child in children:
+                child['children'] = build_tree(child['id'])
+                child['script_count'] = self.get_collection_script_count(child['id'])
+                result.append(child)
+            return result
+        return build_tree()
+
+    def update_remotion_collection(self, collection_id, name=None, description=None, parent_collection_id=None, icon=None, color=None):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            updates = []
+            params = []
+            if name is not None:
+                updates.append('name = ?')
+                params.append(name)
+            if description is not None:
+                updates.append('description = ?')
+                params.append(description)
+            if parent_collection_id is not None:
+                updates.append('parent_collection_id = ?')
+                params.append(parent_collection_id)
+            if icon is not None:
+                updates.append('icon = ?')
+                params.append(icon)
+            if color is not None:
+                updates.append('color = ?')
+                params.append(color)
+            if updates:
+                updates.append('updated_at = CURRENT_TIMESTAMP')
+                params.append(collection_id)
+                query = f"UPDATE remotion_collections SET {', '.join(updates)} WHERE id = ?"
+                c.execute(query, params)
+                conn.commit()
+
+    def delete_remotion_collection(self, collection_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM remotion_collections WHERE id = ?', (collection_id,))
+            conn.commit()
+
+    def get_collection_script_count(self, collection_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT COUNT(*) FROM remotion_scripts WHERE collection_id = ?', (collection_id,))
+            row = c.fetchone()
+            return row[0] if row else 0
+
+    # --- Remotion Scripts methods ---
+    def add_remotion_script(self, collection_id, name, script_content, description=None, version='1.0.0', tags=None, author=None):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''INSERT INTO remotion_scripts (collection_id, name, script_content, description, version, tags, author)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (collection_id, name, script_content, description, version, tags, author)
+            )
+            conn.commit()
+            return c.lastrowid
+
+    def get_remotion_script(self, script_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute(
+                '''SELECT id, collection_id, name, description, script_content, version, tags,
+                          is_active, author, created_at, updated_at, last_used_at
+                   FROM remotion_scripts WHERE id = ?''',
+                (script_id,)
+            )
+            row = c.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'collection_id': row[1],
+                    'name': row[2],
+                    'description': row[3],
+                    'script_content': row[4],
+                    'version': row[5],
+                    'tags': row[6],
+                    'is_active': bool(row[7]),
+                    'author': row[8],
+                    'created_at': row[9],
+                    'updated_at': row[10],
+                    'last_used_at': row[11]
+                }
+            return None
+
+    def get_remotion_scripts(self, collection_id, active_only=True):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if active_only:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts WHERE collection_id = ? AND is_active = 1 ORDER BY name COLLATE NOCASE''',
+                    (collection_id,)
+                )
+            else:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts WHERE collection_id = ? ORDER BY name COLLATE NOCASE''',
+                    (collection_id,)
+                )
+            return [self._map_script_row(row) for row in c.fetchall()]
+
+    def get_all_remotion_scripts(self, active_only=True):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            if active_only:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts WHERE is_active = 1 ORDER BY name COLLATE NOCASE'''
+                )
+            else:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts ORDER BY name COLLATE NOCASE'''
+                )
+            return [self._map_script_row(row) for row in c.fetchall()]
+
+    def search_remotion_scripts(self, search_text, active_only=True):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            pattern = f"%{search_text}%"
+            if active_only:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts
+                       WHERE is_active = 1 AND (name LIKE ? OR description LIKE ? OR tags LIKE ? OR script_content LIKE ?)
+                       ORDER BY name COLLATE NOCASE''',
+                    (pattern, pattern, pattern, pattern)
+                )
+            else:
+                c.execute(
+                    '''SELECT id, collection_id, name, description, script_content, version, tags,
+                              is_active, author, created_at, updated_at, last_used_at
+                       FROM remotion_scripts
+                       WHERE name LIKE ? OR description LIKE ? OR tags LIKE ? OR script_content LIKE ?
+                       ORDER BY name COLLATE NOCASE''',
+                    (pattern, pattern, pattern, pattern)
+                )
+            return [self._map_script_row(row) for row in c.fetchall()]
+
+    def update_remotion_script(self, script_id, name=None, script_content=None, description=None, version=None, tags=None, is_active=None, author=None):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            updates = []
+            params = []
+            if name is not None:
+                updates.append('name = ?')
+                params.append(name)
+            if script_content is not None:
+                updates.append('script_content = ?')
+                params.append(script_content)
+            if description is not None:
+                updates.append('description = ?')
+                params.append(description)
+            if version is not None:
+                updates.append('version = ?')
+                params.append(version)
+            if tags is not None:
+                updates.append('tags = ?')
+                params.append(tags)
+            if is_active is not None:
+                updates.append('is_active = ?')
+                params.append(1 if is_active else 0)
+            if author is not None:
+                updates.append('author = ?')
+                params.append(author)
+            if updates:
+                updates.append('updated_at = CURRENT_TIMESTAMP')
+                params.append(script_id)
+                query = f"UPDATE remotion_scripts SET {', '.join(updates)} WHERE id = ?"
+                c.execute(query, params)
+                conn.commit()
+
+    def delete_remotion_script(self, script_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('DELETE FROM remotion_scripts WHERE id = ?', (script_id,))
+            conn.commit()
+
+    def update_script_last_used(self, script_id):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE remotion_scripts SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (script_id,))
+            conn.commit()
+
+    def _map_script_row(self, row):
+        return {
+            'id': row[0],
+            'collection_id': row[1],
+            'name': row[2],
+            'description': row[3],
+            'script_content': row[4],
+            'version': row[5],
+            'tags': row[6],
+            'is_active': bool(row[7]),
+            'author': row[8],
+            'created_at': row[9],
+            'updated_at': row[10],
+            'last_used_at': row[11]
+        }
