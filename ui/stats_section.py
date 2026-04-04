@@ -58,13 +58,12 @@ class StatsSectionWidget(QWidget):
         main_vbox.setSpacing(0)
 
         self._tab_widget = QTabWidget(self)
-        self._tab_widget.setDocumentMode(True)
         main_vbox.addWidget(self._tab_widget)
 
         # --- Tab 1: Statistics ---
         stats_tab = QWidget()
         stats_layout = QVBoxLayout(stats_tab)
-        stats_layout.setContentsMargins(0, 4, 0, 0)
+        stats_layout.setContentsMargins(4, 4, 4, 4)
         stats_layout.setSpacing(2)
 
         hbox = QHBoxLayout()
@@ -172,6 +171,7 @@ class StatsSectionWidget(QWidget):
         logs_layout.setSpacing(0)
 
         self._log_text = QTextEdit()
+        self._log_text.setStyleSheet("padding: 4px;")
         self._log_text.setReadOnly(True)
         self._log_text.setLineWrapMode(QTextEdit.WidgetWidth)
         self._log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)

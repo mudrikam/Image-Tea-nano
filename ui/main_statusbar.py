@@ -207,79 +207,82 @@ class MainStatusBar(QStatusBar):
     def update_version_and_commit(self):
         update_path = os.path.join(BASE_PATH, "configs", "update_config.json")
         if os.path.exists(update_path):
-            with open(update_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                tag_local = data.get("tag_local", "")
-                tag_remote = data.get("tag_remote", "")
-                commit_hash = ""
-                commit_data = data.get("commit_hash", {})
-                if isinstance(commit_data, dict):
-                    
-                    commit_hash = commit_data.get("local") or commit_data.get("remote") or ""
+            try:
+                with open(update_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, Exception):
+                return
+            tag_local = data.get("tag_local", "")
+            tag_remote = data.get("tag_remote", "")
+            commit_hash = ""
+            commit_data = data.get("commit_hash", {})
+            if isinstance(commit_data, dict):
                 
+                commit_hash = commit_data.get("local") or commit_data.get("remote") or ""
+            
+            repo_url = ""
+            try:
+                app_cfg_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+                if os.path.exists(app_cfg_path):
+                    with open(app_cfg_path, "r", encoding="utf-8") as af:
+                        app_cfg = json.load(af)
+                        repo_url = app_cfg.get("links", {}).get("repo", "")
+            except Exception:
                 repo_url = ""
-                try:
-                    app_cfg_path = os.path.join(BASE_PATH, "configs", "app_config.json")
-                    if os.path.exists(app_cfg_path):
-                        with open(app_cfg_path, "r", encoding="utf-8") as af:
-                            app_cfg = json.load(af)
-                            repo_url = app_cfg.get("links", {}).get("repo", "")
-                except Exception:
-                    repo_url = ""
-                tag_icon = qta.icon("fa6s.tag")
-                commit_icon = qta.icon("fa6s.code-commit")
+            tag_icon = qta.icon("fa6s.tag")
+            commit_icon = qta.icon("fa6s.code-commit")
+            
+            if tag_local and repo_url:
+                version_url = f"{repo_url.rstrip('/')}/releases/tag/{tag_local}"
+                self.version_btn.setIcon(tag_icon)
+                self.version_btn.setText(f"Version: {tag_local.replace('v', '', 1)}")
+                self.version_btn.setToolTip(f"Open release page for {tag_local}")
                 
-                if tag_local and repo_url:
-                    version_url = f"{repo_url.rstrip('/')}/releases/tag/{tag_local}"
-                    self.version_btn.setIcon(tag_icon)
-                    self.version_btn.setText(f"Version: {tag_local.replace('v', '', 1)}")
-                    self.version_btn.setToolTip(f"Open release page for {tag_local}")
+                self._version_url = version_url
+                self.version_btn.setEnabled(True)
+                self.version_btn.show()
+            else:
+                self.version_btn.setIcon(tag_icon)
+                self.version_btn.setText(f"Version: {tag_local.replace('v', '', 1)}")
+                self.version_btn.setToolTip("")
+                self._version_url = None
+                self.version_btn.setEnabled(False)
+                self.version_btn.show()
+            
+            if commit_hash:
+                short_hash = commit_hash[:7]
+                self.commit_btn.setIcon(commit_icon)
+                self.commit_btn.setText(short_hash)
+                self.commit_btn.setToolTip(f"Open commit page for {commit_hash}")
+                if repo_url:
+                    commit_url = f"{repo_url.rstrip('/')}/commit/{commit_hash}"
                     
-                    self._version_url = version_url
-                    self.version_btn.setEnabled(True)
-                    self.version_btn.show()
+                    self._commit_url = commit_url
+                    self.commit_btn.setEnabled(True)
+                    self.commit_btn.show()
                 else:
-                    self.version_btn.setIcon(tag_icon)
-                    self.version_btn.setText(f"Version: {tag_local.replace('v', '', 1)}")
-                    self.version_btn.setToolTip("")
-                    self._version_url = None
-                    self.version_btn.setEnabled(False)
-                    self.version_btn.show()
-                
-                if commit_hash:
-                    short_hash = commit_hash[:7]
-                    self.commit_btn.setIcon(commit_icon)
-                    self.commit_btn.setText(short_hash)
-                    self.commit_btn.setToolTip(f"Open commit page for {commit_hash}")
-                    if repo_url:
-                        commit_url = f"{repo_url.rstrip('/')}/commit/{commit_hash}"
-                        
-                        self._commit_url = commit_url
-                        self.commit_btn.setEnabled(True)
-                        self.commit_btn.show()
-                    else:
-                        self.commit_btn.setEnabled(False)
-                        self.commit_btn.show()
-                else:
-                    self.commit_btn.setIcon(commit_icon)
-                    self.commit_btn.setText("")
-                    self.commit_btn.setToolTip("")
-                    self._commit_url = None
                     self.commit_btn.setEnabled(False)
-                    self.commit_btn.hide()
-                if tag_remote and tag_local and tag_remote != tag_local:
-                    remote_num = self._parse_version(tag_remote)
-                    local_num = self._parse_version(tag_local)
-                    self._versions_behind = max(0, remote_num - local_num)
-                    self.update_btn.setText(f"Update to {tag_remote} Now")
-                    self.update_btn.setEnabled(True)
-                    self.update_btn.show()
-                else:
-                    self._versions_behind = 0
-                    self.update_btn.setText("")
-                    self.update_btn.setEnabled(False)
-                    self.update_btn.hide()
-                self._check_env_and_set_style()
+                    self.commit_btn.show()
+            else:
+                self.commit_btn.setIcon(commit_icon)
+                self.commit_btn.setText("")
+                self.commit_btn.setToolTip("")
+                self._commit_url = None
+                self.commit_btn.setEnabled(False)
+                self.commit_btn.hide()
+            if tag_remote and tag_local and tag_remote != tag_local:
+                remote_num = self._parse_version(tag_remote)
+                local_num = self._parse_version(tag_local)
+                self._versions_behind = max(0, remote_num - local_num)
+                self.update_btn.setText(f"Update to {tag_remote} Now")
+                self.update_btn.setEnabled(True)
+                self.update_btn.show()
+            else:
+                self._versions_behind = 0
+                self.update_btn.setText("")
+                self.update_btn.setEnabled(False)
+                self.update_btn.hide()
+            self._check_env_and_set_style()
         else:
             
             self.version_btn.setText("")

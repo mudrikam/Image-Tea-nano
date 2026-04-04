@@ -14,28 +14,35 @@ class SplashScreen(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.SplashScreen)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         
         config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
         
         splash_image_path = os.path.join(BASE_PATH, "res", "splash_screen.png")
-        pixmap = QPixmap(splash_image_path)
+        self.pixmap = QPixmap(splash_image_path)
+        
+        image_width = self.pixmap.width()
+        image_height = self.pixmap.height()
+        panel_width = 450
+        overlap = 250
+        
+        self.setStyleSheet(f"background-color: {theme.get_color('background_dark')};")
+        
+        image_label = QLabel(self)
+        image_label.setPixmap(self.pixmap)
+        image_label.setFixedSize(image_width, image_height)
+        image_label.move(0, 0)
+        image_label.lower()
         
         info_widget = QWidget(self)
-        info_widget.setGeometry(pixmap.width() // 2, 0, 500, pixmap.height())
-        info_widget.setStyleSheet(f"background-color: {theme.get_color('background_dark')}; color: {theme.get_color('white')};")
+        info_widget.setGeometry(image_width - overlap, 0, panel_width, image_height)
+        info_widget.setAttribute(Qt.WA_TranslucentBackground)
+        info_widget.setStyleSheet("color: white;")
         info_layout = QVBoxLayout(info_widget)
         info_layout.setContentsMargins(30, 30, 30, 30)
         info_layout.setSpacing(8)
-        
-        image_label = QLabel(self)
-        image_label.setPixmap(pixmap)
-        image_label.setScaledContents(True)
-        image_label.setFixedSize(pixmap.size())
-        image_label.move(0, 0)
-        image_label.raise_()
+        info_widget.raise_()
         info_layout.setSpacing(10)
         
         name_label = QLabel(f"{self.config['name']} v{self.config['version']}")
@@ -43,14 +50,14 @@ class SplashScreen(QWidget):
         name_font.setPointSize(22)
         name_font.setBold(True)
         name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {theme.get_color('primary')};")
+        name_label.setStyleSheet(f"color: {theme.get_color('primary')}; background: transparent;")
         info_layout.addWidget(name_label)
         
         tagline_label = QLabel(self.config["tagline"])
         tagline_font = QFont()
         tagline_font.setPointSize(9)
         tagline_label.setFont(tagline_font)
-        tagline_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 14pt;")
+        tagline_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 14pt; background: transparent;")
         tagline_label.setWordWrap(True)
         info_layout.addWidget(tagline_label)
         
@@ -63,15 +70,15 @@ class SplashScreen(QWidget):
         version_label = QLabel()
         version_label.setTextFormat(Qt.RichText)
         version_label.setText(f"Version: <b>{self.config['version']}</b>")
-        version_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
+        version_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0; background: transparent;")
         meta_layout.addWidget(version_label)
 
         developer_label = QLabel(f"Developer: {self.config['developer']}")
-        developer_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
+        developer_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0; background: transparent;")
         meta_layout.addWidget(developer_label)
 
         license_label = QLabel(f"License: {self.config['license']}")
-        license_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0;")
+        license_label.setStyleSheet(f"color: {theme.get_color('foreground')}; margin: 0; padding: 0; background: transparent;")
         meta_layout.addWidget(license_label)
 
         info_layout.addLayout(meta_layout)
@@ -119,7 +126,7 @@ class SplashScreen(QWidget):
                         update_label = QLabel()
                         update_label.setTextFormat(Qt.RichText)
                         update_label.setText(update_html)
-                        update_label.setStyleSheet(f"font-size:8pt; color: {theme.get_color('text_light')};")
+                        update_label.setStyleSheet(f"font-size:8pt; color: {theme.get_color('text_light')}; background: transparent;")
                         update_label.setAlignment(Qt.AlignLeft)
                         info_layout.addWidget(update_label)
             except Exception as e:
@@ -127,13 +134,13 @@ class SplashScreen(QWidget):
         
         description_label = QLabel(self.config["description"])
         description_label.setWordWrap(True)
-        description_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 9pt;")
+        description_label.setStyleSheet(f"color: {theme.get_color('text_light')}; font-size: 9pt; background: transparent;")
         info_layout.addWidget(description_label)
         
         info_layout.addStretch()
         
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
+        self.status_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; background: transparent;")
         self.status_label.setAlignment(Qt.AlignLeft)
         info_layout.addWidget(self.status_label)
         
@@ -151,7 +158,7 @@ class SplashScreen(QWidget):
         )
         info_layout.addWidget(self.progress_bar)
         
-        self.setFixedSize(pixmap.width() // 2 + 500, pixmap.height())
+        self.setFixedSize(image_width + panel_width - overlap, image_height)
 
     def show_message(self, message):
         self.status_label.setText(message)
@@ -170,10 +177,6 @@ class SplashScreen(QWidget):
         center_point = screen.center()
         splash_geometry.moveCenter(center_point)
         self.move(splash_geometry.topLeft())
-        
-    def show_message(self, message):
-        self.status_label.setText(message)
-        self.repaint()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
