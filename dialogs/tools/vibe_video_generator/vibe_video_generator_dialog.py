@@ -80,6 +80,10 @@ class VibeVideoGeneratorDialog(QDialog):
 
         main_layout.addWidget(splitter, 1)
 
+        # Connect signals
+        self.collections_widget.collection_selected.connect(self._on_collection_selected)
+        self.scripts_widget.script_updated.connect(self._on_script_updated)
+
         # Provide references
         self.menu_widget.collections_widget = self.collections_widget
         self.menu_widget.scripts_widget = self.scripts_widget
@@ -105,6 +109,18 @@ class VibeVideoGeneratorDialog(QDialog):
             self.api_key = member_cfg['api_key']
             self.selected_service = member_cfg['service_type'] or 'custom'
             self.selected_model_name = member_cfg['model']
+
+    def _on_collection_selected(self, data):
+        if not data:
+            self.scripts_widget.display_script(None)
+            return
+        if data.get('type') == 'script':
+            self.scripts_widget.display_script(data)
+
+    def _on_script_updated(self, script_data):
+        self.collections_widget.load_collections()
+        if script_data:
+            self.scripts_widget.display_script(script_data)
 
     def _on_api_key_changed(self, api_key, service, model):
         if self._member_mode:

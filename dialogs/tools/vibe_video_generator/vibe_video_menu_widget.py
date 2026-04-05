@@ -36,11 +36,7 @@ class MenuWidget(QMenuBar):
         edit_menu = QMenu('Edit', self)
         self.addMenu(edit_menu)
 
-        refresh_action = edit_menu.addAction(
-            qta.icon('fa6s.arrows-rotate'), 'Refresh'
-        )
-        refresh_action.setShortcut('F5')
-        refresh_action.triggered.connect(self._on_refresh)
+
 
     def _on_new_collection(self):
         if not self.collections_widget:
@@ -82,12 +78,7 @@ class MenuWidget(QMenuBar):
 
         collection_id = selected['id']
         dlg = EditScriptDialog(self, collection_id=collection_id, db=db)
-        dlg.script_created.connect(lambda s: self.scripts_widget.refresh())
         if dlg.exec():
             self.new_script_requested.emit(collection_id)
 
-    def _on_refresh(self):
-        if self.collections_widget:
-            self.collections_widget.load_collections()
-        if self.scripts_widget:
-            self.scripts_widget.refresh()
+

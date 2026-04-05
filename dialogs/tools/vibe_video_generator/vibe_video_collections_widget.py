@@ -41,12 +41,49 @@ class CollectionsWidget(QWidget):
         if not self.db:
             return
         current_id = self.current_collection['id'] if self.current_collection else None
-        self.collections_tree.clear()
-        tree = self.db.get_remotion_collection_tree()
-        for col in tree:
-            self._add_tree_item(col, None)
-        if current_id:
-            self._select_by_id(current_id)
+
+        # Save selected script ID if a script is selected
+        selected_script_id = None
+        selected = self.collections_tree.selectedItems()
+        if selected:
+            data = selected[0].data(0, Qt.UserRole)
+            if data and data.get('type') == 'script':
+                selected_script_id = data.get('id')
+
+        # Save expanded state
+        expanded_ids = set()
+        iterator = QTreeWidgetItemIterator(self.collections_tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.isExpanded():
+                data = item.data(0, Qt.UserRole)
+                if data and data.get('id'):
+                    expanded_ids.add(data['id'])
+            iterator += 1
+
+        self.collections_tree.blockSignals(True)
+        try:
+            self.collections_tree.clear()
+            tree = self.db.get_remotion_collection_tree()
+            for col in tree:
+                self._add_tree_item(col, None)
+
+            # Restore expanded state
+            iterator = QTreeWidgetItemIterator(self.collections_tree)
+            while iterator.value():
+                item = iterator.value()
+                data = item.data(0, Qt.UserRole)
+                if data and data.get('id') in expanded_ids:
+                    item.setExpanded(True)
+                iterator += 1
+
+            # Restore selection
+            if selected_script_id:
+                self._select_script_by_id(selected_script_id)
+            elif current_id:
+                self._select_by_id(current_id)
+        finally:
+            self.collections_tree.blockSignals(False)
 
     def _select_by_id(self, collection_id):
         iterator = QTreeWidgetItemIterator(self.collections_tree)
@@ -55,7 +92,23 @@ class CollectionsWidget(QWidget):
             data = item.data(0, Qt.UserRole)
             if data and data.get('id') == collection_id:
                 self.collections_tree.setCurrentItem(item)
+                self.current_collection = data
                 item.setExpanded(True)
+                return
+            iterator += 1
+
+    def _select_script_by_id(self, script_id):
+        iterator = QTreeWidgetItemIterator(self.collections_tree)
+        while iterator.value():
+            item = iterator.value()
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('type') == 'script' and data.get('id') == script_id:
+                self.collections_tree.setCurrentItem(item)
+                self.current_collection = data
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
                 return
             iterator += 1
 
@@ -105,6 +158,7 @@ class CollectionsWidget(QWidget):
             self.current_collection = data
             self.collection_selected.emit(data)
         elif data and data.get('type') == 'script':
+            self.current_collection = data
             self.collection_selected.emit(data)
 
     def _on_selection_changed(self):
@@ -176,21 +230,14 @@ class CollectionsWidget(QWidget):
         if not self.db:
             return
         script_id = script_data.get('id')
-        collection_id = script_data.get('collection_id')
-        dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db)
-        dlg.setWindowTitle('Edit Script')
-        dlg.name_edit.setText(script_data.get('name', ''))
-        dlg.desc_edit.setText(script_data.get('description') or '')
-        dlg.script_edit.setText(script_data.get('script_content', ''))
+        dlg = EditScriptDialog(self, collection_id=script_data.get('collection_id'), db=self.db, script_id=script_id)
+        dlg.script_updated.connect(self._on_script_edited)
         if dlg.exec():
-            self.db.update_remotion_script(
-                script_id,
-                name=dlg.name_edit.text().strip(),
-                script_content=dlg.script_edit.toPlainText().strip(),
-                description=dlg.desc_edit.text().strip() or None,
-            )
-            self.load_collections()
             self.collection_updated.emit()
+
+    def _on_script_edited(self, script_data):
+        self.load_collections()
+        self.collection_selected.emit(script_data)
 
     def _on_rename_script(self, script_data):
         if not self.db:
@@ -201,8 +248,9 @@ class CollectionsWidget(QWidget):
         new_name, ok = QInputDialog.getText(self, 'Rename Script', 'Enter new name:', text=old_name)
         if ok and new_name.strip():
             self.db.update_remotion_script(script_id, name=new_name.strip())
+            script_data = self.db.get_remotion_script(script_id)
             self.load_collections()
-            self.collection_updated.emit()
+            self.collection_selected.emit(script_data)
 
     def _on_delete_script(self, script_data):
         if not self.db:
