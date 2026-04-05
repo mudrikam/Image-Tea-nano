@@ -1,10 +1,11 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QToolBar, QToolButton, QTreeWidget,
-                               QTreeWidgetItem, QTreeWidgetItemIterator, QHeaderView, QMessageBox,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
+                               QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
                                QMenu)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QAction
+from PySide6.QtGui import QAction
 import qtawesome as qta
 from dialogs.tools.vibe_video_generator.vibe_video_new_collection_dialog import NewCollectionDialog
+from dialogs.tools.vibe_video_generator.vibe_video_edit_script_dialog import EditScriptDialog
 
 
 class CollectionsWidget(QWidget):
@@ -25,54 +26,15 @@ class CollectionsWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
-        toolbar = QToolBar()
-        toolbar.setMovable(False)
-        toolbar.setFloatable(False)
-
-        self.new_collection_btn = QToolButton()
-        self.new_collection_btn.setIcon(qta.icon('fa6s.folder-plus'))
-        self.new_collection_btn.setText(' New Collection')
-        self.new_collection_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.new_collection_btn.setToolTip('Create new root collection')
-        self.new_collection_btn.clicked.connect(self._on_new_collection)
-        toolbar.addWidget(self.new_collection_btn)
-
-        self.new_subfolder_btn = QToolButton()
-        self.new_subfolder_btn.setIcon(qta.icon('fa6s.folder-tree'))
-        self.new_subfolder_btn.setText(' New Subfolder')
-        self.new_subfolder_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.new_subfolder_btn.setToolTip('Create subfolder under selected collection')
-        self.new_subfolder_btn.clicked.connect(self._on_new_subfolder)
-        toolbar.addWidget(self.new_subfolder_btn)
-
-        self.rename_btn = QToolButton()
-        self.rename_btn.setIcon(qta.icon('fa6s.pen'))
-        self.rename_btn.setText(' Rename')
-        self.rename_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.rename_btn.setToolTip('Rename selected collection')
-        self.rename_btn.clicked.connect(self._on_rename)
-        toolbar.addWidget(self.rename_btn)
-
-        self.delete_btn = QToolButton()
-        self.delete_btn.setIcon(qta.icon('fa6s.trash'))
-        self.delete_btn.setText(' Delete')
-        self.delete_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.delete_btn.setToolTip('Delete selected collection and all its scripts')
-        self.delete_btn.clicked.connect(self._on_delete)
-        toolbar.addWidget(self.delete_btn)
-
-        layout.addWidget(toolbar)
-
         self.collections_tree = QTreeWidget()
-        self.collections_tree.setHeaderLabels(['Collection', 'Scripts'])
-        self.collections_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.collections_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.collections_tree.setHeaderLabel('Collections')
+        self.collections_tree.header().hide()
         self.collections_tree.setSelectionMode(QTreeWidget.SingleSelection)
         self.collections_tree.setExpandsOnDoubleClick(False)
         self.collections_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.collections_tree.customContextMenuRequested.connect(self._show_context_menu)
         self.collections_tree.itemSelectionChanged.connect(self._on_selection_changed)
-        self.collections_tree.itemDoubleClicked.connect(self._on_double_click)
+        self.collections_tree.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self.collections_tree)
 
     def load_collections(self):
@@ -110,7 +72,6 @@ class CollectionsWidget(QWidget):
             icon = qta.icon('fa6s.folder', color=color)
 
         name = collection.get('name', 'Unnamed')
-        count = collection.get('script_count', 0)
 
         if parent_item is None:
             item = QTreeWidgetItem(self.collections_tree)
@@ -119,47 +80,150 @@ class CollectionsWidget(QWidget):
 
         item.setIcon(0, icon)
         item.setText(0, name)
-        item.setText(1, str(count))
-        item.setTextAlignment(1, Qt.AlignRight)
-        item.setData(0, Qt.UserRole, collection)
+        item.setData(0, Qt.UserRole, {'type': 'collection', **collection})
+        item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
 
         for child in collection.get('children', []):
             self._add_tree_item(child, item)
 
-    def _on_selection_changed(self):
-        selected = self.collections_tree.selectedItems()
-        if selected:
-            item = selected[0]
-            # Auto-expand if item has children
+        collection_id = collection.get('id')
+        if collection_id and self.db:
+            scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
+            for script in scripts:
+                script_icon = qta.icon('fa6s.file-code', color='#58a6ff')
+                script_item = QTreeWidgetItem(item)
+                script_item.setIcon(0, script_icon)
+                script_item.setText(0, script.get('name', 'Unnamed'))
+                script_item.setData(0, Qt.UserRole, {'type': 'script', **script})
+                script_item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+
+    def _on_item_clicked(self, item, column):
+        data = item.data(0, Qt.UserRole)
+        if data and data.get('type') == 'collection':
             if item.childCount() > 0:
-                item.setExpanded(True)
-            data = item.data(0, Qt.UserRole)
+                item.setExpanded(not item.isExpanded())
             self.current_collection = data
             self.collection_selected.emit(data)
-        else:
+        elif data and data.get('type') == 'script':
+            self.collection_selected.emit(data)
+
+    def _on_selection_changed(self):
+        selected = self.collections_tree.selectedItems()
+        if not selected:
             self.current_collection = None
             self.collection_selected.emit(None)
-
-    def _on_double_click(self, item, column):
-        item.setExpanded(not item.isExpanded())
 
     def _show_context_menu(self, pos):
         item = self.collections_tree.itemAt(pos)
         if not item:
+            menu = QMenu(self)
+            new_action = QAction(qta.icon('fa6s.folder-plus'), 'New Collection', menu)
+            new_action.triggered.connect(self._on_new_collection)
+            menu.addAction(new_action)
+            menu.exec(self.collections_tree.viewport().mapToGlobal(pos))
             return
 
-        menu = QMenu(self)
-        rename_action = QAction(qta.icon('fa6s.pen'), 'Rename', menu)
-        rename_action.triggered.connect(self._on_rename)
-        menu.addAction(rename_action)
+        data = item.data(0, Qt.UserRole)
+        if not data:
+            return
 
-        menu.addSeparator()
+        item_type = data.get('type')
 
-        delete_action = QAction(qta.icon('fa6s.trash'), 'Delete', menu)
-        delete_action.triggered.connect(self._on_delete)
-        menu.addAction(delete_action)
+        if item_type == 'collection':
+            menu = QMenu(self)
+            new_action = QAction(qta.icon('fa6s.folder-plus'), 'New Collection', menu)
+            new_action.triggered.connect(self._on_new_collection)
+            menu.addAction(new_action)
+
+            new_sub_action = QAction(qta.icon('fa6s.folder-tree'), 'New Subfolder', menu)
+            new_sub_action.triggered.connect(self._on_new_subfolder)
+            menu.addAction(new_sub_action)
+
+            new_script_action = QAction(qta.icon('fa6s.file-circle-plus'), 'New Script', menu)
+            new_script_action.triggered.connect(lambda: self._on_new_script(data))
+            menu.addAction(new_script_action)
+
+            menu.addSeparator()
+
+            rename_action = QAction(qta.icon('fa6s.pen'), 'Rename', menu)
+            rename_action.triggered.connect(self._on_rename)
+            menu.addAction(rename_action)
+
+            delete_action = QAction(qta.icon('fa6s.trash'), 'Delete', menu)
+            delete_action.triggered.connect(self._on_delete)
+            menu.addAction(delete_action)
+        elif item_type == 'script':
+            menu = QMenu(self)
+            edit_action = QAction(qta.icon('fa6s.pen-to-square'), 'Edit Script', menu)
+            edit_action.triggered.connect(lambda: self._on_edit_script(data))
+            menu.addAction(edit_action)
+
+            rename_action = QAction(qta.icon('fa6s.pen'), 'Rename Script', menu)
+            rename_action.triggered.connect(lambda: self._on_rename_script(data))
+            menu.addAction(rename_action)
+
+            menu.addSeparator()
+
+            delete_script_action = QAction(qta.icon('fa6s.trash'), 'Delete Script', menu)
+            delete_script_action.triggered.connect(lambda: self._on_delete_script(data))
+            menu.addAction(delete_script_action)
+        else:
+            return
 
         menu.exec(self.collections_tree.viewport().mapToGlobal(pos))
+
+    def _on_edit_script(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        collection_id = script_data.get('collection_id')
+        dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db)
+        dlg.setWindowTitle('Edit Script')
+        dlg.name_edit.setText(script_data.get('name', ''))
+        dlg.desc_edit.setText(script_data.get('description') or '')
+        dlg.script_edit.setText(script_data.get('script_content', ''))
+        if dlg.exec():
+            self.db.update_remotion_script(
+                script_id,
+                name=dlg.name_edit.text().strip(),
+                script_content=dlg.script_edit.toPlainText().strip(),
+                description=dlg.desc_edit.text().strip() or None,
+            )
+            self.load_collections()
+            self.collection_updated.emit()
+
+    def _on_rename_script(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        old_name = script_data.get('name', '')
+        from PySide6.QtWidgets import QInputDialog
+        new_name, ok = QInputDialog.getText(self, 'Rename Script', 'Enter new name:', text=old_name)
+        if ok and new_name.strip():
+            self.db.update_remotion_script(script_id, name=new_name.strip())
+            self.load_collections()
+            self.collection_updated.emit()
+
+    def _on_delete_script(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        script_name = script_data.get('name', '')
+        reply = QMessageBox.question(self, 'Confirm Delete', f'Delete script "{script_name}"?',
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.db.delete_remotion_script(script_id)
+            self.load_collections()
+            self.collection_updated.emit()
+
+    def _on_new_script(self, collection_data):
+        if not self.db:
+            return
+        collection_id = collection_data.get('id')
+        dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db)
+        if dlg.exec():
+            self.load_collections()
+            self.collection_updated.emit()
 
     def _on_new_collection(self):
         if not self.db:
