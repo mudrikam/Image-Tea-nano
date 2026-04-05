@@ -11,6 +11,7 @@ from database.db_operation import ImageTeaDB
 from dialogs.tools.vibe_video_generator.vibe_video_menu_widget import MenuWidget
 from dialogs.tools.vibe_video_generator.vibe_video_collections_widget import CollectionsWidget
 from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import ScriptsWidget
+from dialogs.tools.vibe_video_generator.vibe_code_actions_widget import CodeActionsWidget
 from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
 
 
@@ -70,8 +71,10 @@ class VibeVideoGeneratorDialog(QDialog):
         splitter.addWidget(left_tabs)
 
         self.scripts_widget = ScriptsWidget(self)
+        self.code_actions_widget = CodeActionsWidget(self)
         right_tabs = QTabWidget()
         right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'TypeScript')
+        right_tabs.addTab(self.code_actions_widget, qta.icon('fa6s.bolt'), 'Actions')
         splitter.addWidget(right_tabs)
 
         splitter.setStretchFactor(0, 1)
@@ -79,6 +82,9 @@ class VibeVideoGeneratorDialog(QDialog):
         splitter.setSizes([280, 620])
 
         main_layout.addWidget(splitter, 1)
+
+        self.code_actions_widget = CodeActionsWidget(self)
+        main_layout.addWidget(self.code_actions_widget)
 
         # Connect signals
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
