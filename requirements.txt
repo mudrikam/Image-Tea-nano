@@ -13,3 +13,4 @@ requests
 pynput
 PyYAML
 onnxruntime-gpu
+Pygments
