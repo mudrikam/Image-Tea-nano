@@ -1,30 +1,71 @@
 import os
+import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFileDialog, QGroupBox, QComboBox, QCheckBox
+    QPushButton, QFileDialog, QGroupBox, QComboBox, QCheckBox, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QClipboard
 from PySide6.QtWidgets import QApplication
 import qtawesome as qta
 
+WINDOWS_RESERVED_NAMES = {'CON', 'PRN', 'AUX', 'NUL',
+                          'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+                          'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'}
+
+def sanitize_filename(name):
+    if not isinstance(name, str):
+        name = str(name)
+    name = name.strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f-\x9f]', '_', name)
+    name = re.sub(r'_+', '_', name)
+    name = name.strip('._ ')
+    if not name:
+        name = 'output'
+    base, _, ext = name.rpartition('.')
+    check = base.upper() if base else name.upper()
+    if check in WINDOWS_RESERVED_NAMES:
+        name = f'_{name}'
+    if len(name) > 200:
+        name = name[:200]
+    return name
+
 
 class OutputTabWidget(QWidget):
     output_path_changed = Signal(str)
-    entry_point_changed = Signal(str)
-    composition_id_changed = Signal(str)
+    output_filename_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.output_path = ''
-        self.entry_point = ''
-        self.composition_id = ''
+        self.output_filename = ''
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(12, 12, 12, 12)
+
+        filename_group = QGroupBox('Output Filename')
+        filename_layout = QHBoxLayout()
+        filename_layout.setSpacing(8)
+
+        filename_icon = QLabel()
+        filename_icon.setPixmap(qta.icon('fa6s.file', color='#888').pixmap(16, 16))
+        filename_layout.addWidget(filename_icon)
+
+        filename_label = QLabel('Filename:')
+        filename_label.setStyleSheet('font-weight: bold;')
+        filename_label.setMinimumWidth(60)
+        filename_layout.addWidget(filename_label)
+
+        self.output_filename_input = QLineEdit()
+        self.output_filename_input.setPlaceholderText('e.g., my_video')
+        self.output_filename_input.editingFinished.connect(self.on_filename_edited)
+        filename_layout.addWidget(self.output_filename_input, 1)
+
+        filename_group.setLayout(filename_layout)
+        layout.addWidget(filename_group)
 
         output_group = QGroupBox('Output Path')
         output_layout = QVBoxLayout()
@@ -85,83 +126,8 @@ class OutputTabWidget(QWidget):
         output_format_layout.addWidget(self.output_format_combo, 1)
 
         output_layout.addLayout(output_format_layout)
-
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
-
-        entry_group = QGroupBox('Entry Point')
-        entry_layout = QVBoxLayout()
-        entry_layout.setSpacing(8)
-
-        entry_path_layout = QHBoxLayout()
-        entry_path_layout.setSpacing(8)
-
-        entry_icon = QLabel()
-        entry_icon.setPixmap(qta.icon('fa6s.file-code', color='#888').pixmap(16, 16))
-        entry_path_layout.addWidget(entry_icon)
-
-        entry_label = QLabel('Entry:')
-        entry_label.setStyleSheet('font-weight: bold;')
-        entry_label.setMinimumWidth(60)
-        entry_path_layout.addWidget(entry_label)
-
-        self.entry_point_input = QLineEdit()
-        self.entry_point_input.setPlaceholderText('Select entry point file (e.g., src/index.ts)...')
-        self.entry_point_input.editingFinished.connect(self.on_entry_edited)
-        entry_path_layout.addWidget(self.entry_point_input, 1)
-
-        self.entry_paste_button = QPushButton(qta.icon('fa6s.paste'), '')
-        self.entry_paste_button.setToolTip('Paste from clipboard')
-        self.entry_paste_button.setMaximumWidth(32)
-        self.entry_paste_button.clicked.connect(self.on_paste_entry)
-        entry_path_layout.addWidget(self.entry_paste_button)
-
-        self.entry_browse_button = QPushButton(qta.icon('fa6s.folder-open'), '')
-        self.entry_browse_button.setToolTip('Browse file')
-        self.entry_browse_button.setMaximumWidth(32)
-        self.entry_browse_button.clicked.connect(self.on_browse_entry)
-        entry_path_layout.addWidget(self.entry_browse_button)
-
-        self.entry_open_button = QPushButton(qta.icon('fa6s.arrow-up-right-from-square'), '')
-        self.entry_open_button.setToolTip('Open file location')
-        self.entry_open_button.setMaximumWidth(32)
-        self.entry_open_button.clicked.connect(self.on_open_entry)
-        entry_path_layout.addWidget(self.entry_open_button)
-
-        entry_layout.addLayout(entry_path_layout)
-        entry_group.setLayout(entry_layout)
-        layout.addWidget(entry_group)
-
-        comp_group = QGroupBox('Composition')
-        comp_layout = QVBoxLayout()
-        comp_layout.setSpacing(8)
-
-        comp_id_layout = QHBoxLayout()
-        comp_id_layout.setSpacing(8)
-
-        comp_icon = QLabel()
-        comp_icon.setPixmap(qta.icon('fa6s.film', color='#888').pixmap(16, 16))
-        comp_id_layout.addWidget(comp_icon)
-
-        comp_label = QLabel('ID:')
-        comp_label.setStyleSheet('font-weight: bold;')
-        comp_label.setMinimumWidth(60)
-        comp_id_layout.addWidget(comp_label)
-
-        self.composition_id_input = QLineEdit()
-        self.composition_id_input.setPlaceholderText('Enter composition ID...')
-        self.composition_id_input.editingFinished.connect(self.on_composition_id_edited)
-        comp_id_layout.addWidget(self.composition_id_input, 1)
-
-        self.comp_paste_button = QPushButton(qta.icon('fa6s.paste'), '')
-        self.comp_paste_button.setToolTip('Paste from clipboard')
-        self.comp_paste_button.setMaximumWidth(32)
-        self.comp_paste_button.clicked.connect(self.on_paste_composition_id)
-        comp_id_layout.addWidget(self.comp_paste_button)
-
-        comp_layout.addLayout(comp_id_layout)
-        comp_group.setLayout(comp_layout)
-        layout.addWidget(comp_group)
 
         options_group = QGroupBox('Output Options')
         options_layout = QVBoxLayout()
@@ -193,6 +159,33 @@ class OutputTabWidget(QWidget):
             return t[1:-1]
         return t
 
+    def validate(self):
+        if not self.output_filename_input.text().strip():
+            QMessageBox.warning(self, 'Validation Error', 'Output filename cannot be empty.')
+            self.output_filename_input.setFocus()
+            return False
+        if not self.output_path_input.text().strip():
+            QMessageBox.warning(self, 'Validation Error', 'Output folder cannot be empty.')
+            self.output_path_input.setFocus()
+            return False
+        return True
+
+    def get_full_output_path(self):
+        filename = sanitize_filename(self.output_filename_input.text().strip())
+        folder = self._sanitize_path_text(self.output_path_input.text().strip())
+        fmt = self.output_format_combo.currentText()
+        if not filename or not folder:
+            return ''
+        return os.path.join(folder, f'{filename}.{fmt}')
+
+    def on_filename_edited(self):
+        raw = self.output_filename_input.text().strip()
+        sanitized = sanitize_filename(raw)
+        if sanitized != raw:
+            self.output_filename_input.setText(sanitized)
+        self.output_filename = sanitized
+        self.output_filename_changed.emit(sanitized)
+
     def on_output_edited(self):
         self.output_path = self.output_path_input.text()
         self.output_path_changed.emit(self.output_path)
@@ -222,48 +215,6 @@ class OutputTabWidget(QWidget):
     def on_format_changed(self, format):
         pass
 
-    def on_entry_edited(self):
-        self.entry_point = self.entry_point_input.text()
-        self.entry_point_changed.emit(self.entry_point)
-
-    def on_paste_entry(self):
-        clipboard = QApplication.clipboard()
-        text = clipboard.text()
-        sanitized = self._sanitize_path_text(text)
-        if sanitized:
-            self.entry_point_input.setText(sanitized)
-            self.entry_point = sanitized
-            self.entry_point_changed.emit(sanitized)
-
-    def on_browse_entry(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, 'Select Entry Point File', '',
-            'TypeScript Files (*.ts *.tsx);;JavaScript Files (*.js *.jsx);;All Files (*)'
-        )
-        if file_path:
-            file_path = self._sanitize_path_text(file_path)
-            self.entry_point = file_path
-            self.entry_point_input.setText(file_path)
-            self.entry_point_changed.emit(file_path)
-
-    def on_open_entry(self):
-        path = self.entry_point_input.text()
-        if path and os.path.exists(path):
-            os.startfile(os.path.dirname(path))
-
-    def on_composition_id_edited(self):
-        self.composition_id = self.composition_id_input.text()
-        self.composition_id_changed.emit(self.composition_id)
-
-    def on_paste_composition_id(self):
-        clipboard = QApplication.clipboard()
-        text = clipboard.text()
-        sanitized = self._sanitize_path_text(text)
-        if sanitized:
-            self.composition_id_input.setText(sanitized)
-            self.composition_id = sanitized
-            self.composition_id_changed.emit(sanitized)
-
     def set_output_path(self, path):
         self.output_path = path
         self.output_path_input.setText(path)
@@ -271,16 +222,10 @@ class OutputTabWidget(QWidget):
     def get_output_path(self):
         return self.output_path
 
-    def set_entry_point(self, path):
-        self.entry_point = path
-        self.entry_point_input.setText(path)
+    def set_output_filename(self, name):
+        sanitized = sanitize_filename(name)
+        self.output_filename = sanitized
+        self.output_filename_input.setText(sanitized)
 
-    def get_entry_point(self):
-        return self.entry_point
-
-    def set_composition_id(self, comp_id):
-        self.composition_id = comp_id
-        self.composition_id_input.setText(comp_id)
-
-    def get_composition_id(self):
-        return self.composition_id
+    def get_output_filename(self):
+        return self.output_filename
