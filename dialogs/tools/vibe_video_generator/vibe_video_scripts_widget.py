@@ -212,7 +212,7 @@ class ScriptsWidget(QWidget):
         layout.addWidget(self.script_name_label)
 
         self.script_content = QTextEdit()
-        self.script_content.setReadOnly(False)
+        self.script_content.setReadOnly(True)
         self.script_content.setFontFamily("Courier New")
         self.script_content.setFontPointSize(10)
         layout.addWidget(self.script_content)
@@ -223,10 +223,12 @@ class ScriptsWidget(QWidget):
         btn_layout.addStretch()
         self.clear_btn = QPushButton('Clear')
         self.clear_btn.setIcon(qta.icon('fa6s.eraser'))
+        self.clear_btn.setEnabled(False)
         self.clear_btn.clicked.connect(self._on_clear)
         btn_layout.addWidget(self.clear_btn)
         self.save_btn = QPushButton('Save')
         self.save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
+        self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._on_save)
         btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
@@ -250,6 +252,7 @@ class ScriptsWidget(QWidget):
         has_script = script_data is not None
         self.clear_btn.setEnabled(has_script)
         self.save_btn.setEnabled(has_script)
+        self.script_content.setReadOnly(not has_script)
         if script_data:
             self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}")
             self.script_content.setPlainText(script_data.get('script_content', ''))

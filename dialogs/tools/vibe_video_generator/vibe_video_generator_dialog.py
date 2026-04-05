@@ -12,6 +12,8 @@ from dialogs.tools.vibe_video_generator.vibe_video_menu_widget import MenuWidget
 from dialogs.tools.vibe_video_generator.vibe_video_collections_widget import CollectionsWidget
 from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import ScriptsWidget
 from dialogs.tools.vibe_video_generator.vibe_code_actions_widget import CodeActionsWidget
+from dialogs.tools.vibe_video_generator.vibe_video_output_tab import OutputTabWidget
+from dialogs.tools.vibe_video_generator.vibe_video_render_settings_tab import RenderSettingsTabWidget
 from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
 
 
@@ -71,10 +73,12 @@ class VibeVideoGeneratorDialog(QDialog):
         splitter.addWidget(left_tabs)
 
         self.scripts_widget = ScriptsWidget(self)
-        self.code_actions_widget = CodeActionsWidget(self)
+        self.output_tab_widget = OutputTabWidget(self)
+        self.render_settings_tab_widget = RenderSettingsTabWidget(self)
         right_tabs = QTabWidget()
         right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'TypeScript')
-        right_tabs.addTab(self.code_actions_widget, qta.icon('fa6s.bolt'), 'Actions')
+        right_tabs.addTab(self.output_tab_widget, qta.icon('fa6s.folder'), 'Output')
+        right_tabs.addTab(self.render_settings_tab_widget, qta.icon('fa6s.gear'), 'Render Settings')
         splitter.addWidget(right_tabs)
 
         splitter.setStretchFactor(0, 1)
