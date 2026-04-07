@@ -865,6 +865,15 @@ class PromptInjectorDialog(QDialog):
 		rand_row.addWidget(self.rand_spin)
 		layout.addLayout(rand_row)
 
+		h_shutdown = QHBoxLayout()
+		h_shutdown.setSpacing(6)
+		self.shutdown_chk = QCheckBox("Shutdown on complete")
+		self.shutdown_chk.setChecked(False)
+		self.shutdown_chk.setToolTip("Shut down the computer when automation finishes.")
+		h_shutdown.addWidget(self.shutdown_chk)
+		h_shutdown.addStretch()
+		layout.addLayout(h_shutdown)
+
 		h_files = QHBoxLayout()
 		h_files.setSpacing(6)
 		self.btn_load_csv = QPushButton(qta.icon('fa6s.file-csv'), " Load CSV/TXT")
@@ -1629,7 +1638,28 @@ class PromptInjectorDialog(QDialog):
 		self.progress_bar.setFormat(f"{self.progress_bar.maximum()} / {self.progress_bar.maximum()}")
 		self._stats_timer.stop()
 		self._update_stats(self.progress_bar.maximum(), self.progress_bar.maximum())
-		QMessageBox.information(self, "Done", "Sequence completed.")
+		if self.shutdown_chk.isChecked():
+			self._execute_shutdown()
+		else:
+			QMessageBox.information(self, "Done", "Sequence completed.")
+
+	def _execute_shutdown(self):
+		try:
+			if sys.platform == "win32":
+				os.system("shutdown /s /t 60")
+				QMessageBox.information(self, "Shutdown Scheduled",
+					"Sequence completed. System will shut down in 60 seconds.\n"
+					"Run 'shutdown /a' in Command Prompt to cancel.")
+			elif sys.platform == "darwin":
+				os.system("osascript -e 'tell application \"System Events\" to shut down'")
+				QMessageBox.information(self, "Shutdown Initiated",
+					"Sequence completed. System is shutting down.")
+			else:
+				os.system("systemctl poweroff")
+				QMessageBox.information(self, "Shutdown Initiated",
+					"Sequence completed. System is shutting down.")
+		except Exception as e:
+			QMessageBox.critical(self, "Shutdown Error", f"Failed to initiate shutdown: {e}")
 
 	@Slot(int, int)
 	def _on_progress_updated(self, done: int, total: int):
