@@ -154,6 +154,7 @@ class RenderSettingsTabWidget(QWidget):
             idx = self.preset_combo.findData("custom")
             if idx >= 0:
                 self.preset_combo.setCurrentIndex(idx)
+            self.settings_changed.emit()
 
     def _on_reset(self):
         from PySide6.QtWidgets import QMessageBox
@@ -163,6 +164,7 @@ class RenderSettingsTabWidget(QWidget):
             idx = self.preset_combo.findData("1080p60")
             if idx >= 0:
                 self.preset_combo.setCurrentIndex(idx)
+            self.settings_changed.emit()
 
     def _current_preset_data(self):
         return {
