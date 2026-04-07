@@ -16,7 +16,7 @@
     "max_old_space_size": 4096,
     "concurrency": 4,
     "offthreadvideo_cache_size_in_bytes": null,
-    "active_preset": "1080p60",
+    "active_preset": "720p30",
     "presets": {
         "720p30": {
             "label": "720p 30fps",

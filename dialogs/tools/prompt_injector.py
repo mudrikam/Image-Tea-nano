@@ -842,6 +842,11 @@ class PromptInjectorDialog(QDialog):
 		self.btn_export_preset.setToolTip("Export current points to a JSON preset file.")
 		self.btn_export_preset.clicked.connect(self.on_export_preset)
 		h_preset.addWidget(self.btn_export_preset)
+		self.btn_clear_points = QPushButton(qta.icon('fa6s.trash'), " Clear Points")
+		self.btn_clear_points.setIconSize(QSize(14, 14))
+		self.btn_clear_points.setToolTip("Delete all points (this action cannot be undone).")
+		self.btn_clear_points.clicked.connect(self.on_clear_points)
+		h_preset.addWidget(self.btn_clear_points)
 		h_preset.addStretch()
 		layout.addLayout(h_preset)
 
@@ -1240,6 +1245,23 @@ class PromptInjectorDialog(QDialog):
 		if reply != QMessageBox.Yes:
 			return
 		for pd in points_to_delete:
+			pid = pd['id']
+			self.db.delete_prompt_injector_point(pid)
+			pw = self._point_widgets.pop(pid, None)
+			if pw:
+				pw.close()
+		self._load_points_from_db()
+
+	def on_clear_points(self):
+		all_points = self.db.get_all_prompt_injector_points()
+		if not all_points:
+			QMessageBox.information(self, "No Points", "There are no points to clear.")
+			return
+		msg = f"Clear all {len(all_points)} points? This action cannot be undone."
+		reply = QMessageBox.question(self, "Clear All Points", msg, QMessageBox.Yes | QMessageBox.No)
+		if reply != QMessageBox.Yes:
+			return
+		for pd in all_points:
 			pid = pd['id']
 			self.db.delete_prompt_injector_point(pid)
 			pw = self._point_widgets.pop(pid, None)
