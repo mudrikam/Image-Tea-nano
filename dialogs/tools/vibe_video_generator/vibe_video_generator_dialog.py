@@ -91,6 +91,8 @@ class VibeVideoGeneratorDialog(QDialog):
         main_layout.addWidget(self.code_actions_widget)
 
         self.code_actions_widget.set_render_settings_tab(self.render_settings_tab_widget)
+        self.code_actions_widget.set_scripts_widget(self.scripts_widget)
+        self.code_actions_widget.set_output_tab_widget(self.output_tab_widget)
 
         # Connect signals
         self.collections_widget.collection_selected.connect(self._on_collection_selected)

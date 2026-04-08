@@ -174,6 +174,77 @@ class RenderSettingsTabWidget(QWidget):
             "video_bitrate": self.video_bitrate_edit.text(),
         }
 
+    def get_all_render_settings(self):
+        """Get all render settings as a dictionary."""
+        return {
+            # Video settings
+            'codec': self.codec_combo.currentText(),
+            'pixel_format': self.pixel_format_combo.currentText(),
+            'width': self.width_spin.value(),
+            'height': self.height_spin.value(),
+            'fps': self.fps_spin.value(),
+            'duration': self.duration_spin.value(),
+            'scale': self.scale_spin.value(),
+            'image_format': self.image_format_combo.currentText(),
+            'sequence': self.sequence_checkbox.isChecked(),
+            'frames': self.frames_edit.text().strip() or None,
+            'every_nth_frame': self.every_nth_spin.value(),
+
+            # Audio settings
+            'audio_codec': self.audio_codec_combo.currentText(),
+            'audio_bitrate': self.audio_bitrate_edit.text().strip() or None,
+            'muted': self.muted_checkbox.isChecked(),
+            'enforce_audio_track': self.enforce_audio_checkbox.isChecked(),
+            'separate_audio_to': self.separate_audio_edit.text().strip() or None,
+            'for_seamless_aac_concatenation': self.for_seamless_aac_checkbox.isChecked(),
+
+            # Quality settings
+            'crf': self.crf_spin.value(),
+            'video_bitrate': self.video_bitrate_edit.text().strip() or None,
+            'buffer_size': self.buffer_size_edit.text().strip() or None,
+            'max_rate': self.max_rate_edit.text().strip() or None,
+            'jpeg_quality': self.jpeg_quality_spin.value(),
+            'prores_profile': self.prores_profile_combo.currentText(),
+            'x264_preset': self.x264_preset_combo.currentText(),
+            'gif_loops': self.gif_loops_spin.value(),
+
+            # Performance settings
+            'concurrency': self.concurrency_spin.value(),
+            'hardware_acceleration': self.hardware_accel_combo.currentText(),
+            'disallow_parallel_encoding': self.disallow_parallel_checkbox.isChecked(),
+
+            # Browser settings
+            'browser_executable': self.browser_exec_edit.text().strip() or None,
+            'chrome_mode': self.chrome_mode_combo.currentText(),
+            'timeout': self.timeout_spin.value(),
+            'ignore_certificate_errors': self.ignore_cert_checkbox.isChecked(),
+            'disable_web_security': self.disable_web_security_checkbox.isChecked(),
+            'disable_headless': self.disable_headless_checkbox.isChecked(),
+            'dark_mode': self.dark_mode_checkbox.isChecked(),
+            'user_agent': self.user_agent_edit.text().strip() or None,
+            'gl': self.gl_combo.currentText(),
+
+            # Advanced settings
+            'config_file': self.config_edit.text().strip() or None,
+            'env_file': self.env_file_edit.text().strip() or None,
+            'props_file': self.props_edit.text().strip() or None,
+            'bundle_cache': self.bundle_cache_checkbox.isChecked(),
+            'log_level': self.log_combo.currentText(),
+            'port': self.port_spin.value(),
+            'public_dir': self.public_dir_edit.text().strip() or None,
+            'media_cache_size_in_bytes': self.media_cache_size_edit.text().strip() or None,
+            'offthreadvideo_cache_size_in_bytes': self.offthreadvideo_cache_edit.text().strip() or None,
+            'offthreadvideo_video_threads': self.offthreadvideo_threads_spin.value(),
+            'enable_multiprocess_on_linux': self.enable_multiprocess_checkbox.isChecked(),
+            'repro': self.repro_checkbox.isChecked(),
+            'binaries_directory': self.binaries_dir_edit.text().strip() or None,
+            'experimental_rspack': self.experimental_rspack_checkbox.isChecked(),
+            'metadata': self.metadata_edit.toPlainText().strip() or None,
+            'color_space': self.color_space_combo.currentText(),
+            'image_sequence_pattern': self.image_sequence_pattern_edit.text().strip() or None,
+            'overwrite': self.overwrite_checkbox.isChecked(),
+        }
+
     def _autosave_custom(self):
         if self._loading_preset:
             return
