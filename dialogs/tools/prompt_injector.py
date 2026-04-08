@@ -842,6 +842,11 @@ class PromptInjectorDialog(QDialog):
 		self.btn_export_preset.setToolTip("Export current points to a JSON preset file.")
 		self.btn_export_preset.clicked.connect(self.on_export_preset)
 		h_preset.addWidget(self.btn_export_preset)
+		self.btn_clear_points = QPushButton(qta.icon('fa6s.trash'), " Clear Points")
+		self.btn_clear_points.setIconSize(QSize(14, 14))
+		self.btn_clear_points.setToolTip("Delete all points (this action cannot be undone).")
+		self.btn_clear_points.clicked.connect(self.on_clear_points)
+		h_preset.addWidget(self.btn_clear_points)
 		h_preset.addStretch()
 		layout.addLayout(h_preset)
 
@@ -864,6 +869,15 @@ class PromptInjectorDialog(QDialog):
 		rand_row.addStretch()
 		rand_row.addWidget(self.rand_spin)
 		layout.addLayout(rand_row)
+
+		h_shutdown = QHBoxLayout()
+		h_shutdown.setSpacing(6)
+		self.shutdown_chk = QCheckBox("Shutdown on complete")
+		self.shutdown_chk.setChecked(False)
+		self.shutdown_chk.setToolTip("Shut down the computer when automation finishes.")
+		h_shutdown.addWidget(self.shutdown_chk)
+		h_shutdown.addStretch()
+		layout.addLayout(h_shutdown)
 
 		h_files = QHBoxLayout()
 		h_files.setSpacing(6)
@@ -1231,6 +1245,23 @@ class PromptInjectorDialog(QDialog):
 		if reply != QMessageBox.Yes:
 			return
 		for pd in points_to_delete:
+			pid = pd['id']
+			self.db.delete_prompt_injector_point(pid)
+			pw = self._point_widgets.pop(pid, None)
+			if pw:
+				pw.close()
+		self._load_points_from_db()
+
+	def on_clear_points(self):
+		all_points = self.db.get_all_prompt_injector_points()
+		if not all_points:
+			QMessageBox.information(self, "No Points", "There are no points to clear.")
+			return
+		msg = f"Clear all {len(all_points)} points? This action cannot be undone."
+		reply = QMessageBox.question(self, "Clear All Points", msg, QMessageBox.Yes | QMessageBox.No)
+		if reply != QMessageBox.Yes:
+			return
+		for pd in all_points:
 			pid = pd['id']
 			self.db.delete_prompt_injector_point(pid)
 			pw = self._point_widgets.pop(pid, None)
@@ -1629,7 +1660,28 @@ class PromptInjectorDialog(QDialog):
 		self.progress_bar.setFormat(f"{self.progress_bar.maximum()} / {self.progress_bar.maximum()}")
 		self._stats_timer.stop()
 		self._update_stats(self.progress_bar.maximum(), self.progress_bar.maximum())
-		QMessageBox.information(self, "Done", "Sequence completed.")
+		if self.shutdown_chk.isChecked():
+			self._execute_shutdown()
+		else:
+			QMessageBox.information(self, "Done", "Sequence completed.")
+
+	def _execute_shutdown(self):
+		try:
+			if sys.platform == "win32":
+				os.system("shutdown /s /t 60")
+				QMessageBox.information(self, "Shutdown Scheduled",
+					"Sequence completed. System will shut down in 60 seconds.\n"
+					"Run 'shutdown /a' in Command Prompt to cancel.")
+			elif sys.platform == "darwin":
+				os.system("osascript -e 'tell application \"System Events\" to shut down'")
+				QMessageBox.information(self, "Shutdown Initiated",
+					"Sequence completed. System is shutting down.")
+			else:
+				os.system("systemctl poweroff")
+				QMessageBox.information(self, "Shutdown Initiated",
+					"Sequence completed. System is shutting down.")
+		except Exception as e:
+			QMessageBox.critical(self, "Shutdown Error", f"Failed to initiate shutdown: {e}")
 
 	@Slot(int, int)
 	def _on_progress_updated(self, done: int, total: int):

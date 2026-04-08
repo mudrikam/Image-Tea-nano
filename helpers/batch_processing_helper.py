@@ -636,7 +636,6 @@ def batch_generate_metadata(window):
     if is_logged_in():
         if not is_member_secret_valid():
             print("[BATCH] Member is logged in but MEMBER_SECRET is invalid or missing. Aborting.")
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 window,
                 "Member Secret Invalid",

@@ -110,6 +110,10 @@ class ImageTeaMainWindow(QMainWindow):
             self._pngtree_zipper_dialog.close()
         if hasattr(self, '_holiday_calendar_dialog') and self._holiday_calendar_dialog:
             self._holiday_calendar_dialog.close()
+        if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
+            self._vibe_video_generator_dialog.close()
+        if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
+            self._vibe_video_generator_dialog.close()
         
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:

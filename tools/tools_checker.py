@@ -20,7 +20,9 @@ expected = [
     "ffmpeg",
     "realesrgan",
     "waifu2x",
-    "rife"
+    "rife",
+    "nodejs",
+    "remotion"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
@@ -28,7 +30,9 @@ EXECUTABLE_REQUIREMENTS = {
     "ffmpeg": ["ffmpeg", "ffprobe"],
     "realesrgan": ["realesrgan-ncnn-vulkan"],
     "waifu2x": ["waifu2x-ncnn-vulkan"],
-    "rife": ["rife-ncnn-vulkan"]
+    "rife": ["rife-ncnn-vulkan"],
+    "nodejs": ["node", "npm"],
+    "remotion": ["remotion-cli.js", "remotion-render.js"]
 }
 
 def get_embedded_python_path():
@@ -417,14 +421,10 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
                     download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                 elif folder.endswith("rife"):
                     download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
-            else:
-                # For non-Windows we also attempt deterministic download of RealESRGAN/Waifu2x/RIFE into the local tools folder
-                if folder.endswith("realesrgan"):
-                    download_and_extract_realesrgan(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
-                elif folder.endswith("waifu2x"):
-                    download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
-                elif folder.endswith("rife"):
-                    download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("nodejs"):
+                    download_and_extract_nodejs(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                elif folder.endswith("remotion"):
+                    download_and_install_remotion(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                 else:
                     print(f"{tool_name} not found. Please ensure it's installed via system package manager.")
                     if folder.endswith("cairo"):
@@ -433,7 +433,7 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
         else:
             # Folder exists; verify the tool is actually present and usable. If the top-level folder exists but
             # executables or DLLs are missing, attempt deterministic download+extract (Windows) or warn the user (non-Windows).
-            if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo", "waifu2x", "rife"]:
+            if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo", "waifu2x", "rife", "nodejs", "remotion"]:
                 ok = is_executable_available(tool_name, folder)
                 if ok:
                     _emit(reporter, f"Preparing tools ({tool_name} ready)")
@@ -460,6 +460,10 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
                             download_and_extract_waifu2x(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                         elif tool_name == "rife":
                             download_and_extract_rife(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                        elif tool_name == "nodejs":
+                            download_and_extract_nodejs(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                        elif tool_name == "remotion":
+                            download_and_install_remotion(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
                     else:
                         print(f"{tool_name} appears incomplete. Please install or extract the tool into: {folder}")
 
@@ -768,6 +772,293 @@ def download_and_extract_rife(target_folder, reporter=None, progress_reporter=No
     return True
 
 
+def download_and_extract_nodejs(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    system = platform.system()
+    
+    nodejs_config_path = os.path.join(BASE_PATH, "configs", "nodejs_config.json")
+    node_version = "24.14.1"
+    
+    if os.path.exists(nodejs_config_path):
+        try:
+            import json
+            with open(nodejs_config_path, 'r') as f:
+                nodejs_config = json.load(f)
+            node_version = nodejs_config.get("version", node_version)
+        except Exception as e:
+            print(f"Warning: Could not read nodejs_config.json, using default version: {e}")
+    
+    if system == "Darwin":
+        machine = platform.machine().lower()
+        if machine in ("arm64", "aarch64"):
+            darwin_arch = "darwin-arm64"
+        else:
+            darwin_arch = "darwin-x64"
+    else:
+        darwin_arch = None
+    
+    urls = {
+        "Windows": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-win-x64.zip",
+        "Darwin": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-{darwin_arch}.tar.gz",
+        "Linux": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-linux-x64.tar.xz"
+    }
+    
+    url = urls.get(system)
+    if not url:
+        print(f"No Node.js download URL available for platform: {system}")
+        return False
+    
+    archive_name = f"nodejs.{_get_archive_extension(system)}"
+    archive_path = os.path.join(target_folder, archive_name)
+    _emit(reporter, "Preparing tools (downloading nodejs)")
+    
+    ok = download_with_progress(url, archive_path, progress_reporter=progress_reporter)
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to download nodejs)")
+        print("Failed to download Node.js; check network, TLS and system policies.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+    
+    _emit(reporter, "Preparing tools (extracting nodejs)")
+    
+    if system == "Windows":
+        ok = _extract_and_flatten_zip(archive_path, target_folder)
+    else:
+        ok = _extract_tar_archive(archive_path, target_folder, system)
+    
+    if not ok:
+        _emit(reporter, "Preparing tools (failed to extract nodejs)")
+        print("Failed to extract Node.js archive; please extract manually.")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+    
+    executable_candidate = find_executable_in_folder(target_folder, ["node", "node.exe"])
+    if executable_candidate and os.name != 'nt':
+        try:
+            st = os.stat(executable_candidate).st_mode
+            if not (st & 0o111):
+                os.chmod(executable_candidate, st | 0o755)
+                print(f"Set executable permission on {executable_candidate}")
+        except Exception as e:
+            print(f"Failed to set executable bit on {executable_candidate}: {e}")
+    
+    npm_candidate = find_executable_in_folder(target_folder, ["npm", "npm.cmd"])
+    if npm_candidate and os.name != 'nt':
+        try:
+            st = os.stat(npm_candidate).st_mode
+            if not (st & 0o111):
+                os.chmod(npm_candidate, st | 0o755)
+                print(f"Set executable permission on {npm_candidate}")
+        except Exception as e:
+            print(f"Failed to set executable bit on {npm_candidate}: {e}")
+    
+    if not is_executable_available("nodejs", target_folder):
+        _emit(reporter, "Preparing tools (nodejs verification failed)")
+        print(f"Error: Node.js executables not found in {target_folder} after extraction")
+        return False
+    if callable(unit_callback):
+        unit_callback()
+    
+    _emit(reporter, "Preparing tools (nodejs installed successfully)")
+    return True
+
+
+def download_and_install_remotion(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    remotion_config_path = os.path.join(BASE_PATH, "configs", "remotion_config.json")
+    remotion_version = "latest"
+    bundle_name = "remotion-bundle"
+    
+    if os.path.exists(remotion_config_path):
+        try:
+            import json
+            with open(remotion_config_path, 'r') as f:
+                remotion_config = json.load(f)
+            remotion_version = remotion_config.get("version", remotion_version)
+            bundle_name = remotion_config.get("bundle_name", bundle_name)
+        except Exception as e:
+            print(f"Warning: Could not read remotion_config.json, using default version: {e}")
+    
+    os.makedirs(target_folder, exist_ok=True)
+    
+    nodejs_folder = os.path.join(BASE_PATH, "tools", "nodejs")
+    if not is_executable_available("nodejs", nodejs_folder):
+        _emit(reporter, "Preparing tools (installing nodejs first for remotion)")
+        print("Node.js not found; installing Node.js first before Remotion...")
+        if not os.path.isdir(nodejs_folder):
+            os.makedirs(nodejs_folder, exist_ok=True)
+        node_ok = download_and_extract_nodejs(nodejs_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not node_ok:
+            _emit(reporter, "Preparing tools (failed to install nodejs for remotion)")
+            print("Error: Failed to install Node.js, cannot install Remotion.")
+            return False
+        _emit(reporter, "Preparing tools (nodejs ready for remotion)")
+    
+    node_exe = find_executable_in_folder(nodejs_folder, ["node", "node.exe"])
+    npm_cli_js = find_executable_in_folder(nodejs_folder, ["npm-cli.js"])
+    
+    if not node_exe:
+        if shutil.which("node"):
+            node_exe = shutil.which("node")
+        else:
+            _emit(reporter, "Preparing tools (nodejs required for remotion)")
+            print("Error: Node.js is required to install Remotion.")
+            return False
+    
+    node_exe = str(node_exe)
+    
+    if not npm_cli_js:
+        npm_wrapper = find_executable_in_folder(nodejs_folder, ["npm", "npm.cmd"])
+        if npm_wrapper:
+            npm_cli_js = str(npm_wrapper)
+        else:
+            npm_cli_js = None
+    
+    def _run_npm(args, cwd=None, timeout=300):
+        if npm_cli_js and npm_cli_js.endswith(".js"):
+            cmd = [node_exe, npm_cli_js] + args
+        elif npm_cli_js:
+            cmd = [node_exe, npm_cli_js] + args
+        else:
+            system_npm = shutil.which("npm")
+            if system_npm:
+                cmd = [node_exe, system_npm] + args
+            else:
+                cmd = [node_exe, "-e", f"require('child_process').spawnSync('npm', {repr(args)}, {{stdio: 'inherit', cwd: {repr(cwd)}}})"]
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    
+    _emit(reporter, "Preparing tools (initializing remotion project)")
+    
+    try:
+        init_result = _run_npm(["init", "-y"], cwd=target_folder, timeout=60)
+        if init_result.returncode != 0:
+            print(f"Warning: npm init had issues: {init_result.stderr}")
+    except Exception as e:
+        print(f"Warning: npm init failed: {e}")
+    
+    _emit(reporter, f"Preparing tools (installing remotion {remotion_version})")
+    
+    if remotion_version == "latest":
+        remotion_packages = [
+            "remotion@latest",
+            "@remotion/cli@latest",
+            "@remotion/bundler@latest",
+            "@remotion/renderer@latest",
+            "react",
+            "react-dom"
+        ]
+    else:
+        remotion_packages = [
+            f"remotion@{remotion_version}",
+            f"@remotion/cli@{remotion_version}",
+            f"@remotion/bundler@{remotion_version}",
+            f"@remotion/renderer@{remotion_version}",
+            "react",
+            "react-dom"
+        ]
+    
+    try:
+        install_result = _run_npm(["install"] + remotion_packages, cwd=target_folder, timeout=600)
+        if install_result.returncode != 0:
+            _emit(reporter, "Preparing tools (failed to install remotion)")
+            print(f"Failed to install Remotion: {install_result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        _emit(reporter, "Preparing tools (remotion install timed out)")
+        print("Remotion installation timed out (10 min limit).")
+        return False
+    except Exception as e:
+        _emit(reporter, "Preparing tools (failed to install remotion)")
+        print(f"Failed to install Remotion: {e}")
+        return False
+    
+    if callable(unit_callback):
+        unit_callback()
+    
+    _emit(reporter, "Preparing tools (creating remotion scripts)")
+    
+    create_remotion_scripts(target_folder, bundle_name)
+    
+    if callable(unit_callback):
+        unit_callback()
+    
+    _emit(reporter, "Preparing tools (remotion installed successfully)")
+    return True
+
+
+def create_remotion_scripts(target_folder, bundle_name):
+    cli_js = os.path.join(target_folder, "node_modules", "@remotion", "cli", "dist", "index.js")
+    if not os.path.exists(cli_js):
+        cli_js = os.path.join(target_folder, "node_modules", "@remotion", "cli", "bin", "cli.js")
+    
+    remotion_cli_js = os.path.join(target_folder, "remotion-cli.js")
+    with open(remotion_cli_js, 'w') as f:
+        f.write('#!/usr/bin/env node\n')
+        f.write('# Remotion CLI wrapper for Image-Tea\n')
+        f.write('process.env.REMOTION_APP_ROOT = process.env.REMOTION_APP_ROOT || __dirname;\n')
+        f.write(f'const cliPath = require.resolve("@remotion/cli", {{ paths: [__dirname] }});\n')
+        f.write('require(cliPath);\n')
+    
+    remotion_render_js = os.path.join(target_folder, "remotion-render.js")
+    with open(remotion_render_js, 'w') as f:
+        f.write('#!/usr/bin/env node\n')
+        f.write('# Remotion render wrapper for Image-Tea\n')
+        f.write('const { renderMedia } = require("@remotion/renderer");\n')
+        f.write('const path = require("path");\n')
+        f.write('process.chdir(__dirname);\n')
+        f.write('module.exports = { renderMedia };\n')
+    
+    if os.name != 'nt':
+        try:
+            os.chmod(remotion_cli_js, 0o755)
+            os.chmod(remotion_render_js, 0o755)
+        except Exception:
+            pass
+
+
+def _get_archive_extension(system):
+    if system == "Windows":
+        return "zip"
+    elif system == "Darwin":
+        return "tar.gz"
+    else:
+        return "tar.xz"
+
+
+def _extract_tar_archive(archive_path, target_folder, system) -> bool:
+    try:
+        import tarfile
+        
+        mode = "r:gz" if system == "Darwin" else "r:xz"
+        with tarfile.open(archive_path, mode) as tar:
+            tar.extractall(path=target_folder)
+        
+        entries = [e for e in os.listdir(target_folder) if e not in ("nodejs.zip", "nodejs.tar.gz", "nodejs.tar.xz")]
+        if len(entries) == 1:
+            root = os.path.join(target_folder, entries[0])
+            if os.path.isdir(root):
+                for name in os.listdir(root):
+                    src = os.path.join(root, name)
+                    dst = os.path.join(target_folder, name)
+                    if os.path.exists(dst):
+                        if os.path.isdir(dst):
+                            shutil.rmtree(dst)
+                        else:
+                            os.remove(dst)
+                    shutil.move(src, dst)
+                try:
+                    os.rmdir(root)
+                except Exception:
+                    pass
+        
+        if os.path.exists(archive_path):
+            os.remove(archive_path)
+        return True
+    except Exception as e:
+        print(f"Error while extracting tar archive: {e}")
+        return False
+
+
 def find_executable_in_folder(folder, names):
     for root, dirs, files in os.walk(folder):
         for name in names:
@@ -889,6 +1180,14 @@ def ensure_tool_executable(tool_name, tool_folder, reporter=None, progress_repor
         ok = download_and_extract_rife(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
         if not ok:
             print("Failed to install rife via automatic method.")
+    elif tool_name == "nodejs":
+        ok = download_and_extract_nodejs(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not ok:
+            print("Failed to install nodejs via automatic method.")
+    elif tool_name == "remotion":
+        ok = download_and_install_remotion(tool_folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not ok:
+            print("Failed to install remotion via automatic method.")
     else:
         print(f"No auto-install handler for {tool_name}")
         return False
@@ -925,6 +1224,37 @@ def ensure_tool_executable(tool_name, tool_folder, reporter=None, progress_repor
             "Linux": "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-ubuntu.zip"
         }
         dl_url = urls.get(system)
+    elif tool_name == "nodejs":
+        system = platform.system()
+        nodejs_config_path = os.path.join(BASE_PATH, "configs", "nodejs_config.json")
+        node_version = "24.14.1"
+        if os.path.exists(nodejs_config_path):
+            try:
+                import json
+                with open(nodejs_config_path, 'r') as f:
+                    nodejs_config = json.load(f)
+                node_version = nodejs_config.get("version", node_version)
+            except Exception:
+                pass
+        if system == "Darwin":
+            machine = platform.machine().lower()
+            if machine in ("arm64", "aarch64"):
+                darwin_arch = "darwin-arm64"
+            else:
+                darwin_arch = "darwin-x64"
+        else:
+            darwin_arch = "darwin-x64"
+        urls = {
+            "Windows": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-win-x64.zip",
+            "Darwin": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-{darwin_arch}.tar.gz",
+            "Linux": f"https://nodejs.org/dist/v{node_version}/node-v{node_version}-linux-x64.tar.xz"
+        }
+        dl_url = urls.get(system)
+    elif tool_name == "remotion":
+        dl_url = "https://www.remotion.dev/docs/installation"
+        print(f"Manual install required. Please install Remotion via npm: npm install remotion @remotion/cli")
+        print(f"See documentation: {dl_url}")
+        return False
     print(f"Manual install required. Please download and install {tool_name} from: {dl_url}")
     return False
 
@@ -936,6 +1266,8 @@ def ensure_executables_for_tools(reporter=None, progress_reporter=None, unit_cal
         "realesrgan": os.path.join(BASE_PATH, "tools", "realesrgan"),
         "waifu2x": os.path.join(BASE_PATH, "tools", "waifu2x"),
         "rife": os.path.join(BASE_PATH, "tools", "rife"),
+        "nodejs": os.path.join(BASE_PATH, "tools", "nodejs"),
+        "remotion": os.path.join(BASE_PATH, "tools", "remotion"),
     }
     for name, folder in targets.items():
         if not ensure_tool_executable(name, folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback):

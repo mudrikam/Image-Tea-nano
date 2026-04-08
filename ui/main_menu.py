@@ -68,6 +68,7 @@ MENU_TOOLTIPS = {
     "action_sequencer": "Automate actions for Photoshop and Illustrator",
     "video_upscaler": "Upscale videos using RealESRGAN AI",
     "image_upscaler": "Upscale images using RealESRGAN AI",
+    "vibe_video_generator": "Generate videos using AI with vibe-based prompting",
     "pngtree_zipper": "Zip asset files to submit to Pngtree",
     "holiday_calendar": "Browse and search microstock-relevant holidays by country and date",
     
@@ -972,6 +973,19 @@ def setup_main_menu(window):
         window._image_upscaler_dialog.activateWindow()
     image_upscaler_action.triggered.connect(open_image_upscaler)
 
+    vibe_video_generator_action = QAction(qta.icon('fa6s.video'), "Vibe Video Generator", window)
+    vibe_video_generator_action.setToolTip(MENU_TOOLTIPS["vibe_video_generator"])
+    vibe_video_generator_action.setStatusTip(MENU_TOOLTIPS["vibe_video_generator"])
+    def open_vibe_video_generator():
+        from dialogs.tools.vibe_video_generator.vibe_video_generator_dialog import VibeVideoGeneratorDialog
+        if not hasattr(window, '_vibe_video_generator_dialog') or not window._vibe_video_generator_dialog:
+            window._vibe_video_generator_dialog = VibeVideoGeneratorDialog(None)
+            window._vibe_video_generator_dialog.destroyed.connect(lambda: setattr(window, '_vibe_video_generator_dialog', None))
+        window._vibe_video_generator_dialog.show()
+        window._vibe_video_generator_dialog.raise_()
+        window._vibe_video_generator_dialog.activateWindow()
+    vibe_video_generator_action.triggered.connect(open_vibe_video_generator)
+
     pngtree_zipper_action = QAction(qta.icon('fa6s.file-zipper'), "Pngtree Zipper", window)
     pngtree_zipper_action.setToolTip(MENU_TOOLTIPS["pngtree_zipper"])
     pngtree_zipper_action.setStatusTip(MENU_TOOLTIPS["pngtree_zipper"])
@@ -1003,6 +1017,7 @@ def setup_main_menu(window):
     tools_menu.addAction(prompt_injector_action)
     tools_menu.addAction(video_upscaler_action)
     tools_menu.addAction(image_upscaler_action)
+    tools_menu.addAction(vibe_video_generator_action)
     tools_menu.addAction(holiday_calendar_action)
     tools_menu.addAction(batch_audio_remover_action)
     tools_menu.addAction(envato_elements_action)

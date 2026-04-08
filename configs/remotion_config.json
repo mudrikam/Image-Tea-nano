@@ -1,0 +1,56 @@
+{
+    "version": "latest",
+    "bundle_name": "remotion-bundle",
+    "auto_install": true,
+    "npm_registry": "https://registry.npmjs.org",
+    "npm_strict_ssl": true,
+    "render_settings": {
+        "codec": "h264",
+        "pixel_format": "yuv420p",
+        "crf": 18,
+        "frames_per_lambda": 1
+    },
+    "environment": {
+        "NODE_ENV": "production"
+    },
+    "max_old_space_size": 4096,
+    "concurrency": 4,
+    "offthreadvideo_cache_size_in_bytes": null,
+    "active_preset": "720p30",
+    "presets": {
+        "720p30": {
+            "label": "720p 30fps",
+            "width": 1280,
+            "height": 720,
+            "fps": 30,
+            "video_bitrate": "10M"
+        },
+        "1080p60": {
+            "label": "1080p 60fps (Recommended)",
+            "width": 1920,
+            "height": 1080,
+            "fps": 60,
+            "video_bitrate": "20M"
+        },
+        "2K60": {
+            "label": "2K 60fps",
+            "width": 2560,
+            "height": 1440,
+            "fps": 60,
+            "video_bitrate": "40M"
+        },
+        "4K60": {
+            "label": "4K 60fps",
+            "width": 3840,
+            "height": 2160,
+            "fps": 60,
+            "video_bitrate": "80M"
+        }
+    },
+    "custom_preset": {
+        "width": 1280,
+        "height": 720,
+        "fps": 30.0,
+        "video_bitrate": "10M"
+    }
+}

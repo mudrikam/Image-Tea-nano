@@ -219,6 +219,8 @@ tools/ffmpeg/
 tools/realesrgan/
 tools/waifu2x/
 tools/rife/
+tools/nodejs/
+tools/remotion/
 database/db_backups
 backup_configs/
 
@@ -226,6 +228,7 @@ Sign-Image-Tea.bat
 DesainiaStudio.pfx
 vs code.bat
 .vscode/
+.kilo/
 .github/instructions
 .github/copilot-instructions.md
 dev_github_token.json
