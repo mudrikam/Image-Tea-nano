@@ -1,5 +1,7 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QPushButton, QComboBox, QLabel, QMessageBox, QApplication, QLineEdit, QProgressBar, QFileDialog, QDialog, QTextEdit
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QPushButton, QComboBox, QLabel, QMessageBox, QApplication, QLineEdit, QProgressBar, QFileDialog, QDialog, QTextEdit, QSpinBox
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor
+import threading
 import qtawesome as qta
 from ui.theme_system import theme
 from helpers.remotion_helper.remotion_helper import render_video as remotion_render_video
@@ -261,6 +263,10 @@ class RenderWorker(QThread):
         self.script_content = script_content
         self.output_path = output_path
         self.render_settings = render_settings
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        self._cancel_event.set()
 
     def _on_progress(self, pct, msg):
         if pct is not None:
@@ -273,7 +279,8 @@ class RenderWorker(QThread):
             self.script_content,
             self.output_path,
             self.render_settings,
-            self._on_progress
+            self._on_progress,
+            self._cancel_event
         )
         self.finished.emit(success, message)
 
@@ -334,6 +341,20 @@ class CodeActionsWidget(QWidget):
             if saved_path:
                 self.folder_input.setText(saved_path)
 
+    def _on_duration_changed(self):
+        if not self._render_settings_tab:
+            return
+        fps = self._render_settings_tab.fps_spin.value()
+        if fps <= 0:
+            return
+        frames = round(self.duration_seconds_spin.value() * fps)
+        self._render_settings_tab.duration_spin.blockSignals(True)
+        self._render_settings_tab.duration_spin.setValue(frames)
+        self._render_settings_tab.duration_spin.blockSignals(False)
+
+    def _sync_duration_to_render_settings(self):
+        self._on_duration_changed()
+
     def _on_render_settings_changed(self):
         self._sync_preset_combo()
 
@@ -390,6 +411,15 @@ class CodeActionsWidget(QWidget):
         self.preset_combo = QComboBox()
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         single_row.addWidget(self.preset_combo, 2)
+
+        single_row.addWidget(QLabel("Duration:"))
+        self.duration_seconds_spin = QSpinBox()
+        self.duration_seconds_spin.setRange(1, 3600)
+        self.duration_seconds_spin.setValue(5)
+        self.duration_seconds_spin.setSuffix(" s")
+        self.duration_seconds_spin.setToolTip('Output duration in seconds. Overrides the duration defined in the script.')
+        self.duration_seconds_spin.valueChanged.connect(self._on_duration_changed)
+        single_row.addWidget(self.duration_seconds_spin, 1)
 
         single_row.addWidget(QLabel("Filename:"))
         self.filename_input = QLineEdit()
@@ -502,21 +532,72 @@ class CodeActionsWidget(QWidget):
         else:
             render_settings = {}
 
+        # Override duration (in seconds) from the Actions tab spinner
+        render_settings['duration'] = self.duration_seconds_spin.value()
+
         # Overwrite setting from output tab takes precedence
         render_settings['overwrite'] = self._output_tab_widget.overwrite_checkbox.isChecked()
 
         # Disable button during render
-        self.render_btn.setEnabled(False)
-        self.render_btn.setText('Rendering...')
+        self._render_worker = RenderWorker(script_content, output_path, render_settings)
+        self.render_btn.setEnabled(True)
+        self.render_btn.setText('Cancel')
+        self.render_btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
+        _err_q = QColor(theme.get_color('error'))
+        _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+        self.render_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba({_err_rgb},0.3);
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_err_rgb},0.5);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba({_err_rgb},0.7);
+            }}
+        """)
+        self.render_btn.clicked.disconnect()
+        self.render_btn.clicked.connect(self._on_cancel_clicked)
         self.progress_bar.setValue(0)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setFormat('Starting...')
-
-        # Start worker thread
-        self._render_worker = RenderWorker(script_content, output_path, render_settings)
         self._render_worker.progress.connect(self._on_render_progress)
         self._render_worker.finished.connect(lambda success, msg: self._on_render_finished(success, msg))
         self._render_worker.start()
+
+    def _on_cancel_clicked(self):
+        if self._render_worker:
+            self._render_worker.cancel()
+            self.render_btn.setEnabled(False)
+            self.progress_bar.setFormat('Cancelling...')
+
+    def _restore_render_btn(self):
+        self.render_btn.setEnabled(True)
+        self.render_btn.setText('Render Video')
+        self.render_btn.setIcon(qta.icon('fa6s.film', color=theme.get_color('white')))
+        self.render_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+        """)
+        self.render_btn.clicked.disconnect()
+        self.render_btn.clicked.connect(self._on_render_clicked)
 
     def _on_render_progress(self, percentage, message):
         if percentage >= 0:
@@ -524,11 +605,13 @@ class CodeActionsWidget(QWidget):
             self.progress_bar.setFormat(f'{message}  ({percentage}%)')
 
     def _on_render_finished(self, success, message):
-        self.render_btn.setEnabled(True)
-        self.render_btn.setText('Render Video')
+        self._restore_render_btn()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat('Ready')
+
+        if message == 'Render cancelled.':
+            return
 
         if success:
             output_path = self._output_tab_widget.get_full_output_path() if self._output_tab_widget else ''
@@ -568,9 +651,7 @@ class CodeActionsWidget(QWidget):
             worker.wait(2000)
             worker.deleteLater()
 
-        self.render_btn.setEnabled(True)
-        self.render_btn.setText('Render Video')
-        self.render_btn.setIcon(qta.icon('fa6s.film', color=theme.get_color('white')))
+        self._restore_render_btn()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat('Ready')

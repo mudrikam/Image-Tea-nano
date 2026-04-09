@@ -383,7 +383,8 @@ def render_video(
     script_content: str,
     output_path: str,
     render_settings: dict,
-    progress_callback=None
+    progress_callback=None,
+    cancel_event=None
 ) -> Tuple[bool, str]:
     if not script_content or not script_content.strip():
         return False, "Script content is empty"
@@ -458,6 +459,20 @@ def render_video(
                 line = proc.stdout.readline()
                 if line == '' and proc.poll() is not None:
                     break
+                if cancel_event and cancel_event.is_set():
+                    try:
+                        if platform.system() == 'Windows':
+                            subprocess.run(
+                                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                                capture_output=True,
+                                creationflags=subprocess.CREATE_NO_WINDOW
+                            )
+                        else:
+                            proc.terminate()
+                        proc.wait(timeout=5)
+                    except Exception:
+                        pass
+                    return False, 'Render cancelled.'
                 if line:
                     stripped = line.strip()
                     clean = re.sub(r'\x1b\[[0-9;]*[mGKHF]', '', stripped)

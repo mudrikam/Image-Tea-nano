@@ -15,7 +15,7 @@ from dialogs.tools.vibe_video_generator.vibe_code_actions_widget import CodeActi
 from dialogs.tools.vibe_video_generator.vibe_video_output_tab import OutputTabWidget
 from dialogs.tools.vibe_video_generator.vibe_video_render_settings_tab import RenderSettingsTabWidget
 from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import PreviewTabWidget
-from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+from helpers.members_helper.members_helper import is_logged_in
 from dialogs.member_required_dialog import MemberRequiredDialog
 
 
@@ -40,31 +40,27 @@ class VibeVideoGeneratorDialog(QDialog):
             self.setWindowIcon(QIcon(icon_path))
 
         self.db = ImageTeaDB()
-        self._member_mode = False
         self.api_key = ''
         self.selected_service = ''
         self.selected_model_name = ''
         self.selected_endpoint = ''
 
         self._setup_ui()
-        QTimer.singleShot(100, self._check_member_mode)
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
         if not is_logged_in():
             QTimer.singleShot(0, self._show_member_required)
-            return
-        self._check_member_mode()
 
     def _show_member_required(self):
         dlg = MemberRequiredDialog("Vibe Video Generator is only accessible to logged-in members.", self)
         if dlg.exec() == MemberRequiredDialog.Accepted:
             from dialogs.members.member_login_dialog import MemberLoginDialog
             login_dlg = MemberLoginDialog(self)
-            if login_dlg.exec() == MemberLoginDialog.Accepted:
-                self._check_member_mode()
-                return
-        self.close()
+            if login_dlg.exec() != MemberLoginDialog.Accepted:
+                self.close()
+        else:
+            self.close()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -125,27 +121,6 @@ class VibeVideoGeneratorDialog(QDialog):
         self.menu_widget.collections_widget = self.collections_widget
         self.menu_widget.scripts_widget = self.scripts_widget
 
-    def _check_member_mode(self):
-        if not is_logged_in():
-            if self._member_mode:
-                self._member_mode = False
-                self.api_key = self.api_key_section.get_current_api_key()
-                self.selected_service = self.api_key_section.get_current_service()
-                self.selected_model_name = self.api_key_section.get_current_model()
-                self.selected_endpoint = self.api_key_section.api_key_map.get(self.api_key, {}).get('endpoint', '') if self.api_key else ''
-            return
-        if not is_member_secret_valid():
-            if self._member_mode:
-                self._member_mode = False
-            return
-        if not self._member_mode:
-            self._member_mode = True
-            member_cfg = get_member_api_config()
-            self.api_key = member_cfg['api_key']
-            self.selected_service = member_cfg['service_type'] or 'custom'
-            self.selected_model_name = member_cfg['model']
-            self.selected_endpoint = member_cfg.get('endpoint', '')
-
     def _on_new_script_created(self, collection_id):
         self.collections_widget.load_collections()
 
@@ -162,8 +137,6 @@ class VibeVideoGeneratorDialog(QDialog):
             self.scripts_widget.display_script(script_data)
 
     def _on_api_key_changed(self, api_key, service, model):
-        if self._member_mode:
-            return
         self.api_key = api_key
         self.selected_service = service
         self.selected_model_name = model
