@@ -115,7 +115,6 @@ class VibeVideoGeneratorDialog(QDialog):
         if not is_logged_in():
             if self._member_mode:
                 self._member_mode = False
-                self.api_key_section.setVisible(True)
                 self.api_key = self.api_key_section.get_current_api_key()
                 self.selected_service = self.api_key_section.get_current_service()
                 self.selected_model_name = self.api_key_section.get_current_model()
@@ -124,11 +123,9 @@ class VibeVideoGeneratorDialog(QDialog):
         if not is_member_secret_valid():
             if self._member_mode:
                 self._member_mode = False
-                self.api_key_section.setVisible(True)
             return
         if not self._member_mode:
             self._member_mode = True
-            self.api_key_section.setVisible(False)
             member_cfg = get_member_api_config()
             self.api_key = member_cfg['api_key']
             self.selected_service = member_cfg['service_type'] or 'custom'

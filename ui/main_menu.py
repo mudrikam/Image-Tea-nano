@@ -977,6 +977,13 @@ def setup_main_menu(window):
     vibe_video_generator_action.setToolTip(MENU_TOOLTIPS["vibe_video_generator"])
     vibe_video_generator_action.setStatusTip(MENU_TOOLTIPS["vibe_video_generator"])
     def open_vibe_video_generator():
+        from helpers.members_helper.members_helper import is_logged_in
+        if not is_logged_in():
+            from dialogs.member_required_dialog import MemberRequiredDialog
+            dlg = MemberRequiredDialog("Vibe Video Generator is only accessible to logged-in members.", window)
+            if dlg.exec() == MemberRequiredDialog.Accepted:
+                open_login_member()
+            return
         from dialogs.tools.vibe_video_generator.vibe_video_generator_dialog import VibeVideoGeneratorDialog
         if not hasattr(window, '_vibe_video_generator_dialog') or not window._vibe_video_generator_dialog:
             window._vibe_video_generator_dialog = VibeVideoGeneratorDialog(None)
