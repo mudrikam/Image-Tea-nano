@@ -33,9 +33,6 @@ class MenuWidget(QMenuBar):
         new_script_action.setShortcut('Ctrl+N')
         new_script_action.triggered.connect(self._on_new_script)
 
-        edit_menu = QMenu('Edit', self)
-        self.addMenu(edit_menu)
-
 
 
     def _on_new_collection(self):
