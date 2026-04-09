@@ -16,6 +16,7 @@ from dialogs.tools.vibe_video_generator.vibe_video_output_tab import OutputTabWi
 from dialogs.tools.vibe_video_generator.vibe_video_render_settings_tab import RenderSettingsTabWidget
 from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import PreviewTabWidget
 from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+from dialogs.member_required_dialog import MemberRequiredDialog
 
 
 class VibeVideoGeneratorDialog(QDialog):
@@ -50,7 +51,20 @@ class VibeVideoGeneratorDialog(QDialog):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
+        if not is_logged_in():
+            QTimer.singleShot(0, self._show_member_required)
+            return
         self._check_member_mode()
+
+    def _show_member_required(self):
+        dlg = MemberRequiredDialog("Vibe Video Generator is only accessible to logged-in members.", self)
+        if dlg.exec() == MemberRequiredDialog.Accepted:
+            from dialogs.members.member_login_dialog import MemberLoginDialog
+            login_dlg = MemberLoginDialog(self)
+            if login_dlg.exec() == MemberLoginDialog.Accepted:
+                self._check_member_mode()
+                return
+        self.close()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
