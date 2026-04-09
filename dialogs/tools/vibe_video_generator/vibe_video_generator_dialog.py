@@ -14,6 +14,7 @@ from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import Scripts
 from dialogs.tools.vibe_video_generator.vibe_code_actions_widget import CodeActionsWidget
 from dialogs.tools.vibe_video_generator.vibe_video_output_tab import OutputTabWidget
 from dialogs.tools.vibe_video_generator.vibe_video_render_settings_tab import RenderSettingsTabWidget
+from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import PreviewTabWidget
 from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
 
 
@@ -77,8 +78,10 @@ class VibeVideoGeneratorDialog(QDialog):
         self.scripts_widget = ScriptsWidget(self)
         self.output_tab_widget = OutputTabWidget(self)
         self.render_settings_tab_widget = RenderSettingsTabWidget(self)
+        self.preview_tab_widget = PreviewTabWidget(self)
         right_tabs = QTabWidget()
         right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'TypeScript')
+        right_tabs.addTab(self.preview_tab_widget, qta.icon('fa6s.circle-play'), 'Preview')
         right_tabs.addTab(self.output_tab_widget, qta.icon('fa6s.folder'), 'Output')
         right_tabs.addTab(self.render_settings_tab_widget, qta.icon('fa6s.gear'), 'Render Settings')
         splitter.addWidget(right_tabs)
@@ -96,6 +99,8 @@ class VibeVideoGeneratorDialog(QDialog):
         self.code_actions_widget.set_scripts_widget(self.scripts_widget)
         self.code_actions_widget.set_output_tab_widget(self.output_tab_widget)
         self.code_actions_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
+        self.scripts_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
+        self.preview_tab_widget.set_scripts_widget(self.scripts_widget)
 
         # Connect signals
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
@@ -153,5 +158,10 @@ class VibeVideoGeneratorDialog(QDialog):
         self.selected_model_name = model
         self.selected_endpoint = self.api_key_section.api_key_map.get(api_key, {}).get('endpoint', '') if api_key else ''
         self.code_actions_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
+        self.scripts_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
         if self.api_key_changed:
             self.api_key_changed.emit(api_key, service, model)
+
+    def closeEvent(self, event):
+        self.preview_tab_widget._stop_server()
+        super().closeEvent(event)

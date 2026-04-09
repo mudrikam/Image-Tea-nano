@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication
-from PySide6.QtCore import Qt, Signal, QRegularExpression
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar
+from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread
 from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette
 import qtawesome as qta
 from pygments import lex
@@ -192,6 +192,161 @@ class TypeScriptHighlighter(QSyntaxHighlighter):
         return lines
 
 
+SCRIPT_REFINE_SYSTEM = """You are a Remotion TypeScript/React code refiner. The user gives you an existing script and a refinement instruction. Apply the change using SEARCH/REPLACE blocks.
+
+OUTPUT FORMAT:
+<<<SEARCH
+exact lines from the original script to replace
+===
+replacement lines
+>>>REPLACE
+
+RULES:
+1. Use SEARCH/REPLACE blocks - do NOT output the full script
+2. SEARCH must exactly match consecutive lines in the original (whitespace-sensitive)
+3. Make ONLY the minimal changes needed to fulfill the instruction
+4. Valid 'remotion' imports: useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Audio, Img, Video, AbsoluteFill, Sequence
+5. interpolate() outputRange must contain ONLY numbers
+6. All inline styles must use camelCase
+7. Do NOT import Composition or registerRoot"""
+
+
+class ScriptRefineWorker(QThread):
+    finished = Signal(bool, str)
+    MAX_RETRIES = 3
+
+    def __init__(self, api_key, endpoint, service, model, script_content, instruction):
+        super().__init__()
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.service = service
+        self.model = model
+        self.script_content = script_content
+        self.instruction = instruction
+
+    def _call_ai(self, prompt):
+        import os, json
+        svc = (self.service or '').lower()
+        ep = (self.endpoint or '').strip()
+        if ep:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            return CustomEndpointHelper.call_endpoint(self.api_key, ep, svc, self.model, prompt, timeout=120)
+        elif svc == 'gemini':
+            import google.genai as genai
+            client = genai.Client(api_key=self.api_key)
+            return client.models.generate_content(model=self.model, contents=[prompt]).text
+        elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
+            from openai import OpenAI
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                ai_config = json.load(f)
+            client = OpenAI(api_key=self.api_key, base_url=ai_config['provider_endpoints'][svc])
+            return client.chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}]).choices[0].message.content
+        elif svc == 'groq':
+            from groq import Groq
+            return Groq(api_key=self.api_key).chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}]).choices[0].message.content
+        else:
+            raise ValueError(f'Unsupported service: {svc}')
+
+    def run(self):
+        try:
+            from dialogs.tools.vibe_video_generator.vibe_code_actions_widget import _apply_search_replace
+            full_prompt = (SCRIPT_REFINE_SYSTEM
+                + '\n\nORIGINAL SCRIPT:\n' + self.script_content
+                + '\n\nINSTRUCTION:\n' + self.instruction)
+            for attempt in range(1, self.MAX_RETRIES + 1):
+                print(f'[Vibe Video] Refine attempt {attempt}/{self.MAX_RETRIES}')
+                text = self._call_ai(full_prompt)
+                patched = _apply_search_replace(self.script_content, text)
+                if patched:
+                    print(f'[Vibe Video] Refine applied via SEARCH/REPLACE (attempt {attempt})')
+                    self.finished.emit(True, patched)
+                    return
+                import re
+                for pattern in [r'```(?:tsx?|typescript|javascript)\s*\n(.*?)```', r'```\s*\n(.*?)```']:
+                    match = re.search(pattern, text, re.DOTALL)
+                    if match:
+                        code = match.group(1).strip()
+                        if 'import' in code or 'export' in code:
+                            print(f'[Vibe Video] Refine applied via full code fallback (attempt {attempt})')
+                            self.finished.emit(True, code)
+                            return
+                print(f'[Vibe Video] Refine attempt {attempt} unusable, retrying...')
+            self.finished.emit(False, f'AI failed to produce a valid refinement after {self.MAX_RETRIES} attempts')
+        except Exception as e:
+            print(f'[Vibe Video] Refine error: {e}')
+            self.finished.emit(False, str(e))
+
+
+class RefineRetryDialog(QDialog):
+    retry_requested = Signal()
+
+    def __init__(self, parent, last_instruction):
+        super().__init__(parent)
+        self.setWindowTitle('Refine Failed')
+        self.setMinimumWidth(440)
+        layout = QVBoxLayout(self)
+        icon_row = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa6s.circle-xmark', color='#e05555').pixmap(28, 28))
+        icon_row.addWidget(icon_label)
+        icon_row.addSpacing(8)
+        msg = QLabel(f'AI failed to refine the script.\nInstruction: "{last_instruction}"')
+        msg.setWordWrap(True)
+        icon_row.addWidget(msg, 1)
+        layout.addLayout(icon_row)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        retry_btn = QPushButton('Try Again')
+        retry_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        retry_btn.clicked.connect(self._on_retry)
+        btn_row.addWidget(retry_btn)
+        ok_btn = QPushButton('Cancel')
+        ok_btn.setIcon(qta.icon('fa6s.xmark'))
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    def _on_retry(self):
+        self.retry_requested.emit()
+        self.accept()
+
+
+class ScriptRefineDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Refine Script')
+        self.setMinimumWidth(480)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel('Describe what you want to change or add:'))
+        self.prompt_input = QLineEdit()
+        self.prompt_input.setPlaceholderText('e.g. Add a pulsing red circle in the center')
+        self.prompt_input.setMinimumHeight(34)
+        layout.addWidget(self.prompt_input)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton('Cancel')
+        cancel_btn.setIcon(qta.icon('fa6s.xmark'))
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        self.refine_btn = QPushButton('Refine')
+        self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.refine_btn.setDefault(True)
+        self.refine_btn.clicked.connect(self._on_refine)
+        btn_row.addWidget(self.refine_btn)
+        layout.addLayout(btn_row)
+
+    def _on_refine(self):
+        if not self.prompt_input.text().strip():
+            self.prompt_input.setFocus()
+            return
+        self.accept()
+
+    def get_instruction(self):
+        return self.prompt_input.text().strip()
+
+
 class ScriptsWidget(QWidget):
     script_updated = Signal(object)
     script_selected = Signal(str)
@@ -201,8 +356,20 @@ class ScriptsWidget(QWidget):
         self.db = parent.db if parent else None
         self.current_script_id = None
         self.current_script_name = None
+        self._ai_key = ''
+        self._ai_endpoint = ''
+        self._ai_service = ''
+        self._ai_model = ''
+        self._refine_worker = None
+        self._last_instruction = ''
         self._setup_ui()
         self._apply_theme()
+
+    def set_ai_credentials(self, api_key, endpoint, service, model):
+        self._ai_key = api_key
+        self._ai_endpoint = endpoint
+        self._ai_service = service
+        self._ai_model = model
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -220,8 +387,20 @@ class ScriptsWidget(QWidget):
 
         self.highlighter = TypeScriptHighlighter(self.script_content.document())
 
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat('AI is refining the script...')
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+        self.refine_btn = QPushButton('Refine')
+        self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.refine_btn.setEnabled(False)
+        self.refine_btn.clicked.connect(self._on_refine)
+        btn_layout.addWidget(self.refine_btn)
         self.clear_btn = QPushButton('Clear')
         self.clear_btn.setIcon(qta.icon('fa6s.eraser'))
         self.clear_btn.setEnabled(False)
@@ -253,10 +432,13 @@ class ScriptsWidget(QWidget):
         has_script = script_data is not None
         self.clear_btn.setEnabled(has_script)
         self.save_btn.setEnabled(has_script)
+        self.refine_btn.setEnabled(has_script)
         self.script_content.setReadOnly(not has_script)
         if script_data:
-            self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}")
-            self.script_content.setPlainText(script_data.get('script_content', ''))
+            content = script_data.get('script_content', '')
+            line_count = len(content.splitlines())
+            self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
+            self.script_content.setPlainText(content)
             self.script_selected.emit(script_data.get('name', ''))
         else:
             self.script_name_label.setText('No script selected')
@@ -270,6 +452,83 @@ class ScriptsWidget(QWidget):
 
     def _on_clear(self):
         self.script_content.clear()
+
+    def _on_refine(self):
+        if not self._ai_key:
+            QMessageBox.warning(self, 'API Key Required', 'Please select an API key in the main dialog first.')
+            return
+        dlg = ScriptRefineDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        instruction = dlg.get_instruction()
+        self._last_instruction = instruction
+        current_code = self.script_content.toPlainText().strip()
+        if not current_code:
+            return
+        self.refine_btn.setEnabled(False)
+        self.refine_btn.setText('Refining...')
+        self.refine_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.refine_btn)))
+        self.clear_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self._refine_worker = ScriptRefineWorker(
+            self._ai_key, self._ai_endpoint, self._ai_service, self._ai_model,
+            current_code, instruction
+        )
+        self._refine_worker.finished.connect(self._on_refine_finished)
+        self._refine_worker.start()
+
+    def _on_refine_finished(self, success, result):
+        worker = self._refine_worker
+        self._refine_worker = None
+        if worker:
+            worker.quit()
+            worker.wait(2000)
+            worker.deleteLater()
+
+        self.refine_btn.setEnabled(True)
+        self.refine_btn.setText('Refine')
+        self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.clear_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        if not success:
+            print(f'[Vibe Video] Refine failed: {result}')
+            dlg = RefineRetryDialog(self, self._last_instruction)
+            dlg.retry_requested.connect(self._on_retry_refine)
+            dlg.exec()
+            return
+        if self.db and self.current_script_id:
+            self.db.update_remotion_script(script_id=self.current_script_id, script_content=result)
+            script_data = self.db.get_remotion_script(self.current_script_id)
+            print(f'[Vibe Video] Script refined and saved')
+            if script_data:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(50, lambda: self._apply_refine_result(script_data))
+
+    def _apply_refine_result(self, script_data):
+        content = script_data.get('script_content', '')
+        line_count = len(content.splitlines())
+        self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
+        self.script_content.setPlainText(content)
+        self.script_updated.emit(script_data)
+
+    def _on_retry_refine(self):
+        current_code = self.script_content.toPlainText().strip()
+        if not current_code or not self._last_instruction:
+            return
+        self.refine_btn.setEnabled(False)
+        self.refine_btn.setText('Refining...')
+        self.refine_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.refine_btn)))
+        self.clear_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self._refine_worker = ScriptRefineWorker(
+            self._ai_key, self._ai_endpoint, self._ai_service, self._ai_model,
+            current_code, self._last_instruction
+        )
+        self._refine_worker.finished.connect(self._on_refine_finished)
+        self._refine_worker.start()
 
     def _on_save(self):
         if not self.db or not self.current_script_id:

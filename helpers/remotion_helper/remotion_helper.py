@@ -14,6 +14,7 @@ TOOLS_REMOTION = os.path.join(BASE_PATH, "tools", "remotion")
 PROJECT_TEMP_DIR = os.path.join(BASE_PATH, "temp")
 
 REMOTION_TEMP_DIR_NAME = "remotion_temp"
+REMOTION_PREVIEW_DIR_NAME = "remotion_preview"
 REMOTION_SRC_DIR = "src"
 REMOTION_ENTRY_FILE = "index.tsx"
 COMPOSITION_ID = "main"
@@ -206,6 +207,29 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
             os.symlink(src_node_modules, dst_node_modules)
 
     return temp_dir, entry_file
+
+
+def setup_preview_dir(script_content: str) -> Tuple[str, str]:
+    preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
+    if os.path.exists(preview_dir):
+        shutil.rmtree(preview_dir, ignore_errors=True)
+    render_settings = {'width': 1280, 'height': 720, 'fps': 30, 'duration': 10}
+    orig_name = REMOTION_TEMP_DIR_NAME
+    import types
+    import helpers.remotion_helper.remotion_helper as _self_mod
+    _self_mod.REMOTION_TEMP_DIR_NAME = REMOTION_PREVIEW_DIR_NAME
+    try:
+        result = _setup_temp_dir(script_content, render_settings)
+    finally:
+        _self_mod.REMOTION_TEMP_DIR_NAME = orig_name
+    return result
+
+
+def cleanup_preview_dir():
+    preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
+    if os.path.exists(preview_dir):
+        shutil.rmtree(preview_dir, ignore_errors=True)
+        print('[Remotion] Preview dir cleaned up')
 
 
 def _detect_composition_id(script_content: str) -> str:

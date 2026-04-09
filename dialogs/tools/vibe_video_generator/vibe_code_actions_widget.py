@@ -7,22 +7,85 @@ from helpers.remotion_helper.remotion_helper import render_video as remotion_ren
 
 SCRIPT_FIX_SYSTEM = """You are a Remotion TypeScript/React error fixer. Fix the script based on the error given.
 
+OUTPUT FORMAT - Use SEARCH/REPLACE blocks to show ONLY the parts that need changing:
+
+<<<SEARCH
+exact lines from the original script that need to change
+===
+replacement lines
+>>>REPLACE
+
+You can output multiple SEARCH/REPLACE blocks. Each SEARCH section must exactly match lines in the original script (whitespace-sensitive).
+
 STRICT RULES:
-1. Output ONLY the fixed TypeScript code - no markdown fences, no explanations, no comments about what you changed
-2. Do NOT rewrite the whole script - make the MINIMAL change that fixes the error
-3. Do NOT import Composition or registerRoot - these are handled externally
-4. Export the component as a named export (e.g. export const MyComponent: React.FC = () => ...)
-5. Do NOT use functions that don't exist in the imported Remotion version (e.g. cameraZoom is not a valid remotion export)
-6. Check all imports - only import what actually exists in 'remotion': useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Audio, Img, Video, AbsoluteFill, Sequence, useCurrentScale
-7. interpolate() outputRange must contain ONLY numbers, never strings
-8. interpolate() inputRange must be strictly increasing numbers
-9. spring() returns a number, not an object
-10. All inline styles must use camelCase (backgroundColor not background-color)
-11. If the error says "X is not a function" or "X is not exported from remotion", remove that import and rewrite the affected code without it"""
+1. Use SEARCH/REPLACE blocks - do NOT output the full script
+2. SEARCH content must be an EXACT match of consecutive lines in the original script
+3. Make the MINIMAL change that fixes the error
+4. Do NOT import Composition or registerRoot - these are handled externally
+5. Do NOT use functions that don't exist in 'remotion'. Valid exports: useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Audio, Img, Video, AbsoluteFill, Sequence, useCurrentScale
+6. interpolate() outputRange must contain ONLY numbers, never strings
+7. interpolate() inputRange must be strictly increasing numbers
+8. spring() returns a number, not an object
+9. All inline styles must use camelCase (backgroundColor not background-color)
+10. If the error says "X is not a function", remove that import and rewrite the affected code without it
+
+EXAMPLE:
+<<<SEARCH
+import { useCurrentFrame, useVideoConfig, interpolate, spring, cameraZoom } from 'remotion';
+===
+import { useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion';
+>>>REPLACE
+
+<<<SEARCH
+  const camera = cameraZoom({ frame, fps, zoom: interpolate(frame, [0, 120], [1, 1.2]) });
+===
+  const zoom = interpolate(frame, [0, 120], [1, 1.2], { extrapolateRight: 'clamp' });
+>>>REPLACE"""
+
+
+def _apply_search_replace(original: str, ai_response: str) -> str:
+    import re
+    blocks = re.findall(
+        r'<<<SEARCH\s*\n(.*?)\n===\s*\n(.*?)\n>>>REPLACE',
+        ai_response, re.DOTALL
+    )
+    if not blocks:
+        return ''
+    result = original
+    applied = 0
+    for search_text, replace_text in blocks:
+        search_clean = search_text.rstrip()
+        replace_clean = replace_text.rstrip()
+        if search_clean in result:
+            result = result.replace(search_clean, replace_clean, 1)
+            applied += 1
+            print(f'[Vibe Video] Applied fix block ({applied})')
+        else:
+            stripped_search = '\n'.join(line.strip() for line in search_clean.splitlines())
+            stripped_result = '\n'.join(line.strip() for line in result.splitlines())
+            if stripped_search in stripped_result:
+                lines = result.splitlines()
+                search_lines = search_clean.splitlines()
+                replace_lines = replace_clean.splitlines()
+                search_stripped = [l.strip() for l in search_lines]
+                for i in range(len(lines) - len(search_lines) + 1):
+                    window = [lines[i + j].strip() for j in range(len(search_lines))]
+                    if window == search_stripped:
+                        lines[i:i + len(search_lines)] = replace_lines
+                        applied += 1
+                        print(f'[Vibe Video] Applied fix block with fuzzy match ({applied})')
+                        break
+                result = '\n'.join(lines)
+            else:
+                print(f'[Vibe Video] Could not match SEARCH block: {search_clean[:80]}...')
+    if applied == 0:
+        return ''
+    return result
 
 
 class ScriptFixWorker(QThread):
     finished = Signal(bool, str)
+    MAX_RETRIES = 3
 
     def __init__(self, api_key, endpoint, service, model, script_content, error_msg):
         super().__init__()
@@ -33,44 +96,56 @@ class ScriptFixWorker(QThread):
         self.script_content = script_content
         self.error_msg = error_msg
 
+    def _call_ai(self, prompt):
+        import os
+        import json
+        svc = (self.service or '').lower()
+        endpoint = (self.endpoint or '').strip()
+        if endpoint:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            return CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, prompt, timeout=120)
+        elif svc == 'gemini':
+            import google.genai as genai
+            client = genai.Client(api_key=self.api_key)
+            response = client.models.generate_content(model=self.model, contents=[prompt])
+            return response.text
+        elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
+            from openai import OpenAI
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                ai_config = json.load(f)
+            base_url = ai_config['provider_endpoints'][svc]
+            client = OpenAI(api_key=self.api_key, base_url=base_url)
+            response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": prompt}])
+            return response.choices[0].message.content
+        elif svc == 'groq':
+            from groq import Groq
+            client = Groq(api_key=self.api_key)
+            response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": prompt}])
+            return response.choices[0].message.content
+        else:
+            raise ValueError(f"Unsupported service: {svc}")
+
     def run(self):
         try:
-            import os
-            import json
-            import re
             full_prompt = (SCRIPT_FIX_SYSTEM
                 + "\n\nSCRIPT TO FIX:\n" + self.script_content
                 + "\n\nERROR:\n" + self.error_msg)
-            svc = (self.service or '').lower()
-            endpoint = (self.endpoint or '').strip()
-            text = ''
-            if endpoint:
-                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                text = CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, full_prompt, timeout=120)
-            elif svc == 'gemini':
-                import google.genai as genai
-                client = genai.Client(api_key=self.api_key)
-                response = client.models.generate_content(model=self.model, contents=[full_prompt])
-                text = response.text
-            elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
-                from openai import OpenAI
-                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    ai_config = json.load(f)
-                base_url = ai_config['provider_endpoints'][svc]
-                client = OpenAI(api_key=self.api_key, base_url=base_url)
-                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
-            elif svc == 'groq':
-                from groq import Groq
-                client = Groq(api_key=self.api_key)
-                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
-            else:
-                self.finished.emit(False, f"Unsupported service: {svc}")
-                return
-            code = self._extract_code(text)
-            self.finished.emit(True, code)
+            for attempt in range(1, self.MAX_RETRIES + 1):
+                print(f'[Vibe Video] Fix attempt {attempt}/{self.MAX_RETRIES}')
+                text = self._call_ai(full_prompt)
+                patched = _apply_search_replace(self.script_content, text)
+                if patched:
+                    print(f'[Vibe Video] Fix applied via SEARCH/REPLACE blocks (attempt {attempt})')
+                    self.finished.emit(True, patched)
+                    return
+                code = self._extract_code(text)
+                if code and ('import' in code or 'export' in code):
+                    print(f'[Vibe Video] Fix applied via full code fallback (attempt {attempt})')
+                    self.finished.emit(True, code)
+                    return
+                print(f'[Vibe Video] Attempt {attempt} produced unusable response, retrying...')
+            self.finished.emit(False, f"AI failed to produce a valid fix after {self.MAX_RETRIES} attempts")
         except Exception as e:
             print(f"[Vibe Video] Script fix error: {e}")
             self.finished.emit(False, str(e))
@@ -336,13 +411,15 @@ class CodeActionsWidget(QWidget):
 
         layout.addLayout(single_row)
 
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(6)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat('%p%')
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        self.progress_bar.setFormat('Ready')
+        bottom_row.addWidget(self.progress_bar, 1)
 
         self.render_btn = QPushButton('Render Video')
         self.render_btn.setMinimumHeight(40)
@@ -366,7 +443,9 @@ class CodeActionsWidget(QWidget):
             }}
         """)
         self.render_btn.clicked.connect(self._on_render_clicked)
-        layout.addWidget(self.render_btn)
+        bottom_row.addWidget(self.render_btn)
+
+        layout.addLayout(bottom_row)
 
     def _on_actions_filename_edited(self):
         if self._output_tab_widget:
@@ -430,8 +509,8 @@ class CodeActionsWidget(QWidget):
         self.render_btn.setEnabled(False)
         self.render_btn.setText('Rendering...')
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat('%p%')
-        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setFormat('Starting...')
 
         # Start worker thread
         self._render_worker = RenderWorker(script_content, output_path, render_settings)
@@ -447,8 +526,9 @@ class CodeActionsWidget(QWidget):
     def _on_render_finished(self, success, message):
         self.render_btn.setEnabled(True)
         self.render_btn.setText('Render Video')
-        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setFormat('Ready')
 
         if success:
             output_path = self._output_tab_widget.get_full_output_path() if self._output_tab_widget else ''
@@ -473,7 +553,6 @@ class CodeActionsWidget(QWidget):
         self.render_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.render_btn)))
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFormat('AI is fixing the script...')
-        self.progress_bar.setVisible(True)
         self._fix_worker = ScriptFixWorker(
             self._ai_key, self._ai_endpoint, self._ai_service, self._ai_model,
             script_content, self._last_error_msg
@@ -482,12 +561,19 @@ class CodeActionsWidget(QWidget):
         self._fix_worker.start()
 
     def _on_fix_finished(self, success, result):
+        worker = self._fix_worker
+        self._fix_worker = None
+        if worker:
+            worker.quit()
+            worker.wait(2000)
+            worker.deleteLater()
+
         self.render_btn.setEnabled(True)
         self.render_btn.setText('Render Video')
         self.render_btn.setIcon(qta.icon('fa6s.film', color=theme.get_color('white')))
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(False)
+        self.progress_bar.setFormat('Ready')
         if not success:
             print(f'[Vibe Video] Fix failed: {result}')
             dlg = RenderErrorDialog(self, self._last_error_msg, has_ai=True, retry_mode=True)
@@ -501,7 +587,12 @@ class CodeActionsWidget(QWidget):
         script_id = self._scripts_widget.current_script_id
         db.update_remotion_script(script_id=script_id, script_content=result)
         script_data = db.get_remotion_script(script_id)
+        print(f'[Vibe Video] Script fixed and saved (id={script_id})')
         if script_data:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._apply_fixed_script(script_data))
+
+    def _apply_fixed_script(self, script_data):
+        if self._scripts_widget:
             self._scripts_widget.display_script(script_data)
             self._scripts_widget.script_updated.emit(script_data)
-        print(f'[Vibe Video] Script fixed and saved (id={script_id})')
