@@ -320,7 +320,7 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('Scale:', self.scale_spin)
 
         self.image_format_combo = QComboBox()
-        self.image_format_combo.addItems(['jpeg', 'png'])
+        self.image_format_combo.addItems(['png', 'jpeg'])
         self.image_format_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Image Format:', self.image_format_combo)
 

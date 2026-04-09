@@ -42,6 +42,7 @@ class VibeVideoGeneratorDialog(QDialog):
         self.api_key = ''
         self.selected_service = ''
         self.selected_model_name = ''
+        self.selected_endpoint = ''
 
         self._setup_ui()
         QTimer.singleShot(100, self._check_member_mode)
@@ -64,6 +65,7 @@ class VibeVideoGeneratorDialog(QDialog):
         self.api_key = self.api_key_section.get_current_api_key()
         self.selected_service = self.api_key_section.get_current_service()
         self.selected_model_name = self.api_key_section.get_current_model()
+        self.selected_endpoint = self.api_key_section.api_key_map.get(self.api_key, {}).get('endpoint', '') if self.api_key else ''
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -93,10 +95,12 @@ class VibeVideoGeneratorDialog(QDialog):
         self.code_actions_widget.set_render_settings_tab(self.render_settings_tab_widget)
         self.code_actions_widget.set_scripts_widget(self.scripts_widget)
         self.code_actions_widget.set_output_tab_widget(self.output_tab_widget)
+        self.code_actions_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
 
         # Connect signals
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
         self.scripts_widget.script_updated.connect(self._on_script_updated)
+        self.menu_widget.new_script_requested.connect(self._on_new_script_created)
 
         # Provide references
         self.menu_widget.collections_widget = self.collections_widget
@@ -110,6 +114,7 @@ class VibeVideoGeneratorDialog(QDialog):
                 self.api_key = self.api_key_section.get_current_api_key()
                 self.selected_service = self.api_key_section.get_current_service()
                 self.selected_model_name = self.api_key_section.get_current_model()
+                self.selected_endpoint = self.api_key_section.api_key_map.get(self.api_key, {}).get('endpoint', '') if self.api_key else ''
             return
         if not is_member_secret_valid():
             if self._member_mode:
@@ -123,6 +128,10 @@ class VibeVideoGeneratorDialog(QDialog):
             self.api_key = member_cfg['api_key']
             self.selected_service = member_cfg['service_type'] or 'custom'
             self.selected_model_name = member_cfg['model']
+            self.selected_endpoint = member_cfg.get('endpoint', '')
+
+    def _on_new_script_created(self, collection_id):
+        self.collections_widget.load_collections()
 
     def _on_collection_selected(self, data):
         if not data:
@@ -142,5 +151,7 @@ class VibeVideoGeneratorDialog(QDialog):
         self.api_key = api_key
         self.selected_service = service
         self.selected_model_name = model
+        self.selected_endpoint = self.api_key_section.api_key_map.get(api_key, {}).get('endpoint', '') if api_key else ''
+        self.code_actions_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
         if self.api_key_changed:
             self.api_key_changed.emit(api_key, service, model)

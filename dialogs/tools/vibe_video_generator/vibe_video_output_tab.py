@@ -40,6 +40,7 @@ class OutputTabWidget(QWidget):
         self.output_path = ''
         self.output_filename = ''
         self._setup_ui()
+        self._load_saved_output()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -218,6 +219,7 @@ class OutputTabWidget(QWidget):
     def set_output_path(self, path):
         self.output_path = path
         self.output_path_input.setText(path)
+        self._save_output_settings()
 
     def get_output_path(self):
         return self.output_path
@@ -226,6 +228,37 @@ class OutputTabWidget(QWidget):
         sanitized = sanitize_filename(name)
         self.output_filename = sanitized
         self.output_filename_input.setText(sanitized)
+        self._save_output_settings()
 
     def get_output_filename(self):
         return self.output_filename
+
+    def _get_temp_config_path(self):
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'temp', 'vibe_video_output_settings.json')
+
+    def _load_saved_output(self):
+        import json
+        config_path = self._get_temp_config_path()
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                saved = json.load(f)
+            if saved.get('output_path'):
+                self.output_path = saved['output_path']
+                self.output_path_input.setText(self.output_path)
+            if saved.get('output_filename'):
+                self.output_filename = saved['output_filename']
+                self.output_filename_input.setText(self.output_filename)
+        except Exception as e:
+            print(f'[Vibe Video] Failed to load output settings: {e}')
+
+    def _save_output_settings(self):
+        import json
+        config_path = self._get_temp_config_path()
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'output_path': self.output_path,
+                    'output_filename': self.output_filename,
+                }, f, indent=4)
+        except Exception as e:
+            print(f'[Vibe Video] Failed to save output settings: {e}')

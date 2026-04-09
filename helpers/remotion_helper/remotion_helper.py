@@ -3,10 +3,8 @@ import sys
 import subprocess
 import platform
 import shutil
-import tempfile
 import json
 import re
-from pathlib import Path
 from typing import Optional, Tuple, List
 
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,207 +16,224 @@ PROJECT_TEMP_DIR = os.path.join(BASE_PATH, "temp")
 REMOTION_TEMP_DIR_NAME = "remotion_temp"
 REMOTION_SRC_DIR = "src"
 REMOTION_ENTRY_FILE = "index.tsx"
+COMPOSITION_ID = "main"
 
 
 def _find_node() -> Optional[str]:
-    """Find Node.js executable in tools/nodejs or system PATH."""
-    # Check tools/nodejs
     for root, dirs, files in os.walk(TOOLS_NODEJS):
-        for name in ["node", "node.exe"]:
+        for name in ["node.exe", "node"]:
             if name in files:
                 path = os.path.join(root, name)
                 if os.path.isfile(path):
                     return path
-    # Check system PATH
     return shutil.which("node")
 
 
-def _find_npm_cmd() -> Optional[str]:
-    """Find npm command in tools/nodejs or system PATH."""
-    # Check tools/nodejs for npm.cmd (Windows) or npm (Unix)
-    for root, dirs, files in os.walk(TOOLS_NODEJS):
-        for name in ["npm.cmd", "npm"]:
-            if name in files:
-                path = os.path.join(root, name)
-                if os.path.isfile(path):
-                    return path
-    # Check system PATH
-    npm = shutil.which("npm")
-    if npm:
-        return npm
-    return None
-
-
-def _find_npx_runner(node_path: str) -> Optional[List[str]]:
-    """Find npx runner, returns command list to execute."""
-    # Check for npx-cli.js (common in portable Node)
-    for root, dirs, files in os.walk(TOOLS_NODEJS):
-        if "npx-cli.js" in files:
-            return [node_path, os.path.join(root, "npx-cli.js")]
-
-    # Check for npx.cmd (Windows)
+def _find_npx_cmd() -> Optional[List[str]]:
     if platform.system() == "Windows":
         for root, dirs, files in os.walk(TOOLS_NODEJS):
             if "npx.cmd" in files:
-                return ["cmd", "/c", os.path.join(root, "npx.cmd")]
-
-    # Check for npx (Unix)
+                return [os.path.join(root, "npx.cmd")]
     for root, dirs, files in os.walk(TOOLS_NODEJS):
         if "npx" in files:
-            return [node_path, os.path.join(root, "npx")]
-
-    # System npx
+            return [os.path.join(root, "npx")]
     system_npx = shutil.which("npx")
     if system_npx:
-        if platform.system() == "Windows" and system_npx.endswith(".cmd"):
-            return ["cmd", "/c", system_npx]
-        return [node_path, system_npx]
-
+        return [system_npx]
     return None
 
 
-def _create_root_wrapper(script_content: str, composition_name: str = "VibeComposition") -> Optional[str]:
-    """Create a root file that registers the user's composition.
-    Returns None if the script already calls registerRoot()."""
-    # Check if script already calls registerRoot (not just imports it)
-    # Must import from remotion AND actually call registerRoot(...)
-    has_remotion_import = 'from \'remotion\'' in script_content or 'from "remotion"' in script_content or \
-                          'from \'@remotion/root\'' in script_content or 'from "@remotion/root"' in script_content
-    has_register_root_call = 'registerRoot(' in script_content
+def _script_has_register_root(script_content: str) -> bool:
+    has_import = ('from \'remotion\'' in script_content or 'from "remotion"' in script_content or
+                  'from \'@remotion/root\'' in script_content or 'from "@remotion/root"' in script_content)
+    has_call = 'registerRoot(' in script_content
+    return has_import and has_call
 
-    if has_remotion_import and has_register_root_call:
-        return None
 
-    # Create wrapper that imports the composition and registers it
-    # registerRoot should receive the component directly, not an object
-    wrapper = f'''import {{registerRoot}} from 'remotion';
-import Composition from './Composition';
+def _script_has_composition(script_content: str) -> bool:
+    return '<Composition' in script_content
 
-registerRoot(Composition);
+
+def _detect_component_name(script_content: str) -> Optional[str]:
+    match = re.search(r'export\s+default\s+(?:function\s+)?(\w+)', script_content)
+    if match:
+        return match.group(1)
+    match = re.search(r'(?:const|function|class)\s+(\w+)', script_content)
+    if match:
+        return match.group(1)
+    return None
+
+
+BASE_COMPOSITION_WIDTH = 1280
+BASE_COMPOSITION_HEIGHT = 720
+
+
+def _build_entry_content(component_name: str, render_settings: dict) -> str:
+    fps = render_settings.get('fps', 30)
+    duration = render_settings.get('duration', 10)
+    duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
+
+    return f'''import React from 'react';
+import {{ registerRoot, Composition }} from 'remotion';
+import {{ MyComponent }} from './MyComponent';
+
+export const RemotionRoot: React.FC = () => {{
+  return (
+    <Composition
+      id="{COMPOSITION_ID}"
+      component={{MyComponent}}
+      durationInFrames={{{duration_frames}}}
+      fps={{{fps}}}
+      width={{{BASE_COMPOSITION_WIDTH}}}
+      height={{{BASE_COMPOSITION_HEIGHT}}}
+    />
+  );
+}};
+
+registerRoot(RemotionRoot);
 '''
-    return wrapper
 
 
-def _setup_temp_dir(script_content: str) -> Tuple[str, str, str]:
-    """Setup temporary directory for rendering."""
-    # Ensure project temp directory exists
+def _prepare_user_script(script_content: str) -> Tuple[str, str]:
+    modified = script_content
+    if 'import React' not in modified and 'from \'react\'' not in modified and 'from "react"' not in modified:
+        modified = "import React from 'react';\n" + modified
+
+    component_name = _detect_component_name(modified)
+    if not component_name:
+        component_name = "MyComponent"
+        modified = modified + f"\n\nconst {component_name} = () => {{ return <div>Empty</div>; }};\n"
+
+    if f'export {{ {component_name} }}' not in modified and 'export default' not in modified and f'export const {component_name}' not in modified and f'export function {component_name}' not in modified:
+        modified = modified + f"\n\nexport {{ {component_name} }};\n"
+
+    has_named_export = f'export {{ {component_name} }}' in modified or f'export const {component_name}' in modified or f'export function {component_name}' in modified
+    if has_named_export:
+        pass
+    elif 'export default' in modified:
+        modified = modified.replace(f'export default {component_name}', f'export {{ {component_name} }}')
+        modified = modified.replace(f'export default function {component_name}', f'export function {component_name}')
+
+    return modified, component_name
+
+
+def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, str]:
     if not os.path.exists(PROJECT_TEMP_DIR):
         os.makedirs(PROJECT_TEMP_DIR, exist_ok=True)
 
     temp_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_TEMP_DIR_NAME)
     if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     os.makedirs(temp_dir, exist_ok=True)
-
-    # Create src directory
     src_dir = os.path.join(temp_dir, REMOTION_SRC_DIR)
     os.makedirs(src_dir, exist_ok=True)
 
-    # Check if we need a wrapper or if user's script already has registerRoot
-    root_wrapper = _create_root_wrapper(script_content)
-
-    if root_wrapper is None:
-        # User script already contains registerRoot, use it directly as entry point
+    if _script_has_register_root(script_content):
         entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
         with open(entry_file, 'w', encoding='utf-8') as f:
             f.write(script_content)
-        composition_file = entry_file
+    elif _script_has_composition(script_content):
+        entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+        if 'registerRoot' not in script_content:
+            root_name = _detect_component_name(script_content)
+            if not root_name:
+                root_name = "Root"
+            wrapped = script_content
+            if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
+                wrapped = wrapped.replace("from 'remotion'", "registerRoot, Composition } from 'remotion'") if "registerRoot" not in wrapped else wrapped
+                if "registerRoot" not in wrapped:
+                    wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
+            wrapped = wrapped + f"\n\nregisterRoot({root_name});\n"
+            with open(entry_file, 'w', encoding='utf-8') as f:
+                f.write(wrapped)
+        else:
+            with open(entry_file, 'w', encoding='utf-8') as f:
+                f.write(script_content)
     else:
-        # Wrap user's script with registerRoot
-        # The user's script should define a component that we export
-        # Wrap it properly to export as default and register
-        composition_file = os.path.join(src_dir, "Composition.tsx")
+        prepared_script, component_name = _prepare_user_script(script_content)
+        component_file = os.path.join(src_dir, "MyComponent.tsx")
+        with open(component_file, 'w', encoding='utf-8') as f:
+            f.write(prepared_script)
 
-        # Check if script has a default export, add one if not
-        modified_script = script_content
-        if 'export default' not in script_content:
-            # Try to find the component name (typically the function name after const or function)
-            import re
-            component_match = re.search(r'(?:const|function)\s+(\w+)\s*[=\(]', script_content)
-            if component_match:
-                component_name = component_match.group(1)
-                # Add export default at the end
-                modified_script = script_content + f"\n\nexport default {component_name};\n"
-            else:
-                # Fallback: wrap the whole script in a way that works
-                modified_script = script_content + "\n\n// Auto-export for Remotion\nexport default SimpleAnimation;\n"
+        entry_content = _build_entry_content(component_name, render_settings)
+        entry_content = entry_content.replace(
+            "import { MyComponent } from './MyComponent';",
+            f"import {{ {component_name} as MyComponent }} from './MyComponent';"
+        ) if component_name != "MyComponent" else entry_content
 
-        with open(composition_file, 'w', encoding='utf-8') as f:
-            f.write(modified_script)
-
-        # Create index.tsx with wrapper
         entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
         with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(root_wrapper)
+            f.write(entry_content)
 
-    # Copy package.json and package-lock.json from tools/remotion
     for pkg_file in ["package.json", "package-lock.json"]:
         src = os.path.join(TOOLS_REMOTION, pkg_file)
         if os.path.exists(src):
-            dst = os.path.join(temp_dir, pkg_file)
-            shutil.copy2(src, dst)
+            shutil.copy2(src, os.path.join(temp_dir, pkg_file))
 
-    # Copy or create tsconfig.json
-    tsconfig_src = os.path.join(TOOLS_REMOTION, "tsconfig.json")
-    if os.path.exists(tsconfig_src):
-        shutil.copy2(tsconfig_src, os.path.join(temp_dir, "tsconfig.json"))
-    else:
-        # Create a basic tsconfig for Remotion
-        tsconfig_content = {
-            "compilerOptions": {
-                "target": "es2020",
-                "module": "es2020",
-                "jsx": "react",
-                "strict": True,
-                "moduleResolution": "node",
-                "esModuleInterop": True,
-                "skipLibCheck": True,
-                "forceConsistentCasingInFileNames": True,
-                "resolveJsonModule": True,
-                "isolatedModules": True,
-                "noEmit": True
-            },
-            "include": ["src"]
-        }
-        with open(os.path.join(temp_dir, "tsconfig.json"), 'w', encoding='utf-8') as f:
-            json.dump(tsconfig_content, f, indent=2)
+    tsconfig_content = {
+        "compilerOptions": {
+            "target": "es2018",
+            "module": "commonjs",
+            "jsx": "react-jsx",
+            "strict": True,
+            "moduleResolution": "node",
+            "esModuleInterop": True,
+            "skipLibCheck": True,
+            "forceConsistentCasingInFileNames": True,
+            "resolveJsonModule": True,
+            "isolatedModules": True,
+            "noEmit": True
+        },
+        "include": ["src"]
+    }
+    with open(os.path.join(temp_dir, "tsconfig.json"), 'w', encoding='utf-8') as f:
+        json.dump(tsconfig_content, f, indent=2)
 
-    # Copy node_modules fully (do not preserve symlinks) to ensure all package files are accessible
     src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
     dst_node_modules = os.path.join(temp_dir, "node_modules")
     if os.path.exists(src_node_modules):
-        if os.path.islink(dst_node_modules) or os.path.exists(dst_node_modules):
-            shutil.rmtree(dst_node_modules)
-        # Copy everything, following symlinks to actual files
-        shutil.copytree(src_node_modules, dst_node_modules, symlinks=False)
+        if platform.system() == "Windows":
+            try:
+                subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", dst_node_modules, src_node_modules],
+                    check=True, capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            except Exception:
+                shutil.copytree(src_node_modules, dst_node_modules, symlinks=False)
+        else:
+            os.symlink(src_node_modules, dst_node_modules)
 
-    return temp_dir, entry_file, composition_file
+    return temp_dir, entry_file
+
+
+def _detect_composition_id(script_content: str) -> str:
+    match = re.search(r'id\s*=\s*["\']([^"\']+)["\']', script_content)
+    if match:
+        return match.group(1)
+    return COMPOSITION_ID
 
 
 def _build_render_args(
     entry_file: str,
+    composition_id: str,
     output_path: str,
     render_settings: dict
 ) -> List[str]:
-    """Build command line arguments for remotion render."""
-    args = ["remotion", "render", entry_file, output_path]
+    args = ["remotion", "render", entry_file, composition_id, "--output", output_path]
 
-    # Video settings
+    target_width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
+    scale = target_width / BASE_COMPOSITION_WIDTH
+    if scale != 1.0:
+        args.extend(['--scale', str(scale)])
+    if render_settings.get('fps', 0) > 0:
+        args.extend(['--fps', str(int(render_settings['fps']))])
+
     if render_settings.get('codec') and render_settings['codec'] != 'h264':
         args.extend(['--codec', render_settings['codec']])
     if render_settings.get('pixel_format') and render_settings['pixel_format'] != 'yuv420p':
         args.extend(['--pixel-format', render_settings['pixel_format']])
-    if render_settings.get('width', 0) > 0:
-        args.extend(['--width', str(render_settings['width'])])
-    if render_settings.get('height', 0) > 0:
-        args.extend(['--height', str(render_settings['height'])])
-    if render_settings.get('fps', 0) > 0:
-        args.extend(['--fps', str(render_settings['fps'])])
-    if render_settings.get('duration', 0) > 0:
-        args.extend(['--duration', str(render_settings['duration'])])
-    if render_settings.get('scale', 1.0) != 1.0:
-        args.extend(['--scale', str(render_settings['scale'])])
     if render_settings.get('image_format') and render_settings['image_format'] != 'jpeg':
         args.extend(['--image-format', render_settings['image_format']])
     if render_settings.get('sequence', False):
@@ -228,7 +243,6 @@ def _build_render_args(
     if render_settings.get('every_nth_frame', 1) > 1:
         args.extend(['--every-nth-frame', str(render_settings['every_nth_frame'])])
 
-    # Audio settings
     if render_settings.get('audio_codec') and render_settings['audio_codec'] != 'aac':
         args.extend(['--audio-codec', render_settings['audio_codec']])
     if render_settings.get('audio_bitrate'):
@@ -242,10 +256,12 @@ def _build_render_args(
     if render_settings.get('for_seamless_aac_concatenation', False):
         args.append('--for-seamless-aac-concatenation')
 
-    # Quality settings
-    if render_settings.get('crf', 0) > 0:
+    has_video_bitrate = bool(render_settings.get('video_bitrate'))
+    has_crf = render_settings.get('crf', 0) > 0
+    print(f"[Remotion] video_bitrate='{render_settings.get('video_bitrate')}', crf={render_settings.get('crf')}, has_video_bitrate={has_video_bitrate}")
+    if has_crf and not has_video_bitrate:
         args.extend(['--crf', str(render_settings['crf'])])
-    if render_settings.get('video_bitrate'):
+    elif has_video_bitrate:
         args.extend(['--video-bitrate', render_settings['video_bitrate']])
     if render_settings.get('buffer_size'):
         args.extend(['--buffer-size', render_settings['buffer_size']])
@@ -260,7 +276,6 @@ def _build_render_args(
     if render_settings.get('gif_loops', 0) > 0:
         args.extend(['--number-of-gif-loops', str(render_settings['gif_loops'])])
 
-    # Performance settings
     if render_settings.get('concurrency', 0) > 0:
         args.extend(['--concurrency', str(render_settings['concurrency'])])
     if render_settings.get('hardware_acceleration') and render_settings['hardware_acceleration'] != 'none':
@@ -268,7 +283,6 @@ def _build_render_args(
     if render_settings.get('disallow_parallel_encoding', False):
         args.append('--disallow-parallel-encoding')
 
-    # Browser settings
     if render_settings.get('browser_executable'):
         args.extend(['--browser-executable', render_settings['browser_executable']])
     if render_settings.get('chrome_mode') and render_settings['chrome_mode'] != 'default':
@@ -288,7 +302,6 @@ def _build_render_args(
     if render_settings.get('gl') and render_settings['gl'] != 'default':
         args.extend(['--gl', render_settings['gl']])
 
-    # Advanced settings
     if render_settings.get('config_file'):
         args.extend(['--config', render_settings['config_file']])
     if render_settings.get('env_file'):
@@ -323,28 +336,21 @@ def _build_render_args(
         args.extend(['--color-space', render_settings['color_space']])
     if render_settings.get('image_sequence_pattern'):
         args.extend(['--image-sequence-pattern', render_settings['image_sequence_pattern']])
-    if render_settings.get('overwrite', True) is False:
-        args.append('--overwrite=false')
+    if render_settings.get('overwrite', True):
+        args.append('--overwrite')
 
     return args
 
 
 def _cleanup_temp_dir(temp_dir: Optional[str]):
-    """Cleanup temporary directory after rendering."""
     if not temp_dir:
         return
     try:
         if os.path.exists(temp_dir):
-            # On Windows, sometimes files are locked. Try to force cleanup.
-            if platform.system() == "Windows":
-                # Use robocopy to mirror empty dir or just ignore errors
-                try:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                except:
-                    # As last resort, try to delete on next reboot (not ideal but better than crash)
-                    pass
-            else:
-                shutil.rmtree(temp_dir)
+            node_modules_path = os.path.join(temp_dir, "node_modules")
+            if os.path.islink(node_modules_path) or os.path.isjunction(node_modules_path):
+                os.remove(node_modules_path)
+            shutil.rmtree(temp_dir, ignore_errors=True)
     except Exception as e:
         print(f"[WARN] Failed to cleanup temp directory: {e}")
 
@@ -355,30 +361,15 @@ def render_video(
     render_settings: dict,
     progress_callback=None
 ) -> Tuple[bool, str]:
-    """
-    Render a video using Remotion.
-
-    Args:
-        script_content: TypeScript/React code for the composition
-        output_path: Full path to output file (including filename and extension)
-        render_settings: Dictionary of render settings from RenderSettingsTabWidget.
-                         Should include 'overwrite' key (bool) to control overwrite behavior.
-        progress_callback: Optional callback(percentage, message) for progress updates
-
-    Returns:
-        (success: bool, message: str)
-    """
     if not script_content or not script_content.strip():
         return False, "Script content is empty"
 
-    # Debug: print first 500 chars of script
-    print(f"[DEBUG] Script (first 500 chars):\n{script_content[:500]}{'...' if len(script_content) > 500 else ''}")
+    print(f"[Remotion] Script preview:\n{script_content[:500]}{'...' if len(script_content) > 500 else ''}")
 
     output_path = output_path.strip()
     if not output_path:
         return False, "Output path is empty"
 
-    # Ensure output directory exists
     output_dir = os.path.dirname(output_path)
     if output_dir and not os.path.exists(output_dir):
         try:
@@ -386,52 +377,45 @@ def render_video(
         except Exception as e:
             return False, f"Failed to create output directory: {e}"
 
-    # Find Node.js and npx
     node = _find_node()
     if not node:
         return False, "Node.js not found. Please ensure tools/nodejs is available."
 
-    npm_cmd = _find_npm_cmd()
-    if not npm_cmd:
-        return False, "npm not found. Please ensure tools/nodejs is complete."
-
-    npx_runner = _find_npx_runner(node)
-    if not npx_runner:
+    npx_cmd = _find_npx_cmd()
+    if not npx_cmd:
         return False, "npx not found. Please ensure tools/nodejs is complete."
 
     temp_dir = None
 
     try:
-        # Setup temp dir with script and dependencies
         if progress_callback:
-            progress_callback(0, "Setting up temporary directory...")
-        temp_dir, entry_file, _ = _setup_temp_dir(script_content)
+            progress_callback(5, "Setting up project...")
+        temp_dir, entry_file = _setup_temp_dir(script_content, render_settings)
 
-        print(f"[DEBUG] Temp directory: {temp_dir}")
-        print(f"[DEBUG] Entry file: {entry_file}")
+        print(f"[Remotion] Temp directory: {temp_dir}")
+        print(f"[Remotion] Entry file: {entry_file}")
 
-        # Build command using the entry file returned by setup
-        args = _build_render_args(entry_file, output_path, render_settings)
-        print(f"[DEBUG] Render args: {args}")
+        entry_relative = os.path.relpath(entry_file, temp_dir).replace("\\", "/")
 
-        # Execute
+        composition_id = _detect_composition_id(script_content)
+        if not _script_has_register_root(script_content) and not _script_has_composition(script_content):
+            composition_id = COMPOSITION_ID
+
+        args = _build_render_args(entry_relative, composition_id, output_path, render_settings)
+        print(f"[Remotion] Render args: {args}")
+
         if progress_callback:
             progress_callback(10, "Starting render...")
 
         env = os.environ.copy()
-        env["NODE_ENV"] = "development"
-        env["PATH"] = os.path.dirname(node) + os.pathsep + env.get("PATH", "")
+        node_dir = os.path.dirname(node)
+        env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
+        env["NODE_ENV"] = "production"
 
-        # Add REMCTION_LOG_LEVEL for more detailed errors
-        env["REMOTION_LOG_LEVEL"] = "debug"
+        cmd = npx_cmd + args
+        print(f"[Remotion] Command: {' '.join(cmd)}")
+        print(f"[Remotion] Working directory: {temp_dir}")
 
-        # On Windows, handle npm.cmd properly - but npx_runner already includes proper command
-        cmd = npx_runner + args
-
-        print(f"[DEBUG] Running command: {' '.join(cmd)}")
-        print(f"[DEBUG] Working directory: {temp_dir}")
-
-        # Run process and capture output
         proc = subprocess.Popen(
             cmd,
             cwd=temp_dir,
@@ -444,7 +428,6 @@ def render_video(
             creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
         )
 
-        # Read output line by line
         output_lines = []
         if proc.stdout:
             while True:
@@ -452,41 +435,45 @@ def render_video(
                 if line == '' and proc.poll() is not None:
                     break
                 if line:
-                    output_lines.append(line.strip())
-                    # Simple progress parsing from remotion output
-                    if progress_callback and ('%' in line or 'Rendering' in line or 'frame' in line.lower()):
-                        # Try to extract percentage
-                        match = re.search(r'(\d+)%', line)
-                        if match:
-                            pct = int(match.group(1))
-                            # Map 0-100% to 20-100% of our progress bar
-                            progress = 20 + int(pct * 0.8)
-                            progress_callback(progress, f"Rendering: {pct}%")
-                        else:
-                            progress_callback(None, line.strip())
+                    stripped = line.strip()
+                    clean = re.sub(r'\x1b\[[0-9;]*[mGKHF]', '', stripped)
+                    if clean:
+                        output_lines.append(clean)
+                        print(f"[Remotion] {clean}")
+                    if progress_callback and ('Rendered' in line or 'Bundl' in line):
+                        frame_match = re.search(r'Rendered\s+(\d+)/(\d+)', line)
+                        if frame_match:
+                            current = int(frame_match.group(1))
+                            total = int(frame_match.group(2))
+                            pct = int(current / total * 100) if total > 0 else 0
+                            progress_callback(min(pct, 99), f"Frame {current}/{total}")
+                        elif 'Bundl' in line:
+                            progress_callback(5, "Bundling...")
 
         proc.wait()
 
         if proc.returncode == 0:
-            if progress_callback:
-                progress_callback(100, "Render complete!")
-            return True, "Render completed successfully"
+            if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                if progress_callback:
+                    progress_callback(100, "Render complete!")
+                return True, f"Render completed successfully!\nOutput: {output_path}\nSize: {file_size / 1024 / 1024:.1f} MB"
+            else:
+                if progress_callback:
+                    progress_callback(100, "Render complete!")
+                return True, f"Render completed but output file not found at expected path.\nCheck: {output_path}"
         else:
-            # Capture full output
-            full_output = "\n".join(output_lines) if output_lines else "Unknown error"
-            error_msg = "\n".join(output_lines[-20:]) if output_lines else "Unknown error"
-            # Print to console for easier debugging
-            print(f"[REmotion Render Error] Failed with exit code {proc.returncode}")
-            print(f"[REmotion Render Error] Full output:\n{full_output}")
-            return False, f"Render failed with exit code {proc.returncode}\nOutput:\n{error_msg}"
+            full_output = "\n".join(output_lines)
+            error_lines = output_lines[-30:] if output_lines else ["Unknown error"]
+            error_msg = "\n".join(error_lines)
+            print(f"[Remotion] Render failed with exit code {proc.returncode}")
+            return False, f"Render failed (exit code {proc.returncode}):\n{error_msg}"
 
     except Exception as e:
-        # Print to console for easier debugging
-        print(f"[REmotion Render Exception] {str(e)}")
+        print(f"[Remotion] Exception: {str(e)}")
         return False, f"Render error: {str(e)}"
 
     finally:
-        # Cleanup
         if progress_callback:
             progress_callback(100, "Cleaning up...")
         if temp_dir:

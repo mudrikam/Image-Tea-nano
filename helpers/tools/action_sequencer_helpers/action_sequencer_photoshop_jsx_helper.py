@@ -161,6 +161,10 @@ class PhotoshopJSXGenerator:
         jsx.append("}")
         jsx.append("")
         
+        for line in self._generate_safe_open_function():
+            jsx.append(line)
+        jsx.append("")
+        
         if is_first_segment and (is_batch or is_single_run_with_file):
             jsx.append("// Source files")
             jsx.append("var sourceFiles = [")
@@ -192,7 +196,7 @@ class PhotoshopJSXGenerator:
         """Generate batch processing code for a segment"""
         if is_first_segment:
             jsx.append("    for (var i = 0; i < sourceFiles.length; i++) {")
-            jsx.append("        var doc = app.open(new File(sourceFiles[i]));")
+            jsx.append("        var doc = safeOpen(sourceFiles[i]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
         else:
             jsx.append("    var doc = app.activeDocument;")
@@ -239,7 +243,7 @@ class PhotoshopJSXGenerator:
         """Generate single run with file code for a segment"""
         if is_first_segment:
             jsx.append("    if (sourceFiles.length > 0) {")
-            jsx.append("        var doc = app.open(new File(sourceFiles[0]));")
+            jsx.append("        var doc = safeOpen(sourceFiles[0]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("    }")
         else:
@@ -351,6 +355,10 @@ class PhotoshopJSXGenerator:
         jsx.append("}")
         jsx.append("")
         
+        for line in self._generate_safe_open_function():
+            jsx.append(line)
+        jsx.append("")
+        
         if is_batch or is_single_run_with_file:
             jsx.append("// Source files")
             jsx.append("var sourceFiles = [")
@@ -367,7 +375,7 @@ class PhotoshopJSXGenerator:
         
         if is_batch:
             jsx.append("    for (var i = 0; i < sourceFiles.length; i++) {")
-            jsx.append("        var doc = app.open(new File(sourceFiles[i]));")
+            jsx.append("        var doc = safeOpen(sourceFiles[i]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("")
             
@@ -411,7 +419,7 @@ class PhotoshopJSXGenerator:
             jsx.append("    }")
         elif is_single_run_with_file:
             jsx.append("    if (sourceFiles.length > 0) {")
-            jsx.append("        var doc = app.open(new File(sourceFiles[0]));")
+            jsx.append("        var doc = safeOpen(sourceFiles[0]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("    }")
             jsx.append("")
@@ -507,6 +515,35 @@ class PhotoshopJSXGenerator:
         
         return "\n".join(jsx)
     
+    def _generate_safe_open_function(self):
+        lines = []
+        lines.append("function safeOpen(filePath) {")
+        lines.append("    var f = new File(filePath);")
+        lines.append("    if (!f.exists) throw new Error('File not found: ' + filePath);")
+        lines.append("    var ext = f.name.match(/\\.([^.]+)$/);")
+        lines.append("    ext = ext ? ext[1].toLowerCase() : '';")
+        lines.append("    try {")
+        lines.append("        switch(ext) {")
+        lines.append("            case 'psd': return app.open(f, OpenDocumentType.PHOTOSHOP);")
+        lines.append("            case 'psb': return app.open(f, OpenDocumentType.PHOTOSHOPLARGE);")
+        lines.append("            case 'jpg': case 'jpeg': return app.open(f, OpenDocumentType.JPEG);")
+        lines.append("            case 'png': return app.open(f, OpenDocumentType.PNG);")
+        lines.append("            case 'tif': case 'tiff': return app.open(f, OpenDocumentType.TIFF);")
+        lines.append("            case 'gif': return app.open(f, OpenDocumentType.GIF);")
+        lines.append("            case 'bmp': return app.open(f, OpenDocumentType.BMP);")
+        lines.append("            case 'pdf': return app.open(f, OpenDocumentType.PDF);")
+        lines.append("            case 'eps': case 'epsf': return app.open(f, OpenDocumentType.EPS);")
+        lines.append("            case 'ai': return app.open(f, OpenDocumentType.EPS);")
+        lines.append("            case 'raw': case 'cr2': case 'nef': case 'arw': case 'dng':")
+        lines.append("                return app.open(f, OpenDocumentType.CAMERARAW);")
+        lines.append("            default: return app.open(f);")
+        lines.append("        }")
+        lines.append("    } catch(e) {")
+        lines.append("        return app.open(f);")
+        lines.append("    }")
+        lines.append("}")
+        return lines
+
     def _generate_export_code(self, export_format, indent, export_setting=100):
         """Generate export code for Photoshop"""
         code_lines = []

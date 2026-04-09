@@ -1,21 +1,200 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QTabWidget, QTextEdit, QWidget, QPushButton, QMessageBox)
-from PySide6.QtCore import Qt, Signal
+                               QTabWidget, QTextEdit, QWidget, QPushButton, QMessageBox,
+                               QSplitter, QComboBox)
+from PySide6.QtCore import Qt, Signal, QThread
+from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import TypeScriptHighlighter
 import qtawesome as qta
+
+REMOTION_SYSTEM_PROMPT = """You are a Remotion video script generator. Generate valid TypeScript/React code for Remotion.
+
+RULES:
+1. Import React and ONLY these valid Remotion exports: useCurrentFrame, useVideoConfig, interpolate, spring, Easing, AbsoluteFill, Sequence, Audio, Img, Video
+2. DO NOT import anything else from 'remotion' - functions like cameraZoom, random, noise do NOT exist
+3. Create a single React functional component
+4. Export the component as named export
+5. Use inline styles only (no CSS files), all style keys must be camelCase
+6. The component receives no props - use useCurrentFrame() and useVideoConfig() for animation
+7. DO NOT import Composition or registerRoot - the wrapper handles that
+8. Output ONLY the TypeScript code, no markdown fences, no explanation
+9. interpolate() outputRange must contain ONLY numbers, never strings
+10. interpolate() inputRange must be strictly increasing numbers
+11. spring() returns a number - use it directly as a value
+12. The component should fill the entire frame (width: '100%', height: '100%')
+
+EXAMPLE OUTPUT:
+import React from 'react';
+import { useCurrentFrame, useVideoConfig, interpolate, spring } from 'remotion';
+
+export const MyComponent: React.FC = () => {
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+
+  const opacity = interpolate(frame, [0, 30], [0, 1], { extrapolateRight: 'clamp' });
+  const scale = spring({ frame, fps, config: { damping: 200 } });
+
+  return (
+    <div style={{ flex: 1, justifyContent: 'center', alignItems: 'center', display: 'flex', backgroundColor: '#0f0f0f', width: '100%', height: '100%' }}>
+      <h1 style={{ color: 'white', fontSize: 60, opacity, transform: `scale(${scale})` }}>
+        Hello World
+      </h1>
+    </div>
+  );
+};
+"""
+
+
+class ScriptGeneratorWorker(QThread):
+    finished = Signal(bool, str)
+
+    def __init__(self, api_key, endpoint, service, model, prompt):
+        super().__init__()
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.service = service
+        self.model = model
+        self.prompt = prompt
+
+    def run(self):
+        try:
+            import os
+            import json
+            full_prompt = REMOTION_SYSTEM_PROMPT + "\n\nUSER REQUEST:\n" + self.prompt
+            svc = (self.service or '').lower()
+            endpoint = (self.endpoint or '').strip()
+
+            print(f"[Vibe Video] Calling AI: service={svc}, model={self.model}")
+
+            text = ''
+
+            if endpoint:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                print(f"[Vibe Video] Using custom endpoint: {endpoint}")
+                text = CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, full_prompt, timeout=120)
+            elif svc == 'gemini':
+                import google.genai as genai
+                client = genai.Client(api_key=self.api_key)
+                response = client.models.generate_content(model=self.model, contents=[full_prompt])
+                text = response.text
+            elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
+                from openai import OpenAI
+                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    ai_config = json.load(f)
+                base_url = ai_config['provider_endpoints'][svc]
+                client = OpenAI(api_key=self.api_key, base_url=base_url)
+                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                text = response.choices[0].message.content
+            elif svc == 'groq':
+                from groq import Groq
+                client = Groq(api_key=self.api_key)
+                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                text = response.choices[0].message.content
+            else:
+                self.finished.emit(False, f"Unsupported service: {svc}")
+                return
+
+            code = self._extract_code(text)
+            self.finished.emit(True, code)
+
+        except Exception as e:
+            print(f"[Vibe Video] AI generation error: {e}")
+            self.finished.emit(False, str(e))
+
+    def _extract_code(self, text):
+        import re
+        patterns = [
+            r'```(?:tsx?|typescript|javascript)\s*\n(.*?)```',
+            r'```\s*\n(.*?)```',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+        stripped = text.strip()
+        if 'import' in stripped and ('React' in stripped or 'remotion' in stripped):
+            return stripped
+        return text.strip()
+
+
+PROMPT_REFINE_SYSTEM = """You are a video prompt engineer. The user gives you a short, rough idea for an animated video. Your job is to rewrite it into a clear, detailed, and specific prompt that will help an AI code generator create a great Remotion (React/TypeScript) animation.
+
+RULES:
+- Output ONLY the refined prompt text, no explanation, no markdown
+- Keep it 3-6 sentences
+- Include: what to animate, colors/style, transitions/effects, overall mood
+- Be specific about motion: fade, scale, slide, rotate, bounce, etc.
+- Do NOT write any code"""
+
+
+class PromptRefinerWorker(QThread):
+    finished = Signal(bool, str)
+
+    def __init__(self, api_key, endpoint, service, model, prompt):
+        super().__init__()
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.service = service
+        self.model = model
+        self.prompt = prompt
+
+    def run(self):
+        try:
+            import os
+            import json
+            full_prompt = PROMPT_REFINE_SYSTEM + "\n\nUSER INPUT:\n" + self.prompt
+            svc = (self.service or '').lower()
+            endpoint = (self.endpoint or '').strip()
+            text = ''
+            if endpoint:
+                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                text = CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, full_prompt, timeout=60)
+            elif svc == 'gemini':
+                import google.genai as genai
+                client = genai.Client(api_key=self.api_key)
+                response = client.models.generate_content(model=self.model, contents=[full_prompt])
+                text = response.text
+            elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
+                from openai import OpenAI
+                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    ai_config = json.load(f)
+                base_url = ai_config['provider_endpoints'][svc]
+                client = OpenAI(api_key=self.api_key, base_url=base_url)
+                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                text = response.choices[0].message.content
+            elif svc == 'groq':
+                from groq import Groq
+                client = Groq(api_key=self.api_key)
+                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                text = response.choices[0].message.content
+            else:
+                self.finished.emit(False, f"Unsupported service: {svc}")
+                return
+            self.finished.emit(True, text.strip())
+        except Exception as e:
+            print(f"[Vibe Video] Prompt refine error: {e}")
+            self.finished.emit(False, str(e))
 
 
 class EditScriptDialog(QDialog):
     script_created = Signal(object)
     script_updated = Signal(object)
 
-    def __init__(self, parent=None, collection_id=None, db=None, script_id=None):
+    def __init__(self, parent=None, collection_id=None, db=None, script_id=None,
+                 api_key='', endpoint='', service='', model=''):
         super().__init__(parent)
         self.collection_id = collection_id
         self.db = db
         self.script_id = script_id
         self.is_editing = script_id is not None
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.service = service
+        self.model = model
+        self._generator_worker = None
+        self._refine_worker = None
         self.setWindowTitle('Edit Script' if self.is_editing else 'New Script')
-        self.setMinimumSize(650, 500)
+        self.setMinimumSize(750, 600)
         self._setup_ui()
         if self.is_editing:
             self._load_script_data()
@@ -45,18 +224,48 @@ class EditScriptDialog(QDialog):
 
         self.prompt_tab = QWidget()
         prompt_layout = QVBoxLayout(self.prompt_tab)
+
         self.prompt_edit = QTextEdit()
-        self.prompt_edit.setPlaceholderText('Enter prompt...')
-        prompt_layout.addWidget(self.prompt_edit)
+        self.prompt_edit.setPlaceholderText(
+            'Describe the video you want to create...\n\n'
+            'Examples:\n'
+            '- Create a "Hello World" text animation that fades in then zooms out\n'
+            '- Create a countdown timer from 10 to 0 with gradient background\n'
+            '- Create a spinning logo animation with bounce effect'
+        )
+        prompt_layout.addWidget(self.prompt_edit, 1)
+
+        gen_row = QHBoxLayout()
+        gen_row.addStretch()
+
+        self.refine_btn = QPushButton('Refine Prompt')
+        self.refine_btn.setIcon(qta.icon('fa6s.star'))
+        self.refine_btn.setMinimumHeight(36)
+        self.refine_btn.setToolTip('Let AI expand your simple idea into a detailed prompt')
+        self.refine_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refine_btn.clicked.connect(self._on_refine_prompt)
+        gen_row.addWidget(self.refine_btn)
+
+        self.generate_btn = QPushButton('Generate Script')
+        self.generate_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.generate_btn.setMinimumHeight(36)
+        self.generate_btn.setMinimumWidth(180)
+        self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.generate_btn.clicked.connect(self._on_generate)
+        gen_row.addWidget(self.generate_btn)
+
+        prompt_layout.addLayout(gen_row)
 
         self.script_tab = QWidget()
         script_layout = QVBoxLayout(self.script_tab)
         self.script_edit = QTextEdit()
-        self.script_edit.setPlaceholderText('Enter TypeScript code...')
+        self.script_edit.setPlaceholderText('Enter or paste TypeScript/React code here...')
+        self._highlighter = TypeScriptHighlighter(self.script_edit.document())
         script_layout.addWidget(self.script_edit)
 
-        tabs.addTab(self.prompt_tab, qta.icon('fa6s.message'), 'Prompt')
+        tabs.addTab(self.prompt_tab, qta.icon('fa6s.wand-magic-sparkles'), 'Generate with AI')
         tabs.addTab(self.script_tab, qta.icon('fa6s.code'), 'TypeScript')
+        self.tabs = tabs
         layout.addWidget(tabs)
 
         btn_layout = QHBoxLayout()
@@ -79,6 +288,71 @@ class EditScriptDialog(QDialog):
             self.name_edit.setText(script_data.get('name', ''))
             self.desc_edit.setText(script_data.get('description') or '')
             self.script_edit.setPlainText(script_data.get('script_content', ''))
+
+    def _on_generate(self):
+        prompt_text = self.prompt_edit.toPlainText().strip()
+        if not prompt_text:
+            QMessageBox.warning(self, 'Validation', 'Please describe the video you want to create.')
+            self.prompt_edit.setFocus()
+            return
+
+        if not self.api_key:
+            QMessageBox.warning(self, 'API Key Required',
+                                'Please select an API key and service in the main dialog first.')
+            return
+
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setText('Generating...')
+        self.generate_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.generate_btn)))
+        self.refine_btn.setEnabled(False)
+
+        self._generator_worker = ScriptGeneratorWorker(
+            self.api_key, self.endpoint, self.service, self.model, prompt_text
+        )
+        self._generator_worker.finished.connect(self._on_generate_finished)
+        self._generator_worker.start()
+
+    def _on_generate_finished(self, success, result):
+        self.generate_btn.setEnabled(True)
+        self.generate_btn.setText('Generate Script')
+        self.generate_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.refine_btn.setEnabled(True)
+
+        if success:
+            self.script_edit.setPlainText(result)
+            self.tabs.setCurrentIndex(1)
+        else:
+            QMessageBox.critical(self, 'Generation Failed', f'Failed to generate script:\n{result}')
+
+    def _on_refine_prompt(self):
+        prompt_text = self.prompt_edit.toPlainText().strip()
+        if not prompt_text:
+            QMessageBox.warning(self, 'Validation', 'Please write a brief idea first before refining.')
+            self.prompt_edit.setFocus()
+            return
+        if not self.api_key:
+            QMessageBox.warning(self, 'API Key Required',
+                                'Please select an API key and service in the main dialog first.')
+            return
+        self.refine_btn.setEnabled(False)
+        self.refine_btn.setText('Refining...')
+        self.refine_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.refine_btn)))
+        self.generate_btn.setEnabled(False)
+        self._refine_worker = PromptRefinerWorker(
+            self.api_key, self.endpoint, self.service, self.model, prompt_text
+        )
+        self._refine_worker.finished.connect(self._on_refine_finished)
+        self._refine_worker.start()
+
+    def _on_refine_finished(self, success, result):
+        self.refine_btn.setEnabled(True)
+        self.refine_btn.setText('Refine Prompt')
+        self.refine_btn.setIcon(qta.icon('fa6s.star'))
+        self.generate_btn.setEnabled(True)
+        if success:
+            self.prompt_edit.setPlainText(result)
+        else:
+            QMessageBox.critical(self, 'Refine Failed', f'Failed to refine prompt:\n{result}')
 
     def accept(self):
         name = self.name_edit.text().strip()

@@ -226,11 +226,28 @@ class CollectionsWidget(QWidget):
 
         menu.exec(self.collections_tree.viewport().mapToGlobal(pos))
 
+    def _get_ai_credentials(self):
+        parent_dlg = self.parent()
+        while parent_dlg and not hasattr(parent_dlg, 'api_key'):
+            parent_dlg = parent_dlg.parent()
+        if parent_dlg and hasattr(parent_dlg, 'api_key'):
+            endpoint = getattr(parent_dlg, 'selected_endpoint', '')
+            return {
+                'api_key': parent_dlg.api_key or '',
+                'endpoint': endpoint or '',
+                'service': parent_dlg.selected_service or '',
+                'model': parent_dlg.selected_model_name or ''
+            }
+        return {'api_key': '', 'endpoint': '', 'service': '', 'model': ''}
+
     def _on_edit_script(self, script_data):
         if not self.db:
             return
         script_id = script_data.get('id')
-        dlg = EditScriptDialog(self, collection_id=script_data.get('collection_id'), db=self.db, script_id=script_id)
+        creds = self._get_ai_credentials()
+        dlg = EditScriptDialog(self, collection_id=script_data.get('collection_id'), db=self.db, script_id=script_id,
+                               api_key=creds['api_key'], endpoint=creds['endpoint'],
+                               service=creds['service'], model=creds['model'])
         dlg.script_updated.connect(self._on_script_edited)
         if dlg.exec():
             self.collection_updated.emit()
@@ -268,7 +285,10 @@ class CollectionsWidget(QWidget):
         if not self.db:
             return
         collection_id = collection_data.get('id')
-        dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db)
+        creds = self._get_ai_credentials()
+        dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db,
+                               api_key=creds['api_key'], endpoint=creds['endpoint'],
+                               service=creds['service'], model=creds['model'])
         if dlg.exec():
             self.load_collections()
             self.collection_updated.emit()

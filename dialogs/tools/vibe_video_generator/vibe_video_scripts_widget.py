@@ -194,6 +194,7 @@ class TypeScriptHighlighter(QSyntaxHighlighter):
 
 class ScriptsWidget(QWidget):
     script_updated = Signal(object)
+    script_selected = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -256,8 +257,10 @@ class ScriptsWidget(QWidget):
         if script_data:
             self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}")
             self.script_content.setPlainText(script_data.get('script_content', ''))
+            self.script_selected.emit(script_data.get('name', ''))
         else:
             self.script_name_label.setText('No script selected')
+            self.script_selected.emit('')
             self.script_content.clear()
 
     def update_script_name(self, new_name):
