@@ -99,7 +99,7 @@ def _powershell_download(url, filename, timeout: int = 120) -> bool:
         ps_cmd
     ]
     try:
-        res = subprocess.run(cmd, check=False, timeout=timeout)
+        res = subprocess.run(cmd, check=False, timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
         return res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0
     except subprocess.TimeoutExpired:
         print("PowerShell download timed out")
@@ -114,7 +114,7 @@ def _bitsadmin_download(url, filename, timeout: int = 120) -> bool:
         return False
     cmd = ["bitsadmin", "/transfer", "downloadjob", url, filename]
     try:
-        res = subprocess.run(cmd, check=False, timeout=timeout)
+        res = subprocess.run(cmd, check=False, timeout=timeout, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
         return res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0
     except subprocess.TimeoutExpired:
         print("BitsAdmin download timed out")

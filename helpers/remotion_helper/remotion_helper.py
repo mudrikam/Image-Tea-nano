@@ -30,17 +30,34 @@ def _find_node() -> Optional[str]:
     return shutil.which("node")
 
 
-def _find_npx_cmd() -> Optional[List[str]]:
+def _find_npm_cmd() -> Optional[List[str]]:
     if platform.system() == "Windows":
         for root, dirs, files in os.walk(TOOLS_NODEJS):
-            if "npx.cmd" in files:
-                return [os.path.join(root, "npx.cmd")]
+            if "npm.cmd" in files:
+                return [os.path.join(root, "npm.cmd")]
     for root, dirs, files in os.walk(TOOLS_NODEJS):
-        if "npx" in files:
-            return [os.path.join(root, "npx")]
-    system_npx = shutil.which("npx")
-    if system_npx:
-        return [system_npx]
+        if "npm" in files:
+            return [os.path.join(root, "npm")]
+    system_npm = shutil.which("npm")
+    if system_npm:
+        return [system_npm]
+    return None
+
+
+def _find_remotion_executable() -> Optional[str]:
+    bin_dir = os.path.join(TOOLS_REMOTION, "node_modules", ".bin")
+    if not os.path.exists(bin_dir):
+        return None
+    system = platform.system()
+    if system == "Windows":
+        for ext in [".cmd", ".ps1", ""]:
+            exe = os.path.join(bin_dir, f"remotion{ext}")
+            if os.path.exists(exe):
+                return exe
+    else:
+        exe = os.path.join(bin_dir, "remotion")
+        if os.path.exists(exe):
+            return exe
     return None
 
 
@@ -191,20 +208,37 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     with open(os.path.join(temp_dir, "tsconfig.json"), 'w', encoding='utf-8') as f:
         json.dump(tsconfig_content, f, indent=2)
 
+    # Copy node_modules instead of symlinking to avoid issues
     src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
     dst_node_modules = os.path.join(temp_dir, "node_modules")
     if os.path.exists(src_node_modules):
-        if platform.system() == "Windows":
+        try:
+            shutil.copytree(src_node_modules, dst_node_modules, symlinks=False, ignore=shutil.ignore_patterns('.git', '.DS_Store'))
+        except Exception as e:
+            print(f"[Remotion] Warning: Failed to copy node_modules: {e}")
+            # Try to install dependencies using npm
             try:
-                subprocess.run(
-                    ["cmd", "/c", "mklink", "/J", dst_node_modules, src_node_modules],
-                    check=True, capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            except Exception:
-                shutil.copytree(src_node_modules, dst_node_modules, symlinks=False)
-        else:
-            os.symlink(src_node_modules, dst_node_modules)
+                npm_cmd = _find_npm_cmd()
+                if npm_cmd:
+                    print("[Remotion] Installing dependencies...")
+                    env = os.environ.copy()
+                    node_dir = os.path.dirname(npm_cmd[0])
+                    env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
+                    subprocess.run(
+                        npm_cmd + ["install"],
+                        cwd=temp_dir,
+                        env=env,
+                        check=True,
+                        capture_output=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+                    )
+                    print("[Remotion] Dependencies installed successfully")
+                else:
+                    print("[Remotion] npm not found, dependencies may be missing")
+            except subprocess.CalledProcessError as e:
+                print(f"[Remotion] Failed to install dependencies: {e}")
+            except Exception as e:
+                print(f"[Remotion] Error installing dependencies: {e}")
 
     return temp_dir, entry_file
 
@@ -406,9 +440,9 @@ def render_video(
     if not node:
         return False, "Node.js not found. Please ensure tools/nodejs is available."
 
-    npx_cmd = _find_npx_cmd()
-    if not npx_cmd:
-        return False, "npx not found. Please ensure tools/nodejs is complete."
+    npm_cmd = _find_npm_cmd()
+    if not npm_cmd:
+        return False, "npm not found. Please ensure tools/nodejs is complete."
 
     temp_dir = None
 
@@ -432,12 +466,16 @@ def render_video(
         if progress_callback:
             progress_callback(10, "Starting render...")
 
+        remotion_exe = _find_remotion_executable()
+        if not remotion_exe:
+            return False, "Remotion executable not found in tools/remotion/node_modules/.bin"
+
         env = os.environ.copy()
         node_dir = os.path.dirname(node)
         env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
         env["NODE_ENV"] = "production"
 
-        cmd = npx_cmd + args
+        cmd = [node, remotion_exe] + args
         print(f"[Remotion] Command: {' '.join(cmd)}")
         print(f"[Remotion] Working directory: {temp_dir}")
 
