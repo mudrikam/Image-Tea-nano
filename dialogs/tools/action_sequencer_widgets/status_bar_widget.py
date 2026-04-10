@@ -185,9 +185,11 @@ class StatusBarWidget(QWidget):
             stop_icon = qta.icon('fa6s.stop')
             self.run_button.setIcon(stop_icon)
             self.run_button.setText(" STOP PROCESS")
+            _err_q = QColor(theme.get_color('error'))
+            _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
             self.run_button.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {theme.get_color('error')};
+                    background-color: rgba({_err_rgb},0.85);
                     color: {theme.get_color('white')};
                     border: none;
                     border-radius: 6px;
@@ -195,10 +197,10 @@ class StatusBarWidget(QWidget):
                     font-size: 12px;
                 }}
                 QPushButton:hover {{
-                    background-color: {theme.get_color('error_hover')};
+                    background-color: rgba({_err_rgb},1.0);
                 }}
                 QPushButton:pressed {{
-                    background-color: {theme.get_color('error_pressed')};
+                    background-color: rgba({_err_rgb},0.7);
                 }}
             """)
         
@@ -266,15 +268,16 @@ class StatusBarWidget(QWidget):
         self.is_running = False
         self.is_continue_mode = True
 
-        # Show restart button when in continue mode
         self.restart_button.show()
 
         continue_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(continue_icon)
         self.run_button.setText(" CONTINUE PROCESS")
+        _warn_q = QColor(theme.get_color('warning'))
+        _warn_rgb = f"{_warn_q.red()},{_warn_q.green()},{_warn_q.blue()}"
         self.run_button.setStyleSheet(f"""
             QPushButton {{
-                background-color: {theme.get_color('warning')};
+                background-color: rgba({_warn_rgb},0.85);
                 color: {theme.get_color('white')};
                 border: none;
                 border-radius: 6px;
@@ -282,10 +285,10 @@ class StatusBarWidget(QWidget):
                 font-size: 12px;
             }}
             QPushButton:hover {{
-                background-color: {theme.get_color('warning_hover')};
+                background-color: rgba({_warn_rgb},1.0);
             }}
             QPushButton:pressed {{
-                background-color: {theme.get_color('warning_pressed')};
+                background-color: rgba({_warn_rgb},0.7);
             }}
         """)
     
