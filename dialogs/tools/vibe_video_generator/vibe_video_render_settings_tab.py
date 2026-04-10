@@ -654,12 +654,18 @@ class RenderSettingsTabWidget(QWidget):
             self.props_edit.setText(f)
 
     def _browse_public_dir(self):
-        f = QFileDialog.getExistingDirectory(self, 'Select Public Directory')
+        import os
+        current = self.public_dir_edit.text()
+        start_dir = current if current else os.path.expanduser('~')
+        f = QFileDialog.getExistingDirectory(self, 'Select Public Directory', start_dir)
         if f:
             self.public_dir_edit.setText(f)
 
     def _browse_binaries_dir(self):
-        f = QFileDialog.getExistingDirectory(self, 'Select Binaries Directory')
+        import os
+        current = self.binaries_dir_edit.text()
+        start_dir = current if current else os.path.expanduser('~')
+        f = QFileDialog.getExistingDirectory(self, 'Select Binaries Directory', start_dir)
         if f:
             self.binaries_dir_edit.setText(f)
 

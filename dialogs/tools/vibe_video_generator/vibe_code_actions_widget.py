@@ -487,8 +487,10 @@ class CodeActionsWidget(QWidget):
             self._output_tab_widget.set_output_path(self.folder_input.text().strip())
 
     def _on_actions_browse(self):
+        import os
         current = self.folder_input.text()
-        folder = QFileDialog.getExistingDirectory(self, 'Select Output Folder', current)
+        start_dir = current if current else os.path.expanduser('~')
+        folder = QFileDialog.getExistingDirectory(self, 'Select Output Folder', start_dir)
         if folder:
             self.folder_input.setText(folder)
             if self._output_tab_widget:

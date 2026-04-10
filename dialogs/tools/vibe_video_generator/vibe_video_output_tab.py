@@ -201,7 +201,9 @@ class OutputTabWidget(QWidget):
             self.output_path_changed.emit(sanitized)
 
     def on_browse_output(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select Output Folder', self.output_path)
+        import os
+        start_dir = self.output_path if self.output_path else os.path.expanduser('~')
+        folder = QFileDialog.getExistingDirectory(self, 'Select Output Folder', start_dir)
         if folder:
             folder = self._sanitize_path_text(folder)
             self.output_path = folder

@@ -475,7 +475,11 @@ def render_video(
         env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
         env["NODE_ENV"] = "production"
 
-        cmd = [node, remotion_exe] + args
+        # On Windows, .cmd files are batch scripts that handle node execution internally
+        if remotion_exe.endswith('.cmd'):
+            cmd = [remotion_exe] + args
+        else:
+            cmd = [node, remotion_exe] + args
         print(f"[Remotion] Command: {' '.join(cmd)}")
         print(f"[Remotion] Working directory: {temp_dir}")
 
