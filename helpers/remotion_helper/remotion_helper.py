@@ -7,7 +7,7 @@ import json
 import re
 from typing import Optional, Tuple, List
 
-BASE_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import BASE_PATH
 
 TOOLS_NODEJS = os.path.join(BASE_PATH, "tools", "nodejs")
 TOOLS_REMOTION = os.path.join(BASE_PATH, "tools", "remotion")
@@ -44,21 +44,38 @@ def _find_npm_cmd() -> Optional[List[str]]:
     return None
 
 
-def _find_remotion_executable() -> Optional[str]:
+def _find_remotion_executable() -> Tuple[Optional[str], Optional[str]]:
+    """
+    Find remotion executable.
+    Returns: (entry_point, exec_type) where:
+    - entry_point: path to the executable
+    - exec_type: 'cmd', 'js', 'shell', or None
+    """
+    # Look for CLI entry point (remotion-cli.js) - the actual Node.js entry point
+    cli_js = os.path.join(TOOLS_REMOTION, "node_modules", "@remotion", "cli", "remotion-cli.js")
+    if os.path.exists(cli_js):
+        return cli_js, "js"
+    
+    # Fallback to shell wrappers
     bin_dir = os.path.join(TOOLS_REMOTION, "node_modules", ".bin")
     if not os.path.exists(bin_dir):
-        return None
+        return None, None
+    
     system = platform.system()
     if system == "Windows":
-        for ext in [".cmd", ".ps1", ""]:
-            exe = os.path.join(bin_dir, f"remotion{ext}")
-            if os.path.exists(exe):
-                return exe
+        # Check for .cmd first
+        cmd_exe = os.path.join(bin_dir, "remotion.cmd")
+        if os.path.exists(cmd_exe):
+            return cmd_exe, "cmd"
+        # Then .ps1
+        ps1_exe = os.path.join(bin_dir, "remotion.ps1")
+        if os.path.exists(ps1_exe):
+            return ps1_exe, "ps1"
     else:
         exe = os.path.join(bin_dir, "remotion")
         if os.path.exists(exe):
-            return exe
-    return None
+            return exe, "shell"
+    return None, None
 
 
 def _script_has_register_root(script_content: str) -> bool:
@@ -279,7 +296,7 @@ def _build_render_args(
     output_path: str,
     render_settings: dict
 ) -> List[str]:
-    args = ["remotion", "render", entry_file, composition_id, "--output", output_path]
+    args = ["render", entry_file, composition_id, "--output", output_path]
 
     target_width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
     scale = target_width / BASE_COMPOSITION_WIDTH
@@ -466,8 +483,8 @@ def render_video(
         if progress_callback:
             progress_callback(10, "Starting render...")
 
-        remotion_exe = _find_remotion_executable()
-        if not remotion_exe:
+        remotion_exe, exec_type = _find_remotion_executable()
+        if not remotion_exe or not exec_type:
             return False, "Remotion executable not found in tools/remotion/node_modules/.bin"
 
         env = os.environ.copy()
@@ -475,10 +492,21 @@ def render_video(
         env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
         env["NODE_ENV"] = "production"
 
-        # On Windows, .cmd files are batch scripts that handle node execution internally
-        if remotion_exe.endswith('.cmd'):
+        # Build command based on exec_type
+        if exec_type == 'cmd':
+            # Windows batch files - run through cmd.exe
+            cmd = ['cmd', '/c', remotion_exe] + args
+        elif exec_type == 'ps1':
+            # PowerShell scripts
+            cmd = ['powershell', '-NoProfile', '-File', remotion_exe] + args
+        elif exec_type == 'js':
+            # JS files - run with node
+            cmd = [node, remotion_exe] + args
+        elif exec_type == 'shell':
+            # Shell scripts - run directly
             cmd = [remotion_exe] + args
         else:
+            # Fallback - try with node
             cmd = [node, remotion_exe] + args
         print(f"[Remotion] Command: {' '.join(cmd)}")
         print(f"[Remotion] Working directory: {temp_dir}")

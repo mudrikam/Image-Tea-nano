@@ -166,7 +166,8 @@
       "z-ai/glm-4.5v",
       "z-ai/glm-4.6v",
       "openrouter/free",
-      "sourceful/riverflow-v2-pro"
+      "sourceful/riverflow-v2-pro",
+      "minimax/minimax-m2.5:free"
     ],
     "groq": [
       "allam-2-7b",
