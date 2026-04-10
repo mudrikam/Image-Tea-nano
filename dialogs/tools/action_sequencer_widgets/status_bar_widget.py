@@ -1,7 +1,7 @@
-﻿from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, 
+﻿from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
                                QProgressBar, QSizePolicy)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
 import qtawesome as qta
 import time
 from ui.theme_system import theme
@@ -10,7 +10,7 @@ from ui.theme_system import theme
 class StatusBarWidget(QWidget):
     run_sequences_requested = Signal()
     stop_process_requested = Signal()
-    reset_requested = Signal()
+    restart_process_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -19,7 +19,7 @@ class StatusBarWidget(QWidget):
         self.processed_files = 0
         self.is_running = False
         self.current_platform = None
-        self.is_paused = False
+        self.is_continue_mode = False
         self.setup_ui()
     
     def setup_ui(self):
@@ -75,9 +75,45 @@ class StatusBarWidget(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setMaximumHeight(20)
-        self.progress_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.progress_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         bottom_layout.addWidget(self.progress_bar)
-        
+
+        # Button container for run/restart buttons
+        button_container = QWidget()
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Restart from beginning button (hidden by default)
+        restart_icon = qta.icon('fa6s.rotate-left')
+        self.restart_button = QPushButton(restart_icon, " RESTART")
+        self.restart_button.setMinimumHeight(40)
+        self.restart_button.setMinimumWidth(120)
+        self.restart_button.setToolTip("Stop and restart processing from the beginning")
+        self.restart_button.clicked.connect(self.on_restart_clicked)
+        # Create rgba variations from error color for hover/pressed states
+        _err_q = QColor(theme.get_color('error'))
+        _err_rgb = f"{_err_q.red()},{_err_q.green()},{_err_q.blue()}"
+        self.restart_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba({_err_rgb},0.85);
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba({_err_rgb},1.0);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba({_err_rgb},0.7);
+            }}
+        """)
+        self.restart_button.hide()
+        button_layout.addWidget(self.restart_button)
+
+        # Main run/continue/stop button
         run_icon = qta.icon('fa6s.play')
         self.run_button = QPushButton(run_icon, " RUN SEQUENCES")
         self.run_button.setMinimumHeight(40)
@@ -99,8 +135,11 @@ class StatusBarWidget(QWidget):
                 background-color: {theme.get_color('primary_pressed')};
             }}
         """)
-        bottom_layout.addWidget(self.run_button)
-        
+        button_layout.addWidget(self.run_button)
+
+        button_container.setLayout(button_layout)
+        bottom_layout.addWidget(button_container)
+
         main_layout.addLayout(bottom_layout)
         
         self.setLayout(main_layout)
@@ -117,6 +156,9 @@ class StatusBarWidget(QWidget):
         self.total_files = total_files
         self.processed_files = 0
         self.start_time = time.time()
+
+        # Hide restart button when starting running mode
+        self.restart_button.hide()
         
         self.files_label.setText(f"Files: {total_files}")
         self.steps_label.setText(f"Steps: {total_steps}")
@@ -188,7 +230,11 @@ class StatusBarWidget(QWidget):
     def end_running_mode(self):
         self.is_running = False
         self.current_platform = None
-        
+        self.is_continue_mode = False
+
+        # Hide restart button when process ends
+        self.restart_button.hide()
+
         run_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(run_icon)
         self.run_button.setText(" RUN SEQUENCES")
@@ -208,17 +254,21 @@ class StatusBarWidget(QWidget):
                 background-color: {theme.get_color('primary_pressed')};
             }}
         """)
-        
+
         if self.start_time:
             elapsed = time.time() - self.start_time
             self.elapsed_label.setText(f"Elapsed: {self._format_time(elapsed)}")
-        
+
         self.update_status("Completed")
         self.update_progress(100)
     
     def set_continue_mode(self):
         self.is_running = False
-        
+        self.is_continue_mode = True
+
+        # Show restart button when in continue mode
+        self.restart_button.show()
+
         continue_icon = qta.icon('fa6s.play')
         self.run_button.setIcon(continue_icon)
         self.run_button.setText(" CONTINUE PROCESS")
@@ -242,10 +292,35 @@ class StatusBarWidget(QWidget):
     def reset_stats(self):
         self.is_running = False
         self.current_platform = None
+        self.is_continue_mode = False
         self.start_time = None
         self.total_files = 0
         self.processed_files = 0
-        
+
+        # Hide restart button when resetting
+        self.restart_button.hide()
+
+        # Reset run button to initial "RUN SEQUENCES" state
+        run_icon = qta.icon('fa6s.play')
+        self.run_button.setIcon(run_icon)
+        self.run_button.setText(" RUN SEQUENCES")
+        self.run_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+        """)
+
         self.files_label.setText("Files: 0")
         self.steps_label.setText("Steps: 0")
         self.elapsed_label.setText("Elapsed: 00:00")
@@ -298,6 +373,15 @@ class StatusBarWidget(QWidget):
             self.stop_process_requested.emit()
         else:
             self.run_sequences_requested.emit()
-    
+
+    def on_restart_clicked(self):
+        """Handle restart button click - restart from beginning."""
+        self.restart_process_requested.emit()
+
     def set_run_button_enabled(self, enabled):
         self.run_button.setEnabled(enabled)
+
+    def hide_restart_button(self):
+        """Hide restart button (call when process completes or resets)."""
+        self.restart_button.hide()
+        self.is_continue_mode = False

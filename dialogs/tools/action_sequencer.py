@@ -402,6 +402,7 @@ class ActionSequencerDialog(QDialog):
         
         self.status_bar_widget.run_sequences_requested.connect(self.on_run_sequences)
         self.status_bar_widget.stop_process_requested.connect(self.on_stop_process)
+        self.status_bar_widget.restart_process_requested.connect(self.on_restart_process)
         
         self.action_bar_widget.reset_requested.connect(self.on_reset_tool)
         self.action_bar_widget.get_free_presets_requested.connect(self.on_open_free_presets)
@@ -721,6 +722,26 @@ class ActionSequencerDialog(QDialog):
             self.status_bar_widget.update_status("Stopped")
             self.status_bar_widget.set_continue_mode()
             self.status_bar_widget.set_run_button_enabled(True)
+
+    def on_restart_process(self):
+        """Restart processing from the beginning (reset index to 0)."""
+        print("Restart process requested - resetting to beginning")
+
+        # Stop current worker if running
+        if self.batch_worker and self.batch_worker.isRunning():
+            self.batch_worker.stop()
+            self.batch_worker.wait()
+
+        # Reset state
+        self.is_batch_paused = False
+        self.last_processed_index = 0
+
+        # Reset UI
+        self.status_bar_widget.hide_restart_button()
+        self.status_bar_widget.reset_stats()
+        self.step_list_widget.clear_all_highlights()
+
+        print("Process reset to beginning - ready to start from file 1")
     
     def run_batch_mode(self, preset_id, platform_name, exec_path, output_path, config_data, total_steps):
         self.current_platform_name = platform_name
