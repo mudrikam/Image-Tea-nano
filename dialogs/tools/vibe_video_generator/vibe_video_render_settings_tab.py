@@ -101,6 +101,7 @@ class RenderSettingsTabWidget(QWidget):
         cl.addWidget(self._perf_group())
         cl.addWidget(self._browser_group())
         cl.addWidget(self._advanced_group())
+        cl.addWidget(self._component_props_group())
         cl.addStretch()
 
         scroll.setWidget(content)
@@ -310,7 +311,7 @@ class RenderSettingsTabWidget(QWidget):
         self.duration_spin.setRange(0, 999999)
         self.duration_spin.setSpecialValueText('Auto')
         self.duration_spin.valueChanged.connect(self._cb(True))
-        l.addRow('Duration (frames):', self.duration_spin)
+        l.addRow('Duration (seconds):', self.duration_spin)
 
         self.scale_spin = QDoubleSpinBox()
         self.scale_spin.setRange(0.01, 16.0)
@@ -443,7 +444,7 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('Concurrency:', self.concurrency_spin)
 
         self.hardware_accel_combo = QComboBox()
-        self.hardware_accel_combo.addItems(['none', 'cuda', 'videotoolbox', 'qsv', 'vaapi'])
+        self.hardware_accel_combo.addItems(['disabled', 'if-possible', 'required'])
         self.hardware_accel_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Hardware Acceleration:', self.hardware_accel_combo)
 
@@ -723,7 +724,7 @@ class RenderSettingsTabWidget(QWidget):
             args.extend(['--number-of-gif-loops', str(self.gif_loops_spin.value())])
         if self.concurrency_spin.value() > 0:
             args.extend(['--concurrency', str(self.concurrency_spin.value())])
-        if self.hardware_accel_combo.currentText() != 'none':
+        if self.hardware_accel_combo.currentText() not in ['disabled', 'none']:
             args.extend(['--hardware-acceleration', self.hardware_accel_combo.currentText()])
         if self.disallow_parallel_checkbox.isChecked():
             args.append('--disallow-parallel-encoding')

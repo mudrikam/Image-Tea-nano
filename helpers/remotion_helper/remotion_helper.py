@@ -353,7 +353,7 @@ def _build_render_args(
 
     if render_settings.get('concurrency', 0) > 0:
         args.extend(['--concurrency', str(render_settings['concurrency'])])
-    if render_settings.get('hardware_acceleration') and render_settings['hardware_acceleration'] != 'none':
+    if render_settings.get('hardware_acceleration') and render_settings['hardware_acceleration'] not in ['disabled', 'none']:
         args.extend(['--hardware-acceleration', render_settings['hardware_acceleration']])
     if render_settings.get('disallow_parallel_encoding', False):
         args.append('--disallow-parallel-encoding')
