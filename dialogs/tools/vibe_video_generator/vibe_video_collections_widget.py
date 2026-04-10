@@ -373,16 +373,38 @@ class CollectionsWidget(QWidget):
         data = item.data(0, Qt.UserRole)
         collection_id = data['id']
         collection_name = data.get('name', '')
-        script_count = data.get('script_count', 0)
 
-        msg = f'Delete collection "{collection_name}"'
-        if script_count > 0:
-            msg += f' and all {script_count} script(s) inside it?'
+        preview = self.db.get_remotion_collection_delete_preview(collection_id)
+        sub_collections = preview['collections']
+        scripts = preview['scripts']
+
+        msg = f'You are about to delete collection <b>"{collection_name}"</b>.'
+
+        if sub_collections or scripts:
+            msg += '<br><br>The following items will also be deleted:'
+            if sub_collections:
+                items_html = ''.join(f'<li>{n}</li>' for n in sub_collections)
+                msg += f'<br><b>Sub-collections ({len(sub_collections)}):</b><ul>{items_html}</ul>'
+            if scripts:
+                items_html = ''.join(f'<li>{n}</li>' for n in scripts)
+                msg += f'<br><b>Scripts ({len(scripts)}):</b><ul>{items_html}</ul>'
         else:
-            msg += '?'
+            msg += '<br><br>This collection is empty.'
 
-        reply = QMessageBox.question(self, 'Confirm Delete', msg,
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg += '<br><br>This action cannot be undone.'
+
+        box = QMessageBox(self)
+        box.setWindowTitle('Confirm Delete')
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(msg)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        yes_btn = box.button(QMessageBox.StandardButton.Yes)
+        yes_btn.setIcon(qta.icon('fa6s.trash'))
+        no_btn = box.button(QMessageBox.StandardButton.No)
+        no_btn.setIcon(qta.icon('fa6s.xmark'))
+        reply = box.exec()
+
         if reply == QMessageBox.StandardButton.Yes:
             self.db.delete_remotion_collection(collection_id)
             self.current_collection = None

@@ -1453,10 +1453,37 @@ class ImageTeaDB:
                 c.execute(query, params)
                 conn.commit()
 
+    def get_remotion_collection_delete_preview(self, collection_id):
+        collections = []
+        scripts = []
+
+        def collect(cid):
+            direct_scripts = self.get_remotion_scripts(cid, active_only=False)
+            for s in direct_scripts:
+                scripts.append(s.get('name', 'Unnamed'))
+            sub_cols = self.get_remotion_collections(cid)
+            for col in sub_cols:
+                collections.append(col.get('name', 'Unnamed'))
+                collect(col['id'])
+
+        collect(collection_id)
+        return {'collections': collections, 'scripts': scripts}
+
     def delete_remotion_collection(self, collection_id):
+        def collect_all_ids(cid):
+            ids = [cid]
+            sub_cols = self.get_remotion_collections(cid)
+            for col in sub_cols:
+                ids.extend(collect_all_ids(col['id']))
+            return ids
+
+        all_ids = collect_all_ids(collection_id)
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('DELETE FROM remotion_collections WHERE id = ?', (collection_id,))
+            placeholders = ','.join('?' * len(all_ids))
+            c.execute(f'DELETE FROM remotion_scripts WHERE collection_id IN ({placeholders})', all_ids)
+            for cid in reversed(all_ids):
+                c.execute('DELETE FROM remotion_collections WHERE id = ?', (cid,))
             conn.commit()
 
     def get_collection_script_count(self, collection_id):
