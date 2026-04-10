@@ -125,7 +125,7 @@ class ActionSequencerFileWatcher:
                         matched = True
                     
                     if matched:
-                        if self._is_file_stable(file_path):
+                        if self._is_file_stable(file_path, stop_check=stop_check):
                             detected_files[expected] = file_path
                             msg = f"Detected file {len(detected_files)}/{len(expected_filenames)}: {name}"
                             print(msg)
@@ -160,13 +160,14 @@ class ActionSequencerFileWatcher:
         self._log(msg)
         return list(detected_files.values())
     
-    def _is_file_stable(self, file_path, stable_duration=None):
+    def _is_file_stable(self, file_path, stable_duration=None, stop_check=None):
         """Check if file size is stable (not being written)
-        
+
         Args:
             file_path: Path to file to check
             stable_duration: How long file size must remain unchanged (seconds). If None, uses configured default.
-        
+            stop_check: Optional callable returning True if check should abort
+
         Returns:
             bool: True if file size is stable
         """
@@ -177,7 +178,15 @@ class ActionSequencerFileWatcher:
                 return False
 
             size1 = os.path.getsize(file_path)
-            time.sleep(stable_duration)
+
+            # Sleep in small increments to allow interruption
+            elapsed = 0
+            sleep_chunk = 0.1
+            while elapsed < stable_duration:
+                if stop_check and callable(stop_check) and stop_check():
+                    return False
+                time.sleep(sleep_chunk)
+                elapsed += sleep_chunk
 
             if not os.path.exists(file_path):
                 return False

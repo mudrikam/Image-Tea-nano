@@ -10,7 +10,8 @@ from ui.theme_system import theme
 class StatusBarWidget(QWidget):
     run_sequences_requested = Signal()
     stop_process_requested = Signal()
-    
+    reset_requested = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.start_time = None
@@ -18,6 +19,7 @@ class StatusBarWidget(QWidget):
         self.processed_files = 0
         self.is_running = False
         self.current_platform = None
+        self.is_paused = False
         self.setup_ui()
     
     def setup_ui(self):

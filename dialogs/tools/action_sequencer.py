@@ -172,39 +172,95 @@ class BatchWorkerThread(QThread):
     
     def _execute_jsx_with_delays(self, jsx_result):
         """Execute JSX file(s) with delay handling.
-        
+
         Args:
             jsx_result: Either a single JSX path (str) or list of tuples [(jsx_path, delay_ms), ...]
         """
+        import threading
+
         if isinstance(jsx_result, str):
             self.segment_started.emit(0, 1)
             self.delay_countdown.emit("-")
             process = subprocess.Popen([self.platform_exec, jsx_result], shell=False)
-            process.wait()
+            # Wait with timeout to prevent indefinite hang
+            process_timeout = 300  # 5 minutes max per JSX execution
+            try:
+                process.wait(timeout=process_timeout)
+            except subprocess.TimeoutExpired:
+                self.error_occurred.emit(f"JSX execution timeout after {process_timeout}s")
+                try:
+                    process.terminate()
+                    process.wait(timeout=5)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                return
         elif isinstance(jsx_result, list):
             total_segments = len(jsx_result)
             for idx, (jsx_path, delay_ms) in enumerate(jsx_result):
                 if self.should_stop:
                     break
-                
+
                 self.segment_started.emit(idx, total_segments)
                 self.delay_countdown.emit("-")
-                
+
                 print(f"Executing JSX segment {idx + 1}/{total_segments}: {jsx_path}")
                 process = subprocess.Popen([self.platform_exec, jsx_path], shell=False)
-                process.wait()
-                
+
+                # Wait with timeout using threading.Event to allow interruption
+                process_finished = threading.Event()
+                process_result = {'returncode': None, 'timed_out': False}
+
+                def wait_process():
+                    try:
+                        process_result['returncode'] = process.wait(timeout=300)  # 5 min timeout
+                    except subprocess.TimeoutExpired:
+                        process_result['timed_out'] = True
+                    finally:
+                        process_finished.set()
+
+                wait_thread = threading.Thread(target=wait_process, daemon=True)
+                wait_thread.start()
+
+                # Wait for process to finish or stop signal
+                while not process_finished.is_set():
+                    if self.should_stop:
+                        try:
+                            process.terminate()
+                            process.wait(timeout=5)
+                        except Exception:
+                            try:
+                                process.kill()
+                            except Exception:
+                                pass
+                        return
+                    process_finished.wait(timeout=0.1)
+
+                if process_result['timed_out']:
+                    self.error_occurred.emit(f"JSX segment {idx + 1} timeout after 300s")
+                    try:
+                        process.terminate()
+                        process.wait(timeout=5)
+                    except Exception:
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                    return
+
                 if delay_ms > 0 and idx < total_segments - 1:
                     delay_seconds = delay_ms / 1000.0
                     print(f"Waiting {delay_seconds}s before next segment...")
-                    
+
                     remaining = delay_seconds
                     while remaining > 0 and not self.should_stop:
                         self.delay_countdown.emit(f"{remaining:.1f}s")
                         sleep_interval = min(0.1, remaining)
                         time.sleep(sleep_interval)
                         remaining -= sleep_interval
-                    
+
                     self.delay_countdown.emit("-")
 
 class ActionSequencerDialog(QDialog):
@@ -758,38 +814,54 @@ class ActionSequencerDialog(QDialog):
     
     def _run_split_jsx_async(self, exec_path, jsx_segments):
         """Run split JSX files with delays in background thread.
-        
+
         Args:
             exec_path: Path to Photoshop executable
             jsx_segments: List of tuples [(jsx_path, delay_ms), ...]
         """
+        import threading
+
         def run_segments():
             total_segments = len(jsx_segments)
             for idx, (jsx_path, delay_ms) in enumerate(jsx_segments):
                 self.single_segment_started.emit(idx, total_segments)
                 self.single_delay_countdown.emit("-")
-                
+
                 print(f"Executing JSX segment {idx + 1}/{total_segments}: {jsx_path}")
                 process = subprocess.Popen([exec_path, jsx_path], shell=False)
-                process.wait()
-                
+
+                # Wait with timeout to prevent indefinite hang
+                process_timeout = 300  # 5 minutes max per JSX execution
+                try:
+                    process.wait(timeout=process_timeout)
+                except subprocess.TimeoutExpired:
+                    print(f"ERROR: JSX segment {idx + 1} timeout after {process_timeout}s")
+                    try:
+                        process.terminate()
+                        process.wait(timeout=5)
+                    except Exception:
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                    break
+
                 if delay_ms > 0 and idx < total_segments - 1:
                     delay_seconds = delay_ms / 1000.0
                     print(f"Waiting {delay_seconds}s before next segment...")
-                    
+
                     remaining = delay_seconds
                     while remaining > 0:
                         self.single_delay_countdown.emit(f"{remaining:.1f}s")
                         sleep_interval = min(0.1, remaining)
                         time.sleep(sleep_interval)
                         remaining -= sleep_interval
-                    
+
                     self.single_delay_countdown.emit("-")
-            
+
             print("All JSX segments completed")
             self.single_completed.emit()
-        
-        import threading
+
         thread = threading.Thread(target=run_segments, daemon=True)
         thread.start()
 
@@ -943,15 +1015,15 @@ class ActionSequencerDialog(QDialog):
 
     def closeEvent(self, event):
         """Ensure generated JSX files are cleaned up when dialog closes."""
-        # Stop any running worker thread
-        if hasattr(self, 'worker_thread') and self.worker_thread and self.worker_thread.isRunning():
-            print("Stopping worker thread...")
-            self.worker_thread.should_stop = True
-            self.worker_thread.wait(3000)  # Wait up to 3 seconds
-            if self.worker_thread.isRunning():
-                print("Worker thread still running after timeout")
+        # Stop any running batch worker thread
+        if hasattr(self, 'batch_worker') and self.batch_worker and self.batch_worker.isRunning():
+            print("Stopping batch worker thread...")
+            self.batch_worker.stop()
+            self.batch_worker.wait(3000)  # Wait up to 3 seconds
+            if self.batch_worker.isRunning():
+                print("Batch worker thread still running after timeout")
             else:
-                print("Worker thread stopped")
+                print("Batch worker thread stopped")
         
         try:
             jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
