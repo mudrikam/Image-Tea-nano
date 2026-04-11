@@ -958,7 +958,7 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
         ]
     
     try:
-        install_result = _run_npm(["install"] + remotion_packages, cwd=target_folder, timeout=600)
+        install_result = _run_npm(["install", "--force"] + remotion_packages, cwd=target_folder, timeout=600)
         if install_result.returncode != 0:
             _emit(reporter, "Preparing tools (failed to install remotion)")
             print(f"Failed to install Remotion: {install_result.stderr}")

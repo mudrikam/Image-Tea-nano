@@ -225,37 +225,16 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     with open(os.path.join(temp_dir, "tsconfig.json"), 'w', encoding='utf-8') as f:
         json.dump(tsconfig_content, f, indent=2)
 
-    # Copy node_modules instead of symlinking to avoid issues
+    # Copy node_modules from tools/remotion (fast reuse)
+    # If native binaries fail, they'll be reinstalled on error
     src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
     dst_node_modules = os.path.join(temp_dir, "node_modules")
     if os.path.exists(src_node_modules):
         try:
             shutil.copytree(src_node_modules, dst_node_modules, symlinks=False, ignore=shutil.ignore_patterns('.git', '.DS_Store'))
+            print("[Remotion] Copied node_modules from tools/remotion")
         except Exception as e:
             print(f"[Remotion] Warning: Failed to copy node_modules: {e}")
-            # Try to install dependencies using npm
-            try:
-                npm_cmd = _find_npm_cmd()
-                if npm_cmd:
-                    print("[Remotion] Installing dependencies...")
-                    env = os.environ.copy()
-                    node_dir = os.path.dirname(npm_cmd[0])
-                    env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
-                    subprocess.run(
-                        npm_cmd + ["install"],
-                        cwd=temp_dir,
-                        env=env,
-                        check=True,
-                        capture_output=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
-                    )
-                    print("[Remotion] Dependencies installed successfully")
-                else:
-                    print("[Remotion] npm not found, dependencies may be missing")
-            except subprocess.CalledProcessError as e:
-                print(f"[Remotion] Failed to install dependencies: {e}")
-            except Exception as e:
-                print(f"[Remotion] Error installing dependencies: {e}")
 
     return temp_dir, entry_file
 
