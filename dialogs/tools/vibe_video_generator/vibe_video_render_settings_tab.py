@@ -101,7 +101,6 @@ class RenderSettingsTabWidget(QWidget):
         cl.addWidget(self._perf_group())
         cl.addWidget(self._browser_group())
         cl.addWidget(self._advanced_group())
-        cl.addWidget(self._component_props_group())
         cl.addStretch()
 
         scroll.setWidget(content)
