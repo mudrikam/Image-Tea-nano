@@ -216,6 +216,10 @@ class CollectionsWidget(QWidget):
             rename_action.triggered.connect(lambda: self._on_rename_script(data))
             menu.addAction(rename_action)
 
+            save_tsx_action = QAction(qta.icon('fa6s.file-export'), 'Save as TSX File', menu)
+            save_tsx_action.triggered.connect(lambda: self._on_save_script_as_tsx(data))
+            menu.addAction(save_tsx_action)
+
             menu.addSeparator()
 
             delete_script_action = QAction(qta.icon('fa6s.trash'), 'Delete Script', menu)
@@ -255,6 +259,48 @@ class CollectionsWidget(QWidget):
     def _on_script_edited(self, script_data):
         self.load_collections()
         self.collection_selected.emit(script_data)
+
+    def _on_save_script_as_tsx(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        script_name = script_data.get('name', 'script')
+        script = self.db.get_remotion_script(script_id)
+        if not script:
+            QMessageBox.warning(self, 'Error', 'Could not load script content.')
+            return
+
+        content = script.get('script_content', '')
+        if not content:
+            QMessageBox.warning(self, 'Error', 'Script content is empty.')
+            return
+
+        # Ensure .tsx extension
+        if not script_name.endswith('.tsx'):
+            default_name = f'{script_name}.tsx'
+        else:
+            default_name = script_name
+
+        from PySide6.QtWidgets import QFileDialog
+        import os
+
+        home_dir = os.path.expanduser('~')
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Save Script as TSX',
+            os.path.join(home_dir, default_name),
+            'TypeScript React Files (*.tsx);;All Files (*)'
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            QMessageBox.information(self, 'Success', f'Script saved to:\n{file_path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to save file:\n{str(e)}')
 
     def _on_rename_script(self, script_data):
         if not self.db:

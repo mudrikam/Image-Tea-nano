@@ -2,6 +2,10 @@ import os
 import re
 import subprocess
 import platform
+import socket
+import time
+import urllib.request
+import urllib.error
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -12,7 +16,7 @@ TOOLS_NODEJS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 PROJECT_TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'temp')
 
 
-def _find_npx_cmd():
+def _find_npx_cmd() -> list[str] | None:
     import shutil
     if platform.system() == 'Windows':
         for root, dirs, files in os.walk(TOOLS_NODEJS):
@@ -25,9 +29,63 @@ def _find_npx_cmd():
     return [found] if found else None
 
 
+def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Check if port is accessible (TCP connection test)."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+
+def _wait_for_server(host: str, port: int, timeout: float = 30.0, interval: float = 0.5) -> bool:
+    """Wait until HTTP server is accessible by making HTTP requests."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            # Try HTTP request to root path
+            url = f'http://{host}:{port}/'
+            req = urllib.request.Request(url, method='HEAD')
+            req.timeout = interval
+            with urllib.request.urlopen(req) as response:
+                return True
+        except urllib.error.HTTPError:
+            # HTTP error but server responded = server is running
+            return True
+        except Exception:
+            # Server not ready yet, wait a bit
+            time.sleep(interval)
+    return False
+
+
+def _health_check_server(host: str, port: int) -> tuple[bool, str]:
+    """Perform complete health check on Remotion server."""
+    # Step 1: Check TCP connection
+    if not _is_port_open(host, port):
+        return False, f"Port {port} is not accessible (connection refused)"
+
+    # Step 2: Check HTTP response
+    try:
+        url = f'http://{host}:{port}/'
+        req = urllib.request.Request(url, method='GET')
+        req.timeout = 5.0
+        with urllib.request.urlopen(req) as response:
+            status = response.getcode()
+            if status == 200:
+                return True, f"Server healthy (HTTP {status})"
+            else:
+                return True, f"Server responding (HTTP {status})"
+    except urllib.error.HTTPError as e:
+        # HTTP error but server responded
+        return True, f"Server responding (HTTP {e.code})"
+    except Exception as e:
+        return False, f"HTTP check failed: {str(e)}"
+
+
 class PreviewServerWorker(QThread):
     server_ready = Signal(int)
     server_failed = Signal(str)
+    status_update = Signal(str)
 
     def __init__(self, preview_dir, port):
         super().__init__()
@@ -36,12 +94,28 @@ class PreviewServerWorker(QThread):
         self._proc = None
 
     def run(self):
-        import socket
         npx_cmd = _find_npx_cmd()
         if not npx_cmd:
             self.server_failed.emit('npx not found')
             return
+
+        # Validate preview directory
+        if not os.path.exists(self._preview_dir):
+            self.server_failed.emit(f'Preview directory not found: {self._preview_dir}')
+            return
+
         entry_file = os.path.join('src', 'index.tsx')
+        full_entry_path = os.path.join(self._preview_dir, entry_file)
+        if not os.path.exists(full_entry_path):
+            self.server_failed.emit(f'Entry file not found: {full_entry_path}')
+            return
+
+        # Check if port is already in use
+        self.status_update.emit(f'Checking port {self._port}...')
+        if _is_port_open('localhost', self._port, timeout=0.5):
+            self.server_failed.emit(f'Port {self._port} is already in use')
+            return
+
         env = os.environ.copy()
         node_bin = None
         for root, dirs, files in os.walk(TOOLS_NODEJS):
@@ -54,7 +128,11 @@ class PreviewServerWorker(QThread):
         if node_bin:
             env['PATH'] = node_bin + os.pathsep + env.get('PATH', '')
         env['NODE_ENV'] = 'development'
+
         cmd = npx_cmd + ['remotion', 'studio', entry_file, '--port', str(self._port), '--no-open']
+        print(f'[Remotion Studio] Starting with command: {" ".join(cmd)}')
+        print(f'[Remotion Studio] Working directory: {self._preview_dir}')
+
         try:
             flags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
             self._proc = subprocess.Popen(
@@ -68,19 +146,78 @@ class PreviewServerWorker(QThread):
                 errors='replace',
                 creationflags=flags
             )
+
+            server_started = False
+            process_exited_early = False
+
+            # Read output and wait for signal from stdout
+            if self._proc.stdout is None:
+                self.server_failed.emit('Process stdout is None')
+                return
+
             for line in self._proc.stdout:
                 clean = re.sub(r'\x1b\[[0-9;]*[mGKHF]', '', line).strip()
                 if clean:
                     print(f'[Remotion Studio] {clean}')
-                if 'Server listening on' in line or 'studio is running' in line.lower() or f':{self._port}' in line:
-                    self.server_ready.emit(self._port)
+
+                # Check if process is still running
+                if self._proc.poll() is not None:
+                    process_exited_early = True
                     break
-            if self._proc.poll() is None:
-                self.server_ready.emit(self._port)
-            for line in self._proc.stdout:
-                pass
+
+                # Detect server ready from output
+                if ('Server listening on' in line or
+                    'studio is running' in line.lower() or
+                    f':{self._port}' in line):
+                    server_started = True
+                    break
+
+            if process_exited_early:
+                returncode = self._proc.poll()
+                self.server_failed.emit(f'Remotion process exited early with code {returncode}')
+                return
+
+            if server_started:
+                # Wait until server is actually accessible via HTTP
+                self.status_update.emit(f'Waiting for server on port {self._port}...')
+                print(f'[Remotion Studio] Waiting for server to be accessible on port {self._port}...')
+                if _wait_for_server('localhost', self._port, timeout=30.0):
+                    # Perform final health check
+                    self.status_update.emit('Performing health check...')
+                    healthy, msg = _health_check_server('localhost', self._port)
+                    if healthy:
+                        print(f'[Remotion Studio] Health check passed: {msg}')
+                        self.server_ready.emit(self._port)
+                    else:
+                        self.server_failed.emit(f'Server started but health check failed: {msg}')
+                else:
+                    self.server_failed.emit(f'Server reported ready but not accessible on port {self._port} after 30s')
+            else:
+                # If stdout loop finished without detecting server ready
+                if self._proc.poll() is None:
+                    # Process still running, try health check
+                    self.status_update.emit('Checking server status...')
+                    print(f'[Remotion Studio] Process still running, attempting health check...')
+                    if _wait_for_server('localhost', self._port, timeout=10.0):
+                        healthy, msg = _health_check_server('localhost', self._port)
+                        if healthy:
+                            print(f'[Remotion Studio] Health check passed: {msg}')
+                            self.server_ready.emit(self._port)
+                        else:
+                            self.server_failed.emit(f'Server running but health check failed: {msg}')
+                    else:
+                        self.server_failed.emit('Server not responding to health check')
+                else:
+                    returncode = self._proc.poll()
+                    self.server_failed.emit(f'Remotion process exited with code {returncode}')
+
+            # Drain remaining stdout
+            if self._proc.stdout is not None:
+                for line in self._proc.stdout:
+                    pass
+
         except Exception as e:
-            self.server_failed.emit(str(e))
+            self.server_failed.emit(f'Failed to start: {str(e)}')
 
     def stop(self):
         if self._proc and self._proc.poll() is None:
@@ -110,9 +247,8 @@ class PreviewTabWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
+        # Top toolbar with buttons only
         toolbar = QHBoxLayout()
-        self.status_label = QLabel('No script loaded.')
-        toolbar.addWidget(self.status_label, 1)
 
         self.start_btn = QPushButton('Start Preview')
         self.start_btn.setIcon(qta.icon('fa6s.play'))
@@ -142,14 +278,22 @@ class PreviewTabWidget(QWidget):
         self.open_browser_btn.clicked.connect(self._on_open_browser)
         toolbar.addWidget(self.open_browser_btn)
 
+        toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
+        # Progress bar for loading
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFormat('Starting Remotion Studio...')
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # Placeholder label (shows status messages like health check)
+        self.placeholder = QLabel('Click "Start Preview" to launch Remotion Studio in this panel.')
+        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.placeholder, 1)
+
+        # Webview
         self.webview = QWebEngineView()
         settings = self.webview.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
@@ -157,9 +301,10 @@ class PreviewTabWidget(QWidget):
         self.webview.setVisible(False)
         layout.addWidget(self.webview, 1)
 
-        self.placeholder = QLabel('Click "Start Preview" to launch Remotion Studio in this panel.')
-        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.placeholder, 1)
+        # Status label below webview (script info, running status, errors)
+        self.status_label = QLabel('No script loaded.')
+        self.status_label.setStyleSheet('color: #666; padding: 4px;')
+        layout.addWidget(self.status_label)
 
     def set_scripts_widget(self, scripts_widget):
         self._scripts_widget = scripts_widget
@@ -206,9 +351,13 @@ class PreviewTabWidget(QWidget):
         self._server_worker = PreviewServerWorker(preview_dir, self._current_port)
         self._server_worker.server_ready.connect(self._on_server_ready)
         self._server_worker.server_failed.connect(self._on_server_failed)
+        self._server_worker.status_update.connect(self._on_status_update)
         self._server_worker.start()
         self._server_running = True
         self.placeholder.setText(f'Starting Remotion Studio on port {self._current_port}...')
+
+    def _on_status_update(self, message):
+        self.placeholder.setText(message)
 
     def _on_server_ready(self, port):
         url = f'http://localhost:{port}'
