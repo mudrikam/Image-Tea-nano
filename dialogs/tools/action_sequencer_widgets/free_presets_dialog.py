@@ -6,7 +6,8 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime, date
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-                               QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QMessageBox, QWidget)
+                               QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QMessageBox, QWidget,
+                               QLineEdit)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QFont
 from config import BASE_PATH
@@ -229,11 +230,25 @@ class FreePresetsDialog(QDialog):
         top_button_layout = QHBoxLayout()
         top_button_layout.setSpacing(4)
         top_button_layout.addStretch()
+        layout.addLayout(top_button_layout)
+        
+        # Search bar
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(4)
+        search_layout.addWidget(QLabel("Search:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search preset names...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self.filter_table)
+        search_layout.addWidget(self.search_input)
+        self.search_button = QPushButton(qta.icon('fa6s.magnifying-glass'), " Search")
+        self.search_button.clicked.connect(self.filter_table)
+        search_layout.addWidget(self.search_button)
         self.refresh_button = QPushButton(qta.icon('fa6s.arrows-rotate'), " Refresh")
         self.refresh_button.setToolTip("Fetch latest preset list from GitHub")
         self.refresh_button.clicked.connect(self.on_refresh_remote)
-        top_button_layout.addWidget(self.refresh_button)
-        layout.addLayout(top_button_layout)
+        search_layout.addWidget(self.refresh_button)
+        layout.addLayout(search_layout)
         
         self.table = QTableWidget()
         self.table.setColumnCount(3)
@@ -287,8 +302,21 @@ class FreePresetsDialog(QDialog):
         
         self.setLayout(layout)
     
-    def load_presets_with_cache(self):
-        """Load presets from cache if valid, otherwise fetch from GitHub"""
+    def load_presets_with_cache(self, presets_data=None):
+        """Load presets from cache if valid, otherwise fetch from GitHub.
+        
+        Args:
+            presets_data: Optional list of presets to display directly. If None, load from cache or GitHub.
+        """
+        if presets_data is not None:
+            self.presets_data = presets_data
+            self.populate_table()
+            self.update_button_states()
+            self.info_label.setText(
+                f"Browse and download free presets from:\n{self.repo_url}"
+            )
+            return
+        
         cache_valid = False
         
         if os.path.exists(self.cache_file):
@@ -798,3 +826,20 @@ class FreePresetsDialog(QDialog):
             self._save_install_status_cache()
             
             self.fetch_repo_contents()
+
+    def filter_table(self):
+        """Filter the table based on search input."""
+        search_text = self.search_input.text().strip().lower()
+        
+        # If search is empty, show all presets
+        if not search_text:
+            self.load_presets_with_cache()
+            return
+        
+        # Filter presets
+        filtered_presets = [
+            p for p in self.presets_data 
+            if search_text in p['name'].lower()
+        ]
+        
+        self.load_presets_with_cache(filtered_presets)

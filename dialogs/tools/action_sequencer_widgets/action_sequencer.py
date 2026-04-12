@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon, QFont, QColor
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 import subprocess
+import qtawesome as qta
 from .action_bar_widget import ActionBarWidget
 from .preset_list_widget import PresetListWidget
 from .step_list_widget import StepListWidget
@@ -302,6 +303,39 @@ class ActionSequencerDialog(QDialog):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # Header above action bar
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(4)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title row with icon and main title
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(4)
+        
+        dialog_icon = qta.icon('fa6s.list-check', color=theme.get_color('primary'))
+        icon_label = QLabel()
+        icon_label.setPixmap(dialog_icon.pixmap(24, 24))
+        title_layout.addWidget(icon_label)
+        
+        title_label = QLabel("Action Sequencer")
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(14)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet(f"color: {theme.get_color('primary')};")
+        title_layout.addWidget(title_label)
+        
+        title_layout.addStretch()
+        header_layout.addLayout(title_layout)
+        
+        # Subtitle with description
+        subtitle_label = QLabel("Supercharge your workflow with professional automation. Create, manage, and run complex action sequences to save time and boost productivity. Perfect for batch processing and repetitive tasks.")
+        subtitle_label.setWordWrap(True)
+        subtitle_label.setStyleSheet(f"color: {theme.get_color('gray')}; padding-top: 4px;")
+        header_layout.addWidget(subtitle_label)
+        
+        main_layout.addLayout(header_layout)
         
         self.action_bar_widget = ActionBarWidget()
         main_layout.addWidget(self.action_bar_widget)

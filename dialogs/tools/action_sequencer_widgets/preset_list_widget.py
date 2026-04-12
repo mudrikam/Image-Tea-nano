@@ -753,7 +753,7 @@ class PresetListWidget(QWidget):
             refresh_action.triggered.connect(self.load_presets_from_db)
             
             get_free_presets_action = menu.addAction("Get FREE Presets")
-            get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
+            get_free_presets_action.setIcon(qta.icon('fa6s.gift'))
             get_free_presets_action.triggered.connect(self.on_get_free_presets)
         
         global_pos = self.preset_list.viewport().mapToGlobal(pos)
@@ -786,7 +786,7 @@ class PresetListWidget(QWidget):
         refresh_action.triggered.connect(self.load_presets_from_db)
         
         get_free_presets_action = menu.addAction("Get FREE Presets")
-        get_free_presets_action.setIcon(qta.icon('fa6s.cloud-arrow-down'))
+        get_free_presets_action.setIcon(qta.icon('fa6s.gift'))
         get_free_presets_action.triggered.connect(self.on_get_free_presets)
         
         menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))

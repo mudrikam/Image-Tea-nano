@@ -51,7 +51,7 @@ class ActionBarWidget(QWidget):
         self.reset_button.clicked.connect(self.on_reset_clicked)
         buttons_layout.addWidget(self.reset_button)
 
-        self.get_free_button = QPushButton(qta.icon('fa6s.cloud-arrow-down', color=theme.get_color('primary')), " Get FREE Presets")
+        self.get_free_button = QPushButton(qta.icon('fa6s.gift', color=theme.get_color('primary')), " Get FREE Presets")
         self.get_free_button.setToolTip("Get free presets from remote repository")
         self.get_free_button.clicked.connect(self.on_get_free_presets_clicked)
         buttons_layout.addWidget(self.get_free_button)

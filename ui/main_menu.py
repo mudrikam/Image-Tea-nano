@@ -225,13 +225,16 @@ def setup_main_menu(window):
     def open_login_member():
         from dialogs.members.member_login_dialog import MemberLoginDialog
         dlg = MemberLoginDialog(window)
-        if dlg.exec() == MemberLoginDialog.Accepted:
+        if dlg.exec() == QDialog.Accepted:
             if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
                 window.statusbar.update_member_status()
             if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'apply_member_limits'):
                 window.prompt_section.apply_member_limits()
             _refresh_member_actions()
             _apply_member_mode()
+        else:
+            # Even if login was canceled, refresh actions to ensure correct state
+            _refresh_member_actions()
     login_member_action.triggered.connect(open_login_member)
     member_menu.addAction(login_member_action)
     window.login_member_action = login_member_action
@@ -328,9 +331,20 @@ def setup_main_menu(window):
         from helpers.members_helper.members_helper import is_logged_in
         logged_in = is_logged_in()
         login_member_action.setVisible(not logged_in)
+        register_member_action.setVisible(True)  # Always visible
         check_limit_action.setVisible(logged_in)
         renew_secret_action.setVisible(logged_in)
         logout_member_action.setVisible(logged_in)
+        
+        # Update register action text based on login status
+        if logged_in:
+            register_member_action.setText("Renew Membership")
+            register_member_action.setToolTip("Renew your Image Tea membership")
+            register_member_action.setStatusTip("Renew your Image Tea membership")
+        else:
+            register_member_action.setText("Register")
+            register_member_action.setToolTip("Register a new Image Tea membership account")
+            register_member_action.setStatusTip("Register a new Image Tea membership account")
 
     def _apply_member_mode():
         from helpers.members_helper.members_helper import get_session

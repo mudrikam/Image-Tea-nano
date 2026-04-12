@@ -823,12 +823,11 @@ class PromptInjectorDialog(QDialog):
 		self.points_list.setSelectionMode(QListWidget.ExtendedSelection)
 		self.points_list.itemSelectionChanged.connect(self._on_selection_changed)
 		self.points_list.setMinimumHeight(120)
-		self.points_list.setMaximumHeight(320)
 		self.points_list.model().rowsMoved.connect(self._on_rows_moved)
 		self.points_list.setContextMenuPolicy(Qt.CustomContextMenu)
 		self.points_list.customContextMenuRequested.connect(self._on_point_context_menu)
 		self.points_list.itemDoubleClicked.connect(self._on_point_double_clicked)
-		layout.addWidget(self.points_list)
+		layout.addWidget(self.points_list, 1)
 
 		h_preset = QHBoxLayout()
 		h_preset.setSpacing(4)

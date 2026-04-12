@@ -9,10 +9,12 @@ from .action_settings_dialog import ActionSettingsDialog
 from .add_action_dialog import AddActionDialog
 from .add_action_set_dialog import AddActionSetDialog
 from .add_preset_dialog import AddPresetDialog
+from .free_presets_dialog import FreePresetsDialog
 
 __all__ = [
     'ActionBarWidget', 'ActionListWidget', 'PresetListWidget', 
     'StepListWidget', 'StatusBarWidget', 'SelectActionDialog',
     'ActionSequencerDialog', 'ActionSettingsDialog', 
-    'AddActionDialog', 'AddActionSetDialog', 'AddPresetDialog'
+    'AddActionDialog', 'AddActionSetDialog', 'AddPresetDialog',
+    'FreePresetsDialog'
 ]
