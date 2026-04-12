@@ -881,6 +881,9 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
     
     os.makedirs(target_folder, exist_ok=True)
     
+    # Clean up any previous failed attempts
+    _cleanup_remotion_folder(target_folder)
+    
     nodejs_folder = os.path.join(BASE_PATH, "tools", "nodejs")
     if not is_executable_available("nodejs", nodejs_folder):
         _emit(reporter, "Preparing tools (installing nodejs first for remotion)")
@@ -927,14 +930,18 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
                 cmd = [node_exe, "-e", f"require('child_process').spawnSync('npm', {repr(args)}, {{stdio: 'inherit', cwd: {repr(cwd)}}})"]
         return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     
-    _emit(reporter, "Preparing tools (initializing remotion project)")
-    
-    try:
-        init_result = _run_npm(["init", "-y"], cwd=target_folder, timeout=60)
-        if init_result.returncode != 0:
-            print(f"Warning: npm init had issues: {init_result.stderr}")
-    except Exception as e:
-        print(f"Warning: npm init failed: {e}")
+    # Initialize package.json if not exists
+    package_json_path = os.path.join(target_folder, "package.json")
+    if not os.path.exists(package_json_path):
+        _emit(reporter, "Preparing tools (initializing remotion project)")
+        try:
+            init_result = _run_npm(["init", "-y"], cwd=target_folder, timeout=60)
+            if init_result.returncode != 0:
+                print(f"Warning: npm init had issues: {init_result.stderr}")
+                return False
+        except Exception as e:
+            print(f"Warning: npm init failed: {e}")
+            return False
     
     _emit(reporter, f"Preparing tools (installing remotion {remotion_version})")
     
@@ -962,14 +969,17 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
         if install_result.returncode != 0:
             _emit(reporter, "Preparing tools (failed to install remotion)")
             print(f"Failed to install Remotion: {install_result.stderr}")
+            _cleanup_remotion_folder(target_folder)
             return False
     except subprocess.TimeoutExpired:
         _emit(reporter, "Preparing tools (remotion install timed out)")
         print("Remotion installation timed out (10 min limit).")
+        _cleanup_remotion_folder(target_folder)
         return False
     except Exception as e:
         _emit(reporter, "Preparing tools (failed to install remotion)")
         print(f"Failed to install Remotion: {e}")
+        _cleanup_remotion_folder(target_folder)
         return False
     
     if callable(unit_callback):
@@ -982,8 +992,78 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
     if callable(unit_callback):
         unit_callback()
     
+    # Verify installation by checking key files
+    if not _verify_remotion_installation_simple(target_folder):
+        print("Error: Remotion installation is incomplete after installation.")
+        _cleanup_remotion_folder(target_folder)
+        return False
+    
     _emit(reporter, "Preparing tools (remotion installed successfully)")
     return True
+
+def _verify_remotion_installation_simple(folder) -> bool:
+    """Simplified verification for Remotion installation."""
+    # Check for wrapper scripts
+    wrapper_scripts = ["remotion-cli.js", "remotion-render.js"]
+    for script in wrapper_scripts:
+        if not os.path.exists(os.path.join(folder, script)):
+            return False
+    
+    # Check for node_modules and key packages
+    node_modules_path = os.path.join(folder, "node_modules")
+    if not os.path.isdir(node_modules_path):
+        return False
+    
+    # Check for essential packages - just check presence of package.json or main directory
+    essential_packages = ["@remotion/cli", "remotion", "react", "react-dom"]
+    for pkg in essential_packages:
+        pkg_path = os.path.join(node_modules_path, pkg.replace("@", "").replace("/", os.sep))
+        if not os.path.isdir(pkg_path) and not os.path.exists(os.path.join(pkg_path, "package.json")):
+            # Also check for scoped packages like @remotion/cli -> node_modules/@remotion/cli
+            if "@" in pkg:
+                scoped_pkg = pkg.split("/")[0]
+                pkg_name = pkg.split("/")[1]
+                scoped_path = os.path.join(node_modules_path, scoped_pkg)
+                if not os.path.isdir(scoped_path):
+                    return False
+                pkg_path = os.path.join(scoped_path, pkg_name)
+                if not os.path.isdir(pkg_path) and not os.path.exists(os.path.join(pkg_path, "package.json")):
+                    return False
+            else:
+                return False
+    
+    return True
+
+def _cleanup_remotion_folder(folder):
+    """Clean up Remotion folder by removing node_modules and package.json if they exist."""
+    node_modules_path = os.path.join(folder, "node_modules")
+    package_json_path = os.path.join(folder, "package.json")
+    lockfile_path = os.path.join(folder, "package-lock.json")
+    
+    # Remove node_modules
+    if os.path.isdir(node_modules_path):
+        try:
+            import shutil
+            shutil.rmtree(node_modules_path)
+            print("Removed incomplete node_modules")
+        except Exception as e:
+            print(f"Could not remove node_modules: {e}")
+    
+    # Remove package.json
+    if os.path.exists(package_json_path):
+        try:
+            os.remove(package_json_path)
+            print("Removed package.json")
+        except Exception as e:
+            print(f"Could not remove package.json: {e}")
+    
+    # Remove lockfile
+    if os.path.exists(lockfile_path):
+        try:
+            os.remove(lockfile_path)
+            print("Removed package-lock.json")
+        except Exception as e:
+            print(f"Could not remove package-lock.json: {e}")
 
 
 def create_remotion_scripts(target_folder, bundle_name):
@@ -1143,6 +1223,31 @@ def is_executable_available(tool_name, tool_folder):
         found_in_folder = find_executable_in_folder(tool_folder, candidates)
         if not found_in_folder:
             return False
+    # Additional check for remotion: verify node_modules has the required packages
+    if tool_name == "remotion":
+        node_modules_path = os.path.join(tool_folder, "node_modules")
+        if not os.path.isdir(node_modules_path):
+            return False
+        # Check for key package directories
+        required_packages = ["@remotion", "remotion", "react", "react-dom"]
+        for pkg in required_packages:
+            pkg_path = os.path.join(node_modules_path, pkg.replace("@", "").replace("/", os.sep))
+            if pkg.startswith("@"):
+                pkg_dir = os.path.join(node_modules_path, "@remotion")
+                if not os.path.isdir(pkg_dir):
+                    return False
+                # Check for cli, bundler, renderer
+                for subpkg in ["cli", "bundler", "renderer"]:
+                    if not os.path.isdir(os.path.join(pkg_dir, subpkg)):
+                        return False
+            else:
+                if not os.path.exists(pkg_path):
+                    return False
+        # Also verify the wrapper scripts exist
+        wrapper_scripts = ["remotion-cli.js", "remotion-render.js"]
+        for script in wrapper_scripts:
+            if not os.path.exists(os.path.join(tool_folder, script)):
+                return False
     return True
 
 
