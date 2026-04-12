@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
 import qtawesome as qta
-from dialogs.tools.add_action_dialog import AddActionDialog
+from .add_action_dialog import AddActionDialog
 from database.db_operation import ImageTeaDB
 from ui.theme_system import theme
 

@@ -938,7 +938,7 @@ def setup_main_menu(window):
     action_sequencer_action.setToolTip(MENU_TOOLTIPS["action_sequencer"])
     action_sequencer_action.setStatusTip(MENU_TOOLTIPS["action_sequencer"])
     def open_action_sequencer():
-        from dialogs.tools.action_sequencer import ActionSequencerDialog
+        from dialogs.tools.action_sequencer_widgets.action_sequencer import ActionSequencerDialog
         if not hasattr(window, '_action_sequencer_dialog') or not window._action_sequencer_dialog:
             window._action_sequencer_dialog = ActionSequencerDialog(None)
             window._action_sequencer_dialog.destroyed.connect(lambda: setattr(window, '_action_sequencer_dialog', None))

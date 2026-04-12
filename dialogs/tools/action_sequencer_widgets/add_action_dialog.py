@@ -40,7 +40,8 @@ class AddActionDialog(QDialog):
             self.on_type_changed(0)
         
         self.setMinimumWidth(450)
-        self.resize(450, 250)
+        self.setMinimumWidth(450)
+        self.adjustSize()
     
     def setup_ui(self):
         layout = QVBoxLayout()

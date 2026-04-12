@@ -34,7 +34,8 @@ class AddActionSetDialog(QDialog):
         if action_set_data:
             self.load_data()
         
-        self.resize(400, 250)
+        # Dynamically resize to fit content
+        self.adjustSize()
     
     def setup_ui(self):
         layout = QVBoxLayout()

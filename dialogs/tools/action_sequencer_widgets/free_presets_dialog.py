@@ -113,7 +113,7 @@ class FreePresetsDialog(QDialog):
         self.is_batch_download = False
         
         self.setup_ui()
-        self.resize(700, 500)
+        self.adjustSize()
         self.load_presets_with_cache()
     
     def _clean_preset_name(self, filename):
@@ -205,7 +205,7 @@ class FreePresetsDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        dialog_icon = qta.icon('fa6s.cloud-arrow-down')
+        dialog_icon = qta.icon('fa6s.gift')
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(32, 32))
         header_layout.addWidget(icon_label)

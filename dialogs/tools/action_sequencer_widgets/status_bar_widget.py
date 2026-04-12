@@ -327,6 +327,16 @@ class StatusBarWidget(QWidget):
         self.files_label.setText("Files: 0")
         self.steps_label.setText("Steps: 0")
         self.elapsed_label.setText("Elapsed: 00:00")
+        self.remaining_label.setText("Remaining: 0")
+        self.completed_label.setText("Completed: 0")
+        self.delay_label.setText("Delay: -")
+    
+    def reset_to_idle(self):
+        """Reset the status bar to initial idle state."""
+        self.reset_stats()
+        self.update_status("Idle")
+        self.update_progress(0)
+        self.progress_bar.setFormat("Ready")
         self.completed_label.setText("Completed: 0")
         self.remaining_label.setText("Remaining: 0")
         self.eta_label.setText("ETA: 00:00")

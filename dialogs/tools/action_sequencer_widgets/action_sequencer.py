@@ -7,12 +7,15 @@ from PySide6.QtGui import QIcon, QFont, QColor
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 import subprocess
-from dialogs.tools.action_sequencer_widgets import (ActionBarWidget, PresetListWidget, 
-                                                     StepListWidget, StatusBarWidget, ActionListWidget)
-from dialogs.tools.action_settings_dialog import ActionSettingsDialog
-from dialogs.tools.add_preset_dialog import AddPresetDialog
-from dialogs.tools.add_action_dialog import AddActionDialog
-from dialogs.tools.free_presets_dialog import FreePresetsDialog
+from .action_bar_widget import ActionBarWidget
+from .preset_list_widget import PresetListWidget
+from .step_list_widget import StepListWidget
+from .status_bar_widget import StatusBarWidget
+from .action_list_widget import ActionListWidget
+from .action_settings_dialog import ActionSettingsDialog
+from .add_preset_dialog import AddPresetDialog
+from .add_action_dialog import AddActionDialog
+from .free_presets_dialog import FreePresetsDialog
 from helpers.tools.action_sequencer_helpers.action_sequencer_config_helper import ActionSequencerConfig
 from helpers.tools.action_sequencer_helpers.action_sequencer_photoshop_jsx_helper import PhotoshopJSXGenerator
 from helpers.tools.action_sequencer_helpers.action_sequencer_illustrator_jsx_helper import IllustratorJSXGenerator
@@ -799,6 +802,7 @@ class ActionSequencerDialog(QDialog):
                 self.single_segment_started.emit(0, 1)
                 self.single_delay_countdown.emit("-")
                 subprocess.Popen([exec_path, jsx_result], shell=False)
+                self.single_completed.emit()
             elif isinstance(jsx_result, list):
                 print(f"Launching {platform_name} with {len(jsx_result)} JSX segments (delayed execution)")
                 self._run_split_jsx_async(exec_path, jsx_result)
@@ -817,6 +821,7 @@ class ActionSequencerDialog(QDialog):
             
             if is_resident:
                 print("Command sent to resident Illustrator")
+                self.single_completed.emit()
             else:
                 if not jsx_path or not os.path.exists(jsx_path):
                     raise Exception(f"Resident JSX not found at: {jsx_path}")
@@ -827,6 +832,7 @@ class ActionSequencerDialog(QDialog):
                 print(f"Launching Illustrator with resident script...")
                 subprocess.Popen([norm_exec, norm_jsx], shell=False)
                 print("Illustrator process started")
+                self.single_completed.emit()
         else:
             QMessageBox.warning(self, "Platform Not Supported", f"Platform {platform_name} is not supported yet")
             return
@@ -937,6 +943,7 @@ class ActionSequencerDialog(QDialog):
         """Handle saat single mode selesai"""
         self.step_list_widget.clear_all_highlights()
         self.status_bar_widget.update_delay("-")
+        self.status_bar_widget.update_status("Idle")
         
         jsx_illustrator_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'illustrator')
         jsx_photoshop_dir = os.path.join(BASE_PATH, 'temp', 'jsx', 'photoshop')
@@ -1003,7 +1010,7 @@ class ActionSequencerDialog(QDialog):
         self.current_platform_name = None
         self.last_processed_index = 0
 
-        self.status_bar_widget.end_running_mode()
+        self.status_bar_widget.reset_to_idle()
         self.status_bar_widget.reset_stats()
         self.status_bar_widget.set_run_button_enabled(True)
         self.status_bar_widget.update_files_count(0, '')

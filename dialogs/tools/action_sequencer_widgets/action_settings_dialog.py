@@ -30,7 +30,7 @@ class ActionSettingsDialog(QDialog):
         self.config = ActionSequencerConfig()
         self.setup_ui()
         self.load_platforms()
-        self.resize(600, 400)
+        self.adjustSize()
     
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -217,7 +217,7 @@ class ActionSettingsDialog(QDialog):
         self.watch_timeout_spin = QSpinBox()
         self.watch_timeout_spin.setMinimum(5)
         self.watch_timeout_spin.setMaximum(300)
-        self.watch_timeout_spin.setValue(self.config.get('watch_timeout', 30))
+        self.watch_timeout_spin.setValue(self.config.get('watch_timeout', 60))
         self.watch_timeout_spin.valueChanged.connect(self.on_output_config_changed)
         timeout_layout.addWidget(self.watch_timeout_spin)
         timeout_layout.addStretch()

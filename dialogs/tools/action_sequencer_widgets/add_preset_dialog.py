@@ -34,7 +34,8 @@ class AddPresetDialog(QDialog):
         if preset_data:
             self.load_data()
         
-        self.resize(400, 300)
+        # Dynamically resize to fit content
+        self.adjustSize()
     
     def setup_ui(self):
         layout = QVBoxLayout()

@@ -7,8 +7,8 @@ import json
 import qtawesome as qta
 from database.db_operation import ImageTeaDB
 from helpers.tools.action_sequencer_helpers.action_sequencer_import_export_helper import ActionSequencerImportExport
-from dialogs.tools.add_action_set_dialog import AddActionSetDialog
-from dialogs.tools.free_presets_dialog import FreePresetsDialog
+from .add_action_set_dialog import AddActionSetDialog
+from .free_presets_dialog import FreePresetsDialog
 from datetime import datetime
 
 from ui.theme_system import theme
