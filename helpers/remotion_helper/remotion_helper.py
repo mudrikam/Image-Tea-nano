@@ -19,6 +19,11 @@ REMOTION_SRC_DIR = "src"
 REMOTION_ENTRY_FILE = "index.tsx"
 COMPOSITION_ID = "main"
 
+# Global state untuk persistent preview
+_preview_dir_initialized = False
+_preview_dir_path = None
+_preview_server_port = None
+
 
 def _find_node() -> Optional[str]:
     for root, dirs, files in os.walk(TOOLS_NODEJS):
@@ -231,6 +236,9 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     dst_node_modules = os.path.join(temp_dir, "node_modules")
     if os.path.exists(src_node_modules):
         try:
+            if os.path.exists(dst_node_modules):
+                print(f"[Remotion] Removing stale node_modules at {dst_node_modules}")
+                shutil.rmtree(dst_node_modules, ignore_errors=True)
             shutil.copytree(src_node_modules, dst_node_modules, symlinks=False, ignore=shutil.ignore_patterns('.git', '.DS_Store'))
             print("[Remotion] Copied node_modules from tools/remotion")
         except Exception as e:
@@ -240,9 +248,24 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
 
 
 def setup_preview_dir(script_content: str) -> Tuple[str, str]:
+    """Setup preview directory - sekarang persistent, tidak dihapus setiap ganti script."""
+    global _preview_dir_initialized, _preview_dir_path
+
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
+    src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
+    entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+
+    # Jika sudah initialized, hanya update script content
+    if _preview_dir_initialized and _preview_dir_path == preview_dir:
+        if os.path.exists(preview_dir):
+            # Update hanya entry file, tidak recreate directory
+            _update_preview_script(script_content)
+            return preview_dir, entry_file
+
+    # First time setup - create directory structure
     if os.path.exists(preview_dir):
         shutil.rmtree(preview_dir, ignore_errors=True)
+
     render_settings = {'width': 1280, 'height': 720, 'fps': 30, 'duration': 10}
     orig_name = REMOTION_TEMP_DIR_NAME
     import types
@@ -252,14 +275,95 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
         result = _setup_temp_dir(script_content, render_settings)
     finally:
         _self_mod.REMOTION_TEMP_DIR_NAME = orig_name
+
+    _preview_dir_initialized = True
+    _preview_dir_path = preview_dir
     return result
 
 
-def cleanup_preview_dir():
+def _update_preview_script(script_content: str) -> str:
+    """Update script content tanpa recreate directory."""
+    global _preview_dir_path
+
+    if not _preview_dir_path:
+        raise RuntimeError("Preview directory not initialized")
+
+    src_dir = os.path.join(_preview_dir_path, REMOTION_SRC_DIR)
+    entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+
+    # Prepare script seperti biasa
+    if _script_has_register_root(script_content):
+        with open(entry_file, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+    elif _script_has_composition(script_content):
+        if 'registerRoot' not in script_content:
+            root_name = _detect_component_name(script_content)
+            if not root_name:
+                root_name = "Root"
+            wrapped = script_content
+            if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
+                wrapped = wrapped.replace("from 'remotion'", "registerRoot, Composition } from 'remotion'") if "registerRoot" not in wrapped else wrapped
+                if "registerRoot" not in wrapped:
+                    wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
+            wrapped = wrapped + f"\n\nregisterRoot({root_name});\n"
+            with open(entry_file, 'w', encoding='utf-8') as f:
+                f.write(wrapped)
+        else:
+            with open(entry_file, 'w', encoding='utf-8') as f:
+                f.write(script_content)
+    else:
+        prepared_script, component_name = _prepare_user_script(script_content)
+        component_file = os.path.join(src_dir, "MyComponent.tsx")
+        with open(component_file, 'w', encoding='utf-8') as f:
+            f.write(prepared_script)
+
+        entry_content = _build_entry_content(component_name, {'width': 1280, 'height': 720, 'fps': 30, 'duration': 10})
+        entry_content = entry_content.replace(
+            "import { MyComponent } from './MyComponent';",
+            f"import {{ {component_name} as MyComponent }} from './MyComponent';"
+        ) if component_name != "MyComponent" else entry_content
+
+        with open(entry_file, 'w', encoding='utf-8') as f:
+            f.write(entry_content)
+
+    print(f'[Remotion] Script updated at {entry_file}')
+    return entry_file
+
+
+def cleanup_preview_dir(force=False):
+    """Cleanup preview directory - hanya dipanggil saat tab ditutup."""
+    global _preview_dir_initialized, _preview_dir_path, _preview_server_port
+
+    if not force:
+        print('[Remotion] Skipping cleanup - server persistent mode')
+        return
+
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
     if os.path.exists(preview_dir):
         shutil.rmtree(preview_dir, ignore_errors=True)
         print('[Remotion] Preview dir cleaned up')
+
+    _preview_dir_initialized = False
+    _preview_dir_path = None
+    _preview_server_port = None
+
+
+def get_preview_dir() -> Optional[str]:
+    """Get current preview directory path."""
+    global _preview_dir_path
+    return _preview_dir_path
+
+
+def set_preview_server_port(port: int):
+    """Set preview server port."""
+    global _preview_server_port
+    _preview_server_port = port
+
+
+def get_preview_server_port() -> Optional[int]:
+    """Get preview server port."""
+    global _preview_server_port
+    return _preview_server_port
 
 
 def _detect_composition_id(script_content: str) -> str:

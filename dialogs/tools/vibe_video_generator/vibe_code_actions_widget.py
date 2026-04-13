@@ -182,6 +182,22 @@ class RenderCompleteDialog(QDialog):
         icon_row.addWidget(msg_label, 1)
         layout.addLayout(icon_row)
 
+        if output_path:
+            details = []
+            details.append(f"<b>Output:</b> {output_path}")
+            try:
+                import os
+                if os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path) / 1024 / 1024
+                    details.append(f"<b>Size:</b> {file_size:.1f} MB")
+            except Exception:
+                pass
+            details_label = QLabel('<br>'.join(details))
+            details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            details_label.setWordWrap(True)
+            details_label.setStyleSheet('color: #444; font-size: 11px;')
+            layout.addWidget(details_label)
+
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         open_btn = QPushButton('Open File Location')
@@ -201,6 +217,7 @@ class RenderCompleteDialog(QDialog):
         import platform
         path = self.output_path
         if not path:
+            self.accept()
             return
         folder = os.path.dirname(path)
         if platform.system() == 'Windows':
@@ -209,6 +226,7 @@ class RenderCompleteDialog(QDialog):
             subprocess.Popen(['open', '-R', path])
         else:
             subprocess.Popen(['xdg-open', folder])
+        self.accept()
 
 
 class RenderErrorDialog(QDialog):
