@@ -95,12 +95,17 @@ def _script_has_composition(script_content: str) -> bool:
 
 
 def _detect_component_name(script_content: str) -> Optional[str]:
-    match = re.search(r'export\s+default\s+(?:function\s+)?(\w+)', script_content)
-    if match:
-        return match.group(1)
-    match = re.search(r'(?:const|function|class)\s+(\w+)', script_content)
-    if match:
-        return match.group(1)
+    patterns = [
+        r'export\s+default\s+(?:function\s+)?(\w+)',
+        r'export\s+const\s+(\w+)\s*:\s*React\.FC',
+        r'export\s+const\s+(\w+)\s*=\s*\(',
+        r'export\s+function\s+(\w+)',
+        r'(?:const|function|class)\s+(\w+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, script_content)
+        if match:
+            return match.group(1)
     return None
 
 
