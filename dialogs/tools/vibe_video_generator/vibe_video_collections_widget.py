@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
                                QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
-                               QMenu)
+                               QMenu, QLineEdit)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 import qtawesome as qta
@@ -25,6 +25,12 @@ class CollectionsWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText('Search scripts or collections...')
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self._apply_filter)
+        layout.addWidget(self.search_input)
 
         self.collections_tree = QTreeWidget()
         self.collections_tree.setHeaderLabel('Collections')
@@ -68,6 +74,8 @@ class CollectionsWidget(QWidget):
             for col in tree:
                 self._add_tree_item(col, None)
 
+            self._apply_filter(self.search_input.text(), preserve_selection=False)
+
             # Restore expanded state
             iterator = QTreeWidgetItemIterator(self.collections_tree)
             while iterator.value():
@@ -90,7 +98,7 @@ class CollectionsWidget(QWidget):
         while iterator.value():
             item = iterator.value()
             data = item.data(0, Qt.UserRole)
-            if data and data.get('id') == collection_id:
+            if data and data.get('id') == collection_id and not item.isHidden():
                 self.collections_tree.setCurrentItem(item)
                 self.current_collection = data
                 item.setExpanded(True)
@@ -102,7 +110,7 @@ class CollectionsWidget(QWidget):
         while iterator.value():
             item = iterator.value()
             data = item.data(0, Qt.UserRole)
-            if data and data.get('type') == 'script' and data.get('id') == script_id:
+            if data and data.get('type') == 'script' and data.get('id') == script_id and not item.isHidden():
                 self.collections_tree.setCurrentItem(item)
                 self.current_collection = data
                 parent = item.parent()
@@ -111,6 +119,59 @@ class CollectionsWidget(QWidget):
                     parent = parent.parent()
                 return
             iterator += 1
+
+    def _item_matches_search(self, item, search_text):
+        if not search_text:
+            return True
+        data = item.data(0, Qt.UserRole) or {}
+        haystacks = [
+            item.text(0),
+            data.get('name', ''),
+            data.get('description', ''),
+            data.get('tags', ''),
+            data.get('script_content', '') if data.get('type') == 'script' else ''
+        ]
+        search_lower = search_text.lower()
+        return any(search_lower in str(value).lower() for value in haystacks if value)
+
+    def _filter_tree_item(self, item, search_text):
+        child_match = False
+        for index in range(item.childCount()):
+            child = item.child(index)
+            if self._filter_tree_item(child, search_text):
+                child_match = True
+
+        direct_match = self._item_matches_search(item, search_text)
+        visible = direct_match or child_match
+        item.setHidden(not visible)
+        if search_text and child_match:
+            item.setExpanded(True)
+        return visible
+
+    def _apply_filter(self, text, preserve_selection=True):
+        selected_script_id = None
+        selected_items = self.collections_tree.selectedItems()
+        if preserve_selection and selected_items:
+            selected_data = selected_items[0].data(0, Qt.UserRole)
+            if selected_data and selected_data.get('type') == 'script':
+                selected_script_id = selected_data.get('id')
+
+        search_text = (text or '').strip()
+        self.collections_tree.blockSignals(True)
+        try:
+            for index in range(self.collections_tree.topLevelItemCount()):
+                self._filter_tree_item(self.collections_tree.topLevelItem(index), search_text)
+        finally:
+            self.collections_tree.blockSignals(False)
+
+        current_item = self.collections_tree.currentItem()
+        if current_item and current_item.isHidden():
+            self.collections_tree.setCurrentItem(None)
+            self.current_collection = None
+            self.collection_selected.emit(None)
+
+        if preserve_selection and selected_script_id:
+            self._select_script_by_id(selected_script_id)
 
     def _add_tree_item(self, collection, parent_item):
         icon_name = collection.get('icon', 'folder')

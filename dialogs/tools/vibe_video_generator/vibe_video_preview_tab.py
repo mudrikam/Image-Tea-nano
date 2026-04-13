@@ -116,10 +116,11 @@ class PlayerServerWorker(QThread):
     server_failed = Signal(str)
     status_update = Signal(str)
 
-    def __init__(self, preview_dir, port):
+    def __init__(self, preview_dir, port, request_id=0):
         super().__init__()
         self._preview_dir = preview_dir
         self._port = port
+        self._request_id = request_id
         self._proc = None
 
     def run(self):
@@ -381,8 +382,14 @@ class PreviewTabWidget(QWidget):
         self._current_port = 3099
         self._studio_port = None
         self._server_running = False
+        self._server_starting = False
         self._studio_running = False
         self._preview_dir = None
+        self._ignore_next_text_change = False
+        self._preview_request_id = 0
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.timeout.connect(self._trigger_preview_reload)
         self._script_update_timer = QTimer(self)
         self._script_update_timer.setSingleShot(True)
         self._script_update_timer.setInterval(800)
@@ -448,6 +455,11 @@ class PreviewTabWidget(QWidget):
             pass
 
     def _on_script_selected(self, name):
+        self._script_update_timer.stop()
+        self._reload_timer.stop()
+        self._ignore_next_text_change = True
+        self._preview_request_id += 1
+
         has_script = bool(name)
         script_name = name if name else 'No script loaded.'
         self.status_label.setText(f'Script: {script_name}')
@@ -461,26 +473,31 @@ class PreviewTabWidget(QWidget):
             self.placeholder.setText('Preview will start automatically when script loads.')
             return
 
+        if not self._scripts_widget:
+            return
+
         # Get script content
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
 
-        # Jika server sudah berjalan, hanya update script (tidak restart)
-        if self._server_running and self._server_worker:
-            self._update_script_only(script_content)
-        else:
-            # Server belum jalan - start dari awal
-            self._on_start_preview()
+        if self._server_running and self._server_worker and not self._server_starting:
+            self._update_script_only(script_content, request_id=self._preview_request_id)
+        elif not self._server_running and not self._server_starting:
+            self._on_start_preview(request_id=self._preview_request_id, script_content=script_content)
 
-    def _on_start_preview(self):
-        if not self._scripts_widget:
-            return
-        script_content = self._scripts_widget.script_content.toPlainText().strip()
+    def _on_start_preview(self, request_id=None, script_content=None):
+        if request_id is None:
+            request_id = self._preview_request_id
+        if script_content is None:
+            if not self._scripts_widget:
+                return
+            script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
 
         self.reload_btn.setEnabled(False)
+        self.open_browser_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.webview.setVisible(False)
         self.placeholder.setVisible(True)
@@ -491,20 +508,25 @@ class PreviewTabWidget(QWidget):
             preview_dir, _ = setup_preview_dir(script_content)
             self._preview_dir = preview_dir
         except Exception as e:
+            self._server_starting = False
             self._reset_ui(f'Failed to prepare preview: {e}')
             return
 
         self._current_port = self._find_free_port(3099)
-        self._server_worker = PlayerServerWorker(self._preview_dir, self._current_port)
-        self._server_worker.server_ready.connect(self._on_server_ready)
-        self._server_worker.server_failed.connect(self._on_server_failed)
-        self._server_worker.status_update.connect(self._on_status_update)
-        self._server_worker.start()
+        worker = PlayerServerWorker(self._preview_dir, self._current_port, request_id=request_id)
+        self._server_worker = worker
+        worker.server_ready.connect(self._on_server_ready)
+        worker.server_failed.connect(self._on_server_failed)
+        worker.status_update.connect(self._on_status_update)
+        worker.start()
         self._server_running = True
+        self._server_starting = True
         self.placeholder.setText(f'Starting Remotion Player on port {self._current_port}...')
 
-    def _update_script_only(self, script_content: str):
+    def _update_script_only(self, script_content: str, request_id=None):
         """Update script without restart server."""
+        if request_id is None:
+            request_id = self._preview_request_id
         print('[PreviewTab] Updating script without server restart...')
         self.placeholder.setText('Updating script...')
         self.placeholder.setVisible(True)
@@ -514,12 +536,17 @@ class PreviewTabWidget(QWidget):
             preview_dir, _ = setup_preview_dir(script_content)
             self._preview_dir = preview_dir
             print('[PreviewTab] Preview script updated in preview dir, reloading view...')
-            QTimer.singleShot(500, self._trigger_preview_reload)
+            self._reload_timer.stop()
+            self._reload_timer.setProperty('request_id', request_id)
+            self._reload_timer.start(500)
         except Exception as e:
             print(f'[PreviewTab] Failed to update script: {e}')
             self.status_label.setText(f'Update failed: {e}')
 
     def _on_script_content_changed(self):
+        if self._ignore_next_text_change:
+            self._ignore_next_text_change = False
+            return
         if not self._scripts_widget:
             return
         script_content = self._scripts_widget.script_content.toPlainText().strip()
@@ -533,35 +560,55 @@ class PreviewTabWidget(QWidget):
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
-        if self._server_running and self._server_worker:
-            self._update_script_only(script_content)
-        else:
-            self._on_start_preview()
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
+        if self._server_running and self._server_worker and not self._server_starting:
+            self._update_script_only(script_content, request_id=request_id)
+        elif not self._server_running and not self._server_starting:
+            self._on_start_preview(request_id=request_id, script_content=script_content)
 
     def _trigger_preview_reload(self):
         """Trigger reload di webview."""
+        request_id = self._reload_timer.property('request_id')
+        if request_id != self._preview_request_id:
+            return
         self.placeholder.setVisible(False)
         self.webview.setVisible(True)
-        # Reload webview untuk load script baru
         self.webview.reload()
         self.status_label.setText(f'Script updated - Preview running at http://127.0.0.1:{self._current_port}')
 
     def _on_status_update(self, message):
+        worker = self.sender()
+        if not worker or not hasattr(worker, '_request_id'):
+            return
+        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+            return
         self.placeholder.setText(message)
 
     def _on_server_ready(self, port):
+        worker = self.sender()
+        if not worker or not hasattr(worker, '_request_id'):
+            return
+        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+            return
         url = f'http://127.0.0.1:{port}'
         print(f'[Remotion Player] Ready at {url}')
+        self._server_starting = False
         self.progress_bar.setVisible(False)
         self.placeholder.setVisible(False)
         self.webview.setVisible(True)
         self.reload_btn.setEnabled(True)
         self.open_browser_btn.setEnabled(True)
         self.status_label.setText(f'Preview running at {url}')
-        # Load URL langsung (tidak perlu CSS injection karena ini custom player)
         self.webview.setUrl(QUrl(url))
 
     def _on_server_failed(self, error):
+        worker = self.sender()
+        if not worker or not hasattr(worker, '_request_id'):
+            return
+        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+            return
+        self._server_starting = False
         self._stop_server()
         self._reset_ui(f'Player failed: {error}')
 
@@ -622,11 +669,14 @@ class PreviewTabWidget(QWidget):
 
     def _stop_server(self, force_cleanup=False):
         self._server_running = False
+        self._server_starting = False
+        self._reload_timer.stop()
         if self._server_worker:
-            self._server_worker.stop()
-            self._server_worker.quit()
-            self._server_worker.wait(3000)
+            worker = self._server_worker
             self._server_worker = None
+            worker.stop()
+            worker.quit()
+            worker.wait(3000)
         from helpers.remotion_helper.remotion_helper import cleanup_preview_dir
         cleanup_preview_dir(force=force_cleanup)
 
