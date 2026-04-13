@@ -44,26 +44,38 @@ def _kill_process_on_port(port: int) -> bool:
     """Kill any process using the specified port."""
     try:
         if platform.system() == 'Windows':
-            # Find PID using the port
             result = subprocess.run(
                 ['netstat', '-ano', '-p', 'tcp'],
                 capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
             )
+            pids = set()
             for line in result.stdout.split('\n'):
-                if f':{port}' in line and 'LISTENING' in line:
-                    parts = line.strip().split()
-                    if len(parts) >= 5:
-                        pid = parts[-1]
-                        print(f'[Port Cleanup] Killing process {pid} using port {port}')
-                        subprocess.run(
-                            ['taskkill', '/F', '/T', '/PID', pid],
-                            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
-                        )
-                        return True
+                if f':{port}' not in line:
+                    continue
+                parts = line.strip().split()
+                if len(parts) >= 5:
+                    pid = parts[-1]
+                    if pid.isdigit() and pid != '0':
+                        pids.add(pid)
+            for pid in pids:
+                subprocess.run(
+                    ['taskkill', '/F', '/T', '/PID', pid],
+                    capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            return bool(pids)
         return False
     except Exception as e:
         print(f'[Port Cleanup] Error killing process on port {port}: {e}')
         return False
+
+
+def _wait_for_port_release(host: str, port: int, timeout: float = 5.0, interval: float = 0.25) -> bool:
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not _is_port_open(host, port, timeout=interval):
+            return True
+        time.sleep(interval)
+    return not _is_port_open(host, port, timeout=interval)
 
 
 def _wait_for_server(host: str, port: int, timeout: float = 30.0, interval: float = 0.5) -> bool:
@@ -127,7 +139,9 @@ class PlayerServerWorker(QThread):
         # Kill any existing process on this port first
         self.status_update.emit(f'Cleaning up port {self._port}...')
         _kill_process_on_port(self._port)
-        time.sleep(0.5)  # Give time for port to be released
+        if not _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25):
+            self.server_failed.emit(f'Port {self._port} did not release after cleanup')
+            return
 
         # Check if port is already in use
         self.status_update.emit(f'Checking port {self._port}...')
@@ -191,17 +205,21 @@ class PlayerServerWorker(QThread):
             self.server_failed.emit(f'Failed to start preview server: {str(e)}')
 
     def _cleanup_proc(self):
-        if self._proc and self._proc.poll() is None:
+        if self._proc:
             try:
-                if platform.system() == 'Windows':
-                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(self._proc.pid)],
-                                   capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                else:
-                    self._proc.terminate()
-                    self._proc.wait(timeout=5)
+                if self._proc.poll() is None:
+                    if platform.system() == 'Windows':
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(self._proc.pid)],
+                                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    else:
+                        self._proc.terminate()
+                        self._proc.wait(timeout=5)
             except Exception as e:
                 print(f'[Player Server] Stop error: {e}')
-        self._proc = None
+            finally:
+                self._proc = None
+        _kill_process_on_port(self._port)
+        _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25)
 
     def stop(self):
         self._cleanup_proc()
@@ -223,7 +241,9 @@ class StudioServerWorker(QThread):
         # Kill any existing process on this port first
         self.status_update.emit(f'Cleaning up port {self._port}...')
         _kill_process_on_port(self._port)
-        time.sleep(0.5)  # Give time for port to be released
+        if not _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25):
+            self.server_failed.emit(f'Port {self._port} did not release after cleanup')
+            return
 
         npx_cmd = _find_npx_cmd()
         if not npx_cmd:
@@ -356,17 +376,21 @@ class StudioServerWorker(QThread):
             self.server_failed.emit(f'Failed to start studio: {str(e)}')
 
     def _cleanup_proc(self):
-        if self._proc and self._proc.poll() is None:
+        if self._proc:
             try:
-                if platform.system() == 'Windows':
-                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(self._proc.pid)],
-                                   capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                else:
-                    self._proc.terminate()
-                    self._proc.wait(timeout=5)
+                if self._proc.poll() is None:
+                    if platform.system() == 'Windows':
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(self._proc.pid)],
+                                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    else:
+                        self._proc.terminate()
+                        self._proc.wait(timeout=5)
             except Exception as e:
                 print(f'[Remotion Studio] Stop error: {e}')
-        self._proc = None
+            finally:
+                self._proc = None
+        _kill_process_on_port(self._port)
+        _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25)
 
     def stop(self):
         self._cleanup_proc()
@@ -386,7 +410,12 @@ class PreviewTabWidget(QWidget):
         self._studio_running = False
         self._preview_dir = None
         self._ignore_next_text_change = False
+        self._pending_selected_script_name = ''
         self._preview_request_id = 0
+        self._selection_timer = QTimer(self)
+        self._selection_timer.setSingleShot(True)
+        self._selection_timer.setInterval(350)
+        self._selection_timer.timeout.connect(self._process_pending_script_selection)
         self._reload_timer = QTimer(self)
         self._reload_timer.setSingleShot(True)
         self._reload_timer.timeout.connect(self._trigger_preview_reload)
@@ -458,14 +487,14 @@ class PreviewTabWidget(QWidget):
         self._script_update_timer.stop()
         self._reload_timer.stop()
         self._ignore_next_text_change = True
-        self._preview_request_id += 1
+        self._pending_selected_script_name = name or ''
 
-        has_script = bool(name)
         script_name = name if name else 'No script loaded.'
         self.status_label.setText(f'Script: {script_name}')
 
-        if not has_script:
-            # No script selected - stop server
+        if not name:
+            self._selection_timer.stop()
+            self._preview_request_id += 1
             self._stop_server()
             self.webview.setUrl(QUrl('about:blank'))
             self.webview.setVisible(False)
@@ -473,18 +502,24 @@ class PreviewTabWidget(QWidget):
             self.placeholder.setText('Preview will start automatically when script loads.')
             return
 
-        if not self._scripts_widget:
+        self._selection_timer.start()
+
+    def _process_pending_script_selection(self):
+        name = self._pending_selected_script_name
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
+
+        if not name or not self._scripts_widget:
             return
 
-        # Get script content
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
 
         if self._server_running and self._server_worker and not self._server_starting:
-            self._update_script_only(script_content, request_id=self._preview_request_id)
+            self._update_script_only(script_content, request_id=request_id)
         elif not self._server_running and not self._server_starting:
-            self._on_start_preview(request_id=self._preview_request_id, script_content=script_content)
+            self._on_start_preview(request_id=request_id, script_content=script_content)
 
     def _on_start_preview(self, request_id=None, script_content=None):
         if request_id is None:
@@ -547,6 +582,8 @@ class PreviewTabWidget(QWidget):
         if self._ignore_next_text_change:
             self._ignore_next_text_change = False
             return
+        if self._selection_timer.isActive() or self._server_starting:
+            return
         if not self._scripts_widget:
             return
         script_content = self._scripts_widget.script_content.toPlainText().strip()
@@ -579,17 +616,15 @@ class PreviewTabWidget(QWidget):
 
     def _on_status_update(self, message):
         worker = self.sender()
-        if not worker or not hasattr(worker, '_request_id'):
-            return
-        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+        worker_request_id = getattr(worker, '_request_id', None)
+        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
             return
         self.placeholder.setText(message)
 
     def _on_server_ready(self, port):
         worker = self.sender()
-        if not worker or not hasattr(worker, '_request_id'):
-            return
-        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+        worker_request_id = getattr(worker, '_request_id', None)
+        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
             return
         url = f'http://127.0.0.1:{port}'
         print(f'[Remotion Player] Ready at {url}')
@@ -604,9 +639,8 @@ class PreviewTabWidget(QWidget):
 
     def _on_server_failed(self, error):
         worker = self.sender()
-        if not worker or not hasattr(worker, '_request_id'):
-            return
-        if worker is not self._server_worker or worker._request_id != self._preview_request_id:
+        worker_request_id = getattr(worker, '_request_id', None)
+        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
             return
         self._server_starting = False
         self._stop_server()
