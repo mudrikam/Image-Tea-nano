@@ -83,17 +83,17 @@ def _wait_for_server(host: str, port: int, timeout: float = 30.0, interval: floa
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            # Try HTTP request to root path
             url = f'http://{host}:{port}/'
-            req = urllib.request.Request(url, method='HEAD')
-            req.timeout = interval
-            with urllib.request.urlopen(req) as response:
+            req = urllib.request.Request(url, method='GET')
+            with urllib.request.urlopen(req, timeout=interval) as response:
                 return True
         except urllib.error.HTTPError:
-            # HTTP error but server responded = server is running
             return True
         except Exception:
-            # Server not ready yet, wait a bit
+            if _is_port_open(host, port, timeout=interval):
+                healthy, _ = _health_check_server(host, port)
+                if healthy:
+                    return True
             time.sleep(interval)
     return False
 
@@ -506,19 +506,22 @@ class PreviewTabWidget(QWidget):
 
     def _process_pending_script_selection(self):
         name = self._pending_selected_script_name
-        self._preview_request_id += 1
-        request_id = self._preview_request_id
 
         if not name or not self._scripts_widget:
+            return
+        if self._server_starting:
             return
 
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
 
-        if self._server_running and self._server_worker and not self._server_starting:
+        self._preview_request_id += 1
+        request_id = self._preview_request_id
+
+        if self._server_running and self._server_worker:
             self._update_script_only(script_content, request_id=request_id)
-        elif not self._server_running and not self._server_starting:
+        elif not self._server_running:
             self._on_start_preview(request_id=request_id, script_content=script_content)
 
     def _on_start_preview(self, request_id=None, script_content=None):
@@ -594,14 +597,16 @@ class PreviewTabWidget(QWidget):
     def _on_script_update_timeout(self):
         if not self._scripts_widget:
             return
+        if self._server_starting:
+            return
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
         self._preview_request_id += 1
         request_id = self._preview_request_id
-        if self._server_running and self._server_worker and not self._server_starting:
+        if self._server_running and self._server_worker:
             self._update_script_only(script_content, request_id=request_id)
-        elif not self._server_running and not self._server_starting:
+        elif not self._server_running:
             self._on_start_preview(request_id=request_id, script_content=script_content)
 
     def _trigger_preview_reload(self):

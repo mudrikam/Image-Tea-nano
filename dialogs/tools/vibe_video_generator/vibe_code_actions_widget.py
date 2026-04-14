@@ -167,33 +167,50 @@ class ScriptFixWorker(QThread):
 class RenderCompleteDialog(QDialog):
     def __init__(self, parent, message, output_path):
         super().__init__(parent)
+        import os
+
         self.output_path = output_path
         self.setWindowTitle('Render Complete')
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
+
+        output_exists = bool(output_path and os.path.exists(output_path))
+        if output_exists:
+            main_message = 'Video rendered successfully.'
+        elif output_path:
+            main_message = 'Render finished, but the output file was not found at the expected location.'
+        else:
+            main_message = message.strip() or 'Render finished.'
 
         icon_row = QHBoxLayout()
         icon_label = QLabel()
         icon_label.setPixmap(qta.icon('fa6s.circle-info', color='#4fa3e0').pixmap(32, 32))
         icon_row.addWidget(icon_label)
         icon_row.addSpacing(8)
-        msg_label = QLabel(message)
+        msg_label = QLabel(main_message)
         msg_label.setWordWrap(True)
         icon_row.addWidget(msg_label, 1)
         layout.addLayout(icon_row)
 
+        details = []
         if output_path:
-            details = []
-            details.append(f"<b>Output:</b> {output_path}")
-            try:
-                import os
-                if os.path.exists(output_path):
+            normalized_path = os.path.normpath(output_path)
+            details.append(f"<b>File:</b> {os.path.basename(normalized_path)}")
+            details.append(f"<b>Folder:</b> {os.path.dirname(normalized_path)}")
+            if output_exists:
+                try:
                     file_size = os.path.getsize(output_path) / 1024 / 1024
                     details.append(f"<b>Size:</b> {file_size:.1f} MB")
-            except Exception:
-                pass
+                except Exception:
+                    pass
+            else:
+                details.append(f"<b>Expected path:</b> {normalized_path}")
+        elif message.strip():
+            details.append(message.strip().replace('\n', '<br>'))
+
+        if details:
             details_label = QLabel('<br>'.join(details))
-            details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             details_label.setWordWrap(True)
             details_label.setStyleSheet('color: #444; font-size: 11px;')
             layout.addWidget(details_label)
@@ -203,6 +220,7 @@ class RenderCompleteDialog(QDialog):
         open_btn = QPushButton('Open File Location')
         open_btn.setIcon(qta.icon('fa6s.folder-open'))
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_btn.setEnabled(bool(output_path))
         open_btn.clicked.connect(self._open_location)
         btn_row.addWidget(open_btn)
         ok_btn = QPushButton('OK')

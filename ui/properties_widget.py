@@ -578,6 +578,12 @@ class PropertiesWidget(QWidget):
         self.tags_pill_widget = TagsPillWidget()
         self.tags_pill_widget.tag_deleted.connect(self._on_tag_deleted)
 
+        # Create legend for tags
+        self.tags_legend = QLabel("")
+        self.tags_legend.setStyleSheet("font-size: 6pt; color: " + theme.get_color('text_dark') + ";")
+        self.tags_legend.setAlignment(Qt.AlignCenter)
+        self.tags_legend.setVisible(False)
+
         for idx, label_text in enumerate(field_names):
             icon_name = icon_map.get(label_text, "fa6s.tag")
             label_widget_container, label_widget = self._create_icon_label(f"<b>{label_text}:</b>", icon_name)
@@ -586,6 +592,7 @@ class PropertiesWidget(QWidget):
             if label_text == "Tags":
                 self.content_layout.addWidget(label_widget_container)
                 self.content_layout.addWidget(self.tags_pill_widget)
+                self.content_layout.addWidget(self.tags_legend)
                 self.fields.append(self.tags_pill_widget)
             else:
                 value_label = QLabel("")
@@ -669,6 +676,7 @@ class PropertiesWidget(QWidget):
             for i, field in enumerate(self.fields):
                 if isinstance(field, TagsPillWidget):
                     field.clear_tags()
+                    self.tags_legend.setVisible(False)
                 else:
                     field.setText("")
             reset_label_texts = [
@@ -780,6 +788,19 @@ class PropertiesWidget(QWidget):
         for i, (field, val) in enumerate(zip(self.fields, values)):
             if isinstance(field, TagsPillWidget):
                 field.set_tags(val)
+                # Show/hide legend based on whether there are tags
+                tags_text = str(val) if len(values) > 4 else ""
+                tags = [tag.strip() for tag in tags_text.split(',') if tag.strip()]
+                self.tags_legend.setVisible(len(tags) > 0)
+                
+                # Create colored legend using theme colors
+                success_color = theme.get_color('success')
+                warning_color = theme.get_color('warning')
+                gray_color = theme.get_color('gray')
+                error_color = theme.get_color('error')
+                
+                legend_html = f'<span style="color: {success_color}">●</span> SEO Meta 5  <span style="color: {warning_color}">●</span> SEO Meta 15  <span style="color: {error_color}">●</span> Duplicates  <span style="color: {gray_color}">●</span> Additional tags'
+                self.tags_legend.setText(legend_html)
             else:
                 field.setText(val)
         
