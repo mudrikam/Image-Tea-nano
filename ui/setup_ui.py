@@ -100,23 +100,29 @@ def setup_ui(self):
 
     gen_group_layout = QVBoxLayout()
     self.gen_mode_combo = QComboBox()
-    self.gen_mode_combo.addItems([
-        "All Files",
-        "Selected Only",
-        "Failed Only",
-        "Drafts Only",
-        "Resume From Stopped",
-        "All (Rolling API Keys)",
-        "Failed Only (Rolling API Keys)",
-        "Selected Only (Rolling API Keys)",
-        "Drafts Only (Rolling API Keys)",
-        "All (Parallel API Processing)",
-        "Failed Only (Parallel API Processing)",
-        "Selected Only (Parallel API Processing)",
-        "Drafts Only (Parallel API Processing)"
-    ])
+    gen_mode_descriptions = {
+        "All Files": "Generate metadata for all files in the table",
+        "Selected Only": "Generate metadata only for selected files",
+        "Failed Only": "Generate metadata only for files that previously failed",
+        "Drafts Only": "Generate metadata starting from the first draft file onwards",
+        "Resume From Stopped": "Resume generation starting from the first stopped file onwards",
+        "All (Rolling API Keys)": "Generate metadata for all files using all available API keys with automatic retry",
+        "Failed Only (Rolling API Keys)": "Retry only failed files using all available API keys with automatic retry",
+        "Selected Only (Rolling API Keys)": "Generate only selected files using all available API keys with automatic retry",
+        "Drafts Only (Rolling API Keys)": "Generate drafts onwards using all available API keys with automatic retry",
+        "All (Parallel API Processing)": "Process all files in parallel using multiple API keys simultaneously",
+        "Failed Only (Parallel API Processing)": "Retry only failed files using parallel API processing",
+        "Selected Only (Parallel API Processing)": "Generate only selected files using parallel API processing",
+        "Drafts Only (Parallel API Processing)": "Generate drafts onwards using parallel API processing"
+    }
+    self.gen_mode_combo.addItems(list(gen_mode_descriptions.keys()))
     self.gen_mode_combo.setToolTip("Choose which files to generate metadata for")
     gen_group_layout.addWidget(self.gen_mode_combo)
+
+    self.gen_mode_desc_label = QLabel()
+    self.gen_mode_desc_label.setWordWrap(True)
+    self.gen_mode_desc_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+    gen_group_layout.addWidget(self.gen_mode_desc_label)
 
     self.gen_btn = QPushButton(qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white')), "Generate Metadata")
     self.gen_btn.setStyleSheet(f"""
@@ -139,34 +145,9 @@ def setup_ui(self):
 
     def update_gen_btn_tooltip(idx):
         mode = self.gen_mode_combo.currentText()
-        if mode == "All Files":
-            self.gen_btn.setToolTip("Generate metadata for all files in the table")
-        elif mode == "Selected Only":
-            self.gen_btn.setToolTip("Generate metadata only for selected files")
-        elif mode == "Failed Only":
-            self.gen_btn.setToolTip("Generate metadata only for files that previously failed")
-        elif mode == "Drafts Only":
-            self.gen_btn.setToolTip("Generate metadata starting from the first draft file onwards")
-        elif mode == "Resume From Stopped":
-            self.gen_btn.setToolTip("Resume generation starting from the first stopped file onwards")
-        elif mode == "All (Rolling API Keys)":
-            self.gen_btn.setToolTip("Use all available API keys automatically when one fails")
-        elif mode == "Failed Only (Rolling API Keys)":
-            self.gen_btn.setToolTip("Retry only failed files using all available API keys with automatic retry")
-        elif mode == "Selected Only (Rolling API Keys)":
-            self.gen_btn.setToolTip("Generate only selected files using all available API keys with automatic retry")
-        elif mode == "Drafts Only (Rolling API Keys)":
-            self.gen_btn.setToolTip("Generate drafts onwards using all available API keys with automatic retry")
-        elif mode == "All (Parallel API Processing)":
-            self.gen_btn.setToolTip("Process files in parallel using multiple API keys simultaneously")
-        elif mode == "Failed Only (Parallel API Processing)":
-            self.gen_btn.setToolTip("Retry only failed files using parallel API processing")
-        elif mode == "Selected Only (Parallel API Processing)":
-            self.gen_btn.setToolTip("Generate only selected files using parallel API processing")
-        elif mode == "Drafts Only (Parallel API Processing)":
-            self.gen_btn.setToolTip("Generate drafts onwards using parallel API processing")
-        else:
-            self.gen_btn.setToolTip("Generate metadata")
+        description = gen_mode_descriptions.get(mode, "Generate metadata")
+        self.gen_btn.setToolTip(description)
+        self.gen_mode_desc_label.setText(description)
 
     self.gen_mode_combo.currentIndexChanged.connect(update_gen_btn_tooltip)
     update_gen_btn_tooltip(self.gen_mode_combo.currentIndex())
