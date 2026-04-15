@@ -177,7 +177,7 @@ class OutputTabWidget(QWidget):
         fmt = self.output_format_combo.currentText()
         if not filename or not folder:
             return ''
-        return os.path.join(folder, f'{filename}.{fmt}')
+        return os.path.abspath(os.path.join(folder, f'{filename}.{fmt}'))
 
     def on_filename_edited(self):
         raw = self.output_filename_input.text().strip()

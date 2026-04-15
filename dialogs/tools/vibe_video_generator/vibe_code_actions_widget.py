@@ -212,7 +212,7 @@ class RenderCompleteDialog(QDialog):
             details_label = QLabel('<br>'.join(details))
             details_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             details_label.setWordWrap(True)
-            details_label.setStyleSheet('color: #444; font-size: 11px;')
+            # Use default text color (no custom stylesheet)
             layout.addWidget(details_label)
 
         btn_row = QHBoxLayout()
@@ -237,10 +237,11 @@ class RenderCompleteDialog(QDialog):
         if not path:
             self.accept()
             return
-        # Determine the folder containing the output file
-        folder = os.path.dirname(path)
+        # Resolve to absolute file path then get folder
+        abs_path = os.path.abspath(path)
+        folder = os.path.dirname(abs_path)
         if not folder:
-            folder = os.path.dirname(os.path.abspath(path))
+            folder = os.path.dirname(abs_path)  # fallback, shouldn't happen
         if platform.system() == 'Windows':
             subprocess.Popen(['explorer', folder])
         elif platform.system() == 'Darwin':
