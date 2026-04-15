@@ -1,8 +1,10 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QTabWidget, QTextEdit, QWidget, QPushButton, QMessageBox,
-                               QSplitter, QComboBox)
+                               QSplitter, QComboBox, QSizePolicy)
 from PySide6.QtCore import Qt, Signal, QThread
 from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import TypeScriptHighlighter
+from dialogs.tools.vibe_video_generator.image_prompt_generator_dialog import ImagePromptGeneratorDialog
+from ui.api_key_section import ApiKeySectionWidget
 import qtawesome as qta
 
 REMOTION_SYSTEM_PROMPT = """You are a Remotion video script generator. Generate valid TypeScript/React code for Remotion.
@@ -46,59 +48,77 @@ export const MyComponent: React.FC = () => {
 class ScriptGeneratorWorker(QThread):
     finished = Signal(bool, str)
 
-    def __init__(self, api_key, endpoint, service, model, prompt):
+    def __init__(self, api_key, endpoint, service, model, prompt, max_retries=5):
         super().__init__()
         self.api_key = api_key
         self.endpoint = endpoint
         self.service = service
         self.model = model
         self.prompt = prompt
+        self.max_retries = max_retries
 
     def run(self):
-        try:
-            import os
-            import json
-            full_prompt = REMOTION_SYSTEM_PROMPT + "\n\nUSER REQUEST:\n" + self.prompt
-            svc = (self.service or '').lower()
-            endpoint = (self.endpoint or '').strip()
+        last_error = None
 
-            print(f"[Vibe Video] Calling AI: service={svc}, model={self.model}")
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                import os
+                import json
+                full_prompt = REMOTION_SYSTEM_PROMPT + "\n\nUSER REQUEST:\n" + self.prompt
+                svc = (self.service or '').lower()
+                endpoint = (self.endpoint or '').strip()
 
-            text = ''
+                print(f"[Vibe Video] Calling AI: service={svc}, model={self.model} (attempt {attempt}/{self.max_retries})")
 
-            if endpoint:
-                from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                print(f"[Vibe Video] Using custom endpoint: {endpoint}")
-                text = CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, full_prompt, timeout=120)
-            elif svc == 'gemini':
-                import google.genai as genai
-                client = genai.Client(api_key=self.api_key)
-                response = client.models.generate_content(model=self.model, contents=[full_prompt])
-                text = response.text
-            elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
-                from openai import OpenAI
-                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    ai_config = json.load(f)
-                base_url = ai_config['provider_endpoints'][svc]
-                client = OpenAI(api_key=self.api_key, base_url=base_url)
-                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
-            elif svc == 'groq':
-                from groq import Groq
-                client = Groq(api_key=self.api_key)
-                response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
-            else:
-                self.finished.emit(False, f"Unsupported service: {svc}")
-                return
+                text = ''
 
-            code = self._extract_code(text)
-            self.finished.emit(True, code)
+                if endpoint:
+                    from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+                    print(f"[Vibe Video] Using custom endpoint: {endpoint}")
+                    text = CustomEndpointHelper.call_endpoint(self.api_key, endpoint, svc, self.model, full_prompt, timeout=120)
+                elif svc == 'gemini':
+                    import google.genai as genai
+                    client = genai.Client(api_key=self.api_key)
+                    response = client.models.generate_content(model=self.model, contents=[full_prompt])
+                    text = response.text
+                elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
+                    from openai import OpenAI
+                    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        ai_config = json.load(f)
+                    base_url = ai_config['provider_endpoints'][svc]
+                    client = OpenAI(api_key=self.api_key, base_url=base_url)
+                    response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                    text = response.choices[0].message.content
+                elif svc == 'groq':
+                    from groq import Groq
+                    client = Groq(api_key=self.api_key)
+                    response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
+                    text = response.choices[0].message.content
+                else:
+                    self.finished.emit(False, f"Unsupported service: {svc}")
+                    return
 
-        except Exception as e:
-            print(f"[Vibe Video] AI generation error: {e}")
-            self.finished.emit(False, str(e))
+                code = self._extract_code(text)
+                if code:
+                    # Success
+                    self.finished.emit(True, code)
+                    break  # Exit retry loop
+                else:
+                    # No code extracted, treat as failure
+                    raise ValueError("No valid TypeScript code extracted from AI response")
+
+            except Exception as e:
+                last_error = str(e)
+                print(f"[Vibe Video] AI generation error (attempt {attempt}/{self.max_retries}): {e}")
+
+                if attempt >= self.max_retries:
+                    self.finished.emit(False, f"Failed after {self.max_retries} attempts:\n{last_error}")
+                else:
+                    import time
+                    wait_time = 2 ** attempt
+                    print(f"[Vibe Video] Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
 
     def _extract_code(self, text):
         import re
@@ -187,12 +207,14 @@ class EditScriptDialog(QDialog):
         self.db = db
         self.script_id = script_id
         self.is_editing = script_id is not None
-        self.api_key = api_key
-        self.endpoint = endpoint
-        self.service = service
-        self.model = model
+        # Store initial credentials to pre-select in API key section
+        self._initial_api_key = api_key or ''
+        self._initial_endpoint = endpoint or ''
+        self._initial_service = service or ''
+        self._initial_model = model or ''
         self._generator_worker = None
         self._refine_worker = None
+        self._api_key_section = None
         self.setWindowTitle('Edit Script' if self.is_editing else 'New Script')
         self.setMinimumSize(750, 600)
         self._setup_ui()
@@ -201,6 +223,24 @@ class EditScriptDialog(QDialog):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
+
+        # API Key Section (compact)
+        # API Key Section (compact, at top)
+        self._api_key_section = ApiKeySectionWidget(self.db, self)
+        self._api_key_section.setMaximumHeight(36)
+        # Hide non-essential elements for compactness
+        if hasattr(self._api_key_section, 'tested_label'):
+            self._api_key_section.tested_label.setVisible(False)
+        if hasattr(self._api_key_section, 'join_member_btn'):
+            self._api_key_section.join_member_btn.setVisible(False)
+        if hasattr(self._api_key_section, 'add_api_btn'):
+            self._api_key_section.add_api_btn.setVisible(False)
+        if hasattr(self._api_key_section, 'get_api_btn'):
+            self._api_key_section.get_api_btn.setVisible(False)
+        # Pre-select credentials if initial values provided
+        if self._initial_api_key or self._initial_service:
+            self._preselect_credentials()
+        layout.addWidget(self._api_key_section)
 
         name_layout = QHBoxLayout()
         name_label = QLabel('Script Name:')
@@ -220,11 +260,10 @@ class EditScriptDialog(QDialog):
         desc_layout.addWidget(self.desc_edit)
         layout.addLayout(desc_layout)
 
+        # Tabs
         tabs = QTabWidget()
-
         self.prompt_tab = QWidget()
         prompt_layout = QVBoxLayout(self.prompt_tab)
-
         self.prompt_edit = QTextEdit()
         self.prompt_edit.setPlaceholderText(
             'Describe the video you want to create...\n\n'
@@ -237,7 +276,6 @@ class EditScriptDialog(QDialog):
 
         gen_row = QHBoxLayout()
         gen_row.addStretch()
-
         self.refine_btn = QPushButton('Refine Prompt')
         self.refine_btn.setIcon(qta.icon('fa6s.star'))
         self.refine_btn.setMinimumHeight(36)
@@ -245,7 +283,13 @@ class EditScriptDialog(QDialog):
         self.refine_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refine_btn.clicked.connect(self._on_refine_prompt)
         gen_row.addWidget(self.refine_btn)
-
+        self.image_prompt_btn = QPushButton('Generate from Image')
+        self.image_prompt_btn.setIcon(qta.icon('fa6s.image'))
+        self.image_prompt_btn.setMinimumHeight(36)
+        self.image_prompt_btn.setToolTip('Analyze an image and create a detailed animation prompt')
+        self.image_prompt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.image_prompt_btn.clicked.connect(self._on_generate_from_image)
+        gen_row.addWidget(self.image_prompt_btn)
         self.generate_btn = QPushButton('Generate Script')
         self.generate_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
         self.generate_btn.setMinimumHeight(36)
@@ -253,7 +297,6 @@ class EditScriptDialog(QDialog):
         self.generate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.generate_btn.clicked.connect(self._on_generate)
         gen_row.addWidget(self.generate_btn)
-
         prompt_layout.addLayout(gen_row)
 
         self.script_tab = QWidget()
@@ -280,6 +323,55 @@ class EditScriptDialog(QDialog):
         btn_layout.addWidget(ok_btn)
         layout.addLayout(btn_layout)
 
+    def _preselect_credentials(self):
+        """Pre-select the initial credentials passed from parent."""
+        if not self._api_key_section or not self.db:
+            return
+        self._api_key_section._populate_models()
+        tgt_svc = self._initial_service.capitalize() if self._initial_service else ''
+        tgt_mdl = self._initial_model or ''
+        idx = -1
+        for i in range(self._api_key_section.model_combo.count()):
+            if self._api_key_section.model_combo.itemText(i).lower() == tgt_svc.lower():
+                idx = i
+                break
+        if idx >= 0:
+            self._api_key_section.model_combo.setCurrentIndex(idx)
+            api_idx = None
+            if tgt_mdl:
+                for i in range(self._api_key_section.api_key_combo.count()):
+                    d = self._api_key_section.api_key_combo.itemData(i)
+                    if d:
+                        info = self._api_key_section.api_key_map.get(d, {})
+                        if info.get('model', '').lower() == tgt_mdl.lower():
+                            api_idx = i
+                            break
+            if api_idx is None and self._initial_api_key:
+                for i in range(self._api_key_section.api_key_combo.count()):
+                    if self._api_key_section.api_key_combo.itemData(i) == self._initial_api_key:
+                        api_idx = i
+                        break
+            if api_idx is not None:
+                self._api_key_section.api_key_combo.setCurrentIndex(api_idx)
+        elif self._initial_api_key:
+            for i in range(self._api_key_section.api_key_combo.count()):
+                if self._api_key_section.api_key_combo.itemData(i) == self._initial_api_key:
+                    self._api_key_section.api_key_combo.setCurrentIndex(i)
+                    break
+
+    def _get_current_credentials(self):
+        """Get currently selected credentials from the API key section."""
+        if self._api_key_section:
+            k = self._api_key_section.api_key
+            i = self._api_key_section.api_key_map.get(k, {})
+            return {
+                'api_key': k or '',
+                'endpoint': i.get('endpoint', '') or '',
+                'service': i.get('service', '') or '',
+                'model': i.get('model', '') or ''
+            }
+        return {'api_key': '', 'endpoint': '', 'service': '', 'model': ''}
+
     def _load_script_data(self):
         if not self.db or not self.script_id:
             return
@@ -296,9 +388,12 @@ class EditScriptDialog(QDialog):
             self.prompt_edit.setFocus()
             return
 
-        if not self.api_key:
+        creds = self._get_current_credentials()
+        api_key = creds.get('api_key', '')
+        if not api_key:
             QMessageBox.warning(self, 'API Key Required',
-                                'Please select an API key and service in the main dialog first.')
+                                'Please select an API key above.')
+            self._api_key_section.api_key_combo.setFocus()
             return
 
         self.generate_btn.setEnabled(False)
@@ -307,12 +402,17 @@ class EditScriptDialog(QDialog):
         self.refine_btn.setEnabled(False)
 
         self._generator_worker = ScriptGeneratorWorker(
-            self.api_key, self.endpoint, self.service, self.model, prompt_text
+            api_key, creds.get('endpoint', ''), creds.get('service', ''), creds.get('model', ''), prompt_text, max_retries=5
         )
         self._generator_worker.finished.connect(self._on_generate_finished)
         self._generator_worker.start()
 
     def _on_generate_finished(self, success, result):
+        # Clean up worker
+        if self._generator_worker:
+            self._generator_worker.deleteLater()
+            self._generator_worker = None
+
         self.generate_btn.setEnabled(True)
         self.generate_btn.setText('Generate Script')
         self.generate_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
@@ -330,29 +430,64 @@ class EditScriptDialog(QDialog):
             QMessageBox.warning(self, 'Validation', 'Please write a brief idea first before refining.')
             self.prompt_edit.setFocus()
             return
-        if not self.api_key:
+        creds = self._get_current_credentials()
+        api_key = creds.get('api_key', '')
+        if not api_key:
             QMessageBox.warning(self, 'API Key Required',
-                                'Please select an API key and service in the main dialog first.')
+                                'Please select an API key above.')
+            self._api_key_section.api_key_combo.setFocus()
             return
         self.refine_btn.setEnabled(False)
         self.refine_btn.setText('Refining...')
         self.refine_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.refine_btn)))
         self.generate_btn.setEnabled(False)
         self._refine_worker = PromptRefinerWorker(
-            self.api_key, self.endpoint, self.service, self.model, prompt_text
+            api_key, creds.get('endpoint', ''), creds.get('service', ''), creds.get('model', ''), prompt_text
         )
         self._refine_worker.finished.connect(self._on_refine_finished)
         self._refine_worker.start()
 
     def _on_refine_finished(self, success, result):
+        # Clean up worker
+        if self._refine_worker:
+            self._refine_worker.deleteLater()
+            self._refine_worker = None
+
         self.refine_btn.setEnabled(True)
         self.refine_btn.setText('Refine Prompt')
         self.refine_btn.setIcon(qta.icon('fa6s.star'))
         self.generate_btn.setEnabled(True)
+
         if success:
             self.prompt_edit.setPlainText(result)
         else:
             QMessageBox.critical(self, 'Refine Failed', f'Failed to refine prompt:\n{result}')
+
+    def _on_generate_from_image(self):
+        # Create and show dialog with current credentials from API key section
+        creds = self._get_current_credentials()
+        dlg = ImagePromptGeneratorDialog(
+            self,
+            db=self.db,
+            current_api_key=creds.get('api_key', ''),
+            current_service=creds.get('service', ''),
+            current_model=creds.get('model', '')
+        )
+
+        if dlg.exec() == QDialog.Accepted:
+            generated_prompt = dlg.get_generated_prompt()
+            if generated_prompt:
+                # Insert into prompt edit area, optionally appending if there's existing text
+                current_text = self.prompt_edit.toPlainText().strip()
+                if current_text:
+                    # Append with separator
+                    combined = f"{current_text}\n\n--- Generated from Image ---\n{generated_prompt}"
+                else:
+                    combined = generated_prompt
+                self.prompt_edit.setPlainText(combined)
+                # Switch to prompt tab
+                self.tabs.setCurrentIndex(0)
+                self.prompt_edit.setFocus()
 
     def accept(self):
         name = self.name_edit.text().strip()

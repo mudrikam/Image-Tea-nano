@@ -82,17 +82,8 @@ class MenuWidget(QMenuBar):
             self.new_script_requested.emit(collection_id)
 
     def _get_ai_credentials(self):
-        parent_dlg = self.parent()
-        while parent_dlg and not hasattr(parent_dlg, 'api_key'):
-            parent_dlg = parent_dlg.parent()
-        if parent_dlg and hasattr(parent_dlg, 'api_key'):
-            endpoint = getattr(parent_dlg, 'selected_endpoint', '')
-            return {
-                'api_key': parent_dlg.api_key or '',
-                'endpoint': endpoint or '',
-                'service': parent_dlg.selected_service or '',
-                'model': parent_dlg.selected_model_name or ''
-            }
+        # API credentials are now managed per-dialog (EditScriptDialog has its own ApiKeySectionWidget)
+        # Return empty; EditScriptDialog will manage its own credentials.
         return {'api_key': '', 'endpoint': '', 'service': '', 'model': ''}
 
 

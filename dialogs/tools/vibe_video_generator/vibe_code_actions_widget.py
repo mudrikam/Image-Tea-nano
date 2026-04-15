@@ -237,14 +237,19 @@ class RenderCompleteDialog(QDialog):
         if not path:
             self.accept()
             return
+        # Determine the folder containing the output file
         folder = os.path.dirname(path)
+        if not folder:
+            folder = os.path.dirname(os.path.abspath(path))
         if platform.system() == 'Windows':
-            subprocess.Popen(['explorer', '/select,', os.path.normpath(path)])
+            subprocess.Popen(['explorer', folder])
         elif platform.system() == 'Darwin':
-            subprocess.Popen(['open', '-R', path])
+            subprocess.Popen(['open', folder])
         else:
             subprocess.Popen(['xdg-open', folder])
         self.accept()
+
+    # Removed duplicate _open_location - see RenderCompleteDialog below
 
 
 class RenderErrorDialog(QDialog):

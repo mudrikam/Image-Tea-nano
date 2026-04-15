@@ -186,10 +186,8 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
                 root_name = "Root"
             wrapped = script_content
             if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
-                wrapped = wrapped.replace("from 'remotion'", "registerRoot, Composition } from 'remotion'") if "registerRoot" not in wrapped else wrapped
-                if "registerRoot" not in wrapped:
-                    wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nregisterRoot({root_name});\n"
+                wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
+            wrapped = wrapped + f"\n\nregisterRoot({root_name}, {{ id: '{COMPOSITION_ID}' }});\n"
             with open(entry_file, 'w', encoding='utf-8') as f:
                 f.write(wrapped)
         else:
@@ -307,10 +305,8 @@ def _update_preview_script(script_content: str) -> str:
                 root_name = "Root"
             wrapped = script_content
             if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
-                wrapped = wrapped.replace("from 'remotion'", "registerRoot, Composition } from 'remotion'") if "registerRoot" not in wrapped else wrapped
-                if "registerRoot" not in wrapped:
-                    wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nregisterRoot({root_name});\n"
+                wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
+            wrapped = wrapped + f"\n\nregisterRoot({root_name}, {{ id: '{COMPOSITION_ID}' }});\n"
             with open(entry_file, 'w', encoding='utf-8') as f:
                 f.write(wrapped)
         else:

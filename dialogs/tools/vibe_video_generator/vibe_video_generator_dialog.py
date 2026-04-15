@@ -132,9 +132,11 @@ class VibeVideoGeneratorDialog(QDialog):
             self.scripts_widget.display_script(data)
 
     def _on_script_updated(self, script_data):
-        self.collections_widget.load_collections()
-        if script_data:
-            self.scripts_widget.display_script(script_data)
+        try:
+            self.collections_widget.load_collections()
+        except Exception as e:
+            print(f"[Vibe Video] Error reloading collections: {e}")
+        # ScriptsWidget has already updated its own UI (content & label) before emitting this signal
 
     def _on_api_key_changed(self, api_key, service, model):
         self.api_key = api_key
@@ -148,4 +150,7 @@ class VibeVideoGeneratorDialog(QDialog):
 
     def closeEvent(self, event):
         self.preview_tab_widget._stop_server()
+        self.preview_tab_widget._stop_studio()
+        if hasattr(self.scripts_widget, 'cleanup'):
+            self.scripts_widget.cleanup()
         super().closeEvent(event)

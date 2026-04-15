@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar
-from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread
+from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread, QTimer
 from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette
 import qtawesome as qta
 from pygments import lex
@@ -379,6 +379,17 @@ class ScriptsWidget(QWidget):
         self.script_name_label = QLabel('No script selected')
         layout.addWidget(self.script_name_label)
 
+        # Toolbar with Open in Browser button (mirrors Preview tab)
+        toolbar = QHBoxLayout()
+        self.open_browser_btn = QPushButton('Open in Browser')
+        self.open_browser_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square'))
+        self.open_browser_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_browser_btn.setEnabled(False)
+        self.open_browser_btn.clicked.connect(self._on_open_browser)
+        toolbar.addWidget(self.open_browser_btn)
+        toolbar.addStretch(1)
+        layout.addLayout(toolbar)
+
         self.script_content = QTextEdit()
         self.script_content.setReadOnly(True)
         self.script_content.setFontFamily("Courier New")
@@ -386,6 +397,14 @@ class ScriptsWidget(QWidget):
         layout.addWidget(self.script_content)
 
         self.highlighter = TypeScriptHighlighter(self.script_content.document())
+
+        # Studio management for Open in Browser feature
+        self._studio_worker = None
+        self._studio_running = False
+        self._studio_port = None
+        self._preview_dir_for_studio = None
+        self._studio_retry_count = 0
+        self._studio_retry_timer = None
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
@@ -433,12 +452,17 @@ class ScriptsWidget(QWidget):
         self.clear_btn.setEnabled(has_script)
         self.save_btn.setEnabled(has_script)
         self.refine_btn.setEnabled(has_script)
+        self.open_browser_btn.setEnabled(has_script)
         self.script_content.setReadOnly(not has_script)
         if script_data:
             content = script_data.get('script_content', '')
             line_count = len(content.splitlines())
             self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
-            self.script_content.setPlainText(content)
+            # Only update content if changed, and block signals to avoid unwanted textChanged
+            if self.script_content.toPlainText() != content:
+                self.script_content.blockSignals(True)
+                self.script_content.setPlainText(content)
+                self.script_content.blockSignals(False)
             self.script_selected.emit(script_data.get('name', ''))
         else:
             self.script_name_label.setText('No script selected')
@@ -510,7 +534,10 @@ class ScriptsWidget(QWidget):
         content = script_data.get('script_content', '')
         line_count = len(content.splitlines())
         self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
+        # Block signals to avoid triggering textChanged during programmatic update
+        self.script_content.blockSignals(True)
         self.script_content.setPlainText(content)
+        self.script_content.blockSignals(False)
         self.script_updated.emit(script_data)
 
     def _on_retry_refine(self):
@@ -531,18 +558,148 @@ class ScriptsWidget(QWidget):
         self._refine_worker.start()
 
     def _on_save(self):
-        if not self.db or not self.current_script_id:
-            return
+        try:
+            if not self.db or not self.current_script_id:
+                return
+            script_content = self.script_content.toPlainText().strip()
+            if not script_content:
+                QMessageBox.warning(self, 'Validation Error', 'TypeScript content cannot be empty.')
+                self.script_content.setFocus()
+                return
+            self.db.update_remotion_script(
+                script_id=self.current_script_id,
+                script_content=script_content
+            )
+            script_data = self.db.get_remotion_script(self.current_script_id)
+            if script_data:
+                self.update_script_name(script_data.get('name'))
+            self.script_updated.emit(script_data)
+        except Exception as e:
+            QMessageBox.critical(self, 'Save Error', f'Failed to save script:\n{str(e)}')
+
+    def _on_open_browser(self):
+        """Open Remotion Studio in browser for the current script."""
         script_content = self.script_content.toPlainText().strip()
         if not script_content:
-            QMessageBox.warning(self, 'Validation Error', 'TypeScript content cannot be empty.')
-            self.script_content.setFocus()
             return
-        self.db.update_remotion_script(
-            script_id=self.current_script_id,
-            script_content=script_content
-        )
-        script_data = self.db.get_remotion_script(self.current_script_id)
-        if script_data:
-            self.update_script_name(script_data.get('name'))
-        self.script_updated.emit(script_data)
+
+        # If studio already running, just open browser and exit
+        if self._studio_running and self._studio_port:
+            import webbrowser
+            webbrowser.open(f'http://127.0.0.1:{self._studio_port}')
+            return
+
+        # Cancel any pending retry timer
+        if self._studio_retry_timer:
+            self._studio_retry_timer.stop()
+            self._studio_retry_timer = None
+        self._studio_retry_count = 0
+
+        # Prepare preview directory
+        try:
+            from helpers.remotion_helper.remotion_helper import setup_preview_dir
+            preview_dir, _ = setup_preview_dir(script_content)
+            self._preview_dir_for_studio = preview_dir
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f'Failed to prepare studio: {e}')
+            return
+
+        # Start Remotion Studio
+        self._studio_port = self._find_free_port(3100)
+        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import StudioServerWorker
+        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
+        self._studio_worker.server_ready.connect(self._on_studio_ready)
+        self._studio_worker.server_failed.connect(self._on_studio_failed)
+        self._studio_worker.start()
+        self._studio_running = True
+        self.open_browser_btn.setEnabled(False)
+        self.open_browser_btn.setText('Starting...')
+
+    def _on_studio_ready(self, port):
+        """Called when Remotion Studio is ready."""
+        self._studio_port = port
+        self._studio_running = True
+        self._studio_retry_count = 0
+        if self._studio_retry_timer:
+            self._studio_retry_timer.stop()
+            self._studio_retry_timer = None
+        self.open_browser_btn.setEnabled(True)
+        self.open_browser_btn.setText('Open in Browser')
+        import webbrowser
+        webbrowser.open(f'http://127.0.0.1:{port}')
+
+    def _on_studio_failed(self, error):
+        """Called when Remotion Studio fails to start."""
+        self._studio_running = False
+        self._studio_worker = None
+        self.open_browser_btn.setEnabled(True)
+        self.open_browser_btn.setText('Open in Browser')
+        if self._studio_retry_count < 3:
+            self._studio_retry_count += 1
+            print(f'[PreviewTab] Studio failed ({error}), retrying ({self._studio_retry_count}/3)...')
+            # Schedule retry with cancellable timer
+            if self._studio_retry_timer:
+                self._studio_retry_timer.stop()
+            self._studio_retry_timer = QTimer(self)
+            self._studio_retry_timer.setSingleShot(True)
+            self._studio_retry_timer.timeout.connect(self._retry_start_studio)
+            self._studio_retry_timer.start(1000 * self._studio_retry_count)
+        else:
+            QMessageBox.critical(self, 'Studio Failed', f'Failed to start Remotion Studio:\n{error}')
+            self._studio_retry_count = 0
+            if self._studio_retry_timer:
+                self._studio_retry_timer.stop()
+                self._studio_retry_timer = None
+            self._studio_retry_count = 0
+
+    def _retry_start_studio(self):
+        """Retry starting Remotion Studio after failure."""
+        # Avoid duplicate starts
+        if self._studio_running:
+            return
+        if not hasattr(self, '_preview_dir_for_studio') or not self._preview_dir_for_studio:
+            return
+        self._studio_port = self._find_free_port(3100)
+        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import StudioServerWorker
+        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
+        self._studio_worker.server_ready.connect(self._on_studio_ready)
+        self._studio_worker.server_failed.connect(self._on_studio_failed)
+        self._studio_worker.start()
+        self._studio_running = True
+        self.open_browser_btn.setEnabled(False)
+        self.open_browser_btn.setText('Starting...')
+
+    def _find_free_port(self, start=3100):
+        """Find an available port starting from start."""
+        import socket
+        for port in range(start, start + 20):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(('127.0.0.1', port))
+                    return port
+                except OSError:
+                    continue
+        return start
+
+    def _stop_studio(self):
+        """Stop Remotion Studio if running."""
+        if self._studio_worker:
+            self._studio_worker.stop()
+            self._studio_worker.quit()
+            self._studio_worker.wait(3000)
+            self._studio_worker = None
+        self._studio_running = False
+        self._studio_port = None
+        self._studio_retry_count = 0
+        if self._studio_retry_timer:
+            self._studio_retry_timer.stop()
+            self._studio_retry_timer = None
+
+    def cleanup(self):
+        """Clean up resources (call when dialog closes)."""
+        self._stop_studio()
+        if self._refine_worker:
+            self._refine_worker.quit()
+            self._refine_worker.wait(2000)
+            self._refine_worker.deleteLater()
+            self._refine_worker = None
