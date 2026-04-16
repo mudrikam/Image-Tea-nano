@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 import qtawesome as qta
+from ui.theme_system import theme
 from dialogs.tools.vibe_video_generator.vibe_video_new_collection_dialog import NewCollectionDialog
 from dialogs.tools.vibe_video_generator.vibe_video_edit_script_dialog import EditScriptDialog
 
@@ -193,23 +194,29 @@ class CollectionsWidget(QWidget):
             item = QTreeWidgetItem(parent_item)
 
         item.setIcon(0, icon)
-        item.setText(0, name)
         item.setData(0, Qt.UserRole, {'type': 'collection', **collection})
         item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
 
         for child in collection.get('children', []):
             self._add_tree_item(child, item)
 
+        scripts = []
         collection_id = collection.get('id')
         if collection_id and self.db:
             scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
-            for script in scripts:
-                script_icon = qta.icon('fa6s.file-code', color='#58a6ff')
+            for idx, script in enumerate(scripts, 1):
+                script_icon = qta.icon('fa6s.file-code', color=theme.get_color('primary'))
                 script_item = QTreeWidgetItem(item)
                 script_item.setIcon(0, script_icon)
-                script_item.setText(0, script.get('name', 'Unnamed'))
+                script_item.setText(0, f"{idx}. {script.get('name', 'Unnamed')}")
                 script_item.setData(0, Qt.UserRole, {'type': 'script', **script})
                 script_item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+
+        n_scripts = len(scripts)
+        n_collections = len(collection.get('children', []))
+        script_label = "1 Script" if n_scripts == 1 else f"{n_scripts} Scripts"
+        coll_label = "1 Collection" if n_collections == 1 else f"{n_collections} Collections"
+        item.setText(0, f"{name} | {script_label} | {coll_label}")
 
     def _on_item_clicked(self, item, column):
         data = item.data(0, Qt.UserRole)
