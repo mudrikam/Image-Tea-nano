@@ -175,7 +175,8 @@ class RenderSettingsTabWidget(QWidget):
         }
 
     def get_all_render_settings(self):
-        """Get all render settings as a dictionary."""
+        """Get all render settings as a dictionary.
+        Note: duration is in seconds (user-facing). The helper will convert to frames for CLI."""
         return {
             # Video settings
             'codec': self.codec_combo.currentText(),
@@ -183,7 +184,7 @@ class RenderSettingsTabWidget(QWidget):
             'width': self.width_spin.value(),
             'height': self.height_spin.value(),
             'fps': self.fps_spin.value(),
-            'duration': self.duration_spin.value(),
+            'duration': self.duration_spin.value(),  # seconds
             'scale': self.scale_spin.value(),
             'image_format': self.image_format_combo.currentText(),
             'sequence': self.sequence_checkbox.isChecked(),
@@ -284,6 +285,7 @@ class RenderSettingsTabWidget(QWidget):
 
         self.pixel_format_combo = QComboBox()
         self.pixel_format_combo.addItems(['yuv420p', 'yuv422p', 'yuv444p', 'yuva420p', 'yuva422p', 'yuva444p'])
+        self.pixel_format_combo.setCurrentText('yuv420p')  # default to widely compatible format
         self.pixel_format_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Pixel Format:', self.pixel_format_combo)
 
@@ -307,7 +309,9 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('FPS:', self.fps_spin)
 
         self.duration_spin = QSpinBox()
-        self.duration_spin.setRange(0, 999999)
+        self.duration_spin.setRange(1, 3600)
+        self.duration_spin.setValue(5)
+        self.duration_spin.setSuffix(" s")
         self.duration_spin.setSpecialValueText('Auto')
         self.duration_spin.valueChanged.connect(self._cb(True))
         l.addRow('Duration (seconds):', self.duration_spin)
@@ -443,7 +447,9 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('Concurrency:', self.concurrency_spin)
 
         self.hardware_accel_combo = QComboBox()
-        self.hardware_accel_combo.addItems(['disabled', 'if-possible', 'required'])
+        self.hardware_accel_combo.addItems(['if-possible', 'disabled', 'required'])
+        # Default to 'if-possible' to try GPU first, fallback to CPU automatically
+        self.hardware_accel_combo.setCurrentText('if-possible')
         self.hardware_accel_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Hardware Acceleration:', self.hardware_accel_combo)
 
@@ -681,104 +687,12 @@ class RenderSettingsTabWidget(QWidget):
             args.extend(['--height', str(self.height_spin.value())])
         if self.fps_spin.value() > 0:
             args.extend(['--fps', str(self.fps_spin.value())])
-        if self.duration_spin.value() > 0:
-            args.extend(['--duration', str(self.duration_spin.value())])
+        # Convert duration from seconds to frames
+        dur_sec = self.duration_spin.value()
+        fps_val = self.fps_spin.value()
+        if dur_sec > 0 and fps_val > 0:
+            args.extend(['--duration', str(int(dur_sec * fps_val))])
         if self.scale_spin.value() != 1.0:
             args.extend(['--scale', str(self.scale_spin.value())])
         if self.image_format_combo.currentText() != 'jpeg':
             args.extend(['--image-format', self.image_format_combo.currentText()])
-        if self.sequence_checkbox.isChecked():
-            args.append('--sequence')
-        if self.frames_edit.text():
-            args.extend(['--frames', self.frames_edit.text()])
-        if self.every_nth_spin.value() > 1:
-            args.extend(['--every-nth-frame', str(self.every_nth_spin.value())])
-        if self.audio_codec_combo.currentText() != 'aac':
-            args.extend(['--audio-codec', self.audio_codec_combo.currentText()])
-        if self.audio_bitrate_edit.text():
-            args.extend(['--audio-bitrate', self.audio_bitrate_edit.text()])
-        if self.muted_checkbox.isChecked():
-            args.append('--muted')
-        if self.enforce_audio_checkbox.isChecked():
-            args.append('--enforce-audio-track')
-        if self.separate_audio_edit.text():
-            args.extend(['--separate-audio-to', self.separate_audio_edit.text()])
-        if self.for_seamless_aac_checkbox.isChecked():
-            args.append('--for-seamless-aac-concatenation')
-        if self.crf_spin.value() > 0:
-            args.extend(['--crf', str(self.crf_spin.value())])
-        if self.video_bitrate_edit.text():
-            args.extend(['--video-bitrate', self.video_bitrate_edit.text()])
-        if self.buffer_size_edit.text():
-            args.extend(['--buffer-size', self.buffer_size_edit.text()])
-        if self.max_rate_edit.text():
-            args.extend(['--max-rate', self.max_rate_edit.text()])
-        if self.jpeg_quality_spin.value() != 80:
-            args.extend(['--jpeg-quality', str(self.jpeg_quality_spin.value())])
-        if self.prores_profile_combo.currentText() != 'auto':
-            args.extend(['--prores-profile', self.prores_profile_combo.currentText()])
-        if self.x264_preset_combo.currentText() != 'medium':
-            args.extend(['--x264-preset', self.x264_preset_combo.currentText()])
-        if self.gif_loops_spin.value() > 0:
-            args.extend(['--number-of-gif-loops', str(self.gif_loops_spin.value())])
-        if self.concurrency_spin.value() > 0:
-            args.extend(['--concurrency', str(self.concurrency_spin.value())])
-        if self.hardware_accel_combo.currentText() not in ['disabled', 'none']:
-            args.extend(['--hardware-acceleration', self.hardware_accel_combo.currentText()])
-        if self.disallow_parallel_checkbox.isChecked():
-            args.append('--disallow-parallel-encoding')
-        if self.browser_exec_edit.text():
-            args.extend(['--browser-executable', self.browser_exec_edit.text()])
-        if self.chrome_mode_combo.currentText() != 'default':
-            args.extend(['--chrome-mode', self.chrome_mode_combo.currentText()])
-        if self.timeout_spin.value() != 30000:
-            args.extend(['--timeout', str(self.timeout_spin.value())])
-        if self.ignore_cert_checkbox.isChecked():
-            args.append('--ignore-certificate-errors')
-        if self.disable_web_security_checkbox.isChecked():
-            args.append('--disable-web-security')
-        if self.disable_headless_checkbox.isChecked():
-            args.append('--disable-headless')
-        if self.dark_mode_checkbox.isChecked():
-            args.append('--dark-mode')
-        if self.user_agent_edit.text():
-            args.extend(['--user-agent', self.user_agent_edit.text()])
-        if self.gl_combo.currentText() != 'default':
-            args.extend(['--gl', self.gl_combo.currentText()])
-        if self.config_edit.text():
-            args.extend(['--config', self.config_edit.text()])
-        if self.env_file_edit.text():
-            args.extend(['--env-file', self.env_file_edit.text()])
-        if self.props_edit.text():
-            args.extend(['--props', self.props_edit.text()])
-        if not self.bundle_cache_checkbox.isChecked():
-            args.append('--bundle-cache=false')
-        if self.log_combo.currentText() != 'info':
-            args.extend(['--log', self.log_combo.currentText()])
-        if self.port_spin.value() > 0:
-            args.extend(['--port', str(self.port_spin.value())])
-        if self.public_dir_edit.text():
-            args.extend(['--public-dir', self.public_dir_edit.text()])
-        if self.media_cache_size_edit.text():
-            args.extend(['--media-cache-size-in-bytes', self.media_cache_size_edit.text()])
-        if self.offthreadvideo_cache_edit.text():
-            args.extend(['--offthreadvideo-cache-size-in-bytes', self.offthreadvideo_cache_edit.text()])
-        if self.offthreadvideo_threads_spin.value() != 1:
-            args.extend(['--offthreadvideo-video-threads', str(self.offthreadvideo_threads_spin.value())])
-        if self.enable_multiprocess_checkbox.isChecked():
-            args.append('--enable-multiprocess-on-linux')
-        if self.repro_checkbox.isChecked():
-            args.append('--repro')
-        if self.binaries_dir_edit.text():
-            args.extend(['--binaries-directory', self.binaries_dir_edit.text()])
-        if self.experimental_rspack_checkbox.isChecked():
-            args.append('--experimental-rspack')
-        if self.metadata_edit.toPlainText():
-            args.extend(['--metadata', self.metadata_edit.toPlainText()])
-        if self.color_space_combo.currentText() != 'default':
-            args.extend(['--color-space', self.color_space_combo.currentText()])
-        if self.image_sequence_pattern_edit.text():
-            args.extend(['--image-sequence-pattern', self.image_sequence_pattern_edit.text()])
-        if not self.overwrite_checkbox.isChecked():
-            args.append('--overwrite=false')
-        return args

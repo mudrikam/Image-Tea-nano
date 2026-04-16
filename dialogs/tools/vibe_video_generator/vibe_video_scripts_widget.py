@@ -464,9 +464,6 @@ class ScriptsWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
-        self.script_name_label = QLabel('No script selected')
-        layout.addWidget(self.script_name_label)
-
         # Toolbar with Open in Browser button (mirrors Preview tab)
         toolbar = QHBoxLayout()
         self.open_browser_btn = QPushButton('Open in Browser')
@@ -483,18 +480,22 @@ class ScriptsWidget(QWidget):
         editor_layout = QHBoxLayout(editor_container)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
-        
+
         self.script_content = QTextEdit()
         self.script_content.setReadOnly(True)
         self.script_content.setFontFamily("Courier New")
         self.script_content.setFontPointSize(10)
         self.script_content.setAcceptRichText(False)
-        
+
         self.line_number_area = LineNumberArea(self.script_content)
         editor_layout.addWidget(self.line_number_area)
         editor_layout.addWidget(self.script_content)
-        
+
         layout.addWidget(editor_container)
+
+        # Script name label below editor (like status label in Preview tab)
+        self.script_name_label = QLabel('No script selected')
+        layout.addWidget(self.script_name_label)
 
         self.highlighter = TypeScriptHighlighter(self.script_content.document())
         

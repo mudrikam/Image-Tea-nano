@@ -408,50 +408,72 @@ def _build_render_args(
 ) -> List[str]:
     args = ["render", entry_file, composition_id, "--output", output_path]
 
+    # Width/Height: explicit if both > 0, else fallback to scale
     target_width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
-    scale = target_width / BASE_COMPOSITION_WIDTH
-    if scale != 1.0:
+    target_height = render_settings.get('height', 0)
+    scale = render_settings.get('scale', 0)
+
+    if target_width > 0 and target_height > 0:
+        args.extend(['--width', str(int(target_width))])
+        args.extend(['--height', str(int(target_height))])
+    elif target_width > 0:
+        args.extend(['--width', str(int(target_width))])
+    elif scale != 0:
         args.extend(['--scale', str(scale)])
+
+    # FPS
     if render_settings.get('fps', 0) > 0:
         args.extend(['--fps', str(int(render_settings['fps']))])
 
+    # Duration: convert seconds -> frames using fps
+    duration_seconds = render_settings.get('duration', 0)
+    fps = render_settings.get('fps', 0)
+    if duration_seconds > 0 and fps > 0:
+        duration_frames = int(duration_seconds * fps)
+        args.extend(['--duration', str(duration_frames)])
+
+    # Codec & pixel format
     if render_settings.get('codec') and render_settings['codec'] != 'h264':
         args.extend(['--codec', render_settings['codec']])
-    if render_settings.get('pixel_format') and render_settings['pixel_format'] != 'yuv420p':
-        args.extend(['--pixel-format', render_settings['pixel_format']])
+    pixel_format = render_settings.get('pixel_format', 'yuv420p')
+    if pixel_format and pixel_format != 'yuv420p':
+        args.extend(['--pixel-format', pixel_format])
+
+    # Image format
     if render_settings.get('image_format') and render_settings['image_format'] != 'jpeg':
         args.extend(['--image-format', render_settings['image_format']])
+
+    # Sequence / frames range
     if render_settings.get('sequence', False):
         args.append('--sequence')
     if render_settings.get('frames'):
-        args.extend(['--frames', render_settings['frames']])
+        args.extend(['--frames', str(render_settings['frames'])])
     if render_settings.get('every_nth_frame', 1) > 1:
         args.extend(['--every-nth-frame', str(render_settings['every_nth_frame'])])
 
+    # Audio
     if render_settings.get('audio_codec') and render_settings['audio_codec'] != 'aac':
         args.extend(['--audio-codec', render_settings['audio_codec']])
     if render_settings.get('audio_bitrate'):
-        args.extend(['--audio-bitrate', render_settings['audio_bitrate']])
-    if render_settings.get('muted', False):
+        args.extend(['--audio-bitrate', str(render_settings['audio_bitrate'])])
+    if render_settings.get('muted'):
         args.append('--muted')
-    if render_settings.get('enforce_audio_track', False):
+    if render_settings.get('enforce_audio_track'):
         args.append('--enforce-audio-track')
     if render_settings.get('separate_audio_to'):
         args.extend(['--separate-audio-to', render_settings['separate_audio_to']])
-    if render_settings.get('for_seamless_aac_concatenation', False):
+    if render_settings.get('for_seamless_aac_concatenation'):
         args.append('--for-seamless-aac-concatenation')
 
-    has_video_bitrate = bool(render_settings.get('video_bitrate'))
-    has_crf = render_settings.get('crf', 0) > 0
-    print(f"[Remotion] video_bitrate='{render_settings.get('video_bitrate')}', crf={render_settings.get('crf')}, has_video_bitrate={has_video_bitrate}")
-    if has_crf and not has_video_bitrate:
-        args.extend(['--crf', str(render_settings['crf'])])
-    elif has_video_bitrate:
-        args.extend(['--video-bitrate', render_settings['video_bitrate']])
+    # Quality
+    if render_settings.get('crf', 0) > 0:
+        args.extend(['--crf', str(int(render_settings['crf']))])
+    if render_settings.get('video_bitrate'):
+        args.extend(['--video-bitrate', str(render_settings['video_bitrate'])])
     if render_settings.get('buffer_size'):
-        args.extend(['--buffer-size', render_settings['buffer_size']])
+        args.extend(['--buffer-size', str(render_settings['buffer_size'])])
     if render_settings.get('max_rate'):
-        args.extend(['--max-rate', render_settings['max_rate']])
+        args.extend(['--max-rate', str(render_settings['max_rate'])])
     if render_settings.get('jpeg_quality', 80) != 80:
         args.extend(['--jpeg-quality', str(render_settings['jpeg_quality'])])
     if render_settings.get('prores_profile') and render_settings['prores_profile'] != 'auto':
@@ -461,42 +483,43 @@ def _build_render_args(
     if render_settings.get('gif_loops', 0) > 0:
         args.extend(['--number-of-gif-loops', str(render_settings['gif_loops'])])
 
-    if render_settings.get('concurrency', 0) > 0:
+    # Performance
+    if render_settings.get('concurrency', 1) > 0:
         args.extend(['--concurrency', str(render_settings['concurrency'])])
-    if render_settings.get('hardware_acceleration') and render_settings['hardware_acceleration'] not in ['disabled', 'none']:
+    if render_settings.get('hardware_acceleration') and render_settings['hardware_acceleration'] not in ('disabled', 'none'):
         args.extend(['--hardware-acceleration', render_settings['hardware_acceleration']])
-    if render_settings.get('disallow_parallel_encoding', False):
+    if render_settings.get('disallow_parallel_encoding'):
         args.append('--disallow-parallel-encoding')
 
+    # Browser / advanced
     if render_settings.get('browser_executable'):
         args.extend(['--browser-executable', render_settings['browser_executable']])
     if render_settings.get('chrome_mode') and render_settings['chrome_mode'] != 'default':
         args.extend(['--chrome-mode', render_settings['chrome_mode']])
     if render_settings.get('timeout', 30000) != 30000:
         args.extend(['--timeout', str(render_settings['timeout'])])
-    if render_settings.get('ignore_certificate_errors', False):
+    if render_settings.get('ignore_certificate_errors'):
         args.append('--ignore-certificate-errors')
-    if render_settings.get('disable_web_security', False):
+    if render_settings.get('disable_web_security'):
         args.append('--disable-web-security')
-    if render_settings.get('disable_headless', False):
+    if render_settings.get('disable_headless'):
         args.append('--disable-headless')
-    if render_settings.get('dark_mode', False):
+    if render_settings.get('dark_mode'):
         args.append('--dark-mode')
     if render_settings.get('user_agent'):
         args.extend(['--user-agent', render_settings['user_agent']])
     if render_settings.get('gl') and render_settings['gl'] != 'default':
         args.extend(['--gl', render_settings['gl']])
-
     if render_settings.get('config_file'):
         args.extend(['--config', render_settings['config_file']])
     if render_settings.get('env_file'):
         args.extend(['--env-file', render_settings['env_file']])
-    if render_settings.get('props_file'):
-        args.extend(['--props', render_settings['props_file']])
-    if render_settings.get('bundle_cache', True) is False:
+    if render_settings.get('props'):
+        args.extend(['--props', render_settings['props']])
+    if not render_settings.get('bundle_cache', True):
         args.append('--bundle-cache=false')
-    if render_settings.get('log_level') and render_settings['log_level'] != 'info':
-        args.extend(['--log', render_settings['log_level']])
+    if render_settings.get('log') and render_settings['log'] != 'info':
+        args.extend(['--log', render_settings['log']])
     if render_settings.get('port', 0) > 0:
         args.extend(['--port', str(render_settings['port'])])
     if render_settings.get('public_dir'):
@@ -507,13 +530,13 @@ def _build_render_args(
         args.extend(['--offthreadvideo-cache-size-in-bytes', render_settings['offthreadvideo_cache_size_in_bytes']])
     if render_settings.get('offthreadvideo_video_threads', 1) != 1:
         args.extend(['--offthreadvideo-video-threads', str(render_settings['offthreadvideo_video_threads'])])
-    if render_settings.get('enable_multiprocess_on_linux', False):
+    if render_settings.get('enable_multiprocess_on_linux'):
         args.append('--enable-multiprocess-on-linux')
-    if render_settings.get('repro', False):
+    if render_settings.get('repro'):
         args.append('--repro')
     if render_settings.get('binaries_directory'):
         args.extend(['--binaries-directory', render_settings['binaries_directory']])
-    if render_settings.get('experimental_rspack', False):
+    if render_settings.get('experimental_rspack'):
         args.append('--experimental-rspack')
     if render_settings.get('metadata'):
         args.extend(['--metadata', render_settings['metadata']])
@@ -521,8 +544,8 @@ def _build_render_args(
         args.extend(['--color-space', render_settings['color_space']])
     if render_settings.get('image_sequence_pattern'):
         args.extend(['--image-sequence-pattern', render_settings['image_sequence_pattern']])
-    if render_settings.get('overwrite', True):
-        args.append('--overwrite')
+    if not render_settings.get('overwrite', True):
+        args.append('--overwrite=false')
 
     return args
 
@@ -665,7 +688,13 @@ def render_video(
                             current = int(frame_match.group(1))
                             total = int(frame_match.group(2))
                             pct = int(current / total * 100) if total > 0 else 0
-                            progress_callback(min(pct, 99), f"Frame {current}/{total}")
+                            # Extract ETA if present
+                            eta_match = re.search(r'time remaining[:\s]+([0-9]+h\s*[0-9]+m\s*[0-9]+s|[0-9]+m\s*[0-9]+s|[0-9]+s)', line, re.IGNORECASE)
+                            eta_text = eta_match.group(1).strip() if eta_match else ''
+                            msg = f"Frame {current}/{total}"
+                            if eta_text:
+                                msg += f", ETA: {eta_text}"
+                            progress_callback(min(pct, 99), msg)
                         elif 'Bundl' in line:
                             progress_callback(5, "Bundling...")
 

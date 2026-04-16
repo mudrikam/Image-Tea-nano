@@ -22,6 +22,7 @@ RULES:
 10. interpolate() inputRange must be strictly increasing numbers
 11. spring() returns a number - use it directly as a value
 12. The component should fill the entire frame (width: '100%', height: '100%')
+13. For consistent timing across different FPS values, base frame numbers on `fps`. For an N‑second animation, use `fps * N` as the frame count in `interpolate` ranges (e.g., a 1‑second fade: `interpolate(frame, [0, fps], [0, 1])`).
 
 EXAMPLE OUTPUT:
 import React from 'react';
@@ -31,7 +32,7 @@ export const MyComponent: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
 
-  const opacity = interpolate(frame, [0, 30], [0, 1], { extrapolateRight: 'clamp' });
+  const opacity = interpolate(frame, [0, fps * 1], [0, 1], { extrapolateRight: 'clamp' });
   const scale = spring({ frame, fps, config: { damping: 200 } });
 
   return (

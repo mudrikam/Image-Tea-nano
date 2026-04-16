@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
                                QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
                                QMenu, QLineEdit)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor, QBrush
 import qtawesome as qta
 from ui.theme_system import theme
 from dialogs.tools.vibe_video_generator.vibe_video_new_collection_dialog import NewCollectionDialog
@@ -14,11 +14,13 @@ class CollectionsWidget(QWidget):
     collection_created = Signal()
     collection_updated = Signal()
     collection_deleted = Signal()
+    render_collection_requested = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db = parent.db if parent else None
         self.current_collection = None
+        self._last_highlighted_item = None  # Track only the currently highlighted item
         self._setup_ui()
         self.load_collections()
 
@@ -264,6 +266,12 @@ class CollectionsWidget(QWidget):
             new_script_action = QAction(qta.icon('fa6s.file-circle-plus'), 'New Script', menu)
             new_script_action.triggered.connect(lambda: self._on_new_script(data))
             menu.addAction(new_script_action)
+
+            menu.addSeparator()
+
+            render_collection_action = QAction(qta.icon('fa6s.film'), 'Render This Collection', menu)
+            render_collection_action.triggered.connect(lambda: self._on_render_collection(data))
+            menu.addAction(render_collection_action)
 
             menu.addSeparator()
 
@@ -535,3 +543,39 @@ class CollectionsWidget(QWidget):
                 item.setExpanded(True)
                 break
             iterator += 1
+
+    def _on_render_collection(self, collection_data):
+        """Handle 'Render This Collection' context menu action."""
+        self.render_collection_requested.emit(collection_data)
+
+    def highlight_rendering_script(self, script_id):
+        """Highlight the currently rendering script in the tree."""
+        # Clear only previous highlight
+        self._clear_last_highlight()
+
+        primary_bg = QColor(theme.get_color('primary'))
+        white_fg = QColor(theme.get_color('white'))
+
+        iterator = QTreeWidgetItemIterator(self.collections_tree)
+        while iterator.value():
+            item = iterator.value()
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('type') == 'script' and data.get('id') == script_id:
+                item.setBackground(0, primary_bg)
+                item.setForeground(0, white_fg)
+                self._last_highlighted_item = item
+                self.collections_tree.scrollToItem(item)
+                break
+            iterator += 1
+
+    def _clear_last_highlight(self):
+        """Clear highlight from the previously highlighted item only."""
+        if self._last_highlighted_item:
+            # Reset to default: use NoBrush to restore system appearance
+            self._last_highlighted_item.setBackground(0, QBrush())
+            self._last_highlighted_item.setForeground(0, QBrush())
+            self._last_highlighted_item = None
+
+    def clear_render_highlight(self):
+        """Remove current rendering highlight (used when batch finishes)."""
+        self._clear_last_highlight()

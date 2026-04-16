@@ -1426,6 +1426,33 @@ class ImageTeaDB:
             return result
         return build_tree()
 
+    def get_all_scripts_in_collection_tree(self, collection_id, active_only=True):
+        """
+        Recursively get all scripts in a collection and all its sub-collections.
+        Returns a flat list of script dicts with collection hierarchy information.
+        """
+        scripts = []
+
+        # Get direct scripts in this collection
+        direct_scripts = self.get_remotion_scripts(collection_id, active_only=active_only)
+        for script in direct_scripts:
+            # Add collection context to script
+            script['_collection_path'] = [collection_id]
+            scripts.append(script)
+
+        # Recursively get scripts from sub-collections
+        sub_collections = self.get_remotion_collections(collection_id)
+        for sub_col in sub_collections:
+            sub_scripts = self.get_all_scripts_in_collection_tree(sub_col['id'], active_only=active_only)
+            for s in sub_scripts:
+                # Store the full path from root to leaf
+                if '_collection_path' not in s:
+                    s['_collection_path'] = []
+                s['_collection_path'] = [collection_id] + s.get('_collection_path', [])
+            scripts.extend(sub_scripts)
+
+        return scripts
+
     def update_remotion_collection(self, collection_id, name=None, description=None, parent_collection_id=None, icon=None, color=None):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()

@@ -117,6 +117,8 @@ class VibeVideoGeneratorDialog(QDialog):
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
         self.scripts_widget.script_updated.connect(self._on_script_updated)
         self.menu_widget.new_script_requested.connect(self._on_new_script_created)
+        # Batch render: collection render request
+        self.collections_widget.render_collection_requested.connect(self.code_actions_widget.start_batch_render)
         
         # Lock UI during rendering
         self.code_actions_widget.rendering_started.connect(self._on_rendering_started)
@@ -189,6 +191,12 @@ class VibeVideoGeneratorDialog(QDialog):
             if worker.isRunning():
                 worker.cancel()
                 worker.wait(2000)  # wait up to 2s for clean termination
+        # Cancel batch rendering if active
+        if hasattr(self.code_actions_widget, '_batch_render_worker') and self.code_actions_widget._batch_render_worker:
+            worker = self.code_actions_widget._batch_render_worker
+            if worker.isRunning():
+                worker.cancel()
+                worker.wait(2000)
         self.preview_tab_widget._stop_server()
         self.preview_tab_widget._stop_studio()
         if hasattr(self.scripts_widget, 'cleanup'):
