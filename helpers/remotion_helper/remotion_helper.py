@@ -113,12 +113,31 @@ BASE_COMPOSITION_WIDTH = 1280
 BASE_COMPOSITION_HEIGHT = 720
 
 
+def _wrap_register_root_guard(script_content: str, root_name: str = None) -> str:
+    """Wrap registerRoot calls to ensure they only execute once per context."""
+    if 'registerRoot(' not in script_content:
+        return script_content
+
+    def replace_register_root(match):
+        call = match.group(0)
+        start = call.find('(') + 1
+        end = call.rfind(')')
+        args = call[start:end]
+        return f"""if (!globalThis.__remotionRootRegistered) {{
+  registerRoot({args});
+  globalThis.__remotionRootRegistered = true;
+}}"""
+
+    guarded = re.sub(r'registerRoot\s*\([^)]*\)\s*;?', replace_register_root, script_content)
+    return guarded
+
+
 def _build_entry_content(component_name: str, render_settings: dict) -> str:
     fps = render_settings.get('fps', 30)
     duration = render_settings.get('duration', 10)
     duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
 
-    return f'''import React from 'react';
+    content = f'''import React from 'react';
 import {{ registerRoot, Composition }} from 'remotion';
 import {{ MyComponent }} from './MyComponent';
 
@@ -135,8 +154,11 @@ export const RemotionRoot: React.FC = () => {{
   );
 }};
 
-registerRoot(RemotionRoot);
 '''
+    # Build the registerRoot call with guard
+    root_call = f"registerRoot(RemotionRoot)"
+    guarded = _wrap_register_root_guard(root_call)
+    return content + guarded
 
 
 def _prepare_user_script(script_content: str) -> Tuple[str, str]:
@@ -176,8 +198,9 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
 
     if _script_has_register_root(script_content):
         entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+        guarded = _wrap_register_root_guard(script_content)
         with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(script_content)
+            f.write(guarded)
     elif _script_has_composition(script_content):
         entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
         if 'registerRoot' not in script_content:
@@ -187,12 +210,13 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
             wrapped = script_content
             if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
                 wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nregisterRoot({root_name}, {{ id: '{COMPOSITION_ID}' }});\n"
+            wrapped = wrapped + f"\n\nif (!globalThis.__remotionRootRegistered) {{ registerRoot({root_name}, {{ id: '{COMPOSITION_ID}' }}); globalThis.__remotionRootRegistered = true; }}\n"
             with open(entry_file, 'w', encoding='utf-8') as f:
                 f.write(wrapped)
         else:
+            guarded = _wrap_register_root_guard(script_content)
             with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(script_content)
+                f.write(guarded)
     else:
         prepared_script, component_name = _prepare_user_script(script_content)
         component_file = os.path.join(src_dir, "MyComponent.tsx")
@@ -296,8 +320,9 @@ def _update_preview_script(script_content: str) -> str:
 
     # Prepare script seperti biasa
     if _script_has_register_root(script_content):
+        guarded = _wrap_register_root_guard(script_content)
         with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(script_content)
+            f.write(guarded)
     elif _script_has_composition(script_content):
         if 'registerRoot' not in script_content:
             root_name = _detect_component_name(script_content)
@@ -306,12 +331,13 @@ def _update_preview_script(script_content: str) -> str:
             wrapped = script_content
             if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
                 wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nregisterRoot({root_name}, {{ id: '{COMPOSITION_ID}' }});\n"
+            wrapped = wrapped + f"\n\nif (!globalThis.__remotionRootRegistered) {{ registerRoot({root_name}, {{ id: '{COMPOSITION_ID}' }}); globalThis.__remotionRootRegistered = true; }}\n"
             with open(entry_file, 'w', encoding='utf-8') as f:
                 f.write(wrapped)
         else:
+            guarded = _wrap_register_root_guard(script_content)
             with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(script_content)
+                f.write(guarded)
     else:
         prepared_script, component_name = _prepare_user_script(script_content)
         component_file = os.path.join(src_dir, "MyComponent.tsx")
