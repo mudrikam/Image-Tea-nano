@@ -1,7 +1,8 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar
-from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread, QTimer
-from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar)
+from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread, QTimer, QRect, QSize, QPoint
+from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette, QPainter, QTextCursor
 import qtawesome as qta
+from ui.theme_system import theme
 from pygments import lex
 from pygments.lexers import TypeScriptLexer
 from pygments.token import Token
@@ -104,6 +105,90 @@ DARK_DEFAULT_TEXT = QColor('#abb2bf')
 DARK_BG = QColor('#282c34')
 LIGHT_DEFAULT_TEXT = QColor('#383a42')
 LIGHT_BG = QColor('#fafafa')
+
+
+class LineNumberArea(QWidget):
+    """Widget to display line numbers next to a QTextEdit"""
+    
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+        self._line_count = 0
+        if editor:
+            self.setFont(editor.font())
+        self._update_count()
+        
+    def _update_count(self):
+        self._line_count = self.editor.document().lineCount()
+        
+    def sizeHint(self):
+        return QSize(self._calculate_width(), 0)
+    
+    def _calculate_width(self):
+        # Calculate width needed for the highest line number
+        if not self.editor or not self.editor.document():
+            return 30
+        line_count = self.editor.document().lineCount()
+        digits = len(str(max(1, line_count)))
+        # 2 digits = ~20px, each extra digit adds ~10px, plus padding
+        return max(30, 20 + self.fontMetrics().horizontalAdvance('9') * digits)
+    
+    def update_width(self):
+        self._update_count()
+        width = self._calculate_width()
+        self.setFixedWidth(width)
+        self.update()
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        try:
+            # Get theme colors for background and text
+            _, default_text, bg = get_theme_colors()
+            painter.fillRect(event.rect(), bg)
+            painter.setPen(default_text)
+            
+            if not self.editor or not self.editor.document():
+                return
+            
+            # Get the first visible block via cursor at top-left of viewport
+            cursor = self.editor.cursorForPosition(QPoint(0, 0))
+            block = cursor.block()
+            if not block.isValid():
+                block = self.editor.document().firstBlock()
+                if not block.isValid():
+                    return
+            
+            block_number = block.blockNumber()
+            
+            # Get document layout
+            layout = self.editor.document().documentLayout()
+            
+            # Get the top position of the first visible block in document coordinates
+            first_rect = layout.blockBoundingRect(block)
+            top = int(first_rect.top())
+            
+            # Adjust for the current scroll position
+            scroll_y = self.editor.verticalScrollBar().value()
+            top -= scroll_y
+            
+            while block.isValid():
+                rect = layout.blockBoundingRect(block)
+                line_height = int(rect.height())
+                bottom = top + line_height
+                
+                if top > event.rect().bottom():
+                    break
+                
+                if bottom >= event.rect().top() and block.isVisible():
+                    number = str(block_number + 1)
+                    number_rect = QRect(0, top, self.width() - 4, line_height)
+                    painter.drawText(number_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number)
+                
+                block = block.next()
+                block_number += 1
+                top += line_height
+        finally:
+            painter.end()
 
 
 def is_dark_mode():
@@ -362,6 +447,9 @@ class ScriptsWidget(QWidget):
         self._ai_model = ''
         self._refine_worker = None
         self._last_instruction = ''
+        self._last_clicked_line = -1
+        self._ctrl_selected_lines = set()  # Track lines selected with Ctrl
+        self.line_number_area = None
         self._setup_ui()
         self._apply_theme()
 
@@ -390,13 +478,36 @@ class ScriptsWidget(QWidget):
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
 
+        # Editor container with line numbers
+        editor_container = QWidget()
+        editor_layout = QHBoxLayout(editor_container)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(0)
+        
         self.script_content = QTextEdit()
         self.script_content.setReadOnly(True)
         self.script_content.setFontFamily("Courier New")
         self.script_content.setFontPointSize(10)
-        layout.addWidget(self.script_content)
+        self.script_content.setAcceptRichText(False)
+        
+        self.line_number_area = LineNumberArea(self.script_content)
+        editor_layout.addWidget(self.line_number_area)
+        editor_layout.addWidget(self.script_content)
+        
+        layout.addWidget(editor_container)
 
         self.highlighter = TypeScriptHighlighter(self.script_content.document())
+        
+        # Connect signals for line number updates
+        self.script_content.document().blockCountChanged.connect(self._update_line_numbers)
+        self.script_content.verticalScrollBar().valueChanged.connect(self.line_number_area.update)
+        self.script_content.textChanged.connect(self._update_line_count)
+        
+        # Enable mouse tracking for line number clicks
+        self.line_number_area.mousePressEvent = self._line_number_mouse_press
+        self.line_number_area.mouseMoveEvent = self._line_number_mouse_move
+        self.line_number_area.mouseReleaseEvent = self._line_number_mouse_release
+        self.line_number_area.setMouseTracking(True)
 
         # Studio management for Open in Browser feature
         self._studio_worker = None
@@ -439,11 +550,143 @@ class ScriptsWidget(QWidget):
         palette.setColor(palette.ColorRole.Text, default_text)
         self.script_content.setPalette(palette)
         self.highlighter.update_theme()
+        # Update line number area styling
+        if self.line_number_area:
+            self.line_number_area.update()
+            self.line_number_area.update_width()
 
     def changeEvent(self, event):
         super().changeEvent(event)
         if event.type() == event.Type.PaletteChange:
             self._apply_theme()
+
+    def _update_line_numbers(self):
+        if self.line_number_area:
+            self.line_number_area.update_width()
+            self.line_number_area.update()
+
+    def _update_line_count(self):
+        # Update line count when text changes
+        if self.line_number_area:
+            self.line_number_area._update_count()
+
+    def _line_number_mouse_press(self, event):
+        """Handle mouse press on line number area"""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        
+        line = self._get_line_at_position(event.pos().y())
+        if line < 0:
+            return
+        
+        # Ensure editor has focus
+        self.script_content.setFocus()
+        
+        is_ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        is_shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        
+        block = self.script_content.document().findBlockByNumber(line)
+        block_start = block.position()
+        block_end = block.position() + block.length() - 1
+        
+        if is_ctrl and not is_shift:
+            # Ctrl+click: toggle individual line selection (non-contiguous)
+            if line in self._ctrl_selected_lines:
+                # Deselect this line
+                self._ctrl_selected_lines.discard(line)
+            else:
+                # Add this line to individual selection
+                self._ctrl_selected_lines.add(line)
+            self._last_clicked_line = line
+            self._update_extra_selections()
+        else:
+            # Normal click or Shift+click: contiguous selection
+            cursor = self.script_content.textCursor()
+            
+            if is_shift and self._last_clicked_line >= 0:
+                # Shift+click: select range from last clicked line to current line
+                start_line = min(self._last_clicked_line, line)
+                end_line = max(self._last_clicked_line, line)
+                start_block = self.script_content.document().findBlockByNumber(start_line)
+                end_block = self.script_content.document().findBlockByNumber(end_line)
+                cursor.setPosition(start_block.position())
+                cursor.setPosition(end_block.position() + end_block.length() - 1, cursor.MoveMode.KeepAnchor)
+                # Clear Ctrl individual selections on normal/shift selection
+                self._ctrl_selected_lines.clear()
+            else:
+                # Single click: select just this line
+                cursor.setPosition(block_start)
+                cursor.setPosition(block_end, cursor.MoveMode.KeepAnchor)
+                # Clear Ctrl individual selections
+                self._ctrl_selected_lines.clear()
+            
+            self.script_content.setTextCursor(cursor)
+            self._last_clicked_line = line
+            self._update_extra_selections()
+
+    def _line_number_mouse_move(self, event):
+        """Handle mouse drag on line number area"""
+        if event.buttons() & Qt.MouseButton.LeftButton and self._last_clicked_line >= 0:
+            line = self._get_line_at_position(event.pos().y())
+            if line >= 0 and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                # Only drag for normal selection, not Ctrl multi-select
+                cursor = self.script_content.textCursor()
+                start_line = min(self._last_clicked_line, line)
+                end_line = max(self._last_clicked_line, line)
+                start_block = self.script_content.document().findBlockByNumber(start_line)
+                end_block = self.script_content.document().findBlockByNumber(end_line)
+                cursor.setPosition(start_block.position())
+                cursor.setPosition(end_block.position() + end_block.length() - 1, cursor.MoveMode.KeepAnchor)
+                self.script_content.setTextCursor(cursor)
+
+    def _line_number_mouse_release(self, event):
+        """Handle mouse release"""
+        pass
+
+    def _update_extra_selections(self):
+        """Update extra selections for Ctrl+clicked individual lines"""
+        selections = []
+        
+        # Get theme color for selection (use primary color)
+        primary_color = theme.get_color('primary')
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(primary_color))
+        fmt.setForeground(QColor('white'))
+        
+        for line in sorted(self._ctrl_selected_lines):
+            block = self.script_content.document().findBlockByNumber(line)
+            if block.isValid():
+                cursor = QTextCursor(block)
+                cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                selection = QTextEdit.ExtraSelection()
+                selection.cursor = cursor
+                selection.format = fmt
+                selections.append(selection)
+        
+        self.script_content.setExtraSelections(selections)
+
+    def _get_line_at_position(self, y_pos):
+        """Convert y coordinate to line number"""
+        block = self.script_content.document().firstBlock()
+        block_number = 0
+        
+        while block.isValid():
+            block_rect = self.script_content.document().documentLayout().blockBoundingRect(block)
+            top = int(block_rect.top())
+            bottom = int(top + block_rect.height())
+            
+            # Adjust for scroll position
+            scroll_y = self.script_content.verticalScrollBar().value()
+            top -= scroll_y
+            bottom -= scroll_y
+            
+            if top <= y_pos < bottom:
+                return block_number
+            
+            block = block.next()
+            block_number += 1
+        
+        return -1
 
     def display_script(self, script_data):
         self.current_script_id = script_data.get('id') if script_data else None
@@ -463,6 +706,7 @@ class ScriptsWidget(QWidget):
                 self.script_content.blockSignals(True)
                 self.script_content.setPlainText(content)
                 self.script_content.blockSignals(False)
+                self._update_line_numbers()
             self.script_selected.emit(script_data.get('name', ''))
         else:
             self.script_name_label.setText('No script selected')
@@ -538,6 +782,7 @@ class ScriptsWidget(QWidget):
         self.script_content.blockSignals(True)
         self.script_content.setPlainText(content)
         self.script_content.blockSignals(False)
+        self._update_line_numbers()
         self.script_updated.emit(script_data)
 
     def _on_retry_refine(self):

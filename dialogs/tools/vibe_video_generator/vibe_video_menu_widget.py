@@ -16,21 +16,25 @@ class MenuWidget(QMenuBar):
         self._setup_menus()
 
     def _setup_menus(self):
-        file_menu = QMenu('File', self)
-        self.addMenu(file_menu)
-
-        new_collection_action = file_menu.addAction(
+        # New Collection action directly on menu bar
+        new_collection_action = self.addAction(
             qta.icon('fa6s.folder-plus'), 'New Collection'
         )
         new_collection_action.setShortcut('Ctrl+Shift+N')
+        new_collection_action.setToolTip('Create a new collection to organize your scripts')
+        new_collection_action.setStatusTip('Create a new collection to organize your scripts')
         new_collection_action.triggered.connect(self._on_new_collection)
 
-        file_menu.addSeparator()
+        # Separator between actions
+        self.addSeparator()
 
-        self.new_script_action = file_menu.addAction(
+        # New Script action directly on menu bar
+        self.new_script_action = self.addAction(
             qta.icon('fa6s.file-circle-plus'), 'New Script'
         )
         self.new_script_action.setShortcut('Ctrl+N')
+        self.new_script_action.setToolTip('Create a new script in the selected collection')
+        self.new_script_action.setStatusTip('Create a new script in the selected collection')
         self.new_script_action.triggered.connect(self._on_new_script)
 
 
