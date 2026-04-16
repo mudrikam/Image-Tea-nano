@@ -1,12 +1,16 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
                                QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
-                               QMenu, QLineEdit)
-from PySide6.QtCore import Qt, Signal
+                               QMenu, QLineEdit, QFileDialog, QProgressDialog)
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QColor, QBrush
 import qtawesome as qta
 from ui.theme_system import theme
 from dialogs.tools.vibe_video_generator.vibe_video_new_collection_dialog import NewCollectionDialog
 from dialogs.tools.vibe_video_generator.vibe_video_edit_script_dialog import EditScriptDialog
+from dialogs.tools.vibe_video_generator.vibe_video_output_tab import sanitize_filename
+import os
+import tempfile
+import zipfile
 
 
 class CollectionsWidget(QWidget):
@@ -88,11 +92,20 @@ class CollectionsWidget(QWidget):
                     item.setExpanded(True)
                 iterator += 1
 
-            # Restore selection
+            # Restore selection and emit signal
             if selected_script_id:
                 self._select_script_by_id(selected_script_id)
             elif current_id:
                 self._select_by_id(current_id)
+            else:
+                # No previous selection - select first root collection if any
+                first_root = self.collections_tree.topLevelItem(0)
+                if first_root:
+                    self.collections_tree.setCurrentItem(first_root)
+                    data = first_root.data(0, Qt.UserRole)
+                    if data:
+                        self.current_collection = data
+                        self.collection_selected.emit(data)
         finally:
             self.collections_tree.blockSignals(False)
 
@@ -268,6 +281,10 @@ class CollectionsWidget(QWidget):
             menu.addAction(new_script_action)
 
             menu.addSeparator()
+
+            export_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Export to ZIP', menu)
+            export_zip_action.triggered.connect(lambda: self._export_collection_to_zip(data))
+            menu.addAction(export_zip_action)
 
             render_collection_action = QAction(qta.icon('fa6s.film'), 'Render This Collection', menu)
             render_collection_action.triggered.connect(lambda: self._on_render_collection(data))
@@ -579,3 +596,126 @@ class CollectionsWidget(QWidget):
     def clear_render_highlight(self):
         """Remove current rendering highlight (used when batch finishes)."""
         self._clear_last_highlight()
+
+    def _export_collection_to_zip(self, collection_data):
+        """Export all scripts in a collection (including sub-collections) to a ZIP file."""
+        if not self.db:
+            return
+
+        collection_id = collection_data.get('id')
+        collection_name = collection_data.get('name', 'collection')
+
+        # Ask user for save location
+        safe_name = sanitize_filename(collection_name)
+        default_zip_name = f'{safe_name}.zip'
+        home_dir = os.path.expanduser('~')
+        zip_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export Collection to ZIP',
+            os.path.join(home_dir, default_zip_name),
+            'ZIP Files (*.zip);;All Files (*)'
+        )
+
+        if not zip_path:
+            return
+
+        # Create temporary directory for staging
+        with tempfile.TemporaryDirectory(prefix='vibe_export_') as temp_dir:
+            # Recursively collect all scripts from this collection
+            total_scripts = self._collect_all_scripts(collection_id)
+            if total_scripts == 0:
+                QMessageBox.information(self, 'Empty Collection', 'This collection has no scripts to export.')
+                return
+
+            # Show progress dialog
+            progress = QProgressDialog(f'Exporting {total_scripts} scripts...', 'Cancel', 0, total_scripts, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(500)
+            progress.setValue(0)
+
+            try:
+                # Start recursive export
+                exported = self._export_collection_recursive(collection_id, collection_name, temp_dir, progress)
+
+                # Check if user cancelled (before closing the dialog)
+                if progress.wasCanceled():
+                    QMessageBox.information(self, 'Cancelled', 'Export was cancelled.')
+                    return
+
+            except Exception as e:
+                QMessageBox.critical(self, 'Export Error', f'Failed to export collection:\n{str(e)}')
+                return
+            finally:
+                progress.close()
+
+            # Create ZIP archive
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for root, dirs, files in os.walk(temp_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            # Archive name relative to temp_dir
+                            arcname = os.path.relpath(file_path, temp_dir)
+                            zipf.write(file_path, arcname)
+            except Exception as e:
+                QMessageBox.critical(self, 'Export Error', f'Failed to create ZIP file:\n{str(e)}')
+                return
+
+            QMessageBox.information(
+                self,
+                'Export Complete',
+                f'Exported {exported} script(s) to:\n{zip_path}'
+            )
+
+    def _collect_all_scripts(self, collection_id):
+        """Count all scripts recursively in a collection and its sub-collections."""
+        count = 0
+        # Get direct scripts
+        if self.db:
+            scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
+            count += len(scripts)
+            # Get scripts from sub-collections
+            children = self.db.get_remotion_collections(parent_collection_id=collection_id)
+            for child in children:
+                count += self._collect_all_scripts(child.get('id'))
+        return count
+
+    def _export_collection_recursive(self, collection_id, folder_name, base_dir, progress):
+        """Recursively export collection and all sub-collections. Returns number of scripts exported."""
+        count = 0
+        # Create folder for this collection
+        safe_folder = sanitize_filename(folder_name)
+        collection_dir = os.path.join(base_dir, safe_folder)
+        os.makedirs(collection_dir, exist_ok=True)
+
+        # Export scripts directly in this collection
+        if self.db:
+            scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
+            for idx, script in enumerate(scripts, 1):
+                script_content = script.get('script_content', '')
+                if script_content:
+                    script_name = script.get('name', f'script_{idx}')
+                    safe_name = sanitize_filename(script_name)
+                    if not safe_name.endswith('.tsx'):
+                        safe_name += '.tsx'
+                    file_path = os.path.join(collection_dir, safe_name)
+                    try:
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(script_content)
+                        count += 1
+                    except Exception as e:
+                        print(f'[Export] Failed to write script {script_name}: {e}')
+
+            # Update progress
+            progress.setValue(progress.value() + len(scripts))
+
+            if progress.wasCanceled():
+                return count
+
+            # Recurse into sub-collections
+            children = self.db.get_remotion_collections(parent_collection_id=collection_id)
+            for child in children:
+                child_name = child.get('name', 'subcollection')
+                count += self._export_collection_recursive(child.get('id'), child_name, collection_dir, progress)
+
+        return count

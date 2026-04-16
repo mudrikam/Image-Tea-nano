@@ -119,14 +119,14 @@ class VibeVideoGeneratorDialog(QDialog):
         self.menu_widget.new_script_requested.connect(self._on_new_script_created)
         # Batch render: collection render request
         self.collections_widget.render_collection_requested.connect(self.code_actions_widget.start_batch_render)
-        
+
         # Lock UI during rendering
         self.code_actions_widget.rendering_started.connect(self._on_rendering_started)
         self.code_actions_widget.rendering_finished.connect(self._on_rendering_finished)
 
-        # Provide references
-        self.menu_widget.collections_widget = self.collections_widget
-        self.menu_widget.scripts_widget = self.scripts_widget
+        # Provide references using setter methods to connect signals
+        self.menu_widget.set_collections_widget(self.collections_widget)
+        self.menu_widget.set_scripts_widget(self.scripts_widget)
 
     def _on_new_script_created(self, collection_id):
         self.collections_widget.load_collections()
