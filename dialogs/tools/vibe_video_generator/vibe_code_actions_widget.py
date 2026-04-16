@@ -328,6 +328,9 @@ class RenderWorker(QThread):
 
 
 class CodeActionsWidget(QWidget):
+    rendering_started = Signal()
+    rendering_finished = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._render_settings_tab = None
@@ -342,6 +345,7 @@ class CodeActionsWidget(QWidget):
         self._ai_service = ''
         self._ai_model = ''
         self._last_error_msg = ''
+        self._is_rendering = False
         self._setup_ui()
 
     def set_render_settings_tab(self, render_settings_tab):
@@ -382,6 +386,30 @@ class CodeActionsWidget(QWidget):
                 self.filename_input.setText(saved_filename)
             if saved_path:
                 self.folder_input.setText(saved_path)
+
+    def enter_render_mode(self):
+        """Called when rendering starts - disable UI controls but keep Cancel active."""
+        # Disable output filename/folder inputs and browse button
+        self.filename_input.setEnabled(False)
+        self.folder_input.setEnabled(False)
+        self.browse_btn.setEnabled(False)
+        # Disable preset and duration controls
+        if hasattr(self, 'preset_combo'):
+            self.preset_combo.setEnabled(False)
+        if hasattr(self, 'duration_seconds_spin'):
+            self.duration_seconds_spin.setEnabled(False)
+        # Note: render button stays enabled (becomes Cancel)
+        # Other action buttons (Refine/Clear/Save) are in ScriptsWidget; handled by parent
+
+    def exit_render_mode(self):
+        """Called when rendering finishes - re-enable UI controls."""
+        self.filename_input.setEnabled(True)
+        self.folder_input.setEnabled(True)
+        self.browse_btn.setEnabled(True)
+        if hasattr(self, 'preset_combo'):
+            self.preset_combo.setEnabled(True)
+        if hasattr(self, 'duration_seconds_spin'):
+            self.duration_seconds_spin.setEnabled(True)
 
     def _on_duration_changed(self):
         if not self._render_settings_tab:
@@ -584,6 +612,8 @@ class CodeActionsWidget(QWidget):
 
         # Disable button during render
         self._render_worker = RenderWorker(script_content, output_path, render_settings)
+        self._is_rendering = True
+        self.rendering_started.emit()
         self.render_btn.setEnabled(True)
         self.render_btn.setText('Cancel')
         self.render_btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
@@ -621,6 +651,8 @@ class CodeActionsWidget(QWidget):
             self.progress_bar.setFormat('Cancelling...')
 
     def _restore_render_btn(self):
+        self._is_rendering = False
+        self.rendering_finished.emit()
         self.render_btn.setEnabled(True)
         self.render_btn.setText('Render Video')
         self.render_btn.setIcon(qta.icon('fa6s.film', color=theme.get_color('white')))

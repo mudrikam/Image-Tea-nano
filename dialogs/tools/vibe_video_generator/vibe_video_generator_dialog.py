@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QSplitter, QTabWidget, QWidget
+    QDialog, QVBoxLayout, QSplitter, QTabWidget, QWidget, QPushButton
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon, QShowEvent
@@ -34,6 +34,7 @@ class VibeVideoGeneratorDialog(QDialog):
         )
         self.resize(900, 650)
         self.setMinimumSize(700, 500)
+        self._is_closing = False
 
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -116,6 +117,10 @@ class VibeVideoGeneratorDialog(QDialog):
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
         self.scripts_widget.script_updated.connect(self._on_script_updated)
         self.menu_widget.new_script_requested.connect(self._on_new_script_created)
+        
+        # Lock UI during rendering
+        self.code_actions_widget.rendering_started.connect(self._on_rendering_started)
+        self.code_actions_widget.rendering_finished.connect(self._on_rendering_finished)
 
         # Provide references
         self.menu_widget.collections_widget = self.collections_widget
@@ -148,7 +153,42 @@ class VibeVideoGeneratorDialog(QDialog):
         if self.api_key_changed:
             self.api_key_changed.emit(api_key, service, model)
 
+    def _on_rendering_started(self):
+        """Disable interactive UI elements during rendering."""
+        if self._is_closing:
+            return
+        self.collections_widget.setEnabled(False)
+        self.scripts_widget.setEnabled(False)
+        self.code_actions_widget.enter_render_mode()
+        self.preview_tab_widget.setEnabled(False)
+        self.output_tab_widget.setEnabled(False)
+        self.render_settings_tab_widget.setEnabled(False)
+        if hasattr(self.menu_widget, 'new_script_action'):
+            self.menu_widget.new_script_action.setEnabled(False)
+
+    def _on_rendering_finished(self):
+        """Re-enable UI elements after rendering completes."""
+        if self._is_closing:
+            return
+        self.collections_widget.setEnabled(True)
+        self.scripts_widget.setEnabled(True)
+        self.code_actions_widget.exit_render_mode()
+        self.preview_tab_widget.setEnabled(True)
+        self.output_tab_widget.setEnabled(True)
+        self.render_settings_tab_widget.setEnabled(True)
+        if hasattr(self.menu_widget, 'new_script_action'):
+            self.menu_widget.new_script_action.setEnabled(True)
+        # Refresh preview tab button states based on current selection
+        self.preview_tab_widget._process_pending_script_selection()
+
     def closeEvent(self, event):
+        self._is_closing = True
+        # Cancel rendering if active to prevent stray threads
+        if hasattr(self.code_actions_widget, '_render_worker') and self.code_actions_widget._render_worker:
+            worker = self.code_actions_widget._render_worker
+            if worker.isRunning():
+                worker.cancel()
+                worker.wait(2000)  # wait up to 2s for clean termination
         self.preview_tab_widget._stop_server()
         self.preview_tab_widget._stop_studio()
         if hasattr(self.scripts_widget, 'cleanup'):

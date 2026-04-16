@@ -27,11 +27,11 @@ class MenuWidget(QMenuBar):
 
         file_menu.addSeparator()
 
-        new_script_action = file_menu.addAction(
+        self.new_script_action = file_menu.addAction(
             qta.icon('fa6s.file-circle-plus'), 'New Script'
         )
-        new_script_action.setShortcut('Ctrl+N')
-        new_script_action.triggered.connect(self._on_new_script)
+        self.new_script_action.setShortcut('Ctrl+N')
+        self.new_script_action.triggered.connect(self._on_new_script)
 
 
 

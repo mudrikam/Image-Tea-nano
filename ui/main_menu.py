@@ -997,7 +997,10 @@ def setup_main_menu(window):
             dlg = MemberRequiredDialog("Vibe Video Generator is only accessible to logged-in members.", window)
             if dlg.exec() == MemberRequiredDialog.Accepted:
                 open_login_member()
-            return
+                if not is_logged_in():
+                    return
+            else:
+                return
         from dialogs.tools.vibe_video_generator.vibe_video_generator_dialog import VibeVideoGeneratorDialog
         if not hasattr(window, '_vibe_video_generator_dialog') or not window._vibe_video_generator_dialog:
             window._vibe_video_generator_dialog = VibeVideoGeneratorDialog(None)

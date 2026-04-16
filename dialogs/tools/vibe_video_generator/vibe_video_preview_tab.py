@@ -123,7 +123,7 @@ def _health_check_server(host: str, port: int) -> tuple[bool, str]:
 
 
 class PlayerServerWorker(QThread):
-    """Worker untuk menjalankan Remotion preview server (clean player only)."""
+    """Worker untuk menjalankan Remotion Studio server (full UI with controls)."""
     server_ready = Signal(int)
     server_failed = Signal(str)
     status_update = Signal(str)
@@ -149,8 +149,8 @@ class PlayerServerWorker(QThread):
             self.server_failed.emit(f'Port {self._port} is still in use after cleanup')
             return
 
-        self.status_update.emit('Starting Remotion preview server...')
-        print(f'[Player Server] Starting preview server on port {self._port}')
+        self.status_update.emit('Starting Remotion Studio...')
+        print(f'[Studio Server] Starting Remotion Studio on port {self._port}')
 
         entry_file = os.path.join('src', 'index.tsx')
         full_entry_path = os.path.join(self._preview_dir, entry_file)
@@ -168,9 +168,10 @@ class PlayerServerWorker(QThread):
                 self.server_failed.emit('npx not found')
                 return
 
-            cmd = npx_cmd + ['remotion', 'preview', entry_file, '--port', str(self._port), '--host', '127.0.0.1', '--no-open']
-            print(f'[Player Server] Command: {" ".join(cmd)}')
-            print(f'[Player Server] Working directory: {self._preview_dir}')
+            # Use 'remotion studio' instead of 'remotion preview' for full UI
+            cmd = npx_cmd + ['remotion', 'studio', entry_file, '--port', str(self._port), '--host', '127.0.0.1', '--no-open']
+            print(f'[Studio Server] Command: {" ".join(cmd)}')
+            print(f'[Studio Server] Working directory: {self._preview_dir}')
 
             self._proc = subprocess.Popen(
                 cmd,
@@ -184,12 +185,12 @@ class PlayerServerWorker(QThread):
                 creationflags=flags
             )
 
-            self.status_update.emit(f'Waiting for preview on port {self._port}...')
+            self.status_update.emit(f'Waiting for Remotion Studio on port {self._port}...')
             if _wait_for_server('127.0.0.1', self._port, timeout=30.0):
                 self.status_update.emit('Performing health check...')
                 healthy, msg = _health_check_server('127.0.0.1', self._port)
                 if healthy:
-                    print(f'[Player Server] Health check passed: {msg}')
+                    print(f'[Studio Server] Health check passed: {msg}')
                     self.server_ready.emit(self._port)
                 else:
                     self._cleanup_proc()
@@ -197,12 +198,12 @@ class PlayerServerWorker(QThread):
                     return
             else:
                 self._cleanup_proc()
-                self.server_failed.emit(f'Preview server not accessible on port {self._port} after 60s')
+                self.server_failed.emit(f'Remotion Studio not accessible on port {self._port} after 60s')
                 return
 
         except Exception as e:
             self._cleanup_proc()
-            self.server_failed.emit(f'Failed to start preview server: {str(e)}')
+            self.server_failed.emit(f'Failed to start Remotion Studio: {str(e)}')
 
     def _cleanup_proc(self):
         if self._proc:
@@ -215,7 +216,7 @@ class PlayerServerWorker(QThread):
                         self._proc.terminate()
                         self._proc.wait(timeout=5)
             except Exception as e:
-                print(f'[Player Server] Stop error: {e}')
+                print(f'[Studio Server] Stop error: {e}')
             finally:
                 self._proc = None
         _kill_process_on_port(self._port)
@@ -250,9 +251,9 @@ class StudioServerWorker(QThread):
             self.server_failed.emit('npx not found')
             return
 
-        # Validate preview directory
+        # Validate project directory
         if not os.path.exists(self._preview_dir):
-            self.server_failed.emit(f'Preview directory not found: {self._preview_dir}')
+            self.server_failed.emit(f'Project directory not found: {self._preview_dir}')
             return
 
         entry_file = os.path.join('src', 'index.tsx')
@@ -437,6 +438,13 @@ class PreviewTabWidget(QWidget):
         # Top toolbar with buttons only
         toolbar = QHBoxLayout()
 
+        self.start_server_btn = QPushButton('Start Server')
+        self.start_server_btn.setIcon(qta.icon('fa6s.play'))
+        self.start_server_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.start_server_btn.setEnabled(False)
+        self.start_server_btn.clicked.connect(self._on_start_server)
+        toolbar.addWidget(self.start_server_btn)
+
         self.reload_btn = QPushButton('Reload')
         self.reload_btn.setIcon(qta.icon('fa6s.rotate'))
         self.reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -457,12 +465,12 @@ class PreviewTabWidget(QWidget):
         # Progress bar for loading
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
-        self.progress_bar.setFormat('Starting Remotion Player...')
+        self.progress_bar.setFormat('Starting Remotion Studio...')
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
         # Placeholder label (shows status messages like health check)
-        self.placeholder = QLabel('Preview will start automatically when script loads.')
+        self.placeholder = QLabel('Select a script from the Collections tab, then click "Start Server" to open Remotion Studio.')
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.placeholder, 1)
 
@@ -503,7 +511,9 @@ class PreviewTabWidget(QWidget):
             self.webview.setUrl(QUrl('about:blank'))
             self.webview.setVisible(False)
             self.placeholder.setVisible(True)
-            self.placeholder.setText('Preview will start automatically when script loads.')
+            self.placeholder.setText('Select a script to open in Remotion Studio.')
+            self._reset_ui('No script selected.')
+            self.start_server_btn.setEnabled(False)
             return
 
         self._selection_timer.start()
@@ -517,23 +527,45 @@ class PreviewTabWidget(QWidget):
         name = self._pending_selected_script_name
 
         if not name or not self._scripts_widget:
+            self._reset_ui('No script loaded.')
+            self.start_server_btn.setEnabled(False)
             return
         if self._server_starting:
             return
 
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
+            self._reset_ui('Script is empty.')
+            self.start_server_btn.setEnabled(False)
             return
 
         self._preview_request_id += 1
         request_id = self._preview_request_id
 
         if self._server_running and self._server_worker:
+            # Hot-reload: update script without restarting server
             self._update_script_only(script_content, request_id=request_id)
-        elif not self._server_running:
-            self._on_start_preview(request_id=request_id, script_content=script_content)
+            script_name = name if name else 'Current script'
+            self.status_label.setText(f'Script: {script_name} - Updated (reloading...)')
+            # Keep buttons: start disabled (server running), reload & open_browser enabled
+            self.start_server_btn.setEnabled(False)
+            self.open_browser_btn.setEnabled(True)
+            self.reload_btn.setEnabled(True)
+        else:
+            # Server not running - prepare UI for manual start
+            script_name = name if name else 'Current script'
+            self.status_label.setText(f'Script: {script_name} - Ready (click "Start Server" or "Open in Browser")')
+            self.placeholder.setText('Remotion Studio will open when you click "Start Server".')
+            self.placeholder.setVisible(True)
+            self.webview.setVisible(False)
+            can_start = not self._server_starting and not self._server_running
+            self.start_server_btn.setEnabled(can_start)
+            self.open_browser_btn.setEnabled(True)
+            self.reload_btn.setEnabled(False)
 
     def _on_start_preview(self, request_id=None, script_content=None):
+        if self._server_starting or self._server_running:
+            return
         if request_id is None:
             request_id = self._preview_request_id
         if script_content is None:
@@ -543,12 +575,13 @@ class PreviewTabWidget(QWidget):
         if not script_content:
             return
 
+        self.start_server_btn.setEnabled(False)
         self.reload_btn.setEnabled(False)
         self.open_browser_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.webview.setVisible(False)
         self.placeholder.setVisible(True)
-        self.placeholder.setText('Preparing preview project...')
+        self.placeholder.setText('Preparing Remotion Studio...')
 
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
@@ -556,33 +589,35 @@ class PreviewTabWidget(QWidget):
             self._preview_dir = preview_dir
         except Exception as e:
             self._server_starting = False
-            self._reset_ui(f'Failed to prepare preview: {e}')
+            self._server_running = False
+            self._reset_ui(f'Failed to start Remotion Studio: {e}')
+            self.start_server_btn.setEnabled(True)
+            self.open_browser_btn.setEnabled(True)
             return
 
+        self._server_starting = True
+        self._server_running = True
         self._current_port = self._find_free_port(3099)
         worker = PlayerServerWorker(self._preview_dir, self._current_port, request_id=request_id)
         self._server_worker = worker
         worker.server_ready.connect(self._on_server_ready)
         worker.server_failed.connect(self._on_server_failed)
-        worker.status_update.connect(self._on_status_update)
         worker.start()
-        self._server_running = True
-        self._server_starting = True
-        self.placeholder.setText(f'Starting Remotion Player on port {self._current_port}...')
+        self.placeholder.setText(f'Starting Remotion Studio on port {self._current_port}...')
 
     def _update_script_only(self, script_content: str, request_id=None):
         """Update script without restart server."""
         if request_id is None:
             request_id = self._preview_request_id
         print('[PreviewTab] Updating script without server restart...')
-        self.placeholder.setText('Updating script...')
+        self.placeholder.setText('Updating script in Remotion Studio...')
         self.placeholder.setVisible(True)
 
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
             preview_dir, _ = setup_preview_dir(script_content)
             self._preview_dir = preview_dir
-            print('[PreviewTab] Preview script updated in preview dir, reloading view...')
+            print('[PreviewTab] Script updated in preview directory, reloading Remotion Studio view...')
             self._reload_timer.stop()
             self._reload_timer.setProperty('request_id', request_id)
             self._reload_timer.start(1500)  # give Remotion time to recompile before navigating
@@ -615,13 +650,30 @@ class PreviewTabWidget(QWidget):
             self._retry_timer = None
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
+            self._reset_ui('Script is empty.')
+            self.start_server_btn.setEnabled(False)
             return
+
         self._preview_request_id += 1
         request_id = self._preview_request_id
+
         if self._server_running and self._server_worker:
+            # Hot-reload: update script without restarting server
             self._update_script_only(script_content, request_id=request_id)
-        elif not self._server_running:
-            self._on_start_preview(request_id=request_id, script_content=script_content)
+            script_name = self._pending_selected_script_name or 'Current script'
+            self.status_label.setText(f'Script: {script_name} - Updated (reloading...)')
+            # Keep buttons: start disabled (server running), reload & open_browser enabled
+        else:
+            # Server not running - do nothing, just update status
+            script_name = self._pending_selected_script_name or 'Current script'
+            self.status_label.setText(f'Script: {script_name} - Modified (click "Start Server" to refresh)')
+            self.placeholder.setText('Script updated. Click "Start Server" to refresh Remotion Studio.')
+            self.placeholder.setVisible(True)
+            self.webview.setVisible(False)
+            can_start = not self._server_starting and not self._server_running
+            self.start_server_btn.setEnabled(can_start)
+            self.open_browser_btn.setEnabled(True)
+            self.reload_btn.setEnabled(False)
 
     def _trigger_preview_reload(self):
         """Trigger reload by navigating to root so composition ID is re-evaluated."""
@@ -647,7 +699,7 @@ class PreviewTabWidget(QWidget):
         if worker is not self._server_worker or worker_request_id != self._preview_request_id:
             return
         url = f'http://127.0.0.1:{port}'
-        print(f'[Remotion Player] Ready at {url}')
+        print(f'[Remotion Studio] Ready at {url}')
         self._server_starting = False
         self._server_retry_count = 0
         if self._retry_timer:
@@ -658,7 +710,7 @@ class PreviewTabWidget(QWidget):
         self.webview.setVisible(True)
         self.reload_btn.setEnabled(True)
         self.open_browser_btn.setEnabled(True)
-        self.status_label.setText(f'Preview running at {url}')
+        self.status_label.setText(f'Remotion Studio running at {url}')
         self.webview.setUrl(QUrl(url))
 
     def _on_server_failed(self, error):
@@ -669,7 +721,7 @@ class PreviewTabWidget(QWidget):
         self._server_starting = False
         if self._server_retry_count < 3:
             self._server_retry_count += 1
-            print(f'[PreviewTab] Player failed ({error}), retrying ({self._server_retry_count}/3)...')
+            print(f'[PreviewTab] Studio failed ({error}), retrying ({self._server_retry_count}/3)...')
             self._stop_server(force_cleanup=True)
             # Schedule retry with cancellable timer
             if self._retry_timer:
@@ -679,14 +731,17 @@ class PreviewTabWidget(QWidget):
             self._retry_timer.timeout.connect(self._retry_start_preview)
             self._retry_timer.start(1000 * self._server_retry_count)
         else:
-            self._reset_ui(f'Player failed: {error}')
+            self._reset_ui(f'Studio failed: {error}')
             self._server_retry_count = 0
             if self._retry_timer:
                 self._retry_timer.stop()
                 self._retry_timer = None
+            # Re-enable buttons since script likely still present
+            self.start_server_btn.setEnabled(True)
+            self.open_browser_btn.setEnabled(True)
 
     def _retry_start_preview(self):
-        """Retry starting the preview after a failure."""
+        """Retry starting Remotion Studio after a failure."""
         # Avoid duplicate starts
         if self._server_starting or self._server_running:
             return
@@ -700,27 +755,36 @@ class PreviewTabWidget(QWidget):
     def _on_stop_preview(self):
         self._server_running = False
         self._stop_server()
-        self._reset_ui('Preview stopped.')
+        self._reset_ui('Remotion Studio stopped.')
 
     def _on_reload(self):
         self.webview.reload()
 
+    def _on_start_server(self):
+        """Start Remotion Studio to view compositions in the built-in webview."""
+        self._on_start_preview()
+
     def _on_open_browser(self):
         """Open full Remotion Studio in browser untuk advanced editing."""
+        # Stop any pending script selection timer to avoid re-enabling button
+        self._selection_timer.stop()
+
         if not self._scripts_widget:
             return
 
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
+            QMessageBox.warning(self, 'No Script', 'Please write or select a script first.')
             return
 
         # Always prepare latest preview dir for Studio
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
             preview_dir, _ = setup_preview_dir(script_content)
-            self._preview_dir = preview_dir
+            self._preview_dir_for_studio = preview_dir
         except Exception as e:
             self.status_label.setText(f'Failed to prepare studio: {e}')
+            QMessageBox.critical(self, 'Error', f'Failed to prepare studio: {e}')
             return
 
         if self._studio_running and self._studio_port:
@@ -731,11 +795,13 @@ class PreviewTabWidget(QWidget):
 
         self._studio_port = self._find_free_port(3100)
 
-        self._studio_worker = StudioServerWorker(self._preview_dir, self._studio_port)
+        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
         self._studio_worker.server_ready.connect(self._on_studio_ready)
         self._studio_worker.server_failed.connect(self._on_studio_failed)
         self._studio_worker.start()
         self._studio_running = True
+        self.open_browser_btn.setEnabled(False)
+        self.open_browser_btn.setText('Starting...')
         self.status_label.setText(f'Starting Remotion Studio on port {self._studio_port}...')
 
     def _on_studio_ready(self, port):
@@ -810,7 +876,7 @@ class PreviewTabWidget(QWidget):
         self.webview.setVisible(False)
         self.webview.setUrl(QUrl('about:blank'))
         self.placeholder.setVisible(True)
-        self.placeholder.setText(status or 'Preview will start automatically when script loads.')
+        self.placeholder.setText(status or 'Select a script from the Collections tab, then click "Start Server" to open Remotion Studio.')
         self.status_label.setText(status or self.status_label.text())
 
     def _find_free_port(self, start=3099):
