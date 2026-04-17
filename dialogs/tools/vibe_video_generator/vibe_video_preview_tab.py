@@ -415,6 +415,8 @@ class PreviewTabWidget(QWidget):
         self._ignore_next_text_change = False
         self._pending_selected_script_name = ''
         self._preview_request_id = 0
+        self._reload_request_id = 0  # Track reload request for loadFinished
+        self._reload_attempts = 0     # Track reload retry attempts
         self._selection_timer = QTimer(self)
         self._selection_timer.setSingleShot(True)
         self._selection_timer.setInterval(350)
@@ -481,6 +483,7 @@ class PreviewTabWidget(QWidget):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         self.webview.setVisible(False)
+        self.webview.loadFinished.connect(self._on_webview_load_finished)
         layout.addWidget(self.webview, 1)
 
         # Status label below webview (script info, running status, errors)
@@ -607,7 +610,7 @@ class PreviewTabWidget(QWidget):
         self.placeholder.setText(f'Starting Remotion Studio on port {self._current_port}...')
 
     def _update_script_only(self, script_content: str, request_id=None):
-        """Update script without restart server."""
+        """Update script without restarting server."""
         if request_id is None:
             request_id = self._preview_request_id
         print('[PreviewTab] Updating script without server restart...')
@@ -619,12 +622,31 @@ class PreviewTabWidget(QWidget):
             preview_dir, _ = setup_preview_dir(script_content)
             self._preview_dir = preview_dir
             print('[PreviewTab] Script updated in preview directory, reloading Remotion Studio view...')
+
+            # Check if server is still alive before scheduling reload
+            worker = self._server_worker
+            if not worker or not worker._proc:
+                print('[PreviewTab] Server process not found, cannot hot-reload')
+                self.status_label.setText('Server not running - click Start Server')
+                self._reset_ui('Server stopped')
+                return
+
+            # Check if process has exited
+            returncode = worker._proc.poll()
+            if returncode is not None:
+                print(f'[PreviewTab] Server process already exited (code {returncode}), cannot hot-reload')
+                self._stop_server(force_cleanup=True)
+                self._reset_ui(f'Server crashed (exit code {returncode})')
+                return
+
             self._reload_timer.stop()
             self._reload_timer.setProperty('request_id', request_id)
             self._reload_timer.start(1500)  # give Remotion time to recompile before navigating
         except Exception as e:
             print(f'[PreviewTab] Failed to update script: {e}')
             self.status_label.setText(f'Update failed: {e}')
+            # Server might have crashed, stop it gracefully
+            self._stop_server(force_cleanup=True)
 
     def _on_script_content_changed(self):
         if self._ignore_next_text_change:
@@ -678,14 +700,120 @@ class PreviewTabWidget(QWidget):
 
     def _trigger_preview_reload(self):
         """Trigger reload by navigating to root so composition ID is re-evaluated."""
-        request_id = self._reload_timer.property('request_id')
-        if request_id != self._preview_request_id:
-            return
-        self.placeholder.setVisible(False)
-        self.webview.setVisible(True)
-        # Navigate to root instead of reloading current URL (which may contain stale composition ID)
-        url = f'http://127.0.0.1:{self._current_port}'
-        self.webview.setUrl(QUrl(url))
+        try:
+            request_id = self._reload_timer.property('request_id')
+            if request_id != self._preview_request_id:
+                print(f'[PreviewTab] Stale reload request (id={request_id}, current={self._preview_request_id}), ignoring')
+                return
+
+            # Store the reload request ID for loadFinished tracking
+            self._reload_request_id = request_id
+            self._reload_attempts = 1  # First attempt
+
+            # Verify server is still alive before attempting reload
+            if not self._server_worker or not self._server_worker._proc:
+                print('[PreviewTab] Server process not available, cannot hot-reload')
+                self.status_label.setText('Server not running - click Start Server')
+                self._reset_ui('Server stopped')
+                self._reload_request_id = 0
+                return
+
+            # Check if process is still alive
+            returncode = self._server_worker._proc.poll()
+            if returncode is not None:
+                print(f'[PreviewTab] Server process exited with code {returncode}')
+                self._stop_server(force_cleanup=True)
+                self._reset_ui(f'Server crashed (exit code {returncode})')
+                self._reload_request_id = 0
+                return
+
+            self._start_reload_navigation()
+        except Exception as e:
+            print(f'[PreviewTab] Error during reload: {e}')
+            self._reload_request_id = 0
+            self._reload_attempts = 0
+
+    def _start_reload_navigation(self):
+        """Navigate webview to server with proper cleanup of previous loads."""
+        try:
+            # Guard: ensure this reload request is still current
+            if self._reload_request_id != self._preview_request_id or self._reload_attempts == 0:
+                print(f'[PreviewTab] Reload navigation skipped (stale request or no attempts)')
+                return
+
+            # Cancel any pending navigation to avoid conflicts
+            try:
+                self.webview.stop()
+            except Exception as e:
+                print(f'[PreviewTab] Warning: failed to stop webview: {e}')
+
+            script_name = self._pending_selected_script_name or 'Current script'
+            self.status_label.setText(f'Script: {script_name} - Reloading composition...')
+            self.placeholder.setVisible(False)
+            self.webview.setVisible(True)
+            # Navigate to root instead of reloading current URL (which may contain stale composition ID)
+            url = f'http://127.0.0.1:{self._current_port}'
+            print(f'[PreviewTab] Reloading webview to {url} (attempt {self._reload_attempts})')
+            try:
+                self.webview.setUrl(QUrl(url))
+            except RuntimeError as e:
+                # QWebEngineView may be deleted
+                print(f'[PreviewTab] WebView error: {e}')
+                self._reload_request_id = 0
+                self._reload_attempts = 0
+            except Exception as e:
+                print(f'[PreviewTab] Unexpected error setting URL: {e}')
+                self._reload_request_id = 0
+                self._reload_attempts = 0
+        except Exception as e:
+            print(f'[PreviewTab] Error in navigation: {e}')
+            self._reload_request_id = 0
+            self._reload_attempts = 0
+
+    def _on_webview_load_finished(self, success: bool):
+        """Handle webview load completion after script reload or initial load."""
+        try:
+            # Case 1: This is a reload request
+            if self._reload_request_id > 0:
+                if self._reload_request_id != self._preview_request_id:
+                    # Stale reload, ignore
+                    print(f'[PreviewTab] Stale reload load (id={self._reload_request_id} != {self._preview_request_id})')
+                    return
+
+                if success:
+                    script_name = self._pending_selected_script_name or 'Current script'
+                    url = f'http://127.0.0.1:{self._current_port}'
+                    self.status_label.setText(f'Script: {script_name} - Ready at {url}')
+                    print('[PreviewTab] Reload successful')
+                    self._reload_request_id = 0
+                    self._reload_attempts = 0
+                else:
+                    # Intermediate failure during rebuild - retry
+                    self._reload_attempts += 1
+                    if self._reload_attempts < 3:
+                        print(f'[PreviewTab] Reload attempt {self._reload_attempts} failed, retrying...')
+                        QTimer.singleShot(500, self._start_reload_navigation)
+                    else:
+                        print('[PreviewTab] Reload failed after max attempts')
+                        self.status_label.setText('Failed to load - click Reload')
+                        self._reload_request_id = 0
+                        self._reload_attempts = 0
+            else:
+                # Case 2: Not a reload - could be initial load after server start
+                if success:
+                    if self._server_running or self._studio_running:
+                        # Normal page load completed
+                        script_name = self._pending_selected_script_name or 'Current script'
+                        self.status_label.setText(f'Script: {script_name} - Ready')
+                        print('[PreviewTab] Page loaded successfully')
+                else:
+                    # Initial load failed; server might still be starting, ignore
+                    print('[PreviewTab] Initial page load failed (will retry automatically)')
+        except Exception as e:
+            print(f'[PreviewTab] Error in loadFinished: {e}')
+            self._reload_request_id = 0
+            self._reload_attempts = 0
+            self._reload_attempts = 0
 
     def _on_status_update(self, message):
         worker = self.sender()
@@ -845,6 +973,8 @@ class PreviewTabWidget(QWidget):
         self.open_browser_btn.setText('Starting...')
 
     def _stop_server(self, force_cleanup=False):
+        self._reload_request_id = 0  # Clear any pending reload
+        self._reload_attempts = 0
         self._server_running = False
         self._server_starting = False
         self._server_retry_count = 0  # reset retry counter
@@ -871,6 +1001,8 @@ class PreviewTabWidget(QWidget):
             self._studio_worker = None
 
     def _reset_ui(self, status=''):
+        self._reload_request_id = 0  # Clear any pending reload tracking
+        self._reload_attempts = 0
         self.reload_btn.setEnabled(False)
         self.open_browser_btn.setEnabled(False)
         self.progress_bar.setVisible(False)
@@ -892,6 +1024,14 @@ class PreviewTabWidget(QWidget):
         return start
 
     def closeEvent(self, event):
+        # Immediately stop all timers to prevent callbacks during cleanup
+        self._script_update_timer.stop()
+        self._selection_timer.stop()
+        self._reload_timer.stop()
+        if self._retry_timer:
+            self._retry_timer.stop()
+            self._retry_timer = None
+
         # Aggressive cleanup of all Remotion-related processes
         print('[PreviewTab] Closing - cleaning up all Remotion processes...')
         self._stop_server(force_cleanup=True)
