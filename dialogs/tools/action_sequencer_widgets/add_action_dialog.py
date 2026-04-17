@@ -1,5 +1,5 @@
 import os
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                                QLineEdit, QMessageBox, QColorDialog, QTextEdit, QComboBox, QSpinBox, QSizePolicy, QSlider, QWidget)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QColor, QFont
@@ -244,7 +244,18 @@ class AddActionDialog(QDialog):
         self.js_toggle_button.setCheckable(True)
         self.js_toggle_button.setChecked(False)
         self.js_toggle_button.clicked.connect(self.toggle_js_editor)
-        layout.addWidget(self.js_toggle_button)
+        
+        self.js_paste_button = QPushButton(qta.icon('fa6s.paste'), " Paste")
+        self.js_paste_button.clicked.connect(self.paste_js_code)
+        
+        js_button_layout = QHBoxLayout()
+        js_button_layout.setSpacing(6)
+        js_button_layout.addWidget(self.js_toggle_button)
+        js_button_layout.addWidget(self.js_paste_button)
+        self.js_button_container = QWidget()
+        self.js_button_container.setLayout(js_button_layout)
+        self.js_button_container.setVisible(False)
+        layout.addWidget(self.js_button_container)
         
         self.js_editor = QTextEdit()
         self.js_editor.setPlaceholderText("// Enter JavaScript code here\n// Example: app.activeDocument.flatten();")
@@ -304,8 +315,13 @@ class AddActionDialog(QDialog):
         self.js_toggle_button.setChecked(False)
         self.js_editor.setVisible(False)
         self.js_editor.setEnabled(False)
-        self.delay_input.setEnabled(False)
-        self.delay_input.setValue(0)
+        # Hide JS components first
+        self.js_toggle_button.setEnabled(False)
+        self.js_toggle_button.setChecked(False)
+        self.js_paste_button.setEnabled(False)
+        self.js_button_container.setVisible(False)
+        self.js_editor.setVisible(False)
+        self.js_editor.setEnabled(False)
 
         if action_type == "Export":
             # Export: fixed icon + color, enable export format
@@ -374,6 +390,8 @@ class AddActionDialog(QDialog):
 
             self.delay_input.setEnabled(True)
             self.js_toggle_button.setEnabled(True)
+            self.js_paste_button.setEnabled(True)
+            self.js_button_container.setVisible(True)
             self.js_toggle_button.setChecked(True)
             self.js_editor.setVisible(True)
             self.js_editor.setEnabled(True)
@@ -407,6 +425,17 @@ class AddActionDialog(QDialog):
         if self.type_combo.currentText() == "Script":
             is_checked = self.js_toggle_button.isChecked()
             self.js_editor.setVisible(is_checked)
+    
+    def paste_js_code(self):
+        """Paste JavaScript code from clipboard into the JS editor."""
+        clipboard = QApplication.clipboard()
+        text = clipboard.text()
+        if text:
+            self.js_editor.setPlainText(text)
+            self.js_toggle_button.setChecked(True)
+            self.js_editor.setVisible(True)
+        else:
+            QMessageBox.information(self, "Clipboard Empty", "No text found in clipboard.")
     
     def load_data(self):
         self.name_input.setText(self.action_data.get('name', ''))

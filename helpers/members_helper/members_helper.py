@@ -164,6 +164,31 @@ def get_session() -> dict:
     return MEMBER_SESSION
 
 
+def is_membership_expired() -> bool:
+    """Check if the current member's membership has expired."""
+    from datetime import datetime
+    session = get_session()
+    expires_at = session.get("expires_at")
+    status = session.get("status")
+    
+    if status not in ("active",):
+        return True
+    
+    if not expires_at:
+        return False
+    
+    try:
+        if isinstance(expires_at, str):
+            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        elif hasattr(expires_at, "year"):
+            exp_dt = expires_at.replace(tzinfo=None) if hasattr(expires_at, "tzinfo") and expires_at.tzinfo else expires_at
+        else:
+            return False
+        return (exp_dt - datetime.now()).days < 0
+    except Exception:
+        return False
+
+
 def is_logged_in() -> bool:
     return MEMBER_SESSION["logged_in"] is True
 
