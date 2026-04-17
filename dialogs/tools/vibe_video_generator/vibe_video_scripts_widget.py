@@ -450,6 +450,7 @@ class ScriptsWidget(QWidget):
         self._last_clicked_line = -1
         self._ctrl_selected_lines = set()  # Track lines selected with Ctrl
         self.line_number_area = None
+        self._is_closing = False
         self._setup_ui()
         self._apply_theme()
 
@@ -749,6 +750,8 @@ class ScriptsWidget(QWidget):
         self._refine_worker.start()
 
     def _on_refine_finished(self, success, result):
+        if self._is_closing:
+            return
         worker = self._refine_worker
         self._refine_worker = None
         if worker:
@@ -777,6 +780,8 @@ class ScriptsWidget(QWidget):
                 QTimer.singleShot(50, lambda: self._apply_refine_result(script_data))
 
     def _apply_refine_result(self, script_data):
+        if self._is_closing:
+            return
         content = script_data.get('script_content', '')
         line_count = len(content.splitlines())
         self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
@@ -864,6 +869,11 @@ class ScriptsWidget(QWidget):
 
     def _on_studio_ready(self, port):
         """Called when Remotion Studio is ready."""
+        if self._is_closing:
+            return
+        worker = self.sender()
+        if worker is not self._studio_worker:
+            return
         self._studio_port = port
         self._studio_running = True
         self._studio_retry_count = 0
@@ -877,6 +887,11 @@ class ScriptsWidget(QWidget):
 
     def _on_studio_failed(self, error):
         """Called when Remotion Studio fails to start."""
+        if self._is_closing:
+            return
+        worker = self.sender()
+        if worker is not self._studio_worker:
+            return
         self._studio_running = False
         self._studio_worker = None
         self.open_browser_btn.setEnabled(True)
@@ -901,6 +916,8 @@ class ScriptsWidget(QWidget):
 
     def _retry_start_studio(self):
         """Retry starting Remotion Studio after failure."""
+        if self._is_closing:
+            return
         # Avoid duplicate starts
         if self._studio_running:
             return
@@ -930,10 +947,14 @@ class ScriptsWidget(QWidget):
 
     def _stop_studio(self):
         """Stop Remotion Studio if running."""
+        self._is_closing = True
         if self._studio_worker:
             self._studio_worker.stop()
             self._studio_worker.quit()
-            self._studio_worker.wait(3000)
+            if not self._studio_worker.wait(3000):
+                print("[Vibe Video] Studio worker did not stop in time, terminating.")
+                self._studio_worker.terminate()
+                self._studio_worker.wait()
             self._studio_worker = None
         self._studio_running = False
         self._studio_port = None
@@ -944,9 +965,13 @@ class ScriptsWidget(QWidget):
 
     def cleanup(self):
         """Clean up resources (call when dialog closes)."""
+        self._is_closing = True
         self._stop_studio()
         if self._refine_worker:
             self._refine_worker.quit()
-            self._refine_worker.wait(2000)
+            if not self._refine_worker.wait(2000):
+                print("[Vibe Video] Refine worker still running after 2s, terminating.")
+                self._refine_worker.terminate()
+                self._refine_worker.wait()
             self._refine_worker.deleteLater()
             self._refine_worker = None
