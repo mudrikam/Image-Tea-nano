@@ -555,6 +555,7 @@ class ScriptsWidget(QWidget):
         if self.line_number_area:
             self.line_number_area.update()
             self.line_number_area.update_width()
+        self.script_name_label.setStyleSheet(f'color: {theme.get_color("text_dark")}; padding: 4px;')
 
     def changeEvent(self, event):
         super().changeEvent(event)

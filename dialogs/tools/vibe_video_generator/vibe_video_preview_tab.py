@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
 import qtawesome as qta
+from ui.theme_system import theme
 
 TOOLS_NODEJS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'tools', 'nodejs')
 PROJECT_TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'temp')
@@ -484,7 +485,7 @@ class PreviewTabWidget(QWidget):
 
         # Status label below webview (script info, running status, errors)
         self.status_label = QLabel('No script loaded.')
-        self.status_label.setStyleSheet('color: #666; padding: 4px;')
+        self.status_label.setStyleSheet(f'color: {theme.get_color("text_dark")}; padding: 4px;')
         layout.addWidget(self.status_label)
 
     def set_scripts_widget(self, scripts_widget):

@@ -24,7 +24,7 @@ class VibeVideoGeneratorDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Vibe Video Generator')
+        self.setWindowTitle('Vibe Video Generator (Remotion)')
         self.setWindowFlags(
             Qt.WindowType.Window |
             Qt.WindowType.WindowSystemMenuHint |
@@ -32,7 +32,7 @@ class VibeVideoGeneratorDialog(QDialog):
             Qt.WindowType.WindowMinimizeButtonHint |
             Qt.WindowType.WindowMaximizeButtonHint
         )
-        self.resize(900, 650)
+        self.resize(1000, 650)
         self.setMinimumSize(700, 500)
         self._is_closing = False
 
