@@ -630,7 +630,7 @@ class CodeActionsWidget(QWidget):
         self.tabs.setContentsMargins(0, 0, 0, 0)
         self.render_tab = QWidget()
         self._setup_render_tab()
-        self.tabs.addTab(self.render_tab, qta.icon('fa6s.film'), 'Render')
+        self.tabs.addTab(self.render_tab, qta.icon('fa6s.circle', color=theme.get_color('error')), 'Render')
         self.queue_tab = QWidget()
         self._setup_queue_tab()
         self.tabs.addTab(self.queue_tab, qta.icon('fa6s.list-ul'), 'Render Queue')
