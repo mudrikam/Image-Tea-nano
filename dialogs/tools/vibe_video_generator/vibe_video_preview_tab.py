@@ -512,11 +512,15 @@ class PreviewTabWidget(QWidget):
         if not name:
             self._selection_timer.stop()
             self._preview_request_id += 1
-            self._stop_server()
+            # Abort any pending page load first
+            self.webview.stop()
+            # Disconnect webview from server first to avoid renderer crash on server kill
             self.webview.setUrl(QUrl('about:blank'))
             self.webview.setVisible(False)
             self.placeholder.setVisible(True)
             self.placeholder.setText('Select a script to open in Remotion Studio.')
+            # Now it's safe to stop the server
+            self._stop_server()
             self._reset_ui('No script selected.')
             self.toggle_server_btn.setEnabled(False)
             return

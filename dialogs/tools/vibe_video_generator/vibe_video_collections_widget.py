@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
                                QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
-                               QMenu, QLineEdit, QFileDialog, QProgressDialog)
+                               QMenu, QLineEdit, QFileDialog, QProgressDialog,
+                               QDialog, QRadioButton, QLabel, QPushButton)
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QAction, QColor, QBrush
 import qtawesome as qta
@@ -11,6 +12,129 @@ from dialogs.tools.vibe_video_generator.vibe_video_output_tab import sanitize_fi
 import os
 import tempfile
 import zipfile
+
+# --- ZIP import support classes ---
+class _ZipCollectionNode:
+    """Tree node representing a collection (folder) within an exported ZIP."""
+    __slots__ = ('name', 'collections', 'scripts', 'original_path')
+    def __init__(self, name, collections=None, scripts=None, path=''):
+        self.name = name
+        self.collections = collections or {}
+        self.scripts = scripts or []
+        self.original_path = path
+
+class _ZipScriptNode:
+    """Tree node representing a script file (.tsx) within an exported ZIP."""
+    __slots__ = ('name', 'content', 'original_path')
+    def __init__(self, name, content, original_path):
+        self.name = name
+        self.content = content
+        self.original_path = original_path
+
+class ImportConfirmationDialog(QDialog):
+    """Dialog to confirm import with conflict resolution strategy selection."""
+    def __init__(self, zip_path, root_node, target_parent_id, coll_conflicts, script_conflicts, parent=None):
+        super().__init__(parent)
+        self.zip_path = zip_path
+        self.root_node = root_node
+        self.target_parent_id = target_parent_id
+        self._coll_conflicts = coll_conflicts
+        self._script_conflicts = script_conflicts
+        self._strategy = 'overwrite'
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.setWindowTitle('Import Collections from ZIP')
+        layout = QVBoxLayout(self)
+
+        file_label = QLabel(f"Source: {os.path.basename(self.zip_path)}")
+        layout.addWidget(file_label)
+
+        total_colls = len(self.root_node.collections)
+        total_scripts = sum(len(node.scripts) for node in self.root_node.collections.values())
+        summary_label = QLabel(f"Found: {total_colls} collection(s), {total_scripts} script(s)")
+        layout.addWidget(summary_label)
+
+        if self._coll_conflicts > 0 or self._script_conflicts > 0:
+            conflict_text = (f"Immediate conflicts: {self._coll_conflicts} collection(s), "
+                             f"{self._script_conflicts} script(s) already exist at the target location.")
+            conflict_label = QLabel(conflict_text)
+            layout.addWidget(conflict_label)
+        else:
+            conflict_label = QLabel("No immediate conflicts at target location.")
+            layout.addWidget(conflict_label)
+
+        layout.addWidget(QLabel('Conflict resolution strategy:'))
+        self.radio_overwrite = QRadioButton('Overwrite existing items')
+        self.radio_skip = QRadioButton('Skip existing items')
+        self.radio_rename = QRadioButton('Rename new items with numbering')
+        self.radio_overwrite.setChecked(True)
+        layout.addWidget(self.radio_overwrite)
+        layout.addWidget(self.radio_skip)
+        layout.addWidget(self.radio_rename)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        cancel_btn = QPushButton('Cancel')
+        cancel_btn.setIcon(qta.icon('fa6s.xmark'))
+        cancel_btn.clicked.connect(self.reject)
+        import_btn = QPushButton('Import')
+        import_btn.setIcon(qta.icon('fa6s.file-zipper'))
+        import_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(import_btn)
+        layout.addLayout(btn_layout)
+
+    def get_strategy(self):
+        if self.radio_overwrite.isChecked():
+            return 'overwrite'
+        if self.radio_skip.isChecked():
+            return 'skip'
+        return 'rename'
+
+class ImportResultDialog(QDialog):
+    """Dialog showing detailed import results."""
+    def __init__(self, stats, zip_path, parent=None):
+        super().__init__(parent)
+        self.stats = stats
+        self.zip_path = zip_path
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.setWindowTitle('Import Result')
+        layout = QVBoxLayout(self)
+
+        header = QLabel(f"Import from: {os.path.basename(self.zip_path)}")
+        layout.addWidget(header)
+
+        c = self.stats['collections']
+        s = self.stats['scripts']
+        total_items = c['created'] + c['overwritten'] + c['skipped'] + s['created'] + s['overwritten'] + s['skipped']
+        summary = (f"<b>Collections:</b> {c['created']} created, {c['overwritten']} overwritten, {c['skipped']} skipped<br>"
+                   f"<b>Scripts:</b> {s['created']} created, {s['overwritten']} overwritten, {s['skipped']} skipped<br>"
+                   f"<b>Total items:</b> {total_items}")
+        summary_label = QLabel(summary)
+        summary_label.setTextFormat(Qt.RichText)
+        layout.addWidget(summary_label)
+
+        if self.stats['errors']:
+            layout.addWidget(QLabel("<b>Errors:</b>"))
+            err_text = '<br>'.join(self.stats['errors'][:50])
+            if len(self.stats['errors']) > 50:
+                err_text += '<br>... and more'
+            err_label = QLabel(err_text)
+            err_label.setTextFormat(Qt.RichText)
+            layout.addWidget(err_label)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        ok_btn = QPushButton('OK')
+        ok_btn.setIcon(qta.icon('fa6s.check'))
+        ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(ok_btn)
+        layout.addLayout(btn_layout)
+
+# --- End of import support classes ---
 
 
 class CollectionsWidget(QWidget):
@@ -76,6 +200,8 @@ class CollectionsWidget(QWidget):
 
         self.collections_tree.blockSignals(True)
         try:
+            # Clear any render highlight reference before tree clear to avoid dangling pointer
+            self._last_highlighted_item = None
             self.collections_tree.clear()
             tree = self.db.get_remotion_collection_tree()
             for col in tree:
@@ -173,12 +299,16 @@ class CollectionsWidget(QWidget):
                 selected_script_id = selected_data.get('id')
 
         search_text = (text or '').strip()
-        self.collections_tree.blockSignals(True)
+        # Preserve previous block state to support nested calls
+        was_blocked = self.collections_tree.signalsBlocked()
+        if not was_blocked:
+            self.collections_tree.blockSignals(True)
         try:
             for index in range(self.collections_tree.topLevelItemCount()):
                 self._filter_tree_item(self.collections_tree.topLevelItem(index), search_text)
         finally:
-            self.collections_tree.blockSignals(False)
+            if not was_blocked:
+                self.collections_tree.blockSignals(False)
 
         current_item = self.collections_tree.currentItem()
         if current_item and current_item.isHidden():
@@ -257,6 +387,11 @@ class CollectionsWidget(QWidget):
             new_action = QAction(qta.icon('fa6s.folder-plus'), 'New Collection', menu)
             new_action.triggered.connect(self._on_new_collection)
             menu.addAction(new_action)
+
+            import_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Import from ZIP', menu)
+            import_zip_action.triggered.connect(lambda: self._on_import_collection_from_zip(None))
+            menu.addAction(import_zip_action)
+
             menu.exec(self.collections_tree.viewport().mapToGlobal(pos))
             return
 
@@ -285,6 +420,10 @@ class CollectionsWidget(QWidget):
             export_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Export to ZIP', menu)
             export_zip_action.triggered.connect(lambda: self._export_collection_to_zip(data))
             menu.addAction(export_zip_action)
+
+            import_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Import from ZIP', menu)
+            import_zip_action.triggered.connect(lambda: self._on_import_collection_from_zip(data))
+            menu.addAction(import_zip_action)
 
             render_collection_action = QAction(qta.icon('fa6s.film'), 'Render This Collection', menu)
             render_collection_action.triggered.connect(lambda: self._on_render_collection(data))
@@ -512,6 +651,9 @@ class CollectionsWidget(QWidget):
         data = item.data(0, Qt.UserRole)
         collection_id = data['id']
         collection_name = data.get('name', '')
+        # Release references to Qt items to avoid dangling pointers after tree clear
+        del selected
+        del item
 
         preview = self.db.get_remotion_collection_delete_preview(collection_id)
         sub_collections = preview['collections']
@@ -547,8 +689,9 @@ class CollectionsWidget(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.db.delete_remotion_collection(collection_id)
             self.current_collection = None
-            self.collection_selected.emit(None)
+            # Reload tree first, then notify selection cleared to avoid reentrancy issues
             self.load_collections()
+            self.collection_selected.emit(None)
             self.collection_deleted.emit()
 
     def _expand_to_parent(self, parent_id):
@@ -719,3 +862,274 @@ class CollectionsWidget(QWidget):
                 count += self._export_collection_recursive(child.get('id'), child_name, collection_dir, progress)
 
         return count
+
+    def _on_import_collection_from_zip(self, parent_collection_data):
+        """Handle Import from ZIP menu action (root or collection context)."""
+        if not self.db:
+            QMessageBox.warning(self, 'No Database', 'Database connection not available.')
+            return
+
+        target_parent_id = parent_collection_data.get('id') if parent_collection_data else None
+
+        zip_path, _ = QFileDialog.getOpenFileName(
+            self,
+            'Import from ZIP',
+            os.path.expanduser('~'),
+            'ZIP Files (*.zip);;All Files (*)'
+        )
+        if not zip_path:
+            return
+
+        try:
+            root_node = self._parse_zip_to_tree(zip_path)
+        except Exception as e:
+            QMessageBox.critical(self, 'Parse Error', f'Failed to read ZIP file:\n{str(e)}')
+            return
+
+        if not root_node.collections:
+            QMessageBox.information(self, 'Empty ZIP', 'No valid .tsx script collections found in the archive.')
+            return
+
+        # Compute immediate conflict counts at target parent
+        coll_conflicts = 0
+        script_conflicts = 0
+        if target_parent_id is not None:
+            existing_colls = self.db.get_remotion_collections(target_parent_id)
+            existing_coll_names = {c['name'] for c in existing_colls}
+            for coll_name in root_node.collections:
+                if coll_name in existing_coll_names:
+                    coll_conflicts += 1
+            existing_scripts = self.db.get_remotion_scripts(target_parent_id, active_only=False)
+            existing_script_names = {s['name'] for s in existing_scripts}
+            for coll_node in root_node.collections.values():
+                for script_node in coll_node.scripts:
+                    if script_node.name in existing_script_names:
+                        script_conflicts += 1
+        else:
+            existing_colls = self.db.get_remotion_collections(None)
+            existing_coll_names = {c['name'] for c in existing_colls}
+            for coll_name in root_node.collections:
+                if coll_name in existing_coll_names:
+                    coll_conflicts += 1
+
+        dlg = ImportConfirmationDialog(zip_path, root_node, target_parent_id, coll_conflicts, script_conflicts, self)
+        if not dlg.exec():
+            return
+
+        strategy = dlg.get_strategy()
+
+        total_items = self._count_import_items(root_node)
+        progress = QProgressDialog('Importing...', 'Cancel', 0, total_items, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(500)
+        progress.setValue(0)
+
+        try:
+            stats = self._import_tree(root_node, target_parent_id, strategy, progress)
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(self, 'Import Error', f'An error occurred during import:\n{str(e)}')
+            return
+
+        if progress.wasCanceled():
+            QMessageBox.information(self, 'Cancelled', 'Import was cancelled. Some items may have been imported.')
+        else:
+            progress.close()
+
+        result_dlg = ImportResultDialog(stats, zip_path, self)
+        result_dlg.exec()
+
+        self.load_collections()
+        self.collection_updated.emit()
+
+    def _parse_zip_to_tree(self, zip_path):
+        """Parse a ZIP export into an in-memory tree of _ZipCollectionNode and _ZipScriptNode."""
+        root = _ZipCollectionNode('', {}, [], '')
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                if not info.filename.lower().endswith('.tsx'):
+                    continue
+                parts = info.filename.split('/')
+                if len(parts) < 2:
+                    continue
+                dir_parts = parts[:-1]
+                filename = parts[-1]
+                name = os.path.splitext(filename)[0]
+                try:
+                    with zf.open(info) as f:
+                        content_bytes = f.read()
+                        content = content_bytes.decode('utf-8')
+                except Exception as e:
+                    print(f"[Import] Failed to read {info.filename}: {e}")
+                    continue
+                current = root
+                for idx, part in enumerate(dir_parts):
+                    if part not in current.collections:
+                        current.collections[part] = _ZipCollectionNode(part, {}, [], '/'.join(dir_parts[:idx+1]))
+                    current = current.collections[part]
+                current.scripts.append(_ZipScriptNode(name, content, info.filename))
+        return root
+
+    def _count_import_items(self, node):
+        """Count total collections and scripts in the parsed ZIP tree (excluding virtual root)."""
+        total = 0
+        for child in node.collections.values():
+            total += 1  # the collection itself
+            total += len(child.scripts)
+            total += self._count_import_items(child)
+        return total
+
+    def _import_tree(self, root_node, target_parent_id, strategy, progress):
+        """Recursively import the ZIP tree into the database."""
+        stats = {
+            'collections': {'created': 0, 'overwritten': 0, 'skipped': 0},
+            'scripts': {'created': 0, 'overwritten': 0, 'skipped': 0},
+            'errors': []
+        }
+        created_coll_names = {}
+        created_script_names = {}
+
+        for coll_name, coll_node in root_node.collections.items():
+            if progress.wasCanceled():
+                break
+            self._import_collection_node(coll_node, target_parent_id, strategy, stats, created_coll_names, created_script_names, progress)
+
+        return stats
+
+    def _import_collection_node(self, node, parent_id, strategy, stats, coll_tracker, script_tracker, progress):
+        """Import a single collection node and its subtree."""
+        existing_coll = None
+        if self.db:
+            sibling_colls = self.db.get_remotion_collections(parent_id)
+            for c in sibling_colls:
+                if c['name'] == node.name:
+                    existing_coll = c
+                    break
+
+        already_created = parent_id in coll_tracker and node.name in coll_tracker[parent_id]
+
+        if (existing_coll or already_created) and strategy == 'skip':
+            stats['collections']['skipped'] += 1
+            return
+
+        new_coll_id = None
+        if (existing_coll or already_created) and strategy == 'overwrite':
+            if existing_coll:
+                self.db.delete_remotion_collection(existing_coll['id'])
+            new_id = self.db.add_remotion_collection(
+                name=node.name,
+                description=None,
+                parent_collection_id=parent_id,
+                icon='folder',
+                color=None
+            )
+            stats['collections']['overwritten'] += 1
+            new_coll_id = new_id
+        elif (existing_coll or already_created) and strategy == 'rename':
+            base = node.name
+            new_name = self._generate_unique_collection_name(base, parent_id, coll_tracker)
+            new_id = self.db.add_remotion_collection(
+                name=new_name,
+                description=None,
+                parent_collection_id=parent_id,
+                icon='folder',
+                color=None
+            )
+            stats['collections']['created'] += 1
+            if parent_id not in coll_tracker:
+                coll_tracker[parent_id] = set()
+            coll_tracker[parent_id].add(new_name)
+            new_coll_id = new_id
+        else:
+            new_id = self.db.add_remotion_collection(
+                name=node.name,
+                description=None,
+                parent_collection_id=parent_id,
+                icon='folder',
+                color=None
+            )
+            stats['collections']['created'] += 1
+            if parent_id not in coll_tracker:
+                coll_tracker[parent_id] = set()
+            coll_tracker[parent_id].add(node.name)
+            new_coll_id = new_id
+
+        progress.setValue(progress.value() + 1)
+
+        self._import_scripts(node.scripts, new_coll_id, strategy, stats, script_tracker, progress)
+
+        for child_node in node.collections.values():
+            if progress.wasCanceled():
+                break
+            self._import_collection_node(child_node, new_coll_id, strategy, stats, coll_tracker, script_tracker, progress)
+
+    def _import_scripts(self, script_nodes, collection_id, strategy, stats, script_tracker, progress):
+        """Import a list of script nodes into a collection."""
+        for script_node in script_nodes:
+            if progress.wasCanceled():
+                break
+            existing_script = None
+            if self.db:
+                sibling_scripts = self.db.get_remotion_scripts(collection_id, active_only=False)
+                for s in sibling_scripts:
+                    if s['name'] == script_node.name:
+                        existing_script = s
+                        break
+            already_created = collection_id in script_tracker and script_node.name in script_tracker[collection_id]
+
+            if (existing_script or already_created) and strategy == 'skip':
+                stats['scripts']['skipped'] += 1
+            elif (existing_script or already_created) and strategy == 'overwrite':
+                if existing_script:
+                    self.db.update_remotion_script(existing_script['id'], script_content=script_node.content, is_active=1)
+                stats['scripts']['overwritten'] += 1
+            elif (existing_script or already_created) and strategy == 'rename':
+                new_name = self._generate_unique_script_name(script_node.name, collection_id, script_tracker)
+                self.db.add_remotion_script(collection_id, new_name, script_node.content)
+                stats['scripts']['created'] += 1
+                if collection_id not in script_tracker:
+                    script_tracker[collection_id] = set()
+                script_tracker[collection_id].add(new_name)
+            else:
+                self.db.add_remotion_script(collection_id, script_node.name, script_node.content)
+                stats['scripts']['created'] += 1
+                if collection_id not in script_tracker:
+                    script_tracker[collection_id] = set()
+                script_tracker[collection_id].add(script_node.name)
+            progress.setValue(progress.value() + 1)
+
+    def _generate_unique_collection_name(self, base_name, parent_id, tracker):
+        """Generate a unique collection name under the given parent, considering DB and tracker."""
+        used = set()
+        if self.db:
+            existing = self.db.get_remotion_collections(parent_id)
+            used.update(c['name'] for c in existing)
+        if parent_id in tracker:
+            used.update(tracker[parent_id])
+        if base_name not in used:
+            return base_name
+        i = 1
+        while True:
+            candidate = f"{base_name} ({i})"
+            if candidate not in used:
+                return candidate
+            i += 1
+
+    def _generate_unique_script_name(self, base_name, collection_id, tracker):
+        """Generate a unique script name within the given collection, considering DB and tracker."""
+        used = set()
+        if self.db:
+            existing = self.db.get_remotion_scripts(collection_id, active_only=False)
+            used.update(s['name'] for s in existing)
+        if collection_id in tracker:
+            used.update(tracker[collection_id])
+        if base_name not in used:
+            return base_name
+        i = 1
+        while True:
+            candidate = f"{base_name} ({i})"
+            if candidate not in used:
+                return candidate
+            i += 1
