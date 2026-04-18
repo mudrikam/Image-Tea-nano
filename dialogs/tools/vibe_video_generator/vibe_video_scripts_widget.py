@@ -451,6 +451,7 @@ class ScriptsWidget(QWidget):
         self._ctrl_selected_lines = set()  # Track lines selected with Ctrl
         self.line_number_area = None
         self._is_closing = False
+        self._original_content = ''  # Track original content for change detection
         self._setup_ui()
         self._apply_theme()
 
@@ -465,7 +466,7 @@ class ScriptsWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
-        # Toolbar with Open in Browser button (mirrors Preview tab)
+        # Toolbar with Open in Browser button only (mirrors Preview tab)
         toolbar = QHBoxLayout()
         self.open_browser_btn = QPushButton('Open in Browser')
         self.open_browser_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square'))
@@ -504,6 +505,7 @@ class ScriptsWidget(QWidget):
         self.script_content.document().blockCountChanged.connect(self._update_line_numbers)
         self.script_content.verticalScrollBar().valueChanged.connect(self.line_number_area.update)
         self.script_content.textChanged.connect(self._update_line_count)
+        self.script_content.textChanged.connect(self._update_save_button_state)
         
         # Enable mouse tracking for line number clicks
         self.line_number_area.mousePressEvent = self._line_number_mouse_press
@@ -538,6 +540,11 @@ class ScriptsWidget(QWidget):
         self.clear_btn.setEnabled(False)
         self.clear_btn.clicked.connect(self._on_clear)
         btn_layout.addWidget(self.clear_btn)
+        self.paste_btn = QPushButton('Paste')
+        self.paste_btn.setIcon(qta.icon('fa6s.paste'))
+        self.paste_btn.setEnabled(False)
+        self.paste_btn.clicked.connect(self._on_paste)
+        btn_layout.addWidget(self.paste_btn)
         self.save_btn = QPushButton('Save')
         self.save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
         self.save_btn.setEnabled(False)
@@ -563,6 +570,15 @@ class ScriptsWidget(QWidget):
         if event.type() == event.Type.PaletteChange:
             self._apply_theme()
 
+    def _update_save_button_state(self):
+        """Enable or disable save button based on content changes."""
+        if not self.current_script_id:
+            self.save_btn.setEnabled(False)
+            return
+        current = self.script_content.toPlainText()
+        has_changes = current != self._original_content
+        self.save_btn.setEnabled(has_changes)
+
     def _update_line_numbers(self):
         if self.line_number_area:
             self.line_number_area.update_width()
@@ -572,6 +588,10 @@ class ScriptsWidget(QWidget):
         # Update line count when text changes
         if self.line_number_area:
             self.line_number_area._update_count()
+        if self.current_script_name:
+            content = self.script_content.toPlainText()
+            line_count = len(content.splitlines()) if content else 0
+            self.script_name_label.setText(f"Script: {self.current_script_name}  |  {line_count} lines")
 
     def _line_number_mouse_press(self, event):
         """Handle mouse press on line number area"""
@@ -696,9 +716,10 @@ class ScriptsWidget(QWidget):
         self.current_script_name = script_data.get('name') if script_data else None
         has_script = script_data is not None
         self.clear_btn.setEnabled(has_script)
-        self.save_btn.setEnabled(has_script)
+        self.save_btn.setEnabled(False)  # Always disabled initially until change detected
         self.refine_btn.setEnabled(has_script)
         self.open_browser_btn.setEnabled(has_script)
+        self.paste_btn.setEnabled(has_script)
         self.script_content.setReadOnly(not has_script)
         if script_data:
             content = script_data.get('script_content', '')
@@ -710,16 +731,25 @@ class ScriptsWidget(QWidget):
                 self.script_content.setPlainText(content)
                 self.script_content.blockSignals(False)
                 self._update_line_numbers()
+                self._update_line_count()
+            # Store original content for change detection
+            self._original_content = content
+            self._update_save_button_state()
             self.script_selected.emit(script_data.get('name', ''))
         else:
             self.script_name_label.setText('No script selected')
+            self._original_content = ''
+            self.save_btn.setEnabled(False)
+            self.paste_btn.setEnabled(False)
             self.script_selected.emit('')
             self.script_content.clear()
 
     def update_script_name(self, new_name):
         self.current_script_name = new_name
         if new_name:
-            self.script_name_label.setText(f"Script: {new_name}")
+            content = self.script_content.toPlainText()
+            line_count = len(content.splitlines()) if content else 0
+            self.script_name_label.setText(f"Script: {new_name}  |  {line_count} lines")
 
     def _on_clear(self):
         self.script_content.clear()
@@ -763,13 +793,15 @@ class ScriptsWidget(QWidget):
         self.refine_btn.setText('Refine')
         self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
         self.clear_btn.setEnabled(True)
-        self.save_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
         if not success:
             print(f'[Vibe Video] Refine failed: {result}')
             dlg = RefineRetryDialog(self, self._last_instruction)
             dlg.retry_requested.connect(self._on_retry_refine)
             dlg.exec()
+            # If no retry was started, restore save button state based on current changes
+            if self._refine_worker is None:
+                self._update_save_button_state()
             return
         if self.db and self.current_script_id:
             self.db.update_remotion_script(script_id=self.current_script_id, script_content=result)
@@ -790,6 +822,19 @@ class ScriptsWidget(QWidget):
         self.script_content.setPlainText(content)
         self.script_content.blockSignals(False)
         self._update_line_numbers()
+        self._update_line_count()
+        # Auto-save the refined script
+        if self.db and self.current_script_id:
+            try:
+                self.db.update_remotion_script(
+                    script_id=self.current_script_id,
+                    script_content=content
+                )
+                # Update original content tracking after successful save
+                self._original_content = content
+            except Exception as e:
+                print(f"[Vibe Video] Auto-save after refine failed: {e}")
+        self._update_save_button_state()
         self.script_updated.emit(script_data)
 
     def _on_retry_refine(self):
@@ -813,11 +858,18 @@ class ScriptsWidget(QWidget):
         try:
             if not self.db or not self.current_script_id:
                 return
-            script_content = self.script_content.toPlainText().strip()
+            current_text = self.script_content.toPlainText()
+            script_content = current_text.strip()
             if not script_content:
                 QMessageBox.warning(self, 'Validation Error', 'TypeScript content cannot be empty.')
                 self.script_content.setFocus()
                 return
+
+            # Check if content has changed before updating DB
+            if current_text == self._original_content:
+                # No changes to save
+                return
+
             self.db.update_remotion_script(
                 script_id=self.current_script_id,
                 script_content=script_content
@@ -825,9 +877,20 @@ class ScriptsWidget(QWidget):
             script_data = self.db.get_remotion_script(self.current_script_id)
             if script_data:
                 self.update_script_name(script_data.get('name'))
+                # Update original content tracking after successful save
+                self._original_content = current_text
+                self._update_save_button_state()
             self.script_updated.emit(script_data)
         except Exception as e:
             QMessageBox.critical(self, 'Save Error', f'Failed to save script:\n{str(e)}')
+
+    def _on_paste(self):
+        """Replace editor content with clipboard text."""
+        clipboard = QApplication.clipboard()
+        text = clipboard.text()
+        if text:
+            self.script_content.setPlainText(text)
+            self.script_content.setFocus()
 
     def _on_open_browser(self):
         """Open Remotion Studio in browser for the current script."""
