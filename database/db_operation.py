@@ -1484,34 +1484,72 @@ class ImageTeaDB:
         collections = []
         scripts = []
 
-        def collect(cid):
+        def collect(cid, visited=None, depth=0):
+            if visited is None:
+                visited = set()
+            if cid in visited:
+                return  # cycle detected, skip
+            if depth > 100:
+                return  # depth limit to prevent stack overflow on circular refs
+            visited.add(cid)
+
             direct_scripts = self.get_remotion_scripts(cid, active_only=False)
+            print(f"[DEBUG DB] Collection {cid} has {len(direct_scripts)} direct scripts")
             for s in direct_scripts:
                 scripts.append(s.get('name', 'Unnamed'))
             sub_cols = self.get_remotion_collections(cid)
+            print(f"[DEBUG DB] Collection {cid} has {len(sub_cols)} sub-collections")
             for col in sub_cols:
                 collections.append(col.get('name', 'Unnamed'))
-                collect(col['id'])
+                collect(col['id'], visited, depth + 1)
 
+        print(f"[DEBUG DB] get_remotion_collection_delete_preview called for collection_id={collection_id}")
         collect(collection_id)
+        print(f"[DEBUG DB] Returning preview: {len(collections)} sub-collections, {len(scripts)} scripts")
         return {'collections': collections, 'scripts': scripts}
 
     def delete_remotion_collection(self, collection_id):
-        def collect_all_ids(cid):
+        """Delete a collection and all its sub-collections and scripts recursively."""
+        def collect_all_ids(cid, visited=None, depth=0):
+            if visited is None:
+                visited = set()
+            if cid in visited:
+                return []  # cycle detected, skip to avoid infinite loop
+            if depth > 100:
+                raise ValueError("Collection hierarchy exceeds safe depth (possible circular reference)")
+            visited.add(cid)
             ids = [cid]
             sub_cols = self.get_remotion_collections(cid)
             for col in sub_cols:
-                ids.extend(collect_all_ids(col['id']))
+                if col['id'] not in visited:
+                    ids.extend(collect_all_ids(col['id'], visited, depth + 1))
             return ids
 
         all_ids = collect_all_ids(collection_id)
+        print(f"[DEBUG DB] delete_remotion_collection: collection_id={collection_id}, all_ids={all_ids}")
+        if not all_ids:
+            print("[DEBUG DB] Nothing to delete, returning early")
+            return  # nothing to delete
+
         with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            placeholders = ','.join('?' * len(all_ids))
-            c.execute(f'DELETE FROM remotion_scripts WHERE collection_id IN ({placeholders})', all_ids)
-            for cid in reversed(all_ids):
-                c.execute('DELETE FROM remotion_collections WHERE id = ?', (cid,))
-            conn.commit()
+            try:
+                c = conn.cursor()
+                placeholders = ','.join('?' * len(all_ids))
+                # Delete scripts first
+                c.execute(f'DELETE FROM remotion_scripts WHERE collection_id IN ({placeholders})', all_ids)
+                deleted_scripts = c.rowcount
+                print(f"[DEBUG DB] Deleted {deleted_scripts} scripts from collections {all_ids}")
+                # Delete collections
+                for cid in reversed(all_ids):
+                    c.execute('DELETE FROM remotion_collections WHERE id = ?', (cid,))
+                deleted_collections = len(all_ids)
+                print(f"[DEBUG DB] Deleted {deleted_collections} collections: {all_ids}")
+                conn.commit()
+                print("[DEBUG DB] Transaction committed")
+            except sqlite3.Error as e:
+                conn.rollback()
+                print(f"[DEBUG DB] Database error: {e}")
+                raise RuntimeError(f"Database error during delete: {e}") from e
 
     def get_collection_script_count(self, collection_id):
         with sqlite3.connect(self.db_path) as conn:
