@@ -424,8 +424,23 @@ class PreviewTabWidget(QWidget):
             if hasattr(p, 'render_settings_tab_widget'):
                 return p.render_settings_tab_widget.get_all_render_settings()
             p = p.parent()
-        # Fallback to defaults if not found
-        return {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+        # Fallback: read active preset from config
+        try:
+            from dialogs.tools.vibe_video_generator.vibe_video_render_settings_tab import load_config, get_active_preset, get_preset_data
+            preset_key = get_active_preset()
+            preset = get_preset_data(preset_key)
+            if preset:
+                return {
+                    'width': preset['width'],
+                    'height': preset['height'],
+                    'fps': preset.get('fps', 30),
+                    'duration': 10,
+                    'video_bitrate': preset.get('video_bitrate', '10M')
+                }
+        except Exception:
+            pass
+        # Minimal safe defaults
+        return {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10, 'video_bitrate': '10M'}
 
     def _on_script_selected(self, name):
         self._script_update_timer.stop()

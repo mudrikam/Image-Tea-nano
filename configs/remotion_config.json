@@ -16,28 +16,140 @@
     "max_old_space_size": 4096,
     "concurrency": 4,
     "offthreadvideo_cache_size_in_bytes": null,
-    "active_preset": "1080p30",
+    "active_preset": "2K60",
     "presets": {
+        "720p30": {
+            "label": "Horizontal HD 720p (16:9)",
+            "width": 1280,
+            "height": 720,
+            "fps": 30,
+            "video_bitrate": "5M"
+        },
         "1080p30": {
-            "label": "1080p 30fps (Recommended)",
+            "label": "Horizontal Full HD 1080p (16:9)",
             "width": 1920,
             "height": 1080,
             "fps": 30,
             "video_bitrate": "10M"
         },
+        "1080p60": {
+            "label": "Horizontal Full HD 1080p 60fps (16:9)",
+            "width": 1920,
+            "height": 1080,
+            "fps": 60,
+            "video_bitrate": "20M"
+        },
+        "2K30": {
+            "label": "Horizontal 2K QHD (16:9)",
+            "width": 2560,
+            "height": 1440,
+            "fps": 30,
+            "video_bitrate": "20M"
+        },
         "2K60": {
-            "label": "2K 60fps",
+            "label": "Horizontal 2K QHD 60fps (16:9)",
             "width": 2560,
             "height": 1440,
             "fps": 60,
             "video_bitrate": "40M"
         },
+        "4K30": {
+            "label": "Horizontal 4K UHD (16:9)",
+            "width": 3840,
+            "height": 2160,
+            "fps": 30,
+            "video_bitrate": "40M"
+        },
         "4K60": {
-            "label": "4K 60fps",
+            "label": "Horizontal 4K UHD 60fps (16:9)",
             "width": 3840,
             "height": 2160,
             "fps": 60,
             "video_bitrate": "80M"
+        },
+        "square_720": {
+            "label": "Square HD 720\u00d7720 (1:1)",
+            "width": 720,
+            "height": 720,
+            "fps": 30,
+            "video_bitrate": "5M"
+        },
+        "square_1080": {
+            "label": "Square Full HD 1080\u00d71080 (1:1)",
+            "width": 1080,
+            "height": 1080,
+            "fps": 30,
+            "video_bitrate": "10M"
+        },
+        "square_1440": {
+            "label": "Square 2K 1440\u00d71440 (1:1)",
+            "width": 1440,
+            "height": 1440,
+            "fps": 30,
+            "video_bitrate": "20M"
+        },
+        "vertical_720": {
+            "label": "Vertical HD 720\u00d71280 (9:16)",
+            "width": 720,
+            "height": 1280,
+            "fps": 30,
+            "video_bitrate": "5M"
+        },
+        "vertical_1080": {
+            "label": "Vertical Full HD 1080\u00d71920 (9:16)",
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "video_bitrate": "10M"
+        },
+        "vertical_1440": {
+            "label": "Vertical 2K 1440\u00d72560 (9:16)",
+            "width": 1440,
+            "height": 2560,
+            "fps": 30,
+            "video_bitrate": "20M"
+        },
+        "ultrawide_1080": {
+            "label": "Ultrawide Full HD 2560\u00d71080 (21:9)",
+            "width": 2560,
+            "height": 1080,
+            "fps": 30,
+            "video_bitrate": "20M"
+        },
+        "ultrawide_1440": {
+            "label": "Ultrawide 2K 3440\u00d71440 (21:9)",
+            "width": 3440,
+            "height": 1440,
+            "fps": 30,
+            "video_bitrate": "30M"
+        },
+        "ultrawide_2160": {
+            "label": "Ultrawide 4K 5120\u00d72160 (21:9)",
+            "width": 5120,
+            "height": 2160,
+            "fps": 30,
+            "video_bitrate": "60M"
+        },
+        "cinematic_800": {
+            "label": "Cinematic 1920\u00d7800 (2.35:1)",
+            "width": 1920,
+            "height": 800,
+            "fps": 30,
+            "video_bitrate": "10M"
+        },
+        "cinematic_900": {
+            "label": "Cinematic 2K 2560\u00d71080 (2.35:1)",
+            "width": 2560,
+            "height": 1080,
+            "fps": 30,
+            "video_bitrate": "20M"
+        },
+        "cinematic_1000": {
+            "label": "Cinematic 4K 3840\u00d71600 (2.35:1)",
+            "width": 3840,
+            "height": 1600,
+            "fps": 30,
+            "video_bitrate": "40M"
         }
     },
     "custom_preset": {

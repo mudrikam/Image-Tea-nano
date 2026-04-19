@@ -486,6 +486,7 @@ class CodeActionsWidget(QWidget):
         self._output_tab_widget = None
         self._updating_from_render = False
         self._updating_from_actions = False
+        self._last_populate_count = 0  # track Action combo item count for smart repopulation
         self._render_worker = None
         self._batch_render_worker = None
         self._fix_worker = None
@@ -588,16 +589,22 @@ class CodeActionsWidget(QWidget):
         self.duration_seconds_spin.blockSignals(False)
 
     def _on_render_settings_changed(self):
-        self._populate_preset_combo()
+        # Repopulate only if the Render combo's item count changed (e.g., custom preset added/removed)
+        current_count = self._render_settings_tab.preset_combo.count() if self._render_settings_tab else 0
+        if current_count != self._last_populate_count:
+            self._populate_preset_combo()
         self._sync_preset_combo()
 
     def _populate_preset_combo(self):
         if self._render_settings_tab:
+            self.preset_combo.blockSignals(True)
             self.preset_combo.clear()
             for i in range(self._render_settings_tab.preset_combo.count()):
                 text = self._render_settings_tab.preset_combo.itemText(i)
                 data = self._render_settings_tab.preset_combo.itemData(i)
                 self.preset_combo.addItem(text, data)
+            self.preset_combo.blockSignals(False)
+            self._last_populate_count = self.preset_combo.count()
 
     def _sync_preset_combo(self):
         if self._render_settings_tab and hasattr(self, 'preset_combo'):

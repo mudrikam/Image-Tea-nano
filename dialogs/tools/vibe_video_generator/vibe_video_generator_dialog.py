@@ -99,6 +99,7 @@ class VibeVideoGeneratorDialog(QDialog):
         self.scripts_widget = ScriptsWidget(self)
         self.output_tab_widget = OutputTabWidget(self)
         self.render_settings_tab_widget = RenderSettingsTabWidget(self)
+        self.render_settings_tab_widget.settings_changed.connect(self._refresh_preview_after_save)
         self.preview_tab_widget = PreviewTabWidget(self)
         right_tabs = QTabWidget()
         right_tabs.addTab(self.scripts_widget, qta.icon('fa6s.code'), 'TypeScript')

@@ -220,59 +220,80 @@ def sanitize_script_content(content: str) -> str:
     return content
 
 
-BASE_COMPOSITION_WIDTH = 1920
-BASE_COMPOSITION_HEIGHT = 1080
+def _load_active_preset_settings() -> dict:
+    """Load width/height/fps/video_bitrate from the currently active preset or custom preset."""
+    config_path = os.path.join(BASE_PATH, "configs", "remotion_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        active_key = config.get("active_preset", "1080p30")
+        if active_key == "custom":
+            preset = config.get("custom_preset", {})
+        else:
+            preset = config.get("presets", {}).get(active_key, {})
+        if preset:
+            return {
+                "width": preset.get("width", 1920),
+                "height": preset.get("height", 1080),
+                "fps": preset.get("fps", 30),
+                "video_bitrate": preset.get("video_bitrate", "10M"),
+                "duration": 10,
+            }
+    return {"width": 1920, "height": 1080, "fps": 30, "video_bitrate": "10M", "duration": 10}
 
 
-def _wrap_register_root_guard(script_content: str, root_name: str = None) -> str:
-    """Wrap registerRoot calls to ensure they only execute once per context."""
-    if 'registerRoot(' not in script_content:
-        return script_content
-
-    def replace_register_root(match):
-        call = match.group(0)
-        start = call.find('(') + 1
-        end = call.rfind(')')
-        args = call[start:end]
-        return f"""if (!globalThis.__remotionRootRegistered) {{
-  registerRoot({args});
-  globalThis.__remotionRootRegistered = true;
-}}"""
-
-    guarded = re.sub(r'registerRoot\s*\([^)]*\)\s*;?', replace_register_root, script_content)
-    return guarded
-
-
-def _build_entry_content(component_name: str, render_settings: dict) -> str:
+def _write_root_tsx(preview_dir: str, component_name: str, render_settings: dict):
+    """Write Root.tsx that wraps the user component in a Composition."""
+    src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
     fps = render_settings.get('fps', 30)
     duration = render_settings.get('duration', 10)
     duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
+    width = render_settings.get('width')
+    height = render_settings.get('height')
+    if width is None or height is None:
+        raise ValueError("render_settings must contain 'width' and 'height'")
+    # Output dimensions
+    base_width = width
+    base_height = height
+    scale = 1.0
+    offset_x = 0.0
+    offset_y = 0.0
 
-    content = f'''import React from 'react';
-import {{ registerRoot, Composition }} from 'remotion';
-import {{ MyComponent }} from './MyComponent';
+    content = f'''import {{ Composition }} from 'remotion';
+import {{ {component_name} as UserComponent }} from './MyComponent';
 
-export const RemotionRoot: React.FC = () => {{
-  return (
+const ScaledRoot = () => (
+    <div style={{{{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}}}>
+        <div
+            style={{{{
+                width: {base_width},
+                height: {base_height},
+                position: 'absolute',
+                left: {offset_x},
+                top: {offset_y},
+                transform: 'scale({scale})',
+                transformOrigin: 'top left',
+            }}}}
+        >
+            <UserComponent />
+        </div>
+    </div>
+);
+
+export const Root = () => (
     <Composition
-      id="{COMPOSITION_ID}"
-      component={{MyComponent}}
-      durationInFrames={{{duration_frames}}}
-      fps={{{fps}}}
-      width={{{BASE_COMPOSITION_WIDTH}}}
-      height={{{BASE_COMPOSITION_HEIGHT}}}
+        id="{COMPOSITION_ID}"
+        component={{ScaledRoot}}
+        durationInFrames={{{duration_frames}}}
+        fps={{{fps}}}
+        width={{{width}}}
+        height={{{height}}}
     />
-  );
-}};
-
+);
 '''
-    # Build the registerRoot call with guard
-    root_call = f"registerRoot(RemotionRoot)"
-    guarded = _wrap_register_root_guard(root_call)
-    return content + guarded
-
-
-
+    path = os.path.join(src_dir, "Root.tsx")
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
 
 
 def _ensure_main_composition(script: str) -> str:
@@ -408,13 +429,16 @@ def _write_root_tsx(preview_dir: str, component_name: str, render_settings: dict
     fps = render_settings.get('fps', 30)
     duration = render_settings.get('duration', 10)
     duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
-    width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
-    height = render_settings.get('height', BASE_COMPOSITION_HEIGHT)
-    scale_x = width / BASE_COMPOSITION_WIDTH
-    scale_y = height / BASE_COMPOSITION_HEIGHT
-    scale = max(scale_x, scale_y)
-    offset_x = (width - BASE_COMPOSITION_WIDTH * scale) / 2
-    offset_y = (height - BASE_COMPOSITION_HEIGHT * scale) / 2
+    width = render_settings.get('width')
+    height = render_settings.get('height')
+    if width is None or height is None:
+        raise ValueError("render_settings must contain 'width' and 'height'")
+    # Output dimensions - inner container matches exactly, no scaling
+    base_width = width
+    base_height = height
+    scale = 1.0
+    offset_x = 0.0
+    offset_y = 0.0
 
     content = f'''import {{ Composition }} from 'remotion';
 import {{ {component_name} as UserComponent }} from './MyComponent';
@@ -423,8 +447,8 @@ const ScaledRoot = () => (
     <div style={{{{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}}}>
         <div
             style={{{{
-                width: {BASE_COMPOSITION_WIDTH},
-                height: {BASE_COMPOSITION_HEIGHT},
+                width: {base_width},
+                height: {base_height},
                 position: 'absolute',
                 left: {offset_x},
                 top: {offset_y},
@@ -527,13 +551,12 @@ def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tupl
     # Sanitize script content first
     script_content = sanitize_script_content(script_content)
 
+    if render_settings is None:
+        render_settings = _load_active_preset_settings()
+
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
     src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
-
-    # Use provided render_settings or fall back to defaults
-    if render_settings is None:
-        render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
 
     # If already initialized, just update script content (and Root.tsx if needed)
     if _preview_dir_initialized and _preview_dir_path == preview_dir:
@@ -577,9 +600,9 @@ def _update_preview_script(script_content: str, render_settings: dict = None) ->
     with open(component_file, 'w', encoding='utf-8') as f:
         f.write(prepared_script)
 
-    # Use provided render_settings or fall back to defaults
+    # Use provided render_settings or load from active preset
     if render_settings is None:
-        render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+        render_settings = _load_active_preset_settings()
 
     # Wrap user component in Root.tsx so registerRoot always points to a Composition tree
     _write_root_tsx(_preview_dir_path, component_name, render_settings)
