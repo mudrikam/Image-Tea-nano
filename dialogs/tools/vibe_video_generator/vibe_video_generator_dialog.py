@@ -152,6 +152,9 @@ class VibeVideoGeneratorDialog(QDialog):
         except Exception as e:
             print(f"[Vibe Video] Error reloading collections: {e}")
         # ScriptsWidget has already updated its own UI (content & label) before emitting this signal
+        
+        # Automatically refresh Remotion preview by re-selecting the current script
+        self._refresh_preview_after_save()
 
     def _on_api_key_changed(self, api_key, service, model):
         self.api_key = api_key
@@ -162,6 +165,13 @@ class VibeVideoGeneratorDialog(QDialog):
         self.scripts_widget.set_ai_credentials(self.api_key, self.selected_endpoint, self.selected_service, self.selected_model_name)
         if self.api_key_changed:
             self.api_key_changed.emit(api_key, service, model)
+
+    def _refresh_preview_after_save(self):
+        """Refresh Remotion preview after script save by re-selecting current script."""
+        preview_tab = self.preview_tab_widget
+        if not preview_tab or not preview_tab._scripts_widget:
+            return
+        preview_tab._process_pending_script_selection()
 
     def _on_rendering_started(self):
         """Disable interactive UI elements during rendering."""

@@ -456,8 +456,8 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     return temp_dir, entry_file
 
 
-def setup_preview_dir(script_content: str) -> Tuple[str, str]:
-    """Setup preview directory - sekarang persistent, tidak dihapus setiap ganti script."""
+def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tuple[str, str]:
+    """Setup preview directory - persistent, reused across script changes."""
     global _preview_dir_initialized, _preview_dir_path
 
     # Sanitize script content first
@@ -467,20 +467,21 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
     src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
 
-    # Jika sudah initialized, hanya update script content
+    # Use provided render_settings or fall back to defaults
+    if render_settings is None:
+        render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+
+    # If already initialized, just update script content (and Root.tsx if needed)
     if _preview_dir_initialized and _preview_dir_path == preview_dir:
         if os.path.exists(preview_dir):
-            # Update hanya entry file, tidak recreate directory
-            _update_preview_script(script_content)
+            _update_preview_script(script_content, render_settings)
             return preview_dir, entry_file
 
-    # First time setup - create directory structure
+    # First time setup - create fresh directory structure
     if os.path.exists(preview_dir):
         shutil.rmtree(preview_dir, ignore_errors=True)
 
-    render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
     orig_name = REMOTION_TEMP_DIR_NAME
-    import types
     import helpers.remotion_helper.remotion_helper as _self_mod
     _self_mod.REMOTION_TEMP_DIR_NAME = REMOTION_PREVIEW_DIR_NAME
     try:
@@ -493,7 +494,7 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
     return result
 
 
-def _update_preview_script(script_content: str) -> str:
+def _update_preview_script(script_content: str, render_settings: dict = None) -> str:
     """Update script content without recreating directory."""
     global _preview_dir_path
 
@@ -512,8 +513,9 @@ def _update_preview_script(script_content: str) -> str:
     with open(component_file, 'w', encoding='utf-8') as f:
         f.write(prepared_script)
 
-    # Use default render settings for preview
-    render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+    # Use provided render_settings or fall back to defaults
+    if render_settings is None:
+        render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
 
     # Conditional wrapper generation
     if '<Composition' in prepared_script:

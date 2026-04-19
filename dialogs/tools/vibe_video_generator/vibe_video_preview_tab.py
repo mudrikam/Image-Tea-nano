@@ -387,6 +387,17 @@ class PreviewTabWidget(QWidget):
         except Exception:
             pass
 
+    def _get_render_settings(self) -> dict:
+        """Get current render settings from the Render Settings tab."""
+        # Walk up parent chain to find the dialog with render_settings_tab_widget
+        p = self.parent()
+        while p is not None:
+            if hasattr(p, 'render_settings_tab_widget'):
+                return p.render_settings_tab_widget.get_all_render_settings()
+            p = p.parent()
+        # Fallback to defaults if not found
+        return {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+
     def _on_script_selected(self, name):
         self._script_update_timer.stop()
         self._ignore_next_text_change = True
@@ -477,7 +488,9 @@ class PreviewTabWidget(QWidget):
 
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
-            preview_dir, _ = setup_preview_dir(script_content)
+            # Get actual render settings from Render Settings tab
+            render_settings = self._get_render_settings()
+            preview_dir, _ = setup_preview_dir(script_content, render_settings)
             self._preview_dir = preview_dir
         except Exception as e:
             self._server_starting = False
@@ -501,7 +514,8 @@ class PreviewTabWidget(QWidget):
         """Update script without restarting server – HMR handles auto-refresh."""
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
-            preview_dir, _ = setup_preview_dir(script_content)
+            render_settings = self._get_render_settings()
+            preview_dir, _ = setup_preview_dir(script_content, render_settings)
             self._preview_dir = preview_dir
             print('[PreviewTab] Script updated – Remotion HMR will auto-refresh')
             # Remotion's file watcher detects change and pushes HMR update automatically
