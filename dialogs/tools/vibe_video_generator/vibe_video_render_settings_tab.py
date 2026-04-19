@@ -13,7 +13,7 @@ from config import BASE_PATH
 
 CONFIG_PATH = os.path.join(BASE_PATH, "configs", "remotion_config.json")
 
-BUILT_IN_PRESETS = ["720p30", "1080p60", "2K60", "4K60"]
+BUILT_IN_PRESETS = ["1080p30", "2K60", "4K60"]
 
 
 def load_config():
@@ -37,7 +37,7 @@ def get_preset_data(key):
 
 
 def get_active_preset():
-    return load_config().get("active_preset", "1080p60")
+    return load_config().get("active_preset", "1080p30")
 
 
 def set_active_preset(key, data=None):
@@ -109,7 +109,7 @@ class RenderSettingsTabWidget(QWidget):
     def _refresh_combo(self):
         self.preset_combo.clear()
         config = load_config()
-        active = config.get("active_preset", "1080p60")
+        active = config.get("active_preset", "1080p30")
         for key in BUILT_IN_PRESETS:
             p = config.get("presets", {}).get(key)
             if p:
@@ -158,10 +158,10 @@ class RenderSettingsTabWidget(QWidget):
 
     def _on_reset(self):
         from PySide6.QtWidgets import QMessageBox
-        if QMessageBox.question(self, "Reset", "Reset ke 1080p60?") == QMessageBox.StandardButton.Yes:
-            self._load_preset("1080p60")
-            set_active_preset("1080p60")
-            idx = self.preset_combo.findData("1080p60")
+        if QMessageBox.question(self, "Reset", "Reset ke 1080p30?") == QMessageBox.StandardButton.Yes:
+            self._load_preset("1080p30")
+            set_active_preset("1080p30")
+            idx = self.preset_combo.findData("1080p30")
             if idx >= 0:
                 self.preset_combo.setCurrentIndex(idx)
             self.settings_changed.emit()
@@ -250,7 +250,7 @@ class RenderSettingsTabWidget(QWidget):
         if self._loading_preset:
             return
         config = load_config()
-        active = config.get("active_preset", "1080p60")
+        active = config.get("active_preset", "1080p30")
         data = self._current_preset_data()
         if active in BUILT_IN_PRESETS:
             config["custom_preset"] = data

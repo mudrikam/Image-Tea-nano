@@ -123,8 +123,9 @@ def _health_check_server(host: str, port: int) -> tuple[bool, str]:
         return False, f"HTTP check failed: {str(e)}"
 
 
-class PlayerServerWorker(QThread):
-    """Worker untuk menjalankan Remotion Studio server (full UI with controls)."""
+
+class RemotionStudioWorker(QThread):
+    """Worker untuk menjalankan Remotion Studio server (single instance untuk semua client)."""
     server_ready = Signal(int)
     server_failed = Signal(str)
     status_update = Signal(str)
@@ -134,109 +135,6 @@ class PlayerServerWorker(QThread):
         self._preview_dir = preview_dir
         self._port = port
         self._request_id = request_id
-        self._proc = None
-
-    def run(self):
-        # Kill any existing process on this port first
-        self.status_update.emit(f'Cleaning up port {self._port}...')
-        _kill_process_on_port(self._port)
-        if not _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25):
-            self.server_failed.emit(f'Port {self._port} did not release after cleanup')
-            return
-
-        # Check if port is already in use
-        self.status_update.emit(f'Checking port {self._port}...')
-        if _is_port_open('127.0.0.1', self._port, timeout=0.5):
-            self.server_failed.emit(f'Port {self._port} is still in use after cleanup')
-            return
-
-        self.status_update.emit('Starting Remotion Studio...')
-        print(f'[Studio Server] Starting Remotion Studio on port {self._port}')
-
-        entry_file = os.path.join('src', 'index.tsx')
-        full_entry_path = os.path.join(self._preview_dir, entry_file)
-        if not os.path.exists(full_entry_path):
-            self.server_failed.emit(f'Entry file not found: {full_entry_path}')
-            return
-
-        try:
-            flags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
-            env = os.environ.copy()
-            env['NODE_ENV'] = 'development'
-
-            npx_cmd = _find_npx_cmd()
-            if not npx_cmd:
-                self.server_failed.emit('npx not found')
-                return
-
-            # Use 'remotion studio' instead of 'remotion preview' for full UI
-            cmd = npx_cmd + ['remotion', 'studio', entry_file, '--port', str(self._port), '--host', '127.0.0.1', '--no-open']
-            print(f'[Studio Server] Command: {" ".join(cmd)}')
-            print(f'[Studio Server] Working directory: {self._preview_dir}')
-
-            self._proc = subprocess.Popen(
-                cmd,
-                cwd=self._preview_dir,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                creationflags=flags
-            )
-
-            self.status_update.emit(f'Waiting for Remotion Studio on port {self._port}...')
-            if _wait_for_server('127.0.0.1', self._port, timeout=30.0):
-                self.status_update.emit('Performing health check...')
-                healthy, msg = _health_check_server('127.0.0.1', self._port)
-                if healthy:
-                    print(f'[Studio Server] Health check passed: {msg}')
-                    self.server_ready.emit(self._port)
-                else:
-                    self._cleanup_proc()
-                    self.server_failed.emit(f'Server started but health check failed: {msg}')
-                    return
-            else:
-                self._cleanup_proc()
-                self.server_failed.emit(f'Remotion Studio not accessible on port {self._port} after 60s')
-                return
-
-        except Exception as e:
-            self._cleanup_proc()
-            self.server_failed.emit(f'Failed to start Remotion Studio: {str(e)}')
-
-    def _cleanup_proc(self):
-        if self._proc:
-            try:
-                if self._proc.poll() is None:
-                    if platform.system() == 'Windows':
-                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(self._proc.pid)],
-                                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                    else:
-                        self._proc.terminate()
-                        self._proc.wait(timeout=5)
-            except Exception as e:
-                print(f'[Studio Server] Stop error: {e}')
-            finally:
-                self._proc = None
-        _kill_process_on_port(self._port)
-        _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25)
-
-    def stop(self):
-        self._cleanup_proc()
-
-
-class StudioServerWorker(QThread):
-    """Worker untuk menjalankan full Remotion Studio (untuk Open in Browser)."""
-    server_ready = Signal(int)
-    server_failed = Signal(str)
-    status_update = Signal(str)
-
-    def __init__(self, preview_dir, port):
-        super().__init__()
-        self._preview_dir = preview_dir
-        self._port = port
         self._proc = None
 
     def run(self):
@@ -257,7 +155,8 @@ class StudioServerWorker(QThread):
             self.server_failed.emit(f'Project directory not found: {self._preview_dir}')
             return
 
-        entry_file = os.path.join('src', 'index.tsx')
+        # Use index.ts entry file
+        entry_file = os.path.join('src', 'index.ts')
         full_entry_path = os.path.join(self._preview_dir, entry_file)
         if not os.path.exists(full_entry_path):
             self.server_failed.emit(f'Entry file not found: {full_entry_path}')
@@ -396,7 +295,7 @@ class StudioServerWorker(QThread):
 
     def stop(self):
         self._cleanup_proc()
-        self._cleanup_proc()
+
 
 
 class PreviewTabWidget(QWidget):
@@ -404,26 +303,17 @@ class PreviewTabWidget(QWidget):
         super().__init__(parent)
         self._scripts_widget = None
         self._server_worker = None
-        self._studio_worker = None
-        self._current_port = 3099
-        self._studio_port = None
+        self._server_port = None
         self._server_running = False
         self._server_starting = False
-        self._studio_running = False
         self._preview_dir = None
-        self._preview_dir_for_studio = None
         self._ignore_next_text_change = False
         self._pending_selected_script_name = ''
         self._preview_request_id = 0
-        self._reload_request_id = 0  # Track reload request for loadFinished
-        self._reload_attempts = 0     # Track reload retry attempts
         self._selection_timer = QTimer(self)
         self._selection_timer.setSingleShot(True)
         self._selection_timer.setInterval(350)
         self._selection_timer.timeout.connect(self._process_pending_script_selection)
-        self._reload_timer = QTimer(self)
-        self._reload_timer.setSingleShot(True)
-        self._reload_timer.timeout.connect(self._trigger_preview_reload)
         self._script_update_timer = QTimer(self)
         self._script_update_timer.setSingleShot(True)
         self._script_update_timer.setInterval(800)
@@ -432,6 +322,10 @@ class PreviewTabWidget(QWidget):
         self._server_retry_count = 0
         self._retry_timer = None
         self._is_closing = False
+        self._open_browser_after_start = False
+        # Reload tracking (for compatibility, though HMR replaces manual reload)
+        self._reload_request_id = 0
+        self._reload_attempts = 0
         self._setup_ui()
 
     def _setup_ui(self):
@@ -448,13 +342,6 @@ class PreviewTabWidget(QWidget):
         self.toggle_server_btn.setEnabled(False)
         self.toggle_server_btn.clicked.connect(self._on_toggle_server)
         toolbar.addWidget(self.toggle_server_btn)
-
-        self.reload_btn = QPushButton('Reload')
-        self.reload_btn.setIcon(qta.icon('fa6s.rotate'))
-        self.reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reload_btn.setEnabled(False)
-        self.reload_btn.clicked.connect(self._on_reload)
-        toolbar.addWidget(self.reload_btn)
 
         self.open_browser_btn = QPushButton('Open in Browser')
         self.open_browser_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square'))
@@ -502,7 +389,6 @@ class PreviewTabWidget(QWidget):
 
     def _on_script_selected(self, name):
         self._script_update_timer.stop()
-        self._reload_timer.stop()
         self._ignore_next_text_change = True
         self._pending_selected_script_name = name or ''
 
@@ -555,24 +441,22 @@ class PreviewTabWidget(QWidget):
             # Hot-reload: update script without restarting server
             self._update_script_only(script_content, request_id=request_id)
             script_name = name if name else 'Current script'
-            self.status_label.setText(f'Script: {script_name} - Updated (reloading...)')
+            self.status_label.setText(f'Script: {script_name} - Updated (HMR...)')
             # Server is running - toggle becomes "Stop" (enabled)
             self._update_toggle_server_button()
             self.open_browser_btn.setEnabled(True)
-            self.reload_btn.setEnabled(True)
         else:
             # Server not running - prepare UI for manual start
             script_name = name if name else 'Current script'
-            self.status_label.setText(f'Script: {script_name} - Ready (click "Start Server" or "Open in Browser")')
+            self.status_label.setText(f'Script: {script_name} - Ready (click "Start Server")')
             self.placeholder.setText('Remotion Studio will open when you click "Start Server".')
             self.placeholder.setVisible(True)
             self.webview.setVisible(False)
             can_start = not self._server_starting and not self._server_running
             self._update_toggle_server_button()
             self.open_browser_btn.setEnabled(True)
-            self.reload_btn.setEnabled(False)
 
-    def _on_start_preview(self, request_id=None, script_content=None):
+    def _on_start_server(self, request_id=None, script_content=None):
         if self._server_starting or self._server_running:
             return
         if request_id is None:
@@ -585,7 +469,6 @@ class PreviewTabWidget(QWidget):
             return
 
         self.toggle_server_btn.setEnabled(False)
-        self.reload_btn.setEnabled(False)
         self.open_browser_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.webview.setVisible(False)
@@ -606,52 +489,25 @@ class PreviewTabWidget(QWidget):
 
         self._server_starting = True
         self._server_running = True
-        self._current_port = self._find_free_port(3099)
-        worker = PlayerServerWorker(self._preview_dir, self._current_port, request_id=request_id)
+        self._server_port = self._find_free_port(3099)
+        worker = RemotionStudioWorker(self._preview_dir, self._server_port, request_id=request_id)
         self._server_worker = worker
         worker.server_ready.connect(self._on_server_ready)
         worker.server_failed.connect(self._on_server_failed)
         worker.start()
-        self.placeholder.setText(f'Starting Remotion Studio on port {self._current_port}...')
+        self.placeholder.setText(f'Starting Remotion Studio on port {self._server_port}...')
 
     def _update_script_only(self, script_content: str, request_id=None):
-        """Update script without restarting server."""
-        if request_id is None:
-            request_id = self._preview_request_id
-        print('[PreviewTab] Updating script without server restart...')
-        self.placeholder.setText('Updating script in Remotion Studio...')
-        self.placeholder.setVisible(True)
-
+        """Update script without restarting server – HMR handles auto-refresh."""
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
             preview_dir, _ = setup_preview_dir(script_content)
             self._preview_dir = preview_dir
-            print('[PreviewTab] Script updated in preview directory, reloading Remotion Studio view...')
-
-            # Check if server is still alive before scheduling reload
-            worker = self._server_worker
-            if not worker or not worker._proc:
-                print('[PreviewTab] Server process not found, cannot hot-reload')
-                self.status_label.setText('Server not running - click Start Server')
-                self._reset_ui('Server stopped')
-                return
-
-            # Check if process has exited
-            returncode = worker._proc.poll()
-            if returncode is not None:
-                print(f'[PreviewTab] Server process already exited (code {returncode}), cannot hot-reload')
-                self._stop_server(force_cleanup=True)
-                self._reset_ui(f'Server crashed (exit code {returncode})')
-                return
-
-            self._reload_timer.stop()
-            self._reload_timer.setProperty('request_id', request_id)
-            self._reload_timer.start(1500)  # give Remotion time to recompile before navigating
+            print('[PreviewTab] Script updated – Remotion HMR will auto-refresh')
+            # Remotion's file watcher detects change and pushes HMR update automatically
         except Exception as e:
             print(f'[PreviewTab] Failed to update script: {e}')
             self.status_label.setText(f'Update failed: {e}')
-            # Server might have crashed, stop it gracefully
-            self._stop_server(force_cleanup=True)
 
     def _on_script_content_changed(self):
         if self._ignore_next_text_change:
@@ -701,124 +557,21 @@ class PreviewTabWidget(QWidget):
             can_start = not self._server_starting and not self._server_running
             self._update_toggle_server_button()
             self.open_browser_btn.setEnabled(True)
-            self.reload_btn.setEnabled(False)
 
-    def _trigger_preview_reload(self):
-        """Trigger reload by navigating to root so composition ID is re-evaluated."""
-        try:
-            request_id = self._reload_timer.property('request_id')
-            if request_id != self._preview_request_id:
-                print(f'[PreviewTab] Stale reload request (id={request_id}, current={self._preview_request_id}), ignoring')
-                return
-
-            # Store the reload request ID for loadFinished tracking
-            self._reload_request_id = request_id
-            self._reload_attempts = 1  # First attempt
-
-            # Verify server is still alive before attempting reload
-            if not self._server_worker or not self._server_worker._proc:
-                print('[PreviewTab] Server process not available, cannot hot-reload')
-                self.status_label.setText('Server not running - click Start Server')
-                self._reset_ui('Server stopped')
-                self._reload_request_id = 0
-                return
-
-            # Check if process is still alive
-            returncode = self._server_worker._proc.poll()
-            if returncode is not None:
-                print(f'[PreviewTab] Server process exited with code {returncode}')
-                self._stop_server(force_cleanup=True)
-                self._reset_ui(f'Server crashed (exit code {returncode})')
-                self._reload_request_id = 0
-                return
-
-            self._start_reload_navigation()
-        except Exception as e:
-            print(f'[PreviewTab] Error during reload: {e}')
-            self._reload_request_id = 0
-            self._reload_attempts = 0
-
-    def _start_reload_navigation(self):
-        """Navigate webview to server with proper cleanup of previous loads."""
-        try:
-            # Guard: ensure this reload request is still current
-            if self._reload_request_id != self._preview_request_id or self._reload_attempts == 0:
-                print(f'[PreviewTab] Reload navigation skipped (stale request or no attempts)')
-                return
-
-            # Cancel any pending navigation to avoid conflicts
-            try:
-                self.webview.stop()
-            except Exception as e:
-                print(f'[PreviewTab] Warning: failed to stop webview: {e}')
-
-            script_name = self._pending_selected_script_name or 'Current script'
-            self.status_label.setText(f'Script: {script_name} - Reloading composition...')
-            self.placeholder.setVisible(False)
-            self.webview.setVisible(True)
-            # Navigate to root instead of reloading current URL (which may contain stale composition ID)
-            url = f'http://127.0.0.1:{self._current_port}'
-            print(f'[PreviewTab] Reloading webview to {url} (attempt {self._reload_attempts})')
-            try:
-                self.webview.setUrl(QUrl(url))
-            except RuntimeError as e:
-                # QWebEngineView may be deleted
-                print(f'[PreviewTab] WebView error: {e}')
-                self._reload_request_id = 0
-                self._reload_attempts = 0
-            except Exception as e:
-                print(f'[PreviewTab] Unexpected error setting URL: {e}')
-                self._reload_request_id = 0
-                self._reload_attempts = 0
-        except Exception as e:
-            print(f'[PreviewTab] Error in navigation: {e}')
-            self._reload_request_id = 0
-            self._reload_attempts = 0
 
     def _on_webview_load_finished(self, success: bool):
-        """Handle webview load completion after script reload or initial load."""
+        """Handle webview load completion after initial page load."""
         try:
-            # Case 1: This is a reload request
-            if self._reload_request_id > 0:
-                if self._reload_request_id != self._preview_request_id:
-                    # Stale reload, ignore
-                    print(f'[PreviewTab] Stale reload load (id={self._reload_request_id} != {self._preview_request_id})')
-                    return
-
-                if success:
+            if success:
+                if self._server_running:
                     script_name = self._pending_selected_script_name or 'Current script'
-                    url = f'http://127.0.0.1:{self._current_port}'
-                    self.status_label.setText(f'Script: {script_name} - Ready at {url}')
-                    print('[PreviewTab] Reload successful')
-                    self._reload_request_id = 0
-                    self._reload_attempts = 0
-                else:
-                    # Intermediate failure during rebuild - retry
-                    self._reload_attempts += 1
-                    if self._reload_attempts < 3:
-                        print(f'[PreviewTab] Reload attempt {self._reload_attempts} failed, retrying...')
-                        QTimer.singleShot(500, self._start_reload_navigation)
-                    else:
-                        print('[PreviewTab] Reload failed after max attempts')
-                        self.status_label.setText('Failed to load - click Reload')
-                        self._reload_request_id = 0
-                        self._reload_attempts = 0
+                    self.status_label.setText(f'Script: {script_name} - Ready')
+                    print('[PreviewTab] Page loaded successfully')
             else:
-                # Case 2: Not a reload - could be initial load after server start
-                if success:
-                    if self._server_running or self._studio_running:
-                        # Normal page load completed
-                        script_name = self._pending_selected_script_name or 'Current script'
-                        self.status_label.setText(f'Script: {script_name} - Ready')
-                        print('[PreviewTab] Page loaded successfully')
-                else:
-                    # Initial load failed; server might still be starting, ignore
-                    print('[PreviewTab] Initial page load failed (will retry automatically)')
+                # Initial load failed; server might still be starting, ignore
+                print('[PreviewTab] Initial page load failed (will retry automatically)')
         except Exception as e:
             print(f'[PreviewTab] Error in loadFinished: {e}')
-            self._reload_request_id = 0
-            self._reload_attempts = 0
-            self._reload_attempts = 0
 
     def _on_status_update(self, message):
         worker = self.sender()
@@ -844,11 +597,16 @@ class PreviewTabWidget(QWidget):
         self.progress_bar.setVisible(False)
         self.placeholder.setVisible(False)
         self.webview.setVisible(True)
-        self.reload_btn.setEnabled(True)
         self.open_browser_btn.setEnabled(True)
         self._update_toggle_server_button()
         self.status_label.setText(f'Remotion Studio running at {url}')
         self.webview.setUrl(QUrl(url))
+
+        # If user clicked "Open in Browser" while server was stopped, open external browser now
+        if getattr(self, '_open_browser_after_start', False):
+            self._open_browser_after_start = False
+            import webbrowser
+            webbrowser.open(url)
 
     def _on_server_failed(self, error):
         if self._is_closing:
@@ -867,7 +625,7 @@ class PreviewTabWidget(QWidget):
                 self._retry_timer.stop()
             self._retry_timer = QTimer(self)
             self._retry_timer.setSingleShot(True)
-            self._retry_timer.timeout.connect(self._retry_start_preview)
+            self._retry_timer.timeout.connect(self._retry_start_server)
             self._retry_timer.start(1000 * self._server_retry_count)
         else:
             self._reset_ui(f'Studio failed: {error}')
@@ -877,7 +635,7 @@ class PreviewTabWidget(QWidget):
                 self._retry_timer.stop()
                 self._retry_timer = None
 
-    def _retry_start_preview(self):
+    def _retry_start_server(self):
         """Retry starting Remotion Studio after a failure."""
         if self._is_closing:
             return
@@ -889,19 +647,12 @@ class PreviewTabWidget(QWidget):
         script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
             return
-        self._on_start_preview(script_content=script_content)
+        self._on_start_server(script_content=script_content)
 
     def _on_stop_preview(self):
         self._server_running = False
         self._stop_server()
         self._reset_ui('Remotion Studio stopped.')
-
-    def _on_reload(self):
-        self.webview.reload()
-
-    def _on_start_server(self):
-        """Start Remotion Studio to view compositions in the built-in webview."""
-        self._on_start_preview()
 
     def _on_toggle_server(self):
         """Toggle server based on current state."""
@@ -910,13 +661,18 @@ class PreviewTabWidget(QWidget):
             self._reset_ui('Remotion Studio stopped.')
             self._process_pending_script_selection()
         else:
-            self._on_start_preview()
+            self._on_start_server()
 
     def _on_open_browser(self):
-        """Open full Remotion Studio in browser untuk advanced editing."""
-        # Stop any pending script selection timer to avoid re-enabling button
-        self._selection_timer.stop()
+        """Open Remotion Studio in external browser (shares same server as embedded webview)."""
+        # If server already running, just open browser to the same port
+        if self._server_running and self._server_port:
+            import webbrowser
+            webbrowser.open(f'http://127.0.0.1:{self._server_port}')
+            self.status_label.setText(f'Browser opened at http://127.0.0.1:{self._server_port}')
+            return
 
+        # Server not running – start it and then open browser when ready
         if not self._scripts_widget:
             return
 
@@ -925,32 +681,10 @@ class PreviewTabWidget(QWidget):
             QMessageBox.warning(self, 'No Script', 'Please write or select a script first.')
             return
 
-        # Always prepare latest preview dir for Studio
-        try:
-            from helpers.remotion_helper.remotion_helper import setup_preview_dir
-            preview_dir, _ = setup_preview_dir(script_content)
-            self._preview_dir_for_studio = preview_dir
-        except Exception as e:
-            self.status_label.setText(f'Failed to prepare studio: {e}')
-            QMessageBox.critical(self, 'Error', f'Failed to prepare studio: {e}')
-            return
-
-        if self._studio_running and self._studio_port:
-            import webbrowser
-            webbrowser.open(f'http://127.0.0.1:{self._studio_port}')
-            self.status_label.setText(f'Studio already running at http://127.0.0.1:{self._studio_port}')
-            return
-
-        self._studio_port = self._find_free_port(3100)
-
-        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
-        self._studio_worker.server_ready.connect(self._on_studio_ready)
-        self._studio_worker.server_failed.connect(self._on_studio_failed)
-        self._studio_worker.start()
-        self._studio_running = True
-        self.open_browser_btn.setEnabled(False)
-        self.open_browser_btn.setText('Starting...')
-        self.status_label.setText(f'Starting Remotion Studio on port {self._studio_port}...')
+        # Set flag to open browser after server starts
+        self._open_browser_after_start = True
+        # Start the server (same as Start Server button)
+        self._on_start_server()
 
     def _on_stop_server(self):
         """Stop the Remotion Studio server."""
@@ -959,56 +693,7 @@ class PreviewTabWidget(QWidget):
         # Re-evaluate UI state immediately
         self._process_pending_script_selection()
 
-    def _on_studio_ready(self, port):
-        """Called when Remotion Studio is ready."""
-        if self._is_closing:
-            return
-        worker = self.sender()
-        if worker is not self._studio_worker:
-            return
-        print(f'[Remotion Studio] Ready at http://127.0.0.1:{port}')
-        self._studio_port = port
-        self._studio_running = True
-        self._studio_retry_count = 0  # reset retry counter on success
-        self.open_browser_btn.setEnabled(True)
-        self.open_browser_btn.setText('Open in Browser')
-        import webbrowser
-        webbrowser.open(f'http://127.0.0.1:{port}')
 
-    def _on_studio_failed(self, error):
-        """Called when Remotion Studio fails to start."""
-        if self._is_closing:
-            return
-        worker = self.sender()
-        if worker is not self._studio_worker:
-            return
-        self._studio_running = False
-        self._studio_worker = None
-        self.open_browser_btn.setEnabled(True)
-        self.open_browser_btn.setText('Open in Browser')
-        if self._studio_retry_count < 3:
-            self._studio_retry_count += 1
-            print(f'[PreviewTab] Studio failed ({error}), retrying ({self._studio_retry_count}/3)...')
-            QTimer.singleShot(1000 * self._studio_retry_count, self._retry_start_studio)
-        else:
-            QMessageBox.critical(self, 'Studio Failed', f'Failed to start Remotion Studio:\n{error}')
-            self._studio_retry_count = 0
-
-    def _retry_start_studio(self):
-        """Retry starting Remotion Studio after failure."""
-        if self._is_closing:
-            return
-        if not hasattr(self, '_preview_dir_for_studio') or not self._preview_dir_for_studio:
-            return
-        self._studio_port = self._find_free_port(3100)
-        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import StudioServerWorker
-        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
-        self._studio_worker.server_ready.connect(self._on_studio_ready)
-        self._studio_worker.server_failed.connect(self._on_studio_failed)
-        self._studio_worker.start()
-        self._studio_running = True
-        self.open_browser_btn.setEnabled(False)
-        self.open_browser_btn.setText('Starting...')
 
     def _stop_server(self, force_cleanup=False):
         self._reload_request_id = 0  # Clear any pending reload
@@ -1019,36 +704,32 @@ class PreviewTabWidget(QWidget):
         if self._retry_timer:
             self._retry_timer.stop()
             self._retry_timer = None
-        self._reload_timer.stop()
         if self._server_worker:
             worker = self._server_worker
             self._server_worker = None
+            # Disconnect signals to prevent callbacks after stop
+            try:
+                worker.server_ready.disconnect()
+                worker.server_failed.disconnect()
+            except RuntimeError:
+                pass
             worker.stop()
-            worker.quit()
-            if not worker.wait(3000):
-                print("[Preview] Server worker did not stop in time, terminating.")
-                worker.terminate()
-                worker.wait()
+            # Wait up to 70 seconds for graceful exit (covers server startup wait)
+            if not worker.wait(70000):
+                if worker.isRunning():
+                    print("[Preview] Server worker did not stop in time, terminating.")
+                    worker.terminate()
+                    worker.wait()
+            worker.deleteLater()
         from helpers.remotion_helper.remotion_helper import cleanup_preview_dir
         cleanup_preview_dir(force=force_cleanup)
 
-    def _stop_studio(self):
-        """Stop Remotion Studio server."""
-        self._is_closing = True
-        self._studio_running = False
-        if self._studio_worker:
-            self._studio_worker.stop()
-            self._studio_worker.quit()
-            if not self._studio_worker.wait(3000):
-                print("[Preview] Studio worker did not stop in time, terminating.")
-                self._studio_worker.terminate()
-                self._studio_worker.wait()
-            self._studio_worker = None
+
 
     def _reset_ui(self, status=''):
         self._reload_request_id = 0  # Clear any pending reload tracking
         self._reload_attempts = 0
-        self.reload_btn.setEnabled(False)
+        self._open_browser_after_start = False  # Clear pending open-browser request
         self.open_browser_btn.setEnabled(False)
         self._update_toggle_server_button()
         self.progress_bar.setVisible(False)
@@ -1094,7 +775,6 @@ class PreviewTabWidget(QWidget):
         # Immediately stop all timers to prevent callbacks during cleanup
         self._script_update_timer.stop()
         self._selection_timer.stop()
-        self._reload_timer.stop()
         if self._retry_timer:
             self._retry_timer.stop()
             self._retry_timer = None
@@ -1102,8 +782,7 @@ class PreviewTabWidget(QWidget):
         # Aggressive cleanup of all Remotion-related processes
         print('[PreviewTab] Closing - cleaning up all Remotion processes...')
         self._stop_server(force_cleanup=True)
-        self._stop_studio()
-        # Kill any remaining processes on our ports
-        _kill_process_on_port(self._current_port)
-        _kill_process_on_port(self._studio_port if self._studio_port else 3100)
+        # Ensure port is freed
+        if self._server_port:
+            _kill_process_on_port(self._server_port)
         super().closeEvent(event)

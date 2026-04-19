@@ -893,42 +893,15 @@ class ScriptsWidget(QWidget):
             self.script_content.setFocus()
 
     def _on_open_browser(self):
-        """Open Remotion Studio in browser for the current script."""
-        script_content = self.script_content.toPlainText().strip()
-        if not script_content:
-            return
-
-        # If studio already running, just open browser and exit
-        if self._studio_running and self._studio_port:
-            import webbrowser
-            webbrowser.open(f'http://127.0.0.1:{self._studio_port}')
-            return
-
-        # Cancel any pending retry timer
-        if self._studio_retry_timer:
-            self._studio_retry_timer.stop()
-            self._studio_retry_timer = None
-        self._studio_retry_count = 0
-
-        # Prepare preview directory
-        try:
-            from helpers.remotion_helper.remotion_helper import setup_preview_dir
-            preview_dir, _ = setup_preview_dir(script_content)
-            self._preview_dir_for_studio = preview_dir
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f'Failed to prepare studio: {e}')
-            return
-
-        # Start Remotion Studio
-        self._studio_port = self._find_free_port(3100)
-        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import StudioServerWorker
-        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
-        self._studio_worker.server_ready.connect(self._on_studio_ready)
-        self._studio_worker.server_failed.connect(self._on_studio_failed)
-        self._studio_worker.start()
-        self._studio_running = True
-        self.open_browser_btn.setEnabled(False)
-        self.open_browser_btn.setText('Starting...')
+         """Open Remotion Studio in browser for the current script."""
+         # Walk up the parent chain to find the dialog that has preview_tab_widget
+         p = self.parent()
+         while p is not None:
+             if hasattr(p, 'preview_tab_widget'):
+                 p.preview_tab_widget._on_open_browser()
+                 return
+             p = p.parent()
+         # If not found, do nothing (or could log warning)
 
     def _on_studio_ready(self, port):
         """Called when Remotion Studio is ready."""
@@ -1008,28 +981,9 @@ class ScriptsWidget(QWidget):
                     continue
         return start
 
-    def _stop_studio(self):
-        """Stop Remotion Studio if running."""
-        self._is_closing = True
-        if self._studio_worker:
-            self._studio_worker.stop()
-            self._studio_worker.quit()
-            if not self._studio_worker.wait(3000):
-                print("[Vibe Video] Studio worker did not stop in time, terminating.")
-                self._studio_worker.terminate()
-                self._studio_worker.wait()
-            self._studio_worker = None
-        self._studio_running = False
-        self._studio_port = None
-        self._studio_retry_count = 0
-        if self._studio_retry_timer:
-            self._studio_retry_timer.stop()
-            self._studio_retry_timer = None
-
     def cleanup(self):
         """Clean up resources (call when dialog closes)."""
         self._is_closing = True
-        self._stop_studio()
         if self._refine_worker:
             self._refine_worker.quit()
             if not self._refine_worker.wait(2000):

@@ -208,7 +208,6 @@ class VibeVideoGeneratorDialog(QDialog):
         # Mark preview tab as closing before stopping its workers
         self.preview_tab_widget._is_closing = True
         self.preview_tab_widget._stop_server()
-        self.preview_tab_widget._stop_studio()
         if hasattr(self.scripts_widget, 'cleanup'):
             self.scripts_widget.cleanup()
         super().closeEvent(event)

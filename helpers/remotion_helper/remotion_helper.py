@@ -16,7 +16,7 @@ PROJECT_TEMP_DIR = os.path.join(BASE_PATH, "temp")
 REMOTION_TEMP_DIR_NAME = "remotion_temp"
 REMOTION_PREVIEW_DIR_NAME = "remotion_preview"
 REMOTION_SRC_DIR = "src"
-REMOTION_ENTRY_FILE = "index.tsx"
+REMOTION_ENTRY_FILE = "index.ts"
 COMPOSITION_ID = "main"
 
 # Global state untuk persistent preview
@@ -109,8 +109,75 @@ def _detect_component_name(script_content: str) -> Optional[str]:
     return None
 
 
-BASE_COMPOSITION_WIDTH = 1280
-BASE_COMPOSITION_HEIGHT = 720
+def _extract_component_from_composition(script: str) -> Optional[str]:
+    """Extract the component name from the first <Composition ... component={...}> tag."""
+    pattern = r'<Composition\b[^>]*component\s*=\s*\{([^}]+)\}[^>]*\/?>'
+    match = re.search(pattern, script, re.DOTALL | re.IGNORECASE)
+    if match:
+        comp_expr = match.group(1).strip()
+        identifier_match = re.search(r'([A-Za-z_$][A-Za-z0-9_$]*)', comp_expr)
+        if identifier_match:
+            return identifier_match.group(1)
+        return comp_expr
+    return None
+
+
+def _component_defined(script: str, name: str) -> bool:
+    """Check whether a component with the given name is defined in the script."""
+    pattern = r'(?:const|let|var|function|class)\s+' + re.escape(name) + r'\b'
+    return bool(re.search(pattern, script))
+
+
+def _strip_composition_tags(script: str) -> str:
+    """Strip all <Composition ...> JSX tags from the script."""
+    # Replace self-closing tags with an empty fragment to keep valid JSX
+    script = re.sub(r'<Composition\b[^>]*\/>', '<></>', script, flags=re.DOTALL)
+    # Replace tags with explicit closing with an empty fragment
+    script = re.sub(r'<Composition\b[^>]*>.*?<\/Composition>', '<></>', script, flags=re.DOTALL)
+    # Normalize multiple newlines
+    script = re.sub(r'\n\s*\n\s*\n+', '\n\n', script)
+    return script.strip() + '\n'
+
+
+def sanitize_script_content(content: str) -> str:
+    """
+    Clean up arbitrary user script content to produce valid TypeScript/JavaScript code.
+    - Strips BOM
+    - Normalizes line endings
+    - Removes markdown code fences
+    - Strips trailing whitespace
+    - Ensures trailing newline
+    """
+    # Remove BOM
+    if content.startswith('\ufeff'):
+        content = content[1:]
+
+    # Normalize line endings to \n
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+    # Strip trailing whitespace on each line
+    content = '\n'.join(line.rstrip() for line in content.splitlines())
+
+    # Remove markdown code fences (```tsx, ```typescript, ```js, ```javascript, ```)
+    # Pattern: optional language identifier, then code, then closing fence
+    fence_pattern = r'^```(?:\w+)?\s*\n(.*?)(?:\n```|$)?'
+    matches = list(re.finditer(fence_pattern, content, re.DOTALL | re.MULTILINE))
+    if matches:
+        # Extract the first code block only; discard surrounding text
+        first = matches[0]
+        code = first.group(1) if first.group(1) else ''
+        # Remove any remaining fence markers inside code
+        code = re.sub(r'^```.*$', '', code, flags=re.MULTILINE)
+        content = code.strip()
+
+    # Ensure single trailing newline
+    content = content.rstrip('\n') + '\n'
+
+    return content
+
+
+BASE_COMPOSITION_WIDTH = 1920
+BASE_COMPOSITION_HEIGHT = 1080
 
 
 def _wrap_register_root_guard(script_content: str, root_name: str = None) -> str:
@@ -161,27 +228,160 @@ export const RemotionRoot: React.FC = () => {{
     return content + guarded
 
 
+
+
+
+def _ensure_main_composition(script: str) -> str:
+    """Ensure there is a Composition with id="main" by modifying the first Composition tag."""
+    # Already has a main composition? Skip.
+    if re.search(r'<Composition\b[^>]*\bid\s*=\s*["\']main["\']', script):
+        return script
+
+    def replacer(match):
+        tag = match.group(0)
+        # Detect if self-closing (<Composition .../>)
+        is_self_closing = tag.rstrip().endswith('/>')
+        suffix = '/>' if is_self_closing else '>'
+        # Remove the closing '>' or '/>' to get prefix
+        prefix = tag[:-len(suffix)]
+
+        # Pattern to detect any existing id attribute (quoted, braced, or unquoted)
+        id_pattern = r'''\bid\s*=\s*("[^"]*"|'[^']*'|\{[^}]*\}|[^\s>]+)'''
+
+        if re.search(id_pattern, prefix):
+            # Replace existing id (any format) with id="main"
+            new_prefix = re.sub(id_pattern, 'id="main"', prefix, count=1)
+        else:
+            # Append id="main" before closing
+            new_prefix = prefix + ' id="main"'
+        return new_prefix + suffix
+
+    # Replace only the first <Composition ...> occurrence
+    return re.sub(r'<Composition\b[^>]*>', replacer, script, count=1)
+
+
+def _extract_component_from_composition(script: str) -> Optional[str]:
+    """Extract the component name from the first <Composition ... component={...}> tag."""
+    pattern = r'<Composition\b[^>]*component\s*=\s*\{([^}]+)\}[^>]*\/?>'
+    match = re.search(pattern, script, re.DOTALL | re.IGNORECASE)
+    if match:
+        comp_expr = match.group(1).strip()
+        identifier_match = re.search(r'([A-Za-z_$][A-Za-z0-9_$]*)', comp_expr)
+        if identifier_match:
+            return identifier_match.group(1)
+        return comp_expr
+    return None
+
+
+def _component_defined(script: str, name: str) -> bool:
+    """Check whether a component with the given name is defined in the script."""
+    pattern = r'(?:const|let|var|function|class)\s+' + re.escape(name) + r'\b'
+    return bool(re.search(pattern, script))
+
+
+def _strip_composition_tags(script: str) -> str:
+    """Strip all <Composition ...> JSX tags from the script."""
+    # Replace self-closing tags with an empty fragment to keep valid JSX
+    script = re.sub(r'<Composition\b[^>]*\/>', '<></>', script, flags=re.DOTALL)
+    # Replace tags with explicit closing with an empty fragment
+    script = re.sub(r'<Composition\b[^>]*>.*?<\/Composition>', '<></>', script, flags=re.DOTALL)
+    # Normalize multiple newlines
+    script = re.sub(r'\n\s*\n\s*\n+', '\n\n', script)
+    return script.strip() + '\n'
+
+
 def _prepare_user_script(script_content: str) -> Tuple[str, str]:
     modified = script_content
+
+    # Remove any existing registerRoot calls to avoid duplicate registration
+    modified = re.sub(r'\bregisterRoot\s*\([^)]*\)\s*;?', '', modified)
+
+    # Ensure React import
     if 'import React' not in modified and 'from \'react\'' not in modified and 'from "react"' not in modified:
         modified = "import React from 'react';\n" + modified
 
-    component_name = _detect_component_name(modified)
+    # Try to infer the intended component from <Composition> if present (AI-generated full scripts)
+    extracted_component = None
+    if '<Composition' in modified:
+        extracted_component = _extract_component_from_composition(modified)
+        if extracted_component and _component_defined(modified, extracted_component):
+            component_name = extracted_component
+        else:
+            component_name = _detect_component_name(modified)
+    else:
+        component_name = _detect_component_name(modified)
+
+    # Fallback: if we still don't have a component name, create a minimal placeholder
     if not component_name:
         component_name = "MyComponent"
-        modified = modified + f"\n\nconst {component_name} = () => {{ return <div>Empty</div>; }};\n"
+        modified += f"\n\nconst {component_name} = () => {{ return <div>Empty</div>; }};\n"
 
-    if f'export {{ {component_name} }}' not in modified and 'export default' not in modified and f'export const {component_name}' not in modified and f'export function {component_name}' not in modified:
-        modified = modified + f"\n\nexport {{ {component_name} }};\n"
+    # Strip all <Composition> tags – our wrapper will provide the Composition
+    modified = _strip_composition_tags(modified)
 
-    has_named_export = f'export {{ {component_name} }}' in modified or f'export const {component_name}' in modified or f'export function {component_name}' in modified
-    if has_named_export:
-        pass
-    elif 'export default' in modified:
-        modified = modified.replace(f'export default {component_name}', f'export {{ {component_name} }}')
-        modified = modified.replace(f'export default function {component_name}', f'export function {component_name}')
+    # Ensure the component is exported as a named export.
+    # Detect existing named exports (covers const/let/var/function/class and brace-export).
+    export_patterns = [
+        r'export\s+(?:const|let|var|function|class)\s+' + re.escape(component_name) + r'\b',
+        r'export\s+{[^}]*\b' + re.escape(component_name) + r'\b[^}]*}',
+    ]
+    has_named_export = any(re.search(p, modified) for p in export_patterns)
+    if not has_named_export:
+        # Append a named export for the component.
+        modified = modified.rstrip() + f"\nexport {{ {component_name} }};\n"
+
+    # Defensive: if any Composition tag survived, ensure it has id="main"
+    if '<Composition' in modified:
+        modified = _ensure_main_composition(modified)
 
     return modified, component_name
+
+
+def _write_index_ts(preview_dir: str, import_source: str, import_name: str):
+    """Write the JSX-free entry file that registers the root component.
+
+    Args:
+        preview_dir: preview directory path
+        import_source: module path without extension (e.g., 'Root' or 'MyComponent')
+        import_name: exported component name to register
+    """
+    src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
+    content = (
+        f"import {{ registerRoot }} from 'remotion';\n"
+        f"import {{ {import_name} }} from './{import_source}';\n\n"
+        f"registerRoot({import_name});\n"
+    )
+    path = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def _write_root_tsx(preview_dir: str, component_name: str, render_settings: dict):
+    """Write Root.tsx that wraps the user component in a Composition."""
+    src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
+    fps = render_settings.get('fps', 30)
+    duration = render_settings.get('duration', 10)
+    duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
+    width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
+    height = render_settings.get('height', BASE_COMPOSITION_HEIGHT)
+
+    content = f'''import {{ Composition }} from 'remotion';
+import {{ {component_name} as UserComponent }} from './MyComponent';
+
+export const Root = () => (
+  <Composition
+    id="{COMPOSITION_ID}"
+    component={{UserComponent}}
+    durationInFrames={{{duration_frames}}}
+    fps={{{fps}}}
+    width={{{width}}}
+    height={{{height}}}
+  />
+);
+'''
+    path = os.path.join(src_dir, "Root.tsx")
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
 
 
 def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, str]:
@@ -196,42 +396,25 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     src_dir = os.path.join(temp_dir, REMOTION_SRC_DIR)
     os.makedirs(src_dir, exist_ok=True)
 
-    if _script_has_register_root(script_content):
-        entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
-        guarded = _wrap_register_root_guard(script_content)
-        with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(guarded)
-    elif _script_has_composition(script_content):
-        entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
-        if 'registerRoot' not in script_content:
-            root_name = _detect_component_name(script_content)
-            if not root_name:
-                root_name = "Root"
-            wrapped = script_content
-            if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
-                wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nif (!globalThis.__remotionRootRegistered) {{ registerRoot({root_name}, {{ id: '{COMPOSITION_ID}' }}); globalThis.__remotionRootRegistered = true; }}\n"
-            with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(wrapped)
-        else:
-            guarded = _wrap_register_root_guard(script_content)
-            with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(guarded)
+    # Sanitize and prepare user component
+    script_content = sanitize_script_content(script_content)
+    prepared_script, component_name = _prepare_user_script(script_content)
+
+    # Write MyComponent.tsx always
+    component_file = os.path.join(src_dir, "MyComponent.tsx")
+    with open(component_file, 'w', encoding='utf-8') as f:
+        f.write(prepared_script)
+
+    entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
+
+    # Decide: if script contains <Composition>, treat it as full root; else wrap it in Root.tsx
+    if '<Composition' in prepared_script:
+        # User's component already includes Composition – register it directly
+        _write_index_ts(temp_dir, 'MyComponent', component_name)
     else:
-        prepared_script, component_name = _prepare_user_script(script_content)
-        component_file = os.path.join(src_dir, "MyComponent.tsx")
-        with open(component_file, 'w', encoding='utf-8') as f:
-            f.write(prepared_script)
-
-        entry_content = _build_entry_content(component_name, render_settings)
-        entry_content = entry_content.replace(
-            "import { MyComponent } from './MyComponent';",
-            f"import {{ {component_name} as MyComponent }} from './MyComponent';"
-        ) if component_name != "MyComponent" else entry_content
-
-        entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
-        with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(entry_content)
+        # Simple component – wrap in Root.tsx
+        _write_root_tsx(temp_dir, component_name, render_settings)
+        _write_index_ts(temp_dir, 'Root', 'Root')
 
     for pkg_file in ["package.json", "package-lock.json"]:
         src = os.path.join(TOOLS_REMOTION, pkg_file)
@@ -258,7 +441,6 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
         json.dump(tsconfig_content, f, indent=2)
 
     # Copy node_modules from tools/remotion (fast reuse)
-    # If native binaries fail, they'll be reinstalled on error
     src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
     dst_node_modules = os.path.join(temp_dir, "node_modules")
     if os.path.exists(src_node_modules):
@@ -278,6 +460,9 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
     """Setup preview directory - sekarang persistent, tidak dihapus setiap ganti script."""
     global _preview_dir_initialized, _preview_dir_path
 
+    # Sanitize script content first
+    script_content = sanitize_script_content(script_content)
+
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
     src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
@@ -293,7 +478,7 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
     if os.path.exists(preview_dir):
         shutil.rmtree(preview_dir, ignore_errors=True)
 
-    render_settings = {'width': 1280, 'height': 720, 'fps': 30, 'duration': 10}
+    render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
     orig_name = REMOTION_TEMP_DIR_NAME
     import types
     import helpers.remotion_helper.remotion_helper as _self_mod
@@ -309,7 +494,7 @@ def setup_preview_dir(script_content: str) -> Tuple[str, str]:
 
 
 def _update_preview_script(script_content: str) -> str:
-    """Update script content tanpa recreate directory."""
+    """Update script content without recreating directory."""
     global _preview_dir_path
 
     if not _preview_dir_path:
@@ -318,40 +503,33 @@ def _update_preview_script(script_content: str) -> str:
     src_dir = os.path.join(_preview_dir_path, REMOTION_SRC_DIR)
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
 
-    # Prepare script seperti biasa
-    if _script_has_register_root(script_content):
-        guarded = _wrap_register_root_guard(script_content)
-        with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(guarded)
-    elif _script_has_composition(script_content):
-        if 'registerRoot' not in script_content:
-            root_name = _detect_component_name(script_content)
-            if not root_name:
-                root_name = "Root"
-            wrapped = script_content
-            if "import { registerRoot" not in wrapped and "import {registerRoot" not in wrapped:
-                wrapped = "import { registerRoot } from 'remotion';\n" + wrapped
-            wrapped = wrapped + f"\n\nif (!globalThis.__remotionRootRegistered) {{ registerRoot({root_name}, {{ id: '{COMPOSITION_ID}' }}); globalThis.__remotionRootRegistered = true; }}\n"
-            with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(wrapped)
-        else:
-            guarded = _wrap_register_root_guard(script_content)
-            with open(entry_file, 'w', encoding='utf-8') as f:
-                f.write(guarded)
+    # Sanitize script content first
+    script_content = sanitize_script_content(script_content)
+
+    # Prepare user component
+    prepared_script, component_name = _prepare_user_script(script_content)
+    component_file = os.path.join(src_dir, "MyComponent.tsx")
+    with open(component_file, 'w', encoding='utf-8') as f:
+        f.write(prepared_script)
+
+    # Use default render settings for preview
+    render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
+
+    # Conditional wrapper generation
+    if '<Composition' in prepared_script:
+        # Already has Composition – register MyComponent directly
+        _write_index_ts(_preview_dir_path, 'MyComponent', component_name)
+        # Remove old Root.tsx if present
+        root_path = os.path.join(src_dir, "Root.tsx")
+        if os.path.exists(root_path):
+            try:
+                os.remove(root_path)
+            except Exception:
+                pass
     else:
-        prepared_script, component_name = _prepare_user_script(script_content)
-        component_file = os.path.join(src_dir, "MyComponent.tsx")
-        with open(component_file, 'w', encoding='utf-8') as f:
-            f.write(prepared_script)
-
-        entry_content = _build_entry_content(component_name, {'width': 1280, 'height': 720, 'fps': 30, 'duration': 10})
-        entry_content = entry_content.replace(
-            "import { MyComponent } from './MyComponent';",
-            f"import {{ {component_name} as MyComponent }} from './MyComponent';"
-        ) if component_name != "MyComponent" else entry_content
-
-        with open(entry_file, 'w', encoding='utf-8') as f:
-            f.write(entry_content)
+        # Simple component – wrap in Root.tsx
+        _write_root_tsx(_preview_dir_path, component_name, render_settings)
+        _write_index_ts(_preview_dir_path, 'Root', 'Root')
 
     print(f'[Remotion] Script updated at {entry_file}')
     return entry_file
@@ -606,9 +784,8 @@ def render_video(
 
         entry_relative = os.path.relpath(entry_file, temp_dir).replace("\\", "/")
 
-        composition_id = _detect_composition_id(script_content)
-        if not _script_has_register_root(script_content) and not _script_has_composition(script_content):
-            composition_id = COMPOSITION_ID
+        # After sanitization, all compositions are normalized to use "main"
+        composition_id = COMPOSITION_ID
 
         args = _build_render_args(entry_relative, composition_id, output_path, render_settings)
         print(f"[Remotion] Render args: {args}")
