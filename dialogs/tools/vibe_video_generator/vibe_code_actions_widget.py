@@ -588,6 +588,7 @@ class CodeActionsWidget(QWidget):
         self.duration_seconds_spin.blockSignals(False)
 
     def _on_render_settings_changed(self):
+        self._populate_preset_combo()
         self._sync_preset_combo()
 
     def _populate_preset_combo(self):

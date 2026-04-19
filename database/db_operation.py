@@ -1397,11 +1397,11 @@ class ImageTeaDB:
             c = conn.cursor()
             if parent_collection_id is None:
                 c.execute(
-                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id IS NULL ORDER BY name COLLATE NOCASE'
+                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id IS NULL ORDER BY created_at DESC'
                 )
             else:
                 c.execute(
-                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id = ? ORDER BY name COLLATE NOCASE',
+                    'SELECT id, name, description, parent_collection_id, icon, color, created_at, updated_at FROM remotion_collections WHERE parent_collection_id = ? ORDER BY created_at DESC',
                     (parent_collection_id,)
                 )
             return [{
@@ -1604,14 +1604,14 @@ class ImageTeaDB:
                 c.execute(
                     '''SELECT id, collection_id, name, description, script_content, version, tags,
                               is_active, author, created_at, updated_at, last_used_at
-                       FROM remotion_scripts WHERE collection_id = ? AND is_active = 1 ORDER BY name COLLATE NOCASE''',
+                       FROM remotion_scripts WHERE collection_id = ? AND is_active = 1 ORDER BY created_at ASC''',
                     (collection_id,)
                 )
             else:
                 c.execute(
                     '''SELECT id, collection_id, name, description, script_content, version, tags,
                               is_active, author, created_at, updated_at, last_used_at
-                       FROM remotion_scripts WHERE collection_id = ? ORDER BY name COLLATE NOCASE''',
+                       FROM remotion_scripts WHERE collection_id = ? ORDER BY created_at ASC''',
                     (collection_id,)
                 )
             return [self._map_script_row(row) for row in c.fetchall()]

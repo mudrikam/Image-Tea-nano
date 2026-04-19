@@ -10,6 +10,7 @@ import urllib.error
 import json
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar, QMessageBox
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
 import qtawesome as qta
@@ -51,13 +52,17 @@ def _kill_process_on_port(port: int) -> bool:
             )
             pids = set()
             for line in result.stdout.split('\n'):
-                if f':{port}' not in line:
-                    continue
                 parts = line.strip().split()
-                if len(parts) >= 5:
-                    pid = parts[-1]
-                    if pid.isdigit() and pid != '0':
-                        pids.add(pid)
+                if len(parts) < 5:
+                    continue
+                local_addr = parts[1]
+                if not local_addr.endswith(f':{port}'):
+                    continue
+                pid = parts[-1]
+                if pid.isdigit() and pid != '0':
+                    if int(pid) == os.getpid():
+                        continue
+                    pids.add(pid)
             for pid in pids:
                 subprocess.run(
                     ['taskkill', '/F', '/T', '/PID', pid],
@@ -323,6 +328,14 @@ class PreviewTabWidget(QWidget):
         self._retry_timer = None
         self._is_closing = False
         self._open_browser_after_start = False
+        self._fullscreen_prev_maximized = False
+        self._fullscreen_active = False
+        self._fullscreen_prev_visibility = None
+        self._fullscreen_prev_margins = None
+        self._fullscreen_prev_spacing = None
+        self._main_layout = None
+        self._toolbar_container = None
+        self._auto_controls_pending = False
         # Reload tracking (for compatibility, though HMR replaces manual reload)
         self._reload_request_id = 0
         self._reload_attempts = 0
@@ -332,26 +345,36 @@ class PreviewTabWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+        self._main_layout = layout
 
-        # Top toolbar with buttons only
-        toolbar = QHBoxLayout()
+        self._toolbar_container = QWidget()
+        toolbar_layout = QHBoxLayout(self._toolbar_container)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        toolbar_layout.setSpacing(4)
 
         self.toggle_server_btn = QPushButton('Start Server')
         self.toggle_server_btn.setIcon(qta.icon('fa6s.play'))
         self.toggle_server_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_server_btn.setEnabled(False)
         self.toggle_server_btn.clicked.connect(self._on_toggle_server)
-        toolbar.addWidget(self.toggle_server_btn)
+        toolbar_layout.addWidget(self.toggle_server_btn)
 
         self.open_browser_btn = QPushButton('Open in Browser')
         self.open_browser_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square'))
         self.open_browser_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_browser_btn.setEnabled(False)
         self.open_browser_btn.clicked.connect(self._on_open_browser)
-        toolbar.addWidget(self.open_browser_btn)
+        toolbar_layout.addWidget(self.open_browser_btn)
 
-        toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+        self.cancel_start_btn = QPushButton('Cancel Start')
+        self.cancel_start_btn.setIcon(qta.icon('fa6s.xmark'))
+        self.cancel_start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cancel_start_btn.setVisible(False)
+        self.cancel_start_btn.clicked.connect(self._on_cancel_starting)
+        toolbar_layout.addWidget(self.cancel_start_btn)
+
+        toolbar_layout.addStretch(1)
+        layout.addWidget(self._toolbar_container)
 
         # Progress bar for loading
         self.progress_bar = QProgressBar()
@@ -370,9 +393,15 @@ class PreviewTabWidget(QWidget):
         settings = self.webview.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         self.webview.setVisible(False)
         self.webview.loadFinished.connect(self._on_webview_load_finished)
+        self.webview.page().fullScreenRequested.connect(self._on_fullscreen_requested)
         layout.addWidget(self.webview, 1)
+
+        self._exit_fullscreen_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        self._exit_fullscreen_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._exit_fullscreen_shortcut.activated.connect(self._on_escape_pressed)
 
         # Status label below webview (script info, running status, errors)
         self.status_label = QLabel('No script loaded.')
@@ -407,6 +436,7 @@ class PreviewTabWidget(QWidget):
         self.status_label.setText(f'Script: {script_name}')
 
         if not name:
+            self._exit_embedded_fullscreen()
             self._selection_timer.stop()
             self._preview_request_id += 1
             # Abort any pending page load first
@@ -470,6 +500,7 @@ class PreviewTabWidget(QWidget):
     def _on_start_server(self, request_id=None, script_content=None):
         if self._server_starting or self._server_running:
             return
+        self._auto_controls_pending = True
         if request_id is None:
             request_id = self._preview_request_id
         if script_content is None:
@@ -502,6 +533,7 @@ class PreviewTabWidget(QWidget):
 
         self._server_starting = True
         self._server_running = True
+        self.cancel_start_btn.setVisible(True)
         self._server_port = self._find_free_port(3099)
         worker = RemotionStudioWorker(self._preview_dir, self._server_port, request_id=request_id)
         self._server_worker = worker
@@ -581,16 +613,81 @@ class PreviewTabWidget(QWidget):
                     script_name = self._pending_selected_script_name or 'Current script'
                     self.status_label.setText(f'Script: {script_name} - Ready')
                     print('[PreviewTab] Page loaded successfully')
+                    if self._auto_controls_pending:
+                        self._auto_controls_pending = False
+                        self._enter_embedded_fullscreen()
+                        self._send_auto_controls()
             else:
                 # Initial load failed; server might still be starting, ignore
                 print('[PreviewTab] Initial page load failed (will retry automatically)')
         except Exception as e:
             print(f'[PreviewTab] Error in loadFinished: {e}')
 
+    def _send_auto_controls(self):
+        self.webview.setFocus()
+        script = (
+            "(() => {"
+            "const fire = (key, code) => {"
+            "const evt = new KeyboardEvent('keydown', { key, code, keyCode: 32, which: 32, bubbles: true });"
+            "document.dispatchEvent(evt); window.dispatchEvent(evt);" 
+            "};"
+            "setTimeout(() => { fire(' ', 'Space'); }, 250);"
+            "})();"
+        )
+        self.webview.page().runJavaScript(script)
+
+    def _on_fullscreen_requested(self, request):
+        request.accept()
+        if request.toggleOn():
+            self._enter_embedded_fullscreen()
+        else:
+            self._exit_embedded_fullscreen()
+
+    def _on_escape_pressed(self):
+        if not self._fullscreen_active:
+            return
+        self.webview.page().runJavaScript('if (document.fullscreenElement) { document.exitFullscreen(); }')
+        self._exit_embedded_fullscreen()
+
+    def _enter_embedded_fullscreen(self):
+        if self._fullscreen_active:
+            return
+        self._fullscreen_active = True
+        self._fullscreen_prev_visibility = {
+            'toolbar': self._toolbar_container.isVisible(),
+            'status': self.status_label.isVisible(),
+            'progress': self.progress_bar.isVisible(),
+            'placeholder': self.placeholder.isVisible(),
+        }
+        margins = self._main_layout.contentsMargins() if self._main_layout else None
+        if margins:
+            self._fullscreen_prev_margins = (margins.left(), margins.top(), margins.right(), margins.bottom())
+        self._fullscreen_prev_spacing = self._main_layout.spacing() if self._main_layout else None
+        self.status_label.setVisible(False)
+        self.progress_bar.setVisible(False)
+        self.placeholder.setVisible(False)
+        if self._main_layout:
+            self._main_layout.setContentsMargins(0, 0, 0, 0)
+            self._main_layout.setSpacing(0)
+
+    def _exit_embedded_fullscreen(self):
+        if not self._fullscreen_active:
+            return
+        self._fullscreen_active = False
+        if self._fullscreen_prev_visibility:
+            self._toolbar_container.setVisible(self._fullscreen_prev_visibility['toolbar'])
+            self.status_label.setVisible(self._fullscreen_prev_visibility['status'])
+            self.progress_bar.setVisible(self._fullscreen_prev_visibility['progress'])
+            self.placeholder.setVisible(self._fullscreen_prev_visibility['placeholder'])
+        if self._main_layout and self._fullscreen_prev_margins:
+            left, top, right, bottom = self._fullscreen_prev_margins
+            self._main_layout.setContentsMargins(left, top, right, bottom)
+        if self._main_layout and self._fullscreen_prev_spacing is not None:
+            self._main_layout.setSpacing(self._fullscreen_prev_spacing)
+
     def _on_status_update(self, message):
         worker = self.sender()
-        worker_request_id = getattr(worker, '_request_id', None)
-        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
+        if worker is not self._server_worker:
             return
         self.placeholder.setText(message)
 
@@ -598,12 +695,12 @@ class PreviewTabWidget(QWidget):
         if self._is_closing:
             return
         worker = self.sender()
-        worker_request_id = getattr(worker, '_request_id', None)
-        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
+        if worker is not self._server_worker:
             return
         url = f'http://127.0.0.1:{port}'
         print(f'[Remotion Studio] Ready at {url}')
         self._server_starting = False
+        self.cancel_start_btn.setVisible(False)
         self._server_retry_count = 0
         if self._retry_timer:
             self._retry_timer.stop()
@@ -626,10 +723,10 @@ class PreviewTabWidget(QWidget):
         if self._is_closing:
             return
         worker = self.sender()
-        worker_request_id = getattr(worker, '_request_id', None)
-        if worker is not self._server_worker or worker_request_id != self._preview_request_id:
+        if worker is not self._server_worker:
             return
         self._server_starting = False
+        self.cancel_start_btn.setVisible(False)
         if self._server_retry_count < 3:
             self._server_retry_count += 1
             print(f'[PreviewTab] Studio failed ({error}), retrying ({self._server_retry_count}/3)...')
@@ -665,12 +762,18 @@ class PreviewTabWidget(QWidget):
 
     def _on_stop_preview(self):
         self._server_running = False
+        self._exit_embedded_fullscreen()
         self._stop_server()
         self._reset_ui('Remotion Studio stopped.')
 
     def _on_toggle_server(self):
         """Toggle server based on current state."""
         if self._server_running or self._server_starting:
+            self._exit_embedded_fullscreen()
+            self.webview.stop()
+            self.webview.setUrl(QUrl('about:blank'))
+            self.webview.setVisible(False)
+            self.placeholder.setVisible(True)
             self._stop_server(force_cleanup=True)
             self._reset_ui('Remotion Studio stopped.')
             self._process_pending_script_selection()
@@ -700,8 +803,22 @@ class PreviewTabWidget(QWidget):
         # Start the server (same as Start Server button)
         self._on_start_server()
 
+    def _on_cancel_starting(self):
+        if not self._server_starting:
+            return
+        self._auto_controls_pending = False
+        self._exit_embedded_fullscreen()
+        self._stop_server(force_cleanup=True, wait_ms=4000)
+        self._reset_ui('Remotion Studio start cancelled.')
+        self._process_pending_script_selection()
+
     def _on_stop_server(self):
         """Stop the Remotion Studio server."""
+        self._exit_embedded_fullscreen()
+        self.webview.stop()
+        self.webview.setUrl(QUrl('about:blank'))
+        self.webview.setVisible(False)
+        self.placeholder.setVisible(True)
         self._stop_server(force_cleanup=True)
         self._reset_ui('Remotion Studio stopped.')
         # Re-evaluate UI state immediately
@@ -709,12 +826,13 @@ class PreviewTabWidget(QWidget):
 
 
 
-    def _stop_server(self, force_cleanup=False):
+    def _stop_server(self, force_cleanup=False, wait_ms=70000):
         self._reload_request_id = 0  # Clear any pending reload
         self._reload_attempts = 0
         self._server_running = False
         self._server_starting = False
         self._server_retry_count = 0  # reset retry counter
+        self.cancel_start_btn.setVisible(False)
         if self._retry_timer:
             self._retry_timer.stop()
             self._retry_timer = None
@@ -728,8 +846,8 @@ class PreviewTabWidget(QWidget):
             except RuntimeError:
                 pass
             worker.stop()
-            # Wait up to 70 seconds for graceful exit (covers server startup wait)
-            if not worker.wait(70000):
+            # Wait for graceful exit (covers server startup wait)
+            if not worker.wait(wait_ms):
                 if worker.isRunning():
                     print("[Preview] Server worker did not stop in time, terminating.")
                     worker.terminate()
@@ -744,6 +862,7 @@ class PreviewTabWidget(QWidget):
         self._reload_request_id = 0  # Clear any pending reload tracking
         self._reload_attempts = 0
         self._open_browser_after_start = False  # Clear pending open-browser request
+        self.cancel_start_btn.setVisible(False)
         self.open_browser_btn.setEnabled(False)
         self._update_toggle_server_button()
         self.progress_bar.setVisible(False)

@@ -1,8 +1,9 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
                                QTreeWidgetItem, QTreeWidgetItemIterator, QMessageBox,
                                QMenu, QLineEdit, QFileDialog, QProgressDialog,
-                               QDialog, QRadioButton, QLabel, QPushButton)
-from PySide6.QtCore import Qt, Signal, QTimer
+                               QDialog, QRadioButton, QLabel, QPushButton, QHeaderView,
+                               QSizePolicy)
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QColor, QBrush
 import qtawesome as qta
 from ui.theme_system import theme
@@ -13,6 +14,7 @@ from dialogs.tools.vibe_video_generator.vibe_video_output_tab import sanitize_fi
 import os
 import tempfile
 import zipfile
+from datetime import datetime
 
 # --- ZIP import support classes ---
 class _ZipCollectionNode:
@@ -137,7 +139,6 @@ class ImportResultDialog(QDialog):
 
 # --- End of import support classes ---
 
-
 class CollectionsWidget(QWidget):
     collection_selected = Signal(object)
     collection_created = Signal()
@@ -149,7 +150,7 @@ class CollectionsWidget(QWidget):
         super().__init__(parent)
         self.db = parent.db if parent else None
         self.current_collection = None
-        self._last_highlighted_item = None  # Track only the currently highlighted item
+        self._last_highlighted_item_id = None  # Track highlighted script ID only
         self._setup_ui()
         self.load_collections()
 
@@ -184,163 +185,189 @@ class CollectionsWidget(QWidget):
 
         layout.addLayout(top_bar)
 
-        self.collections_tree = QTreeWidget()
-        self.collections_tree.setHeaderLabel('Collections')
-        self.collections_tree.header().hide()
-        self.collections_tree.setSelectionMode(QTreeWidget.SingleSelection)
-        self.collections_tree.setExpandsOnDoubleClick(False)
-        self.collections_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.collections_tree.customContextMenuRequested.connect(self._show_context_menu)
-        self.collections_tree.itemSelectionChanged.connect(self._on_selection_changed)
-        self.collections_tree.itemClicked.connect(self._on_item_clicked)
+        self.stats_label = QLabel('Collections: 0 | Scripts: 0')
+        self.stats_label.setStyleSheet(f'color: {theme.get_color("text_dark")}; padding: 2px 2px; font-size: 11px;')
+        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.stats_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.stats_label.setMinimumHeight(16)
+        stats_bar = QHBoxLayout()
+        stats_bar.setContentsMargins(0, 0, 0, 0)
+        stats_bar.addWidget(self.stats_label)
+        stats_bar.addStretch(1)
+        layout.addLayout(stats_bar)
+
+        self.collections_tree = self._create_tree_widget()
         layout.addWidget(self.collections_tree)
 
-    def load_collections(self):
-        if not self.db:
-            return
-        current_id = self.current_collection['id'] if self.current_collection else None
+    def _create_tree_widget(self):
+        """Create a fresh QTreeWidget with all settings and signals connected."""
+        tree = QTreeWidget()
+        tree.setColumnCount(2)
+        tree.setHeaderLabels(['Name', 'Created'])
+        tree.header().hide()
+        tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        tree.setExpandsOnDoubleClick(False)
+        tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        tree.customContextMenuRequested.connect(self._show_context_menu)
+        tree.itemSelectionChanged.connect(self._on_selection_changed)
+        tree.itemClicked.connect(self._on_item_clicked)
+        # Column sizing: name stretches, created fits contents
+        tree.header().setStretchLastSection(False)
+        tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        return tree
 
-        # Save selected script ID if a script is selected
-        selected_script_id = None
+    def _save_tree_state(self):
+        """Capture current UI state as primitive values (no QTreeWidgetItem references)."""
+        state = {
+            'selected_id': None,
+            'selected_type': None,
+            'expanded_ids': set(),
+            'scroll_value': 0,
+            'highlighted_id': self._last_highlighted_item_id
+        }
+
         selected = self.collections_tree.selectedItems()
         if selected:
             data = selected[0].data(0, Qt.UserRole)
-            if data and data.get('type') == 'script':
-                selected_script_id = data.get('id')
+            if data:
+                state['selected_id'] = data.get('id')
+                state['selected_type'] = data.get('type')
 
-        # Save expanded state
-        expanded_ids = set()
         iterator = QTreeWidgetItemIterator(self.collections_tree)
         while iterator.value():
             item = iterator.value()
-            if item.isExpanded():
-                data = item.data(0, Qt.UserRole)
-                if data and data.get('id'):
-                    expanded_ids.add(data['id'])
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('type') == 'collection' and item.isExpanded():
+                state['expanded_ids'].add(data.get('id'))
             iterator += 1
 
-        self.collections_tree.blockSignals(True)
-        try:
-            # Clear any render highlight reference before tree clear to avoid dangling pointer
-            self._last_highlighted_item = None
-            self.collections_tree.clear()
-            tree = self.db.get_remotion_collection_tree()
-            for col in tree:
-                self._add_tree_item(col, None)
+        scrollbar = self.collections_tree.verticalScrollBar()
+        if scrollbar:
+            state['scroll_value'] = scrollbar.value()
 
-            self._apply_filter(self.search_input.text(), preserve_selection=False)
+        return state
 
-            # Restore expanded state
-            iterator = QTreeWidgetItemIterator(self.collections_tree)
-            while iterator.value():
-                item = iterator.value()
-                data = item.data(0, Qt.UserRole)
-                if data and data.get('id') in expanded_ids:
-                    item.setExpanded(True)
-                iterator += 1
-
-            # Restore selection and emit signal
-            if selected_script_id:
-                self._select_script_by_id(selected_script_id)
-            elif current_id:
-                self._select_by_id(current_id)
-            else:
-                # No previous selection - select first root collection if any
-                first_root = self.collections_tree.topLevelItem(0)
-                if first_root:
-                    self.collections_tree.setCurrentItem(first_root)
-                    data = first_root.data(0, Qt.UserRole)
-                    if data:
+    def _select_item_by_id(self, item_id, item_type=None):
+        """Find item by ID in current tree and select it. Only selects if visible (not hidden)."""
+        iterator = QTreeWidgetItemIterator(self.collections_tree)
+        while iterator.value():
+            item = iterator.value()
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('id') == item_id:
+                if item_type is None or data.get('type') == item_type:
+                    if not item.isHidden():
+                        self.collections_tree.setCurrentItem(item)
                         self.current_collection = data
-                        self.collection_selected.emit(data)
-        finally:
-            self.collections_tree.blockSignals(False)
+                        if data.get('type') == 'collection':
+                            item.setExpanded(True)
+                        return True
+            iterator += 1
+        return False
 
-    def _select_by_id(self, collection_id):
+    def _expand_item_by_id(self, item_id):
+        """Find collection by ID and expand it."""
         iterator = QTreeWidgetItemIterator(self.collections_tree)
         while iterator.value():
             item = iterator.value()
             data = item.data(0, Qt.UserRole)
-            if data and data.get('id') == collection_id and not item.isHidden():
-                self.collections_tree.setCurrentItem(item)
-                self.current_collection = data
+            if data and data.get('id') == item_id and data.get('type') == 'collection':
                 item.setExpanded(True)
-                return
+                break
             iterator += 1
 
-    def _select_script_by_id(self, script_id):
-        iterator = QTreeWidgetItemIterator(self.collections_tree)
-        while iterator.value():
-            item = iterator.value()
-            data = item.data(0, Qt.UserRole)
-            if data and data.get('type') == 'script' and data.get('id') == script_id and not item.isHidden():
-                self.collections_tree.setCurrentItem(item)
-                self.current_collection = data
-                parent = item.parent()
-                while parent:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-                return
-            iterator += 1
+    def load_collections(self, auto_select_if_none=True):
+        """
+        Public method to safely rebuild the collections tree.
+        Replaces the old load_collections with atomic widget replacement (no clear()).
+        External callers use this with no arguments.
+        """
+        # 1. Save state
+        state = self._save_tree_state()
 
-    def _item_matches_search(self, item, search_text):
-        if not search_text:
-            return True
-        data = item.data(0, Qt.UserRole) or {}
-        haystacks = [
-            item.text(0),
-            data.get('name', ''),
-            data.get('description', ''),
-            data.get('tags', ''),
-            data.get('script_content', '') if data.get('type') == 'script' else ''
-        ]
-        search_lower = search_text.lower()
-        return any(search_lower in str(value).lower() for value in haystacks if value)
-
-    def _filter_tree_item(self, item, search_text):
-        child_match = False
-        for index in range(item.childCount()):
-            child = item.child(index)
-            if self._filter_tree_item(child, search_text):
-                child_match = True
-
-        direct_match = self._item_matches_search(item, search_text)
-        visible = direct_match or child_match
-        item.setHidden(not visible)
-        if search_text and child_match:
-            item.setExpanded(True)
-        return visible
-
-    def _apply_filter(self, text, preserve_selection=True):
-        selected_script_id = None
-        selected_items = self.collections_tree.selectedItems()
-        if preserve_selection and selected_items:
-            selected_data = selected_items[0].data(0, Qt.UserRole)
-            if selected_data and selected_data.get('type') == 'script':
-                selected_script_id = selected_data.get('id')
-
-        search_text = (text or '').strip()
-        # Preserve previous block state to support nested calls
-        was_blocked = self.collections_tree.signalsBlocked()
-        if not was_blocked:
-            self.collections_tree.blockSignals(True)
+        # 2. Disconnect signals from old widget and destroy it
+        old_tree = self.collections_tree
         try:
-            for index in range(self.collections_tree.topLevelItemCount()):
-                self._filter_tree_item(self.collections_tree.topLevelItem(index), search_text)
-        finally:
-            if not was_blocked:
-                self.collections_tree.blockSignals(False)
+            old_tree.itemSelectionChanged.disconnect(self._on_selection_changed)
+            old_tree.itemClicked.disconnect(self._on_item_clicked)
+            old_tree.customContextMenuRequested.disconnect(self._show_context_menu)
+        except Exception:
+            pass
+        # Remove from layout and schedule deletion
+        self.layout().removeWidget(old_tree)
+        old_tree.setParent(None)
+        old_tree.deleteLater()
 
-        current_item = self.collections_tree.currentItem()
-        if current_item and current_item.isHidden():
-            self.collections_tree.setCurrentItem(None)
-            self.current_collection = None
-            self.collection_selected.emit(None)
+        # 3. Create fresh QTreeWidget
+        new_tree = self._create_tree_widget()
 
-        if preserve_selection and selected_script_id:
-            self._select_script_by_id(selected_script_id)
+        # 4. Replace reference and add to layout
+        self.collections_tree = new_tree
+        self.layout().addWidget(new_tree)
 
-    def _add_tree_item(self, collection, parent_item):
+        # 5. Fetch fresh data
+        tree_data = self.db.get_remotion_collection_tree() if self.db else []
+
+        self._update_stats_label(tree_data)
+
+        # 6. Populate tree
+        for collection in tree_data:
+            self._add_tree_item(collection, None, state['expanded_ids'])
+
+        # Adjust date column width to contents
+        new_tree.resizeColumnToContents(1)
+
+        # 7. Apply filter
+        search_text = self.search_input.text() if hasattr(self, 'search_input') else ''
+        self._apply_filter(search_text, preserve_selection=False)
+
+        # 8. Restore selection
+        if state['selected_id'] is not None:
+            self._select_item_by_id(state['selected_id'], state['selected_type'])
+        elif auto_select_if_none:
+            first_root = self.collections_tree.topLevelItem(0)
+            if first_root:
+                self.collections_tree.setCurrentItem(first_root)
+                data = first_root.data(0, Qt.UserRole)
+                if data:
+                    self.current_collection = data
+                    self.collection_selected.emit(data)
+
+        # 9. Restore scroll
+        if state['scroll_value']:
+            new_tree.verticalScrollBar().setValue(state['scroll_value'])
+
+        # 10. Restore highlight
+        if state['highlighted_id'] is not None:
+            self.highlight_rendering_script(state['highlighted_id'])
+
+    def _update_stats_label(self, tree_data):
+        total_collections = 0
+        total_scripts = 0
+        stack = list(tree_data)
+        while stack:
+            node = stack.pop()
+            total_collections += 1
+            total_scripts += node['script_count']
+            children = node['children']
+            if children:
+                stack.extend(children)
+        self.stats_label.setText(f'Collections: {total_collections} | Scripts: {total_scripts}')
+
+    def _format_timestamp(self, timestamp_str):
+        """Format a DB timestamp string into a compact date display."""
+        if not timestamp_str:
+            return ''
+        try:
+            # DB format: "YYYY-MM-DD HH:MM:SS"
+            dt = datetime.strptime(timestamp_str[:19], '%Y-%m-%d %H:%M:%S')
+            return dt.strftime('%Y-%m-%d')
+        except Exception:
+            return timestamp_str[:10]
+
+    def _add_tree_item(self, collection, parent_item, expanded_ids):
+        """Recursively build tree items from collection dict. expanded_ids controls initial expansion."""
+        # Icon and color
         icon_name = collection.get('icon', 'folder')
         color = collection.get('color') or 'gray'
         if '.' not in icon_name:
@@ -353,6 +380,15 @@ class CollectionsWidget(QWidget):
             icon = qta.icon('fa6s.folder', color=color)
 
         name = collection.get('name', 'Unnamed')
+        collection_id = collection.get('id')
+        created_at = self._format_timestamp(collection.get('created_at'))
+
+        # Build display labels
+        n_scripts = collection.get('script_count', 0)
+        n_collections = len(collection.get('children', []))
+        script_label = "1 Script" if n_scripts == 1 else f"{n_scripts} Scripts"
+        coll_label = "1 Collection" if n_collections == 1 else f"{n_collections} Collections"
+        main_label = f"{name} | {script_label} | {coll_label}"
 
         if parent_item is None:
             item = QTreeWidgetItem(self.collections_tree)
@@ -362,27 +398,38 @@ class CollectionsWidget(QWidget):
         item.setIcon(0, icon)
         item.setData(0, Qt.UserRole, {'type': 'collection', **collection})
         item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        item.setText(0, main_label)
+        if created_at:
+            item.setText(1, created_at)
+            item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+            gray_color = QColor(theme.get_color('text_dark'))
+            item.setForeground(1, QBrush(gray_color))
 
+        # Set expanded state
+        if collection_id in expanded_ids:
+            item.setExpanded(True)
+
+        # Recursively add children
         for child in collection.get('children', []):
-            self._add_tree_item(child, item)
+            self._add_tree_item(child, item, expanded_ids)
 
-        scripts = []
-        collection_id = collection.get('id')
+        # Add scripts
         if collection_id and self.db:
             scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
             for idx, script in enumerate(scripts, 1):
-                script_icon = qta.icon('fa6s.file-code', color=theme.get_color('primary'))
                 script_item = QTreeWidgetItem(item)
+                script_icon = qta.icon('fa6s.file-code', color=theme.get_color('primary'))
                 script_item.setIcon(0, script_icon)
-                script_item.setText(0, f"{idx}. {script.get('name', 'Unnamed')}")
+                script_name = script.get('name', 'Unnamed')
+                script_created = self._format_timestamp(script.get('created_at'))
+                script_item.setText(0, f"{idx}. {script_name}")
+                if script_created:
+                    script_item.setText(1, script_created)
+                    script_item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+                    gray_color = QColor(theme.get_color('text_dark'))
+                    script_item.setForeground(1, QBrush(gray_color))
                 script_item.setData(0, Qt.UserRole, {'type': 'script', **script})
                 script_item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
-
-        n_scripts = len(scripts)
-        n_collections = len(collection.get('children', []))
-        script_label = "1 Script" if n_scripts == 1 else f"{n_scripts} Scripts"
-        coll_label = "1 Collection" if n_collections == 1 else f"{n_collections} Collections"
-        item.setText(0, f"{name} | {script_label} | {coll_label}")
 
     def _on_item_clicked(self, item, column):
         data = item.data(0, Qt.UserRole)
@@ -507,146 +554,104 @@ class CollectionsWidget(QWidget):
                                service=creds['service'], model=creds['model'])
         dlg.script_updated.connect(self._on_script_edited)
         if dlg.exec():
-            self.collection_updated.emit()
+            pass  # _on_script_edited will be called
 
-    def _on_script_edited(self, script_data):
-        self.load_collections()
-        self.collection_selected.emit(script_data)
-
-    def _on_save_script_as_tsx(self, script_data):
-        if not self.db:
-            return
-        script_id = script_data.get('id')
-        script_name = script_data.get('name', 'script')
-        script = self.db.get_remotion_script(script_id)
-        if not script:
-            QMessageBox.warning(self, 'Error', 'Could not load script content.')
-            return
-
-        content = script.get('script_content', '')
-        if not content:
-            QMessageBox.warning(self, 'Error', 'Script content is empty.')
-            return
-
-        # Ensure .tsx extension
-        if not script_name.endswith('.tsx'):
-            default_name = f'{script_name}.tsx'
-        else:
-            default_name = script_name
-
-        from PySide6.QtWidgets import QFileDialog
-        import os
-
-        home_dir = os.path.expanduser('~')
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            'Save Script as TSX',
-            os.path.join(home_dir, default_name),
-            'TypeScript React Files (*.tsx);;All Files (*)'
-        )
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            QMessageBox.information(self, 'Success', f'Script saved to:\n{file_path}')
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', f'Failed to save file:\n{str(e)}')
-
-    def _on_rename_script(self, script_data):
-        if not self.db:
-            return
-        script_id = script_data.get('id')
-        old_name = script_data.get('name', '')
-        from PySide6.QtWidgets import QInputDialog
-        new_name, ok = QInputDialog.getText(self, 'Rename Script', 'Enter new name:', text=old_name)
-        if ok and new_name.strip():
-            self.db.update_remotion_script(script_id, name=new_name.strip())
-            script_data = self.db.get_remotion_script(script_id)
-            self.load_collections()
-            self.collection_selected.emit(script_data)
-
-    def _on_delete_script(self, script_data):
-        if not self.db:
-            return
-        script_id = script_data.get('id')
-        script_name = script_data.get('name', '')
-
+    def _on_delete(self):
         selected = self.collections_tree.selectedItems()
         if not selected:
-            QMessageBox.information(self, 'No Selection', 'Please select a script to delete.')
-            return
-        item = selected[0]
-        data = item.data(0, Qt.UserRole)
-        if not data or data.get('type') != 'script' or data.get('id') != script_id:
-            QMessageBox.warning(self, 'Error', 'Selected item is not the expected script.')
+            QMessageBox.information(self, 'No Selection', 'Please select a collection to delete.')
             return
 
-        reply = QMessageBox.question(self, 'Confirm Delete', f'Delete script "{script_name}"?',
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        selected_set = {id(item) for item in selected}
+        collection_items = []
+        for item in selected:
+            data = item.data(0, Qt.UserRole)
+            if not data or data['type'] != 'collection':
+                continue
+            parent = item.parent()
+            skip = False
+            while parent:
+                if id(parent) in selected_set:
+                    skip = True
+                    break
+                parent = parent.parent()
+            if not skip:
+                collection_items.append(item)
+
+        if not collection_items:
+            QMessageBox.information(self, 'No Selection', 'Please select a collection to delete.')
+            return
+
+        if len(collection_items) == 1:
+            item = collection_items[0]
+            data = item.data(0, Qt.UserRole)
+            collection_id = data['id']
+            collection_name = data.get('name', '')
+            # Release references
+            del item
+            selected = None
+
+            preview = self.db.get_remotion_collection_delete_preview(collection_id)
+            sub_collections = preview['collections']
+            scripts = preview['scripts']
+
+            dlg = DeleteConfirmationDialog(self, collection_name=collection_name,
+                                           sub_collections=sub_collections, scripts=scripts)
+            if dlg.exec() != QDialog.Accepted:
+                return
+
+            print("[DEBUG] Deleting collection from DB...")
+            self.db.delete_remotion_collection(collection_id)
+            print("[DEBUG] DB delete succeeded")
+
+            self._clear_last_highlight()
+            self.current_collection = None
+            print("[DEBUG] Render highlight cleared")
+
+            self.load_collections(auto_select_if_none=False)
+            self.collection_deleted.emit()
+            return
+
+        names = [item.data(0, Qt.UserRole)['name'] for item in collection_items]
+        display_names = names[:5]
+        extra_count = len(names) - len(display_names)
+        if extra_count > 0:
+            display_names.append(f"and {extra_count} more")
+        reply = QMessageBox.question(
+            self,
+            'Confirm Delete',
+            'Delete the selected collections?\n\n' + '\n'.join(display_names),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Block signals to prevent selection changes from triggering preview resets
-        self.collections_tree.blockSignals(True)
-        try:
-            try:
-                print("[DEBUG] Deleting script from DB...")
-                self.db.delete_remotion_script(script_id)
-                print("[DEBUG] Script DB delete succeeded")
-            except Exception as e:
-                QMessageBox.critical(self, 'Delete Failed',
-                                     f'Could not delete script:\n\n{type(e).__name__}: {e}')
-                return
+        print("[DEBUG] Deleting collections from DB...")
+        for item in collection_items:
+            data = item.data(0, Qt.UserRole)
+            self.db.delete_remotion_collection(data['id'])
+        print("[DEBUG] DB delete succeeded")
 
-            self._clear_last_highlight()
-            print("[DEBUG] Render highlight cleared")
+        self._clear_last_highlight()
+        self.current_collection = None
+        print("[DEBUG] Render highlight cleared")
 
-            self.collections_tree.clearSelection()
-            self.current_collection = None
-            print("[DEBUG] Selection cleared")
+        self.load_collections(auto_select_if_none=False)
+        self.collection_deleted.emit()
 
-            parent_item = item.parent()
-            print("[DEBUG] Removing script item from tree...")
-            try:
-                if parent_item:
-                    idx = parent_item.indexOfChild(item)
-                    if idx >= 0:
-                        parent_item.takeChild(idx)
-                        print(f"[DEBUG] Removed script child at idx {idx}")
-                else:
-                    idx = self.collections_tree.indexOfTopLevelItem(item)
-                    if idx >= 0:
-                        self.collections_tree.takeTopLevelItem(idx)
-                        print(f"[DEBUG] Removed script top-level at idx {idx}")
-            except Exception as e:
-                print(f"[DEBUG] EXCEPTION removing script item: {e}")
-                import traceback; traceback.print_exc()
-
-            if parent_item:
-                try:
-                    parent_data = parent_item.data(0, Qt.UserRole)
-                    if parent_data:
-                        parent_id = parent_data.get('id')
-                        self._update_parent_counts(parent_item, parent_id)
-                except Exception as e:
-                    print(f"[DEBUG] EXCEPTION during parent count update: {e}")
-
-            try:
-                self._apply_filter(self.search_input.text(), preserve_selection=False)
-            except Exception as e:
-                print(f"[DEBUG] EXCEPTION during filter: {e}")
-
-            self.collection_updated.emit()
-            print("[DEBUG] Script deletion complete")
-        except Exception as e:
-            print(f"[DEBUG] UNCAUGHT in _on_delete_script: {e}")
-            import traceback; traceback.print_exc()
-            QMessageBox.critical(self, 'Delete Error', f'Failed to delete script:\n{type(e).__name__}: {e}')
-        finally:
-            self.collections_tree.blockSignals(False)
+    def _on_new_collection(self):
+        if not self.db:
+            return
+        dlg = NewCollectionDialog(self)
+        if dlg.exec():
+            self.db.add_remotion_collection(
+                name=dlg.collection_name,
+                description=dlg.collection_description,
+                icon=dlg.selected_icon,
+                color=dlg.selected_color
+            )
+            self.load_collections()
+            self.collection_created.emit()
 
     def _on_new_script(self, collection_data):
         if not self.db:
@@ -669,31 +674,23 @@ class CollectionsWidget(QWidget):
             QMessageBox.information(self, 'No Selection', 'Please select a collection first to create a script.')
             return
         item = selected[0]
-        data = item.data(0, Qt.UserRole)
-        if data and data.get('type') == 'collection':
-            self._on_new_script(data)
-        else:
-            # If a script is selected, use its parent collection
-            parent = item.parent()
-            if parent:
-                parent_data = parent.data(0, Qt.UserRole)
-                self._on_new_script(parent_data)
+        parent = None
+        try:
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('type') == 'collection':
+                target_data = data
             else:
-                QMessageBox.information(self, 'No Collection', 'Please select a collection to create a script.')
-
-    def _on_new_collection(self):
-        if not self.db:
-            return
-        dlg = NewCollectionDialog(self)
-        if dlg.exec():
-            self.db.add_remotion_collection(
-                name=dlg.collection_name,
-                description=dlg.collection_description,
-                icon=dlg.selected_icon,
-                color=dlg.selected_color
-            )
-            self.load_collections()
-            self.collection_created.emit()
+                parent = item.parent()
+                if parent:
+                    target_data = parent.data(0, Qt.UserRole)
+                else:
+                    QMessageBox.information(self, 'No Collection', 'Please select a collection to create a script.')
+                    return
+        finally:
+            del item
+            selected = None
+            del parent
+        self._on_new_script(target_data)
 
     def _on_new_subfolder(self):
         if not self.db:
@@ -705,6 +702,7 @@ class CollectionsWidget(QWidget):
         parent_data = selected[0].data(0, Qt.UserRole)
         parent_id = parent_data['id']
         parent_name = parent_data.get('name', 'Unknown')
+        selected = None
 
         dlg = NewCollectionDialog(self, parent_collection_id=parent_id, parent_collection_name=parent_name)
         if dlg.exec():
@@ -716,7 +714,7 @@ class CollectionsWidget(QWidget):
                 color=dlg.selected_color
             )
             self.load_collections()
-            self._expand_to_parent(parent_id)
+            self._expand_item_by_id(parent_id)
             self.collection_created.emit()
 
     def _on_rename(self):
@@ -728,6 +726,8 @@ class CollectionsWidget(QWidget):
         data = item.data(0, Qt.UserRole)
         collection_id = data['id']
         old_name = data.get('name', '')
+        del item
+        selected = None
 
         dlg = NewCollectionDialog(self, parent_collection_name=f'Renaming "{old_name}"')
         dlg.name_edit.setText(old_name)
@@ -752,105 +752,136 @@ class CollectionsWidget(QWidget):
             self.load_collections()
             self.collection_updated.emit()
 
-    def _on_delete(self):
+    def _on_save_script_as_tsx(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        script_name = script_data.get('name', 'script')
+        script = self.db.get_remotion_script(script_id)
+        if not script:
+            QMessageBox.warning(self, 'Error', 'Could not load script content.')
+            return
+
+        content = script.get('script_content', '')
+        if not content:
+            QMessageBox.warning(self, 'Error', 'Script content is empty.')
+            return
+
+        if not script_name.endswith('.tsx'):
+            default_name = f'{script_name}.tsx'
+        else:
+            default_name = script_name
+
+        from PySide6.QtWidgets import QFileDialog
+        import os
+
+        home_dir = os.path.expanduser('~')
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Save Script as TSX',
+            os.path.join(home_dir, default_name),
+            'TypeScript React Files (*.tsx);;All Files (*)'
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            QMessageBox.information(self, 'Success', f'Saved to:\n{file_path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', f'Failed to save file:\n{str(e)}')
+
+    def _on_rename_script(self, script_data):
+        if not self.db:
+            return
+        script_id = script_data.get('id')
+        old_name = script_data.get('name', '')
+        from PySide6.QtWidgets import QInputDialog
+        new_name, ok = QInputDialog.getText(self, 'Rename Script', 'Enter new name:', text=old_name)
+        if ok and new_name.strip():
+            self.db.update_remotion_script(script_id, name=new_name.strip())
+            self.load_collections()
+            script_data = self.db.get_remotion_script(script_id)
+            self.collection_selected.emit(script_data)
+
+    def _on_delete_script(self, script_data):
+        if not self.db:
+            return
         selected = self.collections_tree.selectedItems()
         if not selected:
-            QMessageBox.information(self, 'No Selection', 'Please select a collection to delete.')
-            return
-        item = selected[0]
-        data = item.data(0, Qt.UserRole)
-        collection_id = data['id']
-        collection_name = data.get('name', '')
-
-        preview = self.db.get_remotion_collection_delete_preview(collection_id)
-        sub_collections = preview['collections']
-        scripts = preview['scripts']
-
-        dlg = DeleteConfirmationDialog(self, collection_name=collection_name,
-                                       sub_collections=sub_collections, scripts=scripts)
-        if dlg.exec() != QDialog.Accepted:
+            QMessageBox.information(self, 'No Selection', 'Please select a script to delete.')
             return
 
-        # Block signals to prevent selection changes from triggering preview resets
-        self.collections_tree.blockSignals(True)
-        try:
-            print("[DEBUG] Deleting collection from DB...")
-            self.db.delete_remotion_collection(collection_id)
-            print("[DEBUG] DB delete succeeded")
+        script_items = []
+        for item in selected:
+            data = item.data(0, Qt.UserRole)
+            if data and data.get('type') == 'script':
+                script_items.append(item)
+
+        if not script_items:
+            QMessageBox.information(self, 'No Selection', 'Please select a script to delete.')
+            return
+
+        if len(script_items) == 1:
+            data = script_items[0].data(0, Qt.UserRole)
+            script_id = data['id']
+            script_name = data['name']
+
+            reply = QMessageBox.question(self, 'Confirm Delete', f'Delete script "{script_name}"?',
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            print("[DEBUG] Deleting script from DB...")
+            try:
+                self.db.delete_remotion_script(script_id)
+                print("[DEBUG] Script DB delete succeeded")
+            except Exception as e:
+                QMessageBox.critical(self, 'Delete Failed',
+                                     f'Could not delete script:\n\n{type(e).__name__}: {e}')
+                return
 
             self._clear_last_highlight()
+            self.current_collection = None
             print("[DEBUG] Render highlight cleared")
 
-            self.collections_tree.clearSelection()
-            self.current_collection = None
-            print("[DEBUG] Selection cleared")
+            self.load_collections(auto_select_if_none=False)
+            self.collection_updated.emit()
+            return
 
-            parent_item = item.parent()
-            print("[DEBUG] Removing item from tree...")
-            try:
-                if parent_item:
-                    idx = parent_item.indexOfChild(item)
-                    if idx >= 0:
-                        parent_item.takeChild(idx)
-                        print(f"[DEBUG] Took child at idx {idx}")
-                else:
-                    idx = self.collections_tree.indexOfTopLevelItem(item)
-                    if idx >= 0:
-                        self.collections_tree.takeTopLevelItem(idx)
-                        print(f"[DEBUG] Took top-level item at idx {idx}")
-            except Exception as e:
-                print(f"[DEBUG] EXCEPTION during item removal: {e}")
-                import traceback; traceback.print_exc()
+        names = [item.data(0, Qt.UserRole)['name'] for item in script_items]
+        display_names = names[:5]
+        extra_count = len(names) - len(display_names)
+        if extra_count > 0:
+            display_names.append(f"and {extra_count} more")
+        reply = QMessageBox.question(
+            self,
+            'Confirm Delete',
+            'Delete the selected scripts?\n\n' + '\n'.join(display_names),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-            if parent_item:
-                try:
-                    parent_data = parent_item.data(0, Qt.UserRole)
-                    if parent_data:
-                        parent_id = parent_data.get('id')
-                        self._update_parent_counts(parent_item, parent_id)
-                except Exception as e:
-                    print(f"[DEBUG] EXCEPTION during parent count update: {e}")
-
-            try:
-                self._apply_filter(self.search_input.text(), preserve_selection=False)
-            except Exception as e:
-                print(f"[DEBUG] EXCEPTION during filter: {e}")
-
-            self.collection_deleted.emit()
-            print("[DEBUG] Deletion complete")
-        except Exception as e:
-            print(f"[DEBUG] UNCAUGHT EXCEPTION in _on_delete: {e}")
-            import traceback; traceback.print_exc()
-            QMessageBox.critical(self, 'Delete Error', f'An unexpected error occurred:\n{type(e).__name__}: {e}')
-        finally:
-            # Always unblock signals
-            self.collections_tree.blockSignals(False)
-
-    def _expand_to_parent(self, parent_id):
-        iterator = QTreeWidgetItemIterator(self.collections_tree)
-        while iterator.value():
-            item = iterator.value()
+        print("[DEBUG] Deleting scripts from DB...")
+        for item in script_items:
             data = item.data(0, Qt.UserRole)
-            if data and data.get('id') == parent_id:
-                item.setExpanded(True)
-                break
-            iterator += 1
+            try:
+                self.db.delete_remotion_script(data['id'])
+            except Exception as e:
+                QMessageBox.critical(self, 'Delete Failed',
+                                     f'Could not delete script:\n\n{type(e).__name__}: {e}')
+                return
+        print("[DEBUG] Script DB delete succeeded")
 
-    def _update_parent_counts(self, parent_item, parent_id):
-        """Update the script and collection count display for a parent collection item."""
-        if not parent_item or not self.db:
-            return
-        parent_data = parent_item.data(0, Qt.UserRole)
-        if not parent_data:
-            return
-        name = parent_data.get('name', 'Unnamed')
-        script_count = self.db.get_collection_script_count(parent_id)
-        sub_collections = self.db.get_remotion_collections(parent_id)
-        n_scripts = script_count
-        n_collections = len(sub_collections)
-        script_label = "1 Script" if n_scripts == 1 else f"{n_scripts} Scripts"
-        coll_label = "1 Collection" if n_collections == 1 else f"{n_collections} Collections"
-        parent_item.setText(0, f"{name} | {script_label} | {coll_label}")
+        self._clear_last_highlight()
+        self.current_collection = None
+        print("[DEBUG] Render highlight cleared")
+
+        self.load_collections(auto_select_if_none=False)
+        self.collection_updated.emit()
 
     def _on_render_collection(self, collection_data):
         """Handle 'Render This Collection' context menu action."""
@@ -858,7 +889,6 @@ class CollectionsWidget(QWidget):
 
     def highlight_rendering_script(self, script_id):
         """Highlight the currently rendering script in the tree."""
-        # Clear only previous highlight
         self._clear_last_highlight()
 
         primary_bg = QColor(theme.get_color('primary'))
@@ -871,22 +901,28 @@ class CollectionsWidget(QWidget):
             if data and data.get('type') == 'script' and data.get('id') == script_id:
                 item.setBackground(0, primary_bg)
                 item.setForeground(0, white_fg)
-                self._last_highlighted_item = item
+                self._last_highlighted_item_id = script_id
                 self.collections_tree.scrollToItem(item)
                 break
             iterator += 1
 
     def _clear_last_highlight(self):
         """Clear highlight from the previously highlighted item only."""
-        if self._last_highlighted_item:
-            # Reset to default: use NoBrush to restore system appearance
-            self._last_highlighted_item.setBackground(0, QBrush())
-            self._last_highlighted_item.setForeground(0, QBrush())
-            self._last_highlighted_item = None
-
-    def clear_render_highlight(self):
-        """Remove current rendering highlight (used when batch finishes)."""
-        self._clear_last_highlight()
+        if self._last_highlighted_item_id is not None:
+            # Find the item by ID and clear
+            iterator = QTreeWidgetItemIterator(self.collections_tree)
+            while iterator.value():
+                item = iterator.value()
+                data = item.data(0, Qt.UserRole)
+                if data and data.get('id') == self._last_highlighted_item_id and data.get('type') == 'script':
+                    try:
+                        item.setBackground(0, QBrush())
+                        item.setForeground(0, QBrush())
+                    except RuntimeError:
+                        pass  # item already deleted
+                    break
+                iterator += 1
+            self._last_highlighted_item_id = None
 
     def _export_collection_to_zip(self, collection_data):
         """Export all scripts in a collection (including sub-collections) to a ZIP file."""
@@ -896,7 +932,6 @@ class CollectionsWidget(QWidget):
         collection_id = collection_data.get('id')
         collection_name = collection_data.get('name', 'collection')
 
-        # Ask user for save location
         safe_name = sanitize_filename(collection_name)
         default_zip_name = f'{safe_name}.zip'
         home_dir = os.path.expanduser('~')
@@ -910,42 +945,33 @@ class CollectionsWidget(QWidget):
         if not zip_path:
             return
 
-        # Create temporary directory for staging
         with tempfile.TemporaryDirectory(prefix='vibe_export_') as temp_dir:
-            # Recursively collect all scripts from this collection
             total_scripts = self._collect_all_scripts(collection_id)
             if total_scripts == 0:
                 QMessageBox.information(self, 'Empty Collection', 'This collection has no scripts to export.')
                 return
 
-            # Show progress dialog
             progress = QProgressDialog(f'Exporting {total_scripts} scripts...', 'Cancel', 0, total_scripts, self)
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(500)
             progress.setValue(0)
 
             try:
-                # Start recursive export
                 exported = self._export_collection_recursive(collection_id, collection_name, temp_dir, progress)
-
-                # Check if user cancelled (before closing the dialog)
                 if progress.wasCanceled():
                     QMessageBox.information(self, 'Cancelled', 'Export was cancelled.')
                     return
-
             except Exception as e:
                 QMessageBox.critical(self, 'Export Error', f'Failed to export collection:\n{str(e)}')
                 return
             finally:
                 progress.close()
 
-            # Create ZIP archive
             try:
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for root, dirs, files in os.walk(temp_dir):
                         for file in files:
                             file_path = os.path.join(root, file)
-                            # Archive name relative to temp_dir
                             arcname = os.path.relpath(file_path, temp_dir)
                             zipf.write(file_path, arcname)
             except Exception as e:
@@ -961,11 +987,9 @@ class CollectionsWidget(QWidget):
     def _collect_all_scripts(self, collection_id):
         """Count all scripts recursively in a collection and its sub-collections."""
         count = 0
-        # Get direct scripts
         if self.db:
             scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
             count += len(scripts)
-            # Get scripts from sub-collections
             children = self.db.get_remotion_collections(parent_collection_id=collection_id)
             for child in children:
                 count += self._collect_all_scripts(child.get('id'))
@@ -974,12 +998,10 @@ class CollectionsWidget(QWidget):
     def _export_collection_recursive(self, collection_id, folder_name, base_dir, progress):
         """Recursively export collection and all sub-collections. Returns number of scripts exported."""
         count = 0
-        # Create folder for this collection
         safe_folder = sanitize_filename(folder_name)
         collection_dir = os.path.join(base_dir, safe_folder)
         os.makedirs(collection_dir, exist_ok=True)
 
-        # Export scripts directly in this collection
         if self.db:
             scripts = self.db.get_remotion_scripts(collection_id, active_only=True)
             for idx, script in enumerate(scripts, 1):
@@ -997,13 +1019,11 @@ class CollectionsWidget(QWidget):
                     except Exception as e:
                         print(f'[Export] Failed to write script {script_name}: {e}')
 
-            # Update progress
             progress.setValue(progress.value() + len(scripts))
 
             if progress.wasCanceled():
                 return count
 
-            # Recurse into sub-collections
             children = self.db.get_remotion_collections(parent_collection_id=collection_id)
             for child in children:
                 child_name = child.get('name', 'subcollection')
@@ -1038,7 +1058,7 @@ class CollectionsWidget(QWidget):
             QMessageBox.information(self, 'Empty ZIP', 'No valid .tsx script collections found in the archive.')
             return
 
-        # Compute immediate conflict counts at target parent
+        # Compute conflicts
         coll_conflicts = 0
         script_conflicts = 0
         if target_parent_id is not None:
@@ -1281,3 +1301,60 @@ class CollectionsWidget(QWidget):
             if candidate not in used:
                 return candidate
             i += 1
+
+    def _apply_filter(self, text, preserve_selection=True):
+        selected_script_id = None
+        selected_items = self.collections_tree.selectedItems()
+        if preserve_selection and selected_items:
+            selected_data = selected_items[0].data(0, Qt.UserRole)
+            if selected_data and selected_data.get('type') == 'script':
+                selected_script_id = selected_data.get('id')
+
+        search_text = (text or '').strip()
+        was_blocked = self.collections_tree.signalsBlocked()
+        if not was_blocked:
+            self.collections_tree.blockSignals(True)
+        try:
+            for index in range(self.collections_tree.topLevelItemCount()):
+                self._filter_tree_item(self.collections_tree.topLevelItem(index), search_text)
+        finally:
+            if not was_blocked:
+                self.collections_tree.blockSignals(False)
+
+        current_item = self.collections_tree.currentItem()
+        if current_item and current_item.isHidden():
+            self.collections_tree.setCurrentItem(None)
+            self.current_collection = None
+            self.collection_selected.emit(None)
+
+        if preserve_selection and selected_script_id:
+            self._select_item_by_id(selected_script_id, 'script')
+
+    def _filter_tree_item(self, item, search_text):
+        if not search_text:
+            return True
+        direct_match = self._item_matches_search(item, search_text)
+        child_match = False
+        for index in range(item.childCount()):
+            child = item.child(index)
+            if self._filter_tree_item(child, search_text):
+                child_match = True
+        visible = direct_match or child_match
+        item.setHidden(not visible)
+        if search_text and child_match:
+            item.setExpanded(True)
+        return visible
+
+    def _item_matches_search(self, item, search_text):
+        if not search_text:
+            return True
+        data = item.data(0, Qt.UserRole) or {}
+        haystacks = [
+            item.text(0),
+            data.get('name', ''),
+            data.get('description', ''),
+            data.get('tags', ''),
+            data.get('script_content', '') if data.get('type') == 'script' else ''
+        ]
+        search_lower = search_text.lower()
+        return any(search_lower in str(value).lower() for value in haystacks if value)

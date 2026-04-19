@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QTabWidget, QTextEdit, QWidget, QPushButton, QMessageBox,
-                               QSplitter, QComboBox, QSizePolicy)
+                               QSplitter, QComboBox, QSizePolicy, QApplication)
 from PySide6.QtCore import Qt, Signal, QThread
 from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import TypeScriptHighlighter
 from dialogs.tools.vibe_video_generator.image_prompt_generator_dialog import ImagePromptGeneratorDialog
@@ -306,6 +306,14 @@ class EditScriptDialog(QDialog):
         self.script_edit.setPlaceholderText('Enter or paste TypeScript/React code here...')
         self._highlighter = TypeScriptHighlighter(self.script_edit.document())
         script_layout.addWidget(self.script_edit)
+        script_btn_row = QHBoxLayout()
+        script_btn_row.addStretch()
+        self.paste_script_btn = QPushButton('Paste')
+        self.paste_script_btn.setIcon(qta.icon('fa6s.paste'))
+        self.paste_script_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.paste_script_btn.clicked.connect(self._on_paste_script)
+        script_btn_row.addWidget(self.paste_script_btn)
+        script_layout.addLayout(script_btn_row)
 
         tabs.addTab(self.prompt_tab, qta.icon('fa6s.wand-magic-sparkles'), 'Generate with AI')
         tabs.addTab(self.script_tab, qta.icon('fa6s.code'), 'TypeScript')
@@ -425,6 +433,13 @@ class EditScriptDialog(QDialog):
         else:
             QMessageBox.critical(self, 'Generation Failed', f'Failed to generate script:\n{result}')
 
+    def _on_paste_script(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text()
+        if text:
+            self.script_edit.setPlainText(text)
+            self.script_edit.setFocus()
+
     def _on_refine_prompt(self):
         prompt_text = self.prompt_edit.toPlainText().strip()
         if not prompt_text:
@@ -449,10 +464,12 @@ class EditScriptDialog(QDialog):
         self._refine_worker.start()
 
     def _on_refine_finished(self, success, result):
-        # Clean up worker
-        if self._refine_worker:
-            self._refine_worker.deleteLater()
-            self._refine_worker = None
+        worker = self._refine_worker
+        self._refine_worker = None
+        if worker:
+            worker.quit()
+            worker.wait(2000)
+            worker.deleteLater()
 
         self.refine_btn.setEnabled(True)
         self.refine_btn.setText('Refine Prompt')
@@ -490,6 +507,32 @@ class EditScriptDialog(QDialog):
                 self.tabs.setCurrentIndex(0)
                 self.prompt_edit.setFocus()
 
+    def _cleanup_workers(self):
+        if self._refine_worker:
+            self._refine_worker.quit()
+            if not self._refine_worker.wait(2000):
+                print("[Vibe Video] Prompt refiner still running after 2s, terminating.")
+                self._refine_worker.terminate()
+                self._refine_worker.wait()
+            self._refine_worker.deleteLater()
+            self._refine_worker = None
+        if self._generator_worker:
+            self._generator_worker.quit()
+            if not self._generator_worker.wait(2000):
+                print("[Vibe Video] Script generator still running after 2s, terminating.")
+                self._generator_worker.terminate()
+                self._generator_worker.wait()
+            self._generator_worker.deleteLater()
+            self._generator_worker = None
+
+    def closeEvent(self, event):
+        self._cleanup_workers()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup_workers()
+        super().reject()
+
     def accept(self):
         name = self.name_edit.text().strip()
         if not name:
@@ -524,4 +567,5 @@ class EditScriptDialog(QDialog):
                 script_data = self.db.get_remotion_script(script_id)
                 self.script_created.emit(script_data)
 
+        self._cleanup_workers()
         super().accept()

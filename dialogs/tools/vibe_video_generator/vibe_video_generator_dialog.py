@@ -33,6 +33,8 @@ class VibeVideoGeneratorDialog(QDialog):
             Qt.WindowType.WindowMinimizeButtonHint |
             Qt.WindowType.WindowMaximizeButtonHint
         )
+        self.setModal(False)
+        self.setWindowModality(Qt.NonModal)
         self.resize(1000, 650)
         self.setMinimumSize(700, 500)
         self._is_closing = False

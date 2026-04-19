@@ -250,6 +250,15 @@ class PromptGeneratorDialog(QDialog):
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
+		self.setWindowFlags(
+			Qt.WindowType.Window |
+			Qt.WindowType.WindowSystemMenuHint |
+			Qt.WindowType.WindowCloseButtonHint |
+			Qt.WindowType.WindowMinimizeButtonHint |
+			Qt.WindowType.WindowMaximizeButtonHint
+		)
+		self.setModal(False)
+		self.setWindowModality(Qt.NonModal)
 		self.setWindowTitle("Prompt Generator")
 		self.setMinimumSize(800, 500)
 		self.page_size = 20

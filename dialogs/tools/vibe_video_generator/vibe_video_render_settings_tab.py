@@ -13,9 +13,6 @@ from config import BASE_PATH
 
 CONFIG_PATH = os.path.join(BASE_PATH, "configs", "remotion_config.json")
 
-BUILT_IN_PRESETS = ["1080p30", "2K60", "4K60"]
-
-
 def load_config():
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -110,10 +107,8 @@ class RenderSettingsTabWidget(QWidget):
         self.preset_combo.clear()
         config = load_config()
         active = config.get("active_preset", "1080p30")
-        for key in BUILT_IN_PRESETS:
-            p = config.get("presets", {}).get(key)
-            if p:
-                self.preset_combo.addItem(p.get("label", key), key)
+        for key, p in config.get("presets", {}).items():
+            self.preset_combo.addItem(p.get("label", key), key)
         if config.get("custom_preset"):
             self.preset_combo.addItem("Custom", "custom")
         idx = self.preset_combo.findData(active)
@@ -252,7 +247,7 @@ class RenderSettingsTabWidget(QWidget):
         config = load_config()
         active = config.get("active_preset", "1080p30")
         data = self._current_preset_data()
-        if active in BUILT_IN_PRESETS:
+        if active in config.get("presets", {}):
             config["custom_preset"] = data
             config["active_preset"] = "custom"
             save_config(config)

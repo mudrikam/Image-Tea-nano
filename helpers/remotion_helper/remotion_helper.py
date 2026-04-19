@@ -94,16 +94,60 @@ def _script_has_composition(script_content: str) -> bool:
     return '<Composition' in script_content
 
 
+def _normalize_default_export(script_content: str) -> Tuple[str, Optional[str]]:
+    name = None
+
+    pattern_func = r'export\s+default\s+function\s*\('
+    if re.search(pattern_func, script_content):
+        script_content = re.sub(pattern_func, 'const MyComponent = function(', script_content, count=1)
+        return script_content, 'MyComponent'
+
+    pattern_class = r'export\s+default\s+class\s*\{'
+    if re.search(pattern_class, script_content):
+        script_content = re.sub(pattern_class, 'class MyComponent {', script_content, count=1)
+        return script_content, 'MyComponent'
+
+    pattern_arrow = r'export\s+default\s*\(([^)]*)\)\s*=>'
+    match = re.search(pattern_arrow, script_content)
+    if match:
+        params = match.group(1)
+        script_content = re.sub(pattern_arrow, f'const MyComponent = ({params}) =>', script_content, count=1)
+        return script_content, 'MyComponent'
+
+    pattern_arrow_no_paren = r'export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=>'
+    match = re.search(pattern_arrow_no_paren, script_content)
+    if match:
+        param = match.group(1)
+        script_content = re.sub(pattern_arrow_no_paren, f'const MyComponent = {param} =>', script_content, count=1)
+        return script_content, 'MyComponent'
+
+    pattern_id = r'export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*;'
+    match = re.search(pattern_id, script_content)
+    if match:
+        name = match.group(1)
+    return script_content, name
+
+
 def _detect_component_name(script_content: str) -> Optional[str]:
+    export_patterns = [
+        r'^\s*export\s+default\s+function\s+([A-Z][A-Za-z0-9_]*)\b',
+        r'^\s*export\s+const\s+([A-Z][A-Za-z0-9_]*)\b',
+        r'^\s*export\s+function\s+([A-Z][A-Za-z0-9_]*)\b',
+        r'^\s*export\s+class\s+([A-Z][A-Za-z0-9_]*)\b',
+    ]
+    for pattern in export_patterns:
+        match = re.search(pattern, script_content, re.MULTILINE)
+        if match:
+            return match.group(1)
+
     patterns = [
-        r'export\s+default\s+(?:function\s+)?(\w+)',
-        r'export\s+const\s+(\w+)\s*:\s*React\.FC',
-        r'export\s+const\s+(\w+)\s*=\s*\(',
-        r'export\s+function\s+(\w+)',
-        r'(?:const|function|class)\s+(\w+)',
+        r'^\s*const\s+([A-Z][A-Za-z0-9_]*)\s*:\s*React\.FC\b',
+        r'^\s*const\s+([A-Z][A-Za-z0-9_]*)\s*=\s*\(',
+        r'^\s*function\s+([A-Z][A-Za-z0-9_]*)\s*\(',
+        r'^\s*class\s+([A-Z][A-Za-z0-9_]*)\s*\{',
     ]
     for pattern in patterns:
-        match = re.search(pattern, script_content)
+        match = re.search(pattern, script_content, re.MULTILINE)
         if match:
             return match.group(1)
     return None
@@ -296,6 +340,8 @@ def _prepare_user_script(script_content: str) -> Tuple[str, str]:
     # Remove any existing registerRoot calls to avoid duplicate registration
     modified = re.sub(r'\bregisterRoot\s*\([^)]*\)\s*;?', '', modified)
 
+    modified, forced_name = _normalize_default_export(modified)
+
     # Ensure React import
     if 'import React' not in modified and 'from \'react\'' not in modified and 'from "react"' not in modified:
         modified = "import React from 'react';\n" + modified
@@ -307,9 +353,9 @@ def _prepare_user_script(script_content: str) -> Tuple[str, str]:
         if extracted_component and _component_defined(modified, extracted_component):
             component_name = extracted_component
         else:
-            component_name = _detect_component_name(modified)
+            component_name = forced_name or _detect_component_name(modified)
     else:
-        component_name = _detect_component_name(modified)
+        component_name = forced_name or _detect_component_name(modified)
 
     # Fallback: if we still don't have a component name, create a minimal placeholder
     if not component_name:
@@ -364,19 +410,42 @@ def _write_root_tsx(preview_dir: str, component_name: str, render_settings: dict
     duration_frames = int(fps * duration) if duration > 0 else int(fps * 10)
     width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
     height = render_settings.get('height', BASE_COMPOSITION_HEIGHT)
+    scale_x = width / BASE_COMPOSITION_WIDTH
+    scale_y = height / BASE_COMPOSITION_HEIGHT
+    scale = max(scale_x, scale_y)
+    offset_x = (width - BASE_COMPOSITION_WIDTH * scale) / 2
+    offset_y = (height - BASE_COMPOSITION_HEIGHT * scale) / 2
 
     content = f'''import {{ Composition }} from 'remotion';
 import {{ {component_name} as UserComponent }} from './MyComponent';
 
+const ScaledRoot = () => (
+    <div style={{{{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}}}>
+        <div
+            style={{{{
+                width: {BASE_COMPOSITION_WIDTH},
+                height: {BASE_COMPOSITION_HEIGHT},
+                position: 'absolute',
+                left: {offset_x},
+                top: {offset_y},
+                transform: 'scale({scale})',
+                transformOrigin: 'top left',
+            }}}}
+        >
+            <UserComponent />
+        </div>
+    </div>
+);
+
 export const Root = () => (
-  <Composition
-    id="{COMPOSITION_ID}"
-    component={{UserComponent}}
-    durationInFrames={{{duration_frames}}}
-    fps={{{fps}}}
-    width={{{width}}}
-    height={{{height}}}
-  />
+    <Composition
+        id="{COMPOSITION_ID}"
+        component={{ScaledRoot}}
+        durationInFrames={{{duration_frames}}}
+        fps={{{fps}}}
+        width={{{width}}}
+        height={{{height}}}
+    />
 );
 '''
     path = os.path.join(src_dir, "Root.tsx")
@@ -407,14 +476,9 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
 
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
 
-    # Decide: if script contains <Composition>, treat it as full root; else wrap it in Root.tsx
-    if '<Composition' in prepared_script:
-        # User's component already includes Composition – register it directly
-        _write_index_ts(temp_dir, 'MyComponent', component_name)
-    else:
-        # Simple component – wrap in Root.tsx
-        _write_root_tsx(temp_dir, component_name, render_settings)
-        _write_index_ts(temp_dir, 'Root', 'Root')
+    # Wrap user component in Root.tsx so registerRoot always points to a Composition tree
+    _write_root_tsx(temp_dir, component_name, render_settings)
+    _write_index_ts(temp_dir, 'Root', 'Root')
 
     for pkg_file in ["package.json", "package-lock.json"]:
         src = os.path.join(TOOLS_REMOTION, pkg_file)
@@ -517,21 +581,9 @@ def _update_preview_script(script_content: str, render_settings: dict = None) ->
     if render_settings is None:
         render_settings = {'width': 1920, 'height': 1080, 'fps': 30, 'duration': 10}
 
-    # Conditional wrapper generation
-    if '<Composition' in prepared_script:
-        # Already has Composition – register MyComponent directly
-        _write_index_ts(_preview_dir_path, 'MyComponent', component_name)
-        # Remove old Root.tsx if present
-        root_path = os.path.join(src_dir, "Root.tsx")
-        if os.path.exists(root_path):
-            try:
-                os.remove(root_path)
-            except Exception:
-                pass
-    else:
-        # Simple component – wrap in Root.tsx
-        _write_root_tsx(_preview_dir_path, component_name, render_settings)
-        _write_index_ts(_preview_dir_path, 'Root', 'Root')
+    # Wrap user component in Root.tsx so registerRoot always points to a Composition tree
+    _write_root_tsx(_preview_dir_path, component_name, render_settings)
+    _write_index_ts(_preview_dir_path, 'Root', 'Root')
 
     print(f'[Remotion] Script updated at {entry_file}')
     return entry_file
@@ -588,17 +640,8 @@ def _build_render_args(
 ) -> List[str]:
     args = ["render", entry_file, composition_id, "--output", output_path]
 
-    # Width/Height: explicit if both > 0, else fallback to scale
-    target_width = render_settings.get('width', BASE_COMPOSITION_WIDTH)
-    target_height = render_settings.get('height', 0)
     scale = render_settings.get('scale', 0)
-
-    if target_width > 0 and target_height > 0:
-        args.extend(['--width', str(int(target_width))])
-        args.extend(['--height', str(int(target_height))])
-    elif target_width > 0:
-        args.extend(['--width', str(int(target_width))])
-    elif scale != 0:
+    if scale and scale != 1:
         args.extend(['--scale', str(scale)])
 
     # FPS
@@ -645,7 +688,6 @@ def _build_render_args(
     if render_settings.get('for_seamless_aac_concatenation'):
         args.append('--for-seamless-aac-concatenation')
 
-    # Quality
     if render_settings.get('crf', 0) > 0:
         args.extend(['--crf', str(int(render_settings['crf']))])
     if render_settings.get('video_bitrate'):

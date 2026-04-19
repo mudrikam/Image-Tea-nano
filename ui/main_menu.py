@@ -909,8 +909,12 @@ def setup_main_menu(window):
     prompt_generator_action.setStatusTip(MENU_TOOLTIPS["prompt_generator"])
     def open_prompt_generator():
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
-        dlg = PromptGeneratorDialog(window)
-        dlg.exec()
+        if not hasattr(window, '_prompt_generator_dialog') or not window._prompt_generator_dialog:
+            window._prompt_generator_dialog = PromptGeneratorDialog(None)
+            window._prompt_generator_dialog.destroyed.connect(lambda: setattr(window, '_prompt_generator_dialog', None))
+        window._prompt_generator_dialog.show()
+        window._prompt_generator_dialog.raise_()
+        window._prompt_generator_dialog.activateWindow()
     prompt_generator_action.triggered.connect(open_prompt_generator)
 
     prompt_injector_action = QAction(qta.icon('fa6s.bolt'), "Prompt Injector", window)
