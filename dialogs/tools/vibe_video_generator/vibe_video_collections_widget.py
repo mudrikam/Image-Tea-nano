@@ -423,6 +423,7 @@ class CollectionsWidget(QWidget):
                 script_name = script.get('name', 'Unnamed')
                 script_created = self._format_timestamp(script.get('created_at'))
                 script_item.setText(0, f"{idx}. {script_name}")
+                script_item.setToolTip(0, f"{script_name}.tsx")
                 if script_created:
                     script_item.setText(1, script_created)
                     script_item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
@@ -499,9 +500,9 @@ class CollectionsWidget(QWidget):
 
             menu.addSeparator()
 
-            rename_action = QAction(qta.icon('fa6s.pen'), 'Rename', menu)
-            rename_action.triggered.connect(self._on_rename)
-            menu.addAction(rename_action)
+            edit_action = QAction(qta.icon('fa6s.pen'), 'Edit Collection', menu)
+            edit_action.triggered.connect(self._on_edit_collection)
+            menu.addAction(edit_action)
 
             delete_action = QAction(qta.icon('fa6s.trash'), 'Delete', menu)
             delete_action.triggered.connect(self._on_delete)
@@ -657,10 +658,12 @@ class CollectionsWidget(QWidget):
         if not self.db:
             return
         collection_id = collection_data.get('id') if collection_data else None
+        collection_name = collection_data.get('name') if collection_data else None
         creds = self._get_ai_credentials()
         dlg = EditScriptDialog(self, collection_id=collection_id, db=self.db,
                                api_key=creds['api_key'], endpoint=creds['endpoint'],
-                               service=creds['service'], model=creds['model'])
+                               service=creds['service'], model=creds['model'],
+                               collection_name=collection_name)
         if dlg.exec():
             self.load_collections()
             self.collection_updated.emit()
@@ -717,10 +720,10 @@ class CollectionsWidget(QWidget):
             self._expand_item_by_id(parent_id)
             self.collection_created.emit()
 
-    def _on_rename(self):
+    def _on_edit_collection(self):
         selected = self.collections_tree.selectedItems()
         if not selected:
-            QMessageBox.information(self, 'No Selection', 'Please select a collection to rename.')
+            QMessageBox.information(self, 'No Selection', 'Please select a collection to edit.')
             return
         item = selected[0]
         data = item.data(0, Qt.UserRole)
@@ -729,7 +732,7 @@ class CollectionsWidget(QWidget):
         del item
         selected = None
 
-        dlg = NewCollectionDialog(self, parent_collection_name=f'Renaming "{old_name}"')
+        dlg = NewCollectionDialog(self)
         dlg.name_edit.setText(old_name)
         dlg.desc_edit.setText(data.get('description') or '')
         dlg.icon_input.setText(data.get('icon', 'folder'))
@@ -737,7 +740,8 @@ class CollectionsWidget(QWidget):
         if data.get('color'):
             dlg.color_input.setText(data['color'])
             dlg.selected_color = data['color']
-        dlg.setWindowTitle('Rename Collection')
+        dlg.setWindowTitle('Edit Collection')
+        dlg.ok_btn.setText('Save')
         dlg._update_icon_preview()
         dlg._update_color_preview()
 

@@ -38,37 +38,35 @@ class DeleteConfirmationDialog(QDialog):
         # Create table for displaying items (has built-in scrolling)
         table = QTableWidget()
         total_items = len(self.sub_collections) + len(self.scripts)
-        if total_items == 0:
-            table.setVisible(False)
-        else:
-            table.setColumnCount(1)
-            table.setHorizontalHeaderLabels(['Name'])
-            table.verticalHeader().setVisible(True)
-            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-            table.setSelectionMode(QAbstractItemView.NoSelection)
-            table.setAlternatingRowColors(True)
-            
-            # Populate table rows
-            row = 0
-            table.setRowCount(total_items)
-            
-            # Add sub-collections
-            for i, name in enumerate(self.sub_collections):
-                name_item = QTableWidgetItem(name)
-                name_item.setFlags(name_item.flags() & ~Qt.ItemIsSelectable)
-                table.setItem(row, 0, name_item)
-                row += 1
-            
-            # Add scripts
-            for i, name in enumerate(self.scripts):
-                name_item = QTableWidgetItem(name)
-                name_item.setFlags(name_item.flags() & ~Qt.ItemIsSelectable)
-                table.setItem(row, 0, name_item)
-                row += 1
-            
-            # Resize columns
-            table.resizeColumnsToContents()
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        table.setColumnCount(1)
+        table.setHorizontalHeaderLabels(['Name'])
+        table.verticalHeader().setVisible(True)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.NoSelection)
+        table.setAlternatingRowColors(True)
+        
+        # Populate table rows
+        row = 0
+        table.setRowCount(total_items)
+        
+        # Add sub-collections
+        for i, name in enumerate(self.sub_collections):
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsSelectable)
+            table.setItem(row, 0, name_item)
+            row += 1
+        
+        # Add scripts
+        for i, name in enumerate(self.scripts):
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsSelectable)
+            table.setItem(row, 0, name_item)
+            row += 1
+        
+        # Resize columns
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
         layout.addWidget(table)
         

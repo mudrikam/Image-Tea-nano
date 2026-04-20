@@ -10,6 +10,7 @@ class MenuWidget(QMenuBar):
     new_script_requested = Signal(object)
     new_collection_requested = Signal()
     render_collection_requested = Signal(object)
+    render_script_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,8 +33,6 @@ class MenuWidget(QMenuBar):
         self.new_subfolder_action.triggered.connect(self._on_new_subfolder)
         collection_menu.addAction(self.new_subfolder_action)
 
-        collection_menu.addSeparator()
-
         self.new_script_action = QAction(qta.icon('fa6s.file-circle-plus'), 'New Script', self)
         self.new_script_action.setShortcut('Ctrl+N')
         self.new_script_action.setToolTip('Create a new script in the selected collection')
@@ -42,17 +41,22 @@ class MenuWidget(QMenuBar):
 
         collection_menu.addSeparator()
 
-        self.render_collection_action = QAction(qta.icon('fa6s.film'), 'Render This Collection', self)
-        self.render_collection_action.setToolTip('Render all scripts in the selected collection')
-        self.render_collection_action.triggered.connect(self._on_render_collection)
-        collection_menu.addAction(self.render_collection_action)
+        self.import_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Import from ZIP', self)
+        self.import_zip_action.setToolTip('Import a collection from a ZIP file')
+        self.import_zip_action.triggered.connect(self._on_import_zip)
+        collection_menu.addAction(self.import_zip_action)
+
+        self.export_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Export to ZIP', self)
+        self.export_zip_action.setToolTip('Export collection (with all scripts) to a ZIP file')
+        self.export_zip_action.triggered.connect(self._on_export_zip)
+        collection_menu.addAction(self.export_zip_action)
 
         collection_menu.addSeparator()
 
-        self.rename_collection_action = QAction(qta.icon('fa6s.pen'), 'Rename Collection', self)
-        self.rename_collection_action.setToolTip('Rename the selected collection')
-        self.rename_collection_action.triggered.connect(self._on_rename_collection)
-        collection_menu.addAction(self.rename_collection_action)
+        self.edit_collection_action = QAction(qta.icon('fa6s.pen'), 'Edit Collection', self)
+        self.edit_collection_action.setToolTip('Edit the selected collection')
+        self.edit_collection_action.triggered.connect(self._on_edit_collection)
+        collection_menu.addAction(self.edit_collection_action)
 
         self.delete_collection_action = QAction(qta.icon('fa6s.trash'), 'Delete Collection', self)
         self.delete_collection_action.setToolTip('Delete the selected collection and all its scripts')
@@ -91,13 +95,21 @@ class MenuWidget(QMenuBar):
         self.delete_script_action.triggered.connect(self._on_delete_script)
         script_menu.addAction(self.delete_script_action)
 
-        # Tools menu (text only)
-        tools_menu = self.addMenu('Tools')
+        # Render menu (text only)
+        render_menu = self.addMenu('Render')
 
-        self.export_zip_action = QAction(qta.icon('fa6s.file-zipper'), 'Export Collection to ZIP', self)
-        self.export_zip_action.setToolTip('Export collection (with all scripts) to a ZIP file')
-        self.export_zip_action.triggered.connect(self._on_export_zip)
-        tools_menu.addAction(self.export_zip_action)
+        self.render_script_action = QAction(qta.icon('fa6s.play'), 'Render Script', self)
+        self.render_script_action.setShortcut('F5')
+        self.render_script_action.setToolTip('Render the currently open script')
+        self.render_script_action.triggered.connect(self._on_render_script)
+        render_menu.addAction(self.render_script_action)
+
+        render_menu.addSeparator()
+
+        self.render_collection_action = QAction(qta.icon('fa6s.film'), 'Render Selected Collection', self)
+        self.render_collection_action.setToolTip('Render all scripts in the selected collection')
+        self.render_collection_action.triggered.connect(self._on_render_collection)
+        render_menu.addAction(self.render_collection_action)
 
         self._update_actions_state()
 
@@ -121,10 +133,11 @@ class MenuWidget(QMenuBar):
 
         # Collection actions
         self.new_collection_action.setEnabled(has_collections_widget)
+        self.import_zip_action.setEnabled(has_collections_widget)
         self.new_subfolder_action.setEnabled(has_selected_collection)
         self.new_script_action.setEnabled(has_selected_collection or has_collections_widget)
-        self.render_collection_action.setEnabled(has_selected_collection)
-        self.rename_collection_action.setEnabled(has_selected_collection)
+        self.export_zip_action.setEnabled(has_selected_collection)
+        self.edit_collection_action.setEnabled(has_selected_collection)
         self.delete_collection_action.setEnabled(has_selected_collection)
 
         # Script actions
@@ -134,8 +147,9 @@ class MenuWidget(QMenuBar):
         self.save_tsx_action.setEnabled(has_selected_script)
         self.delete_script_action.setEnabled(has_selected_script)
 
-        # Tools
-        self.export_zip_action.setEnabled(has_selected_collection)
+        # Render
+        self.render_script_action.setEnabled(has_open_script)
+        self.render_collection_action.setEnabled(has_selected_collection)
 
     def set_collections_widget(self, widget):
         """Connect to collections widget for selection tracking."""
@@ -191,10 +205,10 @@ class MenuWidget(QMenuBar):
             return
         self.collections_widget._on_new_subfolder()
 
-    def _on_rename_collection(self):
+    def _on_edit_collection(self):
         if not self.collections_widget:
             return
-        self.collections_widget._on_rename()
+        self.collections_widget._on_edit_collection()
 
     def _on_delete_collection(self):
         if not self.collections_widget:
@@ -215,6 +229,15 @@ class MenuWidget(QMenuBar):
         selected = self.collections_widget.current_collection
         if selected and selected.get('type') == 'collection':
             self.collections_widget._export_collection_to_zip(selected)
+
+    def _on_import_zip(self):
+        if not self.collections_widget:
+            return
+        selected = self.collections_widget.current_collection
+        if selected and selected.get('type') == 'collection':
+            self.collections_widget._on_import_collection_from_zip(selected)
+        else:
+            self.collections_widget._on_import_collection_from_zip(None)
 
     # ----- Script actions -----
     def _on_new_script(self):
@@ -254,5 +277,9 @@ class MenuWidget(QMenuBar):
         selected = self.collections_widget.current_collection
         if selected and selected.get('type') == 'script':
             self.collections_widget._on_delete_script(selected)
+
+    # ----- Render actions -----
+    def _on_render_script(self):
+        self.render_script_requested.emit()
 
 

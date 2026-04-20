@@ -202,9 +202,10 @@ class EditScriptDialog(QDialog):
     script_updated = Signal(object)
 
     def __init__(self, parent=None, collection_id=None, db=None, script_id=None,
-                 api_key='', endpoint='', service='', model=''):
+                 api_key='', endpoint='', service='', model='', collection_name=None):
         super().__init__(parent)
         self.collection_id = collection_id
+        self.collection_name = collection_name
         self.db = db
         self.script_id = script_id
         self.is_editing = script_id is not None
@@ -216,7 +217,13 @@ class EditScriptDialog(QDialog):
         self._generator_worker = None
         self._refine_worker = None
         self._api_key_section = None
-        self.setWindowTitle('Edit Script' if self.is_editing else 'New Script')
+        
+        if self.is_editing:
+            title = 'Edit Script'
+        else:
+            title = f'New Script in "{self.collection_name}"' if getattr(self, 'collection_name', None) else 'New Script'
+            
+        self.setWindowTitle(title)
         self.setMinimumSize(750, 600)
         self._setup_ui()
         if self.is_editing:

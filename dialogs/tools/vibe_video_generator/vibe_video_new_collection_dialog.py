@@ -110,11 +110,11 @@ class NewCollectionDialog(QDialog):
         cancel_btn = QPushButton('Cancel')
         cancel_btn.setIcon(qta.icon('fa6s.xmark'))
         cancel_btn.clicked.connect(self.reject)
-        ok_btn = QPushButton('Create')
-        ok_btn.setIcon(qta.icon('fa6s.floppy-disk'))
-        ok_btn.clicked.connect(self.accept)
+        self.ok_btn = QPushButton('Create')
+        self.ok_btn.setIcon(qta.icon('fa6s.floppy-disk'))
+        self.ok_btn.clicked.connect(self.accept)
         btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(self.ok_btn)
         layout.addLayout(btn_layout)
 
     def _update_icon_preview(self):

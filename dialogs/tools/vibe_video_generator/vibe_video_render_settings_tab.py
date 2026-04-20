@@ -267,6 +267,13 @@ class RenderSettingsTabWidget(QWidget):
 
     def _cb(self, emit=False):
         def fn(*args):
+            # If user changes a field manually, set the macro combo back to 'Custom'
+            # (unless _loading_preset is True, meaning the macro itself is driving this change)
+            if not self._loading_preset and hasattr(self, 'format_macro_combo'):
+                self.format_macro_combo.blockSignals(True)
+                self.format_macro_combo.setCurrentIndex(0)
+                self.format_macro_combo.blockSignals(False)
+
             if emit:
                 self.settings_changed.emit()
             self._autosave_custom()
@@ -279,23 +286,40 @@ class RenderSettingsTabWidget(QWidget):
         l.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         g.setLayout(l)
 
+        self.format_macro_combo = QComboBox()
+        self.format_macro_combo.addItems([
+            'Custom (Manual Settings)',
+            'MP4 (H264) - Best compatibility',
+            'MP4 (H265) - Small size, slow render',
+            'WebM (Standard) - For Web',
+            'WebM (Transparent) - For Web with Alpha',
+            'MOV (ProRes 4444) - Professional with Alpha'
+        ])
+        self.format_macro_combo.setToolTip("Quickly configure all settings for a specific output format.\n"
+                                             "Selecting a preset here will automatically change Codec, Pixel Format, and Audio Codec below.")
+        self.format_macro_combo.currentIndexChanged.connect(self._on_format_macro_changed)
+        l.addRow('Output Format Preset:', self.format_macro_combo)
+
         self.codec_combo = QComboBox()
         self.codec_combo.addItems(['h264', 'h265', 'av1', 'vp8', 'vp9', 'prores', 'h264-mkv'])
-        self.codec_combo.setToolTip("Video codec for output.\n"
-                                     "• h264: Most compatible, widely supported (default)\n"
-                                     "• h265/AV1: ~50% smaller files, need modern players/ browsers\n"
-                                     "• ProRes: High-quality intermediate format for post-production\n"
-                                     "• h264-mkv: H.264 in MKV container")
+        self.codec_combo.setToolTip("Video format & codec for the final render.\n"
+                                     "• h264 (.mp4): Best compatibility for web/mobile (Recommended)\n"
+                                     "• h265 (.mp4): Smaller file size, better quality but slower render\n"
+                                     "• av1 (.webm): Next-gen format, very small size but very slow render\n"
+                                     "• vp8 / vp9 (.webm): Best for transparent background in web browsers\n"
+                                     "• prores (.mov): Huge file size, professional quality for editing (Premiere/AE)\n"
+                                     "• h264-mkv (.mkv): Same as h264 but safer if the render crashes")
         self.codec_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Codec:', self.codec_combo)
 
         self.pixel_format_combo = QComboBox()
-        self.pixel_format_combo.addItems(['yuv420p', 'yuv422p', 'yuv444p', 'yuva420p', 'yuva422p', 'yuva444p'])
+        self.pixel_format_combo.addItems(['yuv420p', 'yuv422p', 'yuv444p', 'yuva420p', 'yuva422p', 'yuva444p', 'yuv420p10le', 'yuv422p10le', 'yuv444p10le', 'yuva444p10le'])
         self.pixel_format_combo.setCurrentText('yuv420p')  # default to widely compatible format
         self.pixel_format_combo.setToolTip("Chroma subsampling format.\n"
                                             "• yuv420p: Standard for web/YouTube (most compatible)\n"
                                             "• yuv422p/yuv444p: Higher color fidelity, larger files\n"
-                                            "• yuva*: Includes alpha channel for transparency")
+                                            "• yuva*: Includes alpha channel for transparency\n"
+                                            "• *10le: 10-bit color formats (required for ProRes HDR or Alpha)")
         self.pixel_format_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Pixel Format:', self.pixel_format_combo)
 
@@ -868,3 +892,56 @@ class RenderSettingsTabWidget(QWidget):
         f = QFileDialog.getExistingDirectory(self, 'Select Binaries Directory', start_dir)
         if f:
             self.binaries_dir_edit.setText(f)
+
+    def _on_format_macro_changed(self, idx):
+        if idx == 0:  # Custom
+            return
+
+        text = self.format_macro_combo.currentText()
+        # Prevent emit looping when we manually set values
+        self._loading_preset = True
+
+        # Signal Output Tab format change if applicable
+        parent = self
+        while parent and not hasattr(parent, 'output_tab_widget'):
+            if hasattr(parent, 'parent'):
+                parent = parent.parent()
+            else:
+                break
+        
+        output_tab = None
+        if parent and hasattr(parent, 'output_tab_widget'):
+            output_tab = parent.output_tab_widget
+        elif parent and hasattr(parent, '_output_tab_widget'):
+            output_tab = parent._output_tab_widget
+
+        if "H264" in text:
+            if hasattr(self, 'codec_combo'): self.codec_combo.setCurrentText('h264')
+            if hasattr(self, 'pixel_format_combo'): self.pixel_format_combo.setCurrentText('yuv420p')
+            if hasattr(self, 'audio_codec_combo'): self.audio_codec_combo.setCurrentText('aac')
+            if output_tab and hasattr(output_tab, 'output_format_combo'): output_tab.output_format_combo.setCurrentText('mp4')
+        elif "H265" in text:
+            if hasattr(self, 'codec_combo'): self.codec_combo.setCurrentText('h265')
+            if hasattr(self, 'pixel_format_combo'): self.pixel_format_combo.setCurrentText('yuv420p')
+            if hasattr(self, 'audio_codec_combo'): self.audio_codec_combo.setCurrentText('aac')
+            if output_tab and hasattr(output_tab, 'output_format_combo'): output_tab.output_format_combo.setCurrentText('mp4')
+        elif "Standard" in text and "WebM" in text:
+            if hasattr(self, 'codec_combo'): self.codec_combo.setCurrentText('vp8')
+            if hasattr(self, 'pixel_format_combo'): self.pixel_format_combo.setCurrentText('yuv420p')
+            if hasattr(self, 'audio_codec_combo'): self.audio_codec_combo.setCurrentText('opus')
+            if output_tab and hasattr(output_tab, 'output_format_combo'): output_tab.output_format_combo.setCurrentText('webm')
+        elif "Transparent" in text and "WebM" in text:
+            if hasattr(self, 'codec_combo'): self.codec_combo.setCurrentText('vp8')
+            if hasattr(self, 'pixel_format_combo'): self.pixel_format_combo.setCurrentText('yuva420p')
+            if hasattr(self, 'audio_codec_combo'): self.audio_codec_combo.setCurrentText('opus')
+            if output_tab and hasattr(output_tab, 'output_format_combo'): output_tab.output_format_combo.setCurrentText('webm')
+        elif "ProRes" in text:
+            if hasattr(self, 'codec_combo'): self.codec_combo.setCurrentText('prores')
+            if hasattr(self, 'pixel_format_combo'): self.pixel_format_combo.setCurrentText('yuva444p10le')
+            if hasattr(self, 'audio_codec_combo'): self.audio_codec_combo.setCurrentText('aac') # Remotion typical for prores audio
+            if hasattr(self, 'prores_profile_combo'): self.prores_profile_combo.setCurrentText('4444')
+            if output_tab and hasattr(output_tab, 'output_format_combo'): output_tab.output_format_combo.setCurrentText('mov')
+
+        self._loading_preset = False
+        self.settings_changed.emit()
+        self._autosave_custom()

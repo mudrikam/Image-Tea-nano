@@ -719,19 +719,21 @@ def _build_render_args(
         except (ValueError, TypeError):
             pass  # ignore invalid
 
-    if render_settings.get('crf', 0) > 0:
+    codec_val = render_settings.get('codec', 'h264')
+
+    if render_settings.get('crf', 0) > 0 and codec_val not in ['prores']:
         args.extend(['--crf', str(int(render_settings['crf']))])
-    if render_settings.get('video_bitrate'):
+    if render_settings.get('video_bitrate') and codec_val not in ['prores']:
         args.extend(['--video-bitrate', str(render_settings['video_bitrate'])])
-    if render_settings.get('buffer_size'):
+    if render_settings.get('buffer_size') and codec_val not in ['prores']:
         args.extend(['--buffer-size', str(render_settings['buffer_size'])])
-    if render_settings.get('max_rate'):
+    if render_settings.get('max_rate') and codec_val not in ['prores']:
         args.extend(['--max-rate', str(render_settings['max_rate'])])
     if render_settings.get('jpeg_quality', 80) != 80:
         args.extend(['--jpeg-quality', str(render_settings['jpeg_quality'])])
-    if render_settings.get('prores_profile') and render_settings['prores_profile'] != 'auto':
+    if render_settings.get('prores_profile') and render_settings['prores_profile'] != 'auto' and codec_val == 'prores':
         args.extend(['--prores-profile', render_settings['prores_profile']])
-    if render_settings.get('x264_preset') and render_settings['x264_preset'] != 'medium':
+    if render_settings.get('x264_preset') and render_settings['x264_preset'] != 'medium' and codec_val in ['h264', 'h264-mkv']:
         args.extend(['--x264-preset', render_settings['x264_preset']])
     if render_settings.get('gif_loops', 0) > 0:
         args.extend(['--number-of-gif-loops', str(render_settings['gif_loops'])])

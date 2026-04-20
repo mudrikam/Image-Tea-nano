@@ -125,11 +125,12 @@ class OutputTabWidget(QWidget):
         output_format_layout.addWidget(format_label)
 
         self.output_format_combo = QComboBox()
-        self.output_format_combo.addItems(['mp4', 'webm', 'mov', 'gif', 'png', 'jpg', 'mp3', 'wav', 'aac'])
+        self.output_format_combo.addItems(['mp4', 'webm', 'mov', 'mkv', 'gif', 'png', 'jpg', 'mp3', 'wav', 'aac'])
         self.output_format_combo.setToolTip("Output file format.\n"
                                                "• mp4: universal video format (H.264+AAC)\n"
                                                "• webm: optimized for web streaming (VP8/Opus)\n"
                                                "• mov: Apple ProRes, good for editing\n"
+                                               "• mkv: Matroska, safe if process crashes (H.264)\n"
                                                "• gif: animated image\n"
                                                "• png/jpg: single-image output\n"
                                                "• mp3/wav/aac: audio-only extraction")
