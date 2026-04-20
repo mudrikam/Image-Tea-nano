@@ -62,6 +62,8 @@ class OutputTabWidget(QWidget):
 
         self.output_filename_input = QLineEdit()
         self.output_filename_input.setPlaceholderText('e.g., my_video')
+        self.output_filename_input.setToolTip("Output filename without extension.\n"
+                                                "Special characters and reserved Windows names are automatically sanitized.")
         self.output_filename_input.editingFinished.connect(self.on_filename_edited)
         filename_layout.addWidget(self.output_filename_input, 1)
 
@@ -86,6 +88,7 @@ class OutputTabWidget(QWidget):
 
         self.output_path_input = QLineEdit()
         self.output_path_input.setPlaceholderText('Select output folder...')
+        self.output_path_input.setToolTip("Folder where the rendered video will be saved.")
         self.output_path_input.editingFinished.connect(self.on_output_edited)
         output_path_layout.addWidget(self.output_path_input, 1)
 
@@ -123,6 +126,13 @@ class OutputTabWidget(QWidget):
 
         self.output_format_combo = QComboBox()
         self.output_format_combo.addItems(['mp4', 'webm', 'mov', 'gif', 'png', 'jpg', 'mp3', 'wav', 'aac'])
+        self.output_format_combo.setToolTip("Output file format.\n"
+                                               "• mp4: universal video format (H.264+AAC)\n"
+                                               "• webm: optimized for web streaming (VP8/Opus)\n"
+                                               "• mov: Apple ProRes, good for editing\n"
+                                               "• gif: animated image\n"
+                                               "• png/jpg: single-image output\n"
+                                               "• mp3/wav/aac: audio-only extraction")
         self.output_format_combo.currentTextChanged.connect(self.on_format_changed)
         output_format_layout.addWidget(self.output_format_combo, 1)
 
@@ -136,15 +146,22 @@ class OutputTabWidget(QWidget):
 
         self.overwrite_checkbox = QCheckBox('Overwrite existing file')
         self.overwrite_checkbox.setChecked(True)
+        self.overwrite_checkbox.setToolTip("Automatically replace an existing file with the same name.\n"
+                                              "Disabled prompts for confirmation before overwriting.")
         options_layout.addWidget(self.overwrite_checkbox)
 
         self.sequence_checkbox = QCheckBox('Output as image sequence')
+        self.sequence_checkbox.setToolTip("Save each frame as an individual image file instead of a single video.\n"
+                                             "Useful for frame-accurate inspection, external processing, or creating sprite sheets.")
         options_layout.addWidget(self.sequence_checkbox)
 
         self.muted_checkbox = QCheckBox('Mute audio')
+        self.muted_checkbox.setToolTip("Exclude audio from the output.")
         options_layout.addWidget(self.muted_checkbox)
 
         self.enforce_audio_checkbox = QCheckBox('Enforce silent audio track')
+        self.enforce_audio_checkbox.setToolTip("Ensure the output contains an audio track even if silent.\n"
+                                                  "Some players/platforms require an audio stream.")
         options_layout.addWidget(self.enforce_audio_checkbox)
 
         options_group.setLayout(options_layout)
