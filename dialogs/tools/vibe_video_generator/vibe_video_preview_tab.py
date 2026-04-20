@@ -373,6 +373,22 @@ class PreviewTabWidget(QWidget):
         self.cancel_start_btn.clicked.connect(self._on_cancel_starting)
         toolbar_layout.addWidget(self.cancel_start_btn)
 
+        self.refine_btn = QPushButton('Refine')
+        self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
+        self.refine_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refine_btn.setEnabled(False)
+        self.refine_btn.clicked.connect(self._on_refine)
+        self.refine_btn.setVisible(False)  # Hidden by default, shown when script selected & server stopped
+        toolbar_layout.addWidget(self.refine_btn)
+
+        self.interrupt_btn = QPushButton('Interrupt')
+        self.interrupt_btn.setIcon(qta.icon('fa6s.stop'))
+        self.interrupt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.interrupt_btn.setEnabled(False)
+        self.interrupt_btn.clicked.connect(self._on_interrupt)
+        self.interrupt_btn.setVisible(False)
+        toolbar_layout.addWidget(self.interrupt_btn)
+
         toolbar_layout.addStretch(1)
         layout.addWidget(self._toolbar_container)
 
@@ -403,6 +419,11 @@ class PreviewTabWidget(QWidget):
         self._exit_fullscreen_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self._exit_fullscreen_shortcut.activated.connect(self._on_escape_pressed)
 
+        # Refine shortcut: F5 to open refine dialog
+        self._refine_shortcut = QShortcut(QKeySequence(Qt.Key_F5), self)
+        self._refine_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._refine_shortcut.activated.connect(self._on_refine_shortcut)
+
         # Status label below webview (script info, running status, errors)
         self.status_label = QLabel('No script loaded.')
         self.status_label.setStyleSheet(f'color: {theme.get_color("text_dark")}; padding: 4px;')
@@ -415,6 +436,11 @@ class PreviewTabWidget(QWidget):
             scripts_widget.script_content.textChanged.connect(self._on_script_content_changed)
         except Exception:
             pass
+        # Connect refine state signals
+        scripts_widget.refine_started.connect(self._on_refine_started)
+        scripts_widget.refine_finished.connect(self._on_refine_finished)
+        # Initialize button states
+        self._update_refine_buttons()
 
     def _get_render_settings(self) -> dict:
         """Get current render settings from the Render Settings tab."""
@@ -465,9 +491,11 @@ class PreviewTabWidget(QWidget):
             self._stop_server()
             self._reset_ui('No script selected.')
             self.toggle_server_btn.setEnabled(False)
+            self._update_refine_buttons()
             return
 
         self._selection_timer.start()
+        self._update_refine_buttons()
 
     def _process_pending_script_selection(self):
         # New request, reset retry counter and cancel any pending retry
@@ -838,6 +866,37 @@ class PreviewTabWidget(QWidget):
         self._reset_ui('Remotion Studio stopped.')
         # Re-evaluate UI state immediately
         self._process_pending_script_selection()
+
+    def _on_refine(self):
+        """Open refine dialog from preview tab."""
+        if self._scripts_widget:
+            self._scripts_widget._on_refine()
+
+    def _on_refine_shortcut(self):
+        """Handle F5 shortcut to open refine dialog."""
+        self._on_refine()
+
+    def _on_interrupt(self):
+        """Interrupt ongoing refinement."""
+        if self._scripts_widget:
+            self._scripts_widget._on_interrupt()
+
+    def _update_refine_buttons(self):
+        """Update refine/interrupt button visibility and enabled state based on current state."""
+        has_script = self._scripts_widget is not None and self._scripts_widget.current_script_id is not None
+        is_refining = self._scripts_widget is not None and self._scripts_widget._refine_worker is not None
+        self.refine_btn.setVisible(has_script and not is_refining)
+        self.refine_btn.setEnabled(has_script and not is_refining)
+        self.interrupt_btn.setVisible(is_refining)
+        self.interrupt_btn.setEnabled(is_refining)
+
+    def _on_refine_started(self):
+        """Refinement started."""
+        self._update_refine_buttons()
+
+    def _on_refine_finished(self):
+        """Refinement finished."""
+        self._update_refine_buttons()
 
 
 

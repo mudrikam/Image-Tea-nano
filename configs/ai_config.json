@@ -167,7 +167,8 @@
       "z-ai/glm-4.6v",
       "openrouter/free",
       "sourceful/riverflow-v2-pro",
-      "minimax/minimax-m2.5:free"
+      "minimax/minimax-m2.5:free",
+      "openai/gpt-oss-120b:free"
     ],
     "groq": [
       "allam-2-7b",

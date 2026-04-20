@@ -127,6 +127,7 @@ class VibeVideoGeneratorDialog(QDialog):
         # Connect signals
         self.collections_widget.collection_selected.connect(self._on_collection_selected)
         self.scripts_widget.script_updated.connect(self._on_script_updated)
+        self.scripts_widget.api_key_changed_from_dialog.connect(self._sync_api_key_from_dialog)
         self.menu_widget.new_script_requested.connect(self._on_new_script_created)
         # Batch render: collection render request
         self.collections_widget.render_collection_requested.connect(self.code_actions_widget.start_batch_render)
@@ -158,6 +159,10 @@ class VibeVideoGeneratorDialog(QDialog):
         
         # Automatically refresh Remotion preview by re-selecting the current script
         self._refresh_preview_after_save()
+
+    def _sync_api_key_from_dialog(self, api_key, service, model):
+        # Update the main api_key_section quietly (blocks recursive signals if needed)
+        self.api_key_section.set_current_api_by_details(api_key, service, model, skip_refresh=False)
 
     def _on_api_key_changed(self, api_key, service, model):
         self.api_key = api_key

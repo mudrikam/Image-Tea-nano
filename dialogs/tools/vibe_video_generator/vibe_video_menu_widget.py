@@ -68,6 +68,12 @@ class MenuWidget(QMenuBar):
         self.edit_script_action.triggered.connect(self._on_edit_script)
         script_menu.addAction(self.edit_script_action)
 
+        self.refine_script_action = QAction(qta.icon('fa6s.wand-magic-sparkles'), 'Refine Script', self)
+        self.refine_script_action.setShortcut('Ctrl+R')
+        self.refine_script_action.setToolTip('Refine the open script using AI')
+        self.refine_script_action.triggered.connect(self._on_refine_script)
+        script_menu.addAction(self.refine_script_action)
+
         self.rename_script_action = QAction(qta.icon('fa6s.pen'), 'Rename Script', self)
         self.rename_script_action.setToolTip('Rename the selected script')
         self.rename_script_action.triggered.connect(self._on_rename_script)
@@ -109,6 +115,10 @@ class MenuWidget(QMenuBar):
                 elif selected.get('type') == 'script':
                     has_selected_script = True
 
+        has_open_script = False
+        if self.scripts_widget and self.scripts_widget.current_script_id is not None:
+            has_open_script = True
+
         # Collection actions
         self.new_collection_action.setEnabled(has_collections_widget)
         self.new_subfolder_action.setEnabled(has_selected_collection)
@@ -119,6 +129,7 @@ class MenuWidget(QMenuBar):
 
         # Script actions
         self.edit_script_action.setEnabled(has_selected_script)
+        self.refine_script_action.setEnabled(has_open_script)
         self.rename_script_action.setEnabled(has_selected_script)
         self.save_tsx_action.setEnabled(has_selected_script)
         self.delete_script_action.setEnabled(has_selected_script)
@@ -148,7 +159,16 @@ class MenuWidget(QMenuBar):
 
     def set_scripts_widget(self, widget):
         """Connect to scripts widget for status updates."""
+        if self.scripts_widget:
+            try:
+                self.scripts_widget.script_selected.disconnect(self._update_actions_state)
+            except:
+                pass
+                
         self.scripts_widget = widget
+        if widget:
+            widget.script_selected.connect(self._update_actions_state)
+            
         self._update_actions_state()
 
     # ----- Collection actions -----
@@ -208,6 +228,11 @@ class MenuWidget(QMenuBar):
         selected = self.collections_widget.current_collection
         if selected and selected.get('type') == 'script':
             self.collections_widget._on_edit_script(selected)
+
+    def _on_refine_script(self):
+        if not self.scripts_widget or not self.scripts_widget.current_script_id:
+            return
+        self.scripts_widget._on_refine()
 
     def _on_rename_script(self):
         if not self.collections_widget:
