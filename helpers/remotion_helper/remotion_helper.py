@@ -711,6 +711,14 @@ def _build_render_args(
     if render_settings.get('for_seamless_aac_concatenation'):
         args.append('--for-seamless-aac-concatenation')
 
+    # Sample rate (Hz)
+    sample_rate = render_settings.get('sample_rate')
+    if sample_rate:
+        try:
+            args.extend(['--sample-rate', str(int(sample_rate))])
+        except (ValueError, TypeError):
+            pass  # ignore invalid
+
     if render_settings.get('crf', 0) > 0:
         args.extend(['--crf', str(int(render_settings['crf']))])
     if render_settings.get('video_bitrate'):
@@ -739,8 +747,12 @@ def _build_render_args(
     # Browser / advanced
     if render_settings.get('browser_executable'):
         args.extend(['--browser-executable', render_settings['browser_executable']])
-    if render_settings.get('chrome_mode') and render_settings['chrome_mode'] != 'default':
-        args.extend(['--chrome-mode', render_settings['chrome_mode']])
+    chrome_mode = render_settings.get('chrome_mode')
+    if chrome_mode:
+        if chrome_mode not in ('headless-shell', 'chrome-for-testing'):
+            print(f"[Remotion] Warning: Unknown chrome_mode '{chrome_mode}', ignoring.")
+        else:
+            args.extend(['--chrome-mode', chrome_mode])
     if render_settings.get('timeout', 30000) != 30000:
         args.extend(['--timeout', str(render_settings['timeout'])])
     if render_settings.get('ignore_certificate_errors'):
@@ -753,8 +765,10 @@ def _build_render_args(
         args.append('--dark-mode')
     if render_settings.get('user_agent'):
         args.extend(['--user-agent', render_settings['user_agent']])
-    if render_settings.get('gl') and render_settings['gl'] != 'default':
-        args.extend(['--gl', render_settings['gl']])
+    gl = render_settings.get('gl')
+    if gl and gl not in ('default', ''):
+        args.extend(['--gl', gl])
+    # if gl is '' or 'default' or None: omit flag (use Remotion default)
     if render_settings.get('config_file'):
         args.extend(['--config', render_settings['config_file']])
     if render_settings.get('env_file'):

@@ -189,6 +189,7 @@ class RenderSettingsTabWidget(QWidget):
             # Audio settings
             'audio_codec': self.audio_codec_combo.currentText(),
             'audio_bitrate': self.audio_bitrate_edit.text().strip() or None,
+            'sample_rate': self.sample_rate_spin.value(),
             'muted': self.muted_checkbox.isChecked(),
             'enforce_audio_track': self.enforce_audio_checkbox.isChecked(),
             'separate_audio_to': self.separate_audio_edit.text().strip() or None,
@@ -211,21 +212,21 @@ class RenderSettingsTabWidget(QWidget):
 
             # Browser settings
             'browser_executable': self.browser_exec_edit.text().strip() or None,
-            'chrome_mode': self.chrome_mode_combo.currentText(),
+            'chrome_mode': self.chrome_mode_combo.currentData(),
             'timeout': self.timeout_spin.value(),
             'ignore_certificate_errors': self.ignore_cert_checkbox.isChecked(),
             'disable_web_security': self.disable_web_security_checkbox.isChecked(),
             'disable_headless': self.disable_headless_checkbox.isChecked(),
             'dark_mode': self.dark_mode_checkbox.isChecked(),
             'user_agent': self.user_agent_edit.text().strip() or None,
-            'gl': self.gl_combo.currentText(),
+            'gl': self.gl_combo.currentData(),
 
             # Advanced settings
             'config_file': self.config_edit.text().strip() or None,
             'env_file': self.env_file_edit.text().strip() or None,
-            'props_file': self.props_edit.text().strip() or None,
+            'props': self.props_edit.text().strip() or None,
             'bundle_cache': self.bundle_cache_checkbox.isChecked(),
-            'log_level': self.log_combo.currentText(),
+            'log': self.log_combo.currentText(),
             'port': self.port_spin.value(),
             'public_dir': self.public_dir_edit.text().strip() or None,
             'media_cache_size_in_bytes': self.media_cache_size_edit.text().strip() or None,
@@ -374,6 +375,13 @@ class RenderSettingsTabWidget(QWidget):
         self.for_seamless_aac_checkbox.toggled.connect(self._cb(True))
         l.addRow('', self.for_seamless_aac_checkbox)
 
+        self.sample_rate_spin = QSpinBox()
+        self.sample_rate_spin.setRange(8000, 192000)
+        self.sample_rate_spin.setValue(48000)
+        self.sample_rate_spin.setSuffix(" Hz")
+        self.sample_rate_spin.valueChanged.connect(self._cb(True))
+        l.addRow('Sample Rate (Hz):', self.sample_rate_spin)
+
         return g
 
     def _quality_group(self):
@@ -472,7 +480,11 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('', self.browser_browse_btn)
 
         self.chrome_mode_combo = QComboBox()
-        self.chrome_mode_combo.addItems(['default', 'custom', 'launch'])
+        headless_shell_item = self.chrome_mode_combo.addItem('Chrome Headless Shell (default)', 'headless-shell')
+        self.chrome_mode_combo.setItemData(self.chrome_mode_combo.count() - 1, "Default. Fast CPU rendering. Use for most cases.", Qt.ToolTipRole)
+        chrome_testing_item = self.chrome_mode_combo.addItem('Chrome for Testing (GPU, Linux only)', 'chrome-for-testing')
+        self.chrome_mode_combo.setItemData(self.chrome_mode_combo.count() - 1, "GPU-accelerated. Only on Linux with GPU. Slower startup, needs `npx remotion browser ensure --chrome-mode=chrome-for-testing`", Qt.ToolTipRole)
+        self.chrome_mode_combo.setCurrentIndex(0)  # default
         self.chrome_mode_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('Chrome Mode:', self.chrome_mode_combo)
 
@@ -505,7 +517,21 @@ class RenderSettingsTabWidget(QWidget):
         l.addRow('User Agent:', self.user_agent_edit)
 
         self.gl_combo = QComboBox()
-        self.gl_combo.addItems(['default', 'egl', 'angle', 'swiftshader', 'gles'])
+        self.gl_combo.addItem('Default (auto)', '')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Use Remotion's default GL backend", Qt.ToolTipRole)
+        self.gl_combo.addItem('ANGLE (desktop WebGL)', 'angle')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Desktop OpenGL via ANGLE. Best for Windows/macOS with GPU", Qt.ToolTipRole)
+        self.gl_combo.addItem('ANGLE-EGL (Linux GPU)', 'angle-egl')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "ANGLE with EGL. Use on Linux with dedicated GPU", Qt.ToolTipRole)
+        self.gl_combo.addItem('Swangle (no GPU / Lambda)', 'swangle')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Software ANGLE. For headless servers without GPU (AWS Lambda, etc.)", Qt.ToolTipRole)
+        self.gl_combo.addItem('EGL', 'egl')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Native EGL. For Linux with proper EGL support", Qt.ToolTipRole)
+        self.gl_combo.addItem('SwiftShader (software)', 'swiftshader')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Pure software renderer. Slowest but most compatible", Qt.ToolTipRole)
+        self.gl_combo.addItem('Vulkan (experimental)', 'vulkan')
+        self.gl_combo.setItemData(self.gl_combo.count() - 1, "Vulkan backend. Experimental - may not work with all compositions", Qt.ToolTipRole)
+        self.gl_combo.setCurrentIndex(0)  # default empty
         self.gl_combo.currentTextChanged.connect(self._cb(True))
         l.addRow('GL Backend:', self.gl_combo)
 
@@ -669,25 +695,3 @@ class RenderSettingsTabWidget(QWidget):
         f = QFileDialog.getExistingDirectory(self, 'Select Binaries Directory', start_dir)
         if f:
             self.binaries_dir_edit.setText(f)
-
-    def get_render_command_args(self):
-        args = []
-        if self.codec_combo.currentText() != 'h264':
-            args.extend(['--codec', self.codec_combo.currentText()])
-        if self.pixel_format_combo.currentText() != 'yuv420p':
-            args.extend(['--pixel-format', self.pixel_format_combo.currentText()])
-        if self.width_spin.value() > 0:
-            args.extend(['--width', str(self.width_spin.value())])
-        if self.height_spin.value() > 0:
-            args.extend(['--height', str(self.height_spin.value())])
-        if self.fps_spin.value() > 0:
-            args.extend(['--fps', str(self.fps_spin.value())])
-        # Convert duration from seconds to frames
-        dur_sec = self.duration_spin.value()
-        fps_val = self.fps_spin.value()
-        if dur_sec > 0 and fps_val > 0:
-            args.extend(['--duration', str(int(dur_sec * fps_val))])
-        if self.scale_spin.value() != 1.0:
-            args.extend(['--scale', str(self.scale_spin.value())])
-        if self.image_format_combo.currentText() != 'jpeg':
-            args.extend(['--image-format', self.image_format_combo.currentText()])

@@ -16,7 +16,7 @@
     "max_old_space_size": 4096,
     "concurrency": 4,
     "offthreadvideo_cache_size_in_bytes": null,
-    "active_preset": "2K60",
+    "active_preset": "1080p60",
     "presets": {
         "720p30": {
             "label": "Horizontal HD 720p (16:9)",
