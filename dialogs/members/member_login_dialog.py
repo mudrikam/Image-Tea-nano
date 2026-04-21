@@ -84,10 +84,17 @@ class MemberLoginDialog(QDialog):
         license_label.setStyleSheet(f"color: {theme.get_color('text_light')};")
         login_layout.addWidget(license_label)
 
+        license_layout = QHBoxLayout()
         self.license_input = QLineEdit()
         self.license_input.setPlaceholderText("DSNA-XXXX")
         self.license_input.setMinimumHeight(34)
-        login_layout.addWidget(self.license_input)
+        self.license_input.setEchoMode(QLineEdit.Password)
+        license_layout.addWidget(self.license_input)
+        self.show_license_check = QCheckBox("Show")
+        self.show_license_check.setFixedWidth(60)
+        self.show_license_check.toggled.connect(self._toggle_license_visibility)
+        license_layout.addWidget(self.show_license_check)
+        login_layout.addLayout(license_layout)
 
         self.remember_checkbox = QCheckBox("Remember login")
         login_layout.addWidget(self.remember_checkbox)
@@ -254,3 +261,6 @@ class MemberLoginDialog(QDialog):
     def _on_login_failed(self, message):
         self._set_loading(False)
         self.error_label.setText(message)
+
+    def _toggle_license_visibility(self, checked):
+        self.license_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)

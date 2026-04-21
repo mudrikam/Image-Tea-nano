@@ -5,8 +5,9 @@ import random
 import threading
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, QByteArray, QTimer
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QMessageBox, QApplication,QDialog
+from PySide6.QtWidgets import QMessageBox, QApplication, QDialog
 from dialogs.member_limit_dialog import show_member_limit_dialog
+from dialogs.members.member_secret_manager_dialog import MemberSecretManagerDialog
 import qtawesome as qta
 from config import BASE_PATH
 from dialogs.get_api_key_dialog import GetApiKeyDialog
@@ -21,6 +22,7 @@ from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_gen
 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
 from helpers.video_proxy_helper import batch_process_videos_with_dialog, batch_extract_frames_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting, get_prefer_frame_analysis, extract_video_frames, cleanup_video_temp_folder, BatchFrameExtractionWorker, BatchVideoProxyWorker
 from helpers.image_compression_helper import cleanup_temp_folder
+from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
 
 from ui.theme_system import theme
 
@@ -632,18 +634,11 @@ def batch_generate_metadata(window):
     service = None
 
     # Member session takes priority over local API keys
-    from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
     if is_logged_in():
         if not is_member_secret_valid():
-            print("[BATCH] Member is logged in but MEMBER_SECRET is invalid or missing. Aborting.")
-            QMessageBox.warning(
-                window,
-                "Member Secret Invalid",
-                "Your MEMBER_SECRET is missing, invalid, or expired.\n\n"
-                "Please ask the admin for the latest secret and update your .env file:\n"
-                "MEMBER_SECRET=<your_secret>\n\n"
-                "Or add your own API key to generate without membership."
-            )
+            print("[BATCH] Member is logged in but MEMBER_SECRET is invalid or missing.")
+            dlg = MemberSecretManagerDialog(window)
+            dlg.exec()
             return
         _member_cfg = get_member_api_config()
         api_key = _member_cfg["api_key"]

@@ -205,21 +205,102 @@ def get_member_api_config() -> dict:
 
 
 def _read_member_secret_from_env() -> str:
+    """Return raw MEMBER_SECRET value from .env or None."""
     if not os.path.exists(_ENV_PATH):
         return None
-    with open(_ENV_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line.upper().startswith("MEMBER_SECRET="):
-                value = line[len("MEMBER_SECRET="):]
-                return value if value else None
+    try:
+        with open(_ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or '=' not in stripped:
+                    continue
+                key, value = stripped.split('=', 1)
+                if key.strip().upper() == "MEMBER_SECRET":
+                    return value if value else None
+    except Exception as e:
+        print(f"[MemberHelper] Error reading .env: {e}")
     return None
 
 
+def _is_member_secret_format_valid(secret: str) -> bool:
+    """Validate exact format: 14-digit timestamp + 3 digits + 6 uppercase letters (total 23)."""
+    import re
+    from datetime import datetime
+
+    if not secret:
+        return False
+    # Must be exactly 23 chars: 14 digits + 3 digits + 6 uppercase
+    if len(secret) != 23:
+        return False
+    # Full pattern: YYYYMMDDHHMMSSNNNVVVVVV (V = uppercase letter)
+    if not re.match(r'^\d{14}\d{3}[A-Z]{6}$', secret):
+        return False
+    # Validate timestamp part is a real datetime
+    try:
+        datetime.strptime(secret[:14], "%Y%m%d%H%M%S")
+    except ValueError:
+        return False
+    return True
+
+
+def update_member_secret_in_env(secret: str) -> bool:
+    """Write MEMBER_SECRET to .env: replaces any existing entry, appends if missing. Verifies."""
+    env_path = os.path.join(BASE_PATH, ".env")
+    new_line = f"MEMBER_SECRET={secret}\n"
+    try:
+        lines = []
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+            except Exception as e:
+                print(f"[MemberHelper] Failed to read .env: {e}")
+                return False
+
+        new_lines, replaced = [], False
+        for line in lines:
+            stripped = line.strip()
+            key = stripped.split('=', 1)[0] if '=' in stripped else ''
+            if key.strip().upper() == "MEMBER_SECRET":
+                if not replaced:
+                    new_lines.append(new_line)
+                    replaced = True
+                continue
+            new_lines.append(line)
+
+        if not replaced:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(new_line)
+
+        try:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        except Exception as e:
+            print(f"[MemberHelper] Failed to write .env: {e}")
+            return False
+
+        # Verify by reading back
+        current = _read_member_secret_from_env()
+        if current != secret:
+            print(f"[MemberHelper] Verification failed: expected len={len(secret)} got len={len(current) if current else 0}")
+            return False
+        return True
+    except Exception as e:
+        print(f"[MemberHelper] Error updating .env: {e}")
+        return False
+
+
+
+
 def verify_member_secret() -> bool:
+    """Check local format + server-side hash validation."""
     plaintext = _read_member_secret_from_env()
     if not plaintext:
         print("[MemberHelper] MEMBER_SECRET not found or empty in .env")
+        return False
+    if not _is_member_secret_format_valid(plaintext):
+        print("[MemberHelper] MEMBER_SECRET format is invalid")
         return False
     secret_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
     try:
@@ -237,8 +318,7 @@ def verify_member_secret() -> bool:
         if response.status_code != 200:
             print(f"[MemberHelper] verify_member_secret failed status={response.status_code}")
             return False
-        result = response.json()
-        return result is True
+        return response.json() is True
     except Exception as e:
         print(f"[MemberHelper] verify_member_secret error: {e}")
         return False

@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QFileDialog, QWidgetAction, QWidget, QScrollArea
+from PySide6.QtWidgets import QMenuBar, QMenu, QMessageBox, QDialog, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QWidgetAction, QWidget, QScrollArea
 from PySide6.QtGui import QAction, QPixmap, QIcon
 from PySide6.QtCore import Qt
 import qtawesome as qta
@@ -27,6 +27,7 @@ from dialogs.update_notice_dialog import UpdateNoticeDialog
 from dialogs.video_proxy_prompt_settings_dialog import VideoProxyPromptSettingsDialog
 from dialogs.backup_global_config_dialog import BackupGlobalConfigDialog
 from dialogs.logs_dialog import LogsDialog
+from dialogs.members.renew_secret_dialog import RenewSecretDialog
 
 # Menu tooltips dictionary
 MENU_TOOLTIPS = {
@@ -266,48 +267,9 @@ def setup_main_menu(window):
     window.check_limit_action = check_limit_action
 
     renew_secret_action = QAction(qta.icon('fa6s.key'), "Renew Member Secret", window)
-    renew_secret_action.setToolTip("Load .env file from admin to update your MEMBER_SECRET")
-    renew_secret_action.setStatusTip("Load .env file from admin to update your MEMBER_SECRET")
-    def do_renew_secret():
-        env_path = os.path.join(BASE_PATH, ".env")
-        file_path, _ = QFileDialog.getOpenFileName(
-            window,
-            "Select .env file from admin",
-            os.path.expanduser("~"),
-            "All Files (*)",
-        )
-        if not file_path:
-            return
-        new_secret = None
-        with open(file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped = line.strip()
-                if stripped.upper().startswith("MEMBER_SECRET="):
-                    new_secret = stripped[len("MEMBER_SECRET="):]
-                    break
-        if not new_secret:
-            QMessageBox.warning(window, "Not Found", "MEMBER_SECRET not found in the selected file.")
-            return
-        existing_lines = []
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
-                existing_lines = f.readlines()
-        replaced = False
-        new_lines = []
-        for line in existing_lines:
-            if line.strip().upper().startswith("MEMBER_SECRET="):
-                new_lines.append(f"MEMBER_SECRET={new_secret}\n")
-                replaced = True
-            else:
-                new_lines.append(line)
-        if not replaced:
-            if new_lines and not new_lines[-1].endswith("\n"):
-                new_lines.append("\n")
-            new_lines.append(f"MEMBER_SECRET={new_secret}\n")
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-        QMessageBox.information(window, "Success", "MEMBER_SECRET updated successfully.\nRestart Image Tea to apply the changes.")
-    renew_secret_action.triggered.connect(do_renew_secret)
+    renew_secret_action.setToolTip("Enter your MEMBER_SECRET directly to update it")
+    renew_secret_action.setStatusTip("Enter your MEMBER_SECRET directly to update it")
+    renew_secret_action.triggered.connect(lambda: RenewSecretDialog(window).exec())
     member_menu.addAction(renew_secret_action)
     window.renew_secret_action = renew_secret_action
 
