@@ -141,6 +141,9 @@ class VibeVideoGeneratorDialog(QDialog):
         self.menu_widget.set_collections_widget(self.collections_widget)
         self.menu_widget.set_scripts_widget(self.scripts_widget)
 
+        # Connect duration change in Actions tab to auto-refresh preview
+        self.code_actions_widget.duration_changed.connect(self._on_actions_duration_changed)
+
     def _on_new_script_created(self, collection_id):
         self.collections_widget.load_collections()
 
@@ -181,6 +184,15 @@ class VibeVideoGeneratorDialog(QDialog):
         if not preview_tab or not preview_tab._scripts_widget:
             return
         preview_tab._process_pending_script_selection()
+
+    def _on_actions_duration_changed(self, new_duration):
+        """Auto-refresh preview when duration seconds spinner changes (on Enter or mouse wheel)."""
+        # Re-select the currently displayed script to trigger preview refresh
+        current_script_id = self.scripts_widget.current_script_id
+        if current_script_id and self.scripts_widget.db:
+            script_data = self.scripts_widget.db.get_remotion_script(current_script_id)
+            if script_data:
+                self.scripts_widget.display_script(script_data)
 
     def _on_rendering_started(self):
         """Disable interactive UI elements during rendering."""

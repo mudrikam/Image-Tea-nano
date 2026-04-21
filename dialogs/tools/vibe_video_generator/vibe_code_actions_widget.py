@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView,
     QGroupBox
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QColor
 import qtawesome as qta
 
@@ -328,6 +328,7 @@ class RenderWorker(QThread):
 class CodeActionsWidget(QWidget):
     rendering_started = Signal()
     rendering_finished = Signal()
+    duration_changed = Signal(int)  # Emitted when duration seconds spinner value changes
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -363,8 +364,8 @@ class CodeActionsWidget(QWidget):
             self._sync_preset_combo()
             # Sync duration: seconds (Actions) -> frames (Render Settings)
             self._on_duration_changed()
-            # Sync back: if user changes Render Settings duration directly
-            self._render_settings_tab.duration_spin.valueChanged.connect(self._sync_duration_to_actions)
+        # Sync back: if user changes Render Settings duration directly
+        self._render_settings_tab.duration_spin.valueChanged.connect(self._sync_duration_to_actions)
 
     def set_scripts_widget(self, scripts_widget):
         self._scripts_widget = scripts_widget
@@ -429,6 +430,8 @@ class CodeActionsWidget(QWidget):
         self._render_settings_tab.duration_spin.blockSignals(True)
         self._render_settings_tab.duration_spin.setValue(self.duration_seconds_spin.value())
         self._render_settings_tab.duration_spin.blockSignals(False)
+        # Notify that duration changed (for Auto-refresh)
+        self.duration_changed.emit(self.duration_seconds_spin.value())
 
     def _sync_duration_to_actions(self):
         """Render Settings duration (seconds) -> Actions duration (seconds)."""
@@ -1126,5 +1129,5 @@ class CodeActionsWidget(QWidget):
 
     def _apply_fixed_script(self, script_data):
         if self._scripts_widget:
-            self._scripts_widget.display_script(script_data)
+            self._scripts_widget.display_script(script_data, from_ai=True)
             self._scripts_widget.script_updated.emit(script_data)

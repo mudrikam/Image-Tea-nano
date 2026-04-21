@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar, QGroupBox)
 from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread, QTimer, QRect, QSize, QPoint
-from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette, QPainter, QTextCursor
+from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette, QPainter, QTextCursor, QShortcut, QKeySequence
 import qtawesome as qta
 from ui.theme_system import theme
 from pygments import lex
@@ -595,6 +595,10 @@ class ScriptsWidget(QWidget):
         self.script_content.verticalScrollBar().valueChanged.connect(self.line_number_area.update)
         self.script_content.textChanged.connect(self._update_line_count)
         self.script_content.textChanged.connect(self._update_save_button_state)
+        # Enable undo/redo and connect availability signals
+        self.script_content.setUndoRedoEnabled(True)
+        self.script_content.document().undoAvailable.connect(self._update_undo_redo_buttons)
+        self.script_content.document().redoAvailable.connect(self._update_undo_redo_buttons)
         
         # Enable mouse tracking for line number clicks
         self.line_number_area.mousePressEvent = self._line_number_mouse_press
@@ -630,6 +634,24 @@ class ScriptsWidget(QWidget):
         self.interrupt_btn.clicked.connect(self._on_interrupt)
         self.interrupt_btn.setVisible(False)  # Hidden by default
         btn_layout.addWidget(self.interrupt_btn)
+
+        # Undo/Redo buttons for AI changes
+        self.undo_btn = QPushButton('Undo')
+        self.undo_btn.setIcon(qta.icon('fa6s.rotate-left'))
+        self.undo_btn.setToolTip('Undo last change (Ctrl+Alt+Z)')
+        self.undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.undo_btn.setEnabled(False)
+        self.undo_btn.clicked.connect(self._on_undo)
+        btn_layout.addWidget(self.undo_btn)
+
+        self.redo_btn = QPushButton('Redo')
+        self.redo_btn.setIcon(qta.icon('fa6s.rotate-right'))
+        self.redo_btn.setToolTip('Redo undone change (Ctrl+Alt+Y)')
+        self.redo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.redo_btn.setEnabled(False)
+        self.redo_btn.clicked.connect(self._on_redo)
+        btn_layout.addWidget(self.redo_btn)
+
         self.clear_btn = QPushButton('Clear')
         self.clear_btn.setIcon(qta.icon('fa6s.eraser'))
         self.clear_btn.setEnabled(False)
@@ -646,6 +668,14 @@ class ScriptsWidget(QWidget):
         self.save_btn.clicked.connect(self._on_save)
         btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
+
+        # Keyboard shortcuts for undo/redo (Ctrl+Alt+Z / Ctrl+Alt+Y)
+        self._undo_shortcut = QShortcut(QKeySequence('Ctrl+Alt+Z'), self)
+        self._undo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._undo_shortcut.activated.connect(self._on_undo)
+        self._redo_shortcut = QShortcut(QKeySequence('Ctrl+Alt+Y'), self)
+        self._redo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._redo_shortcut.activated.connect(self._on_redo)
 
     def _apply_theme(self):
         styles, default_text, bg = get_theme_colors()
@@ -673,6 +703,22 @@ class ScriptsWidget(QWidget):
         current = self.script_content.toPlainText()
         has_changes = current != self._original_content
         self.save_btn.setEnabled(has_changes)
+
+    def _update_undo_redo_buttons(self):
+        """Update undo/redo button states based on document's undo/redo availability."""
+        doc = self.script_content.document()
+        self.undo_btn.setEnabled(doc.isUndoAvailable())
+        self.redo_btn.setEnabled(doc.isRedoAvailable())
+
+    def _replace_content_undoable(self, new_content: str):
+        """Replace entire editor content as a single undoable action."""
+        cursor = self.script_content.textCursor()
+        cursor.beginEditBlock()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertText(new_content)
+        cursor.endEditBlock()
 
     def _update_line_numbers(self):
         if self.line_number_area:
@@ -806,31 +852,42 @@ class ScriptsWidget(QWidget):
         
         return -1
 
-    def display_script(self, script_data):
-        self.current_script_id = script_data.get('id') if script_data else None
-        self.current_script_name = script_data.get('name') if script_data else None
+    def display_script(self, script_data, from_ai: bool = False):
+        new_script_id = script_data.get('id') if script_data else None
+        new_script_name = script_data.get('name') if script_data else None
+
+        # Update current identifiers
+        self.current_script_id = new_script_id
+        self.current_script_name = new_script_name
         has_script = script_data is not None
         self.clear_btn.setEnabled(has_script)
-        self.save_btn.setEnabled(False)  # Always disabled initially until change detected
+        self.save_btn.setEnabled(False)
         self.refine_btn.setEnabled(has_script)
         self.open_browser_btn.setEnabled(has_script)
         self.paste_btn.setEnabled(has_script)
         self.script_content.setReadOnly(not has_script)
+
         if script_data:
             content = script_data.get('script_content', '')
             line_count = len(content.splitlines())
-            self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
-            # Only update content if changed, and block signals to avoid unwanted textChanged
+            self.script_name_label.setText(f"Script: {new_script_name or 'Unnamed'}  |  {line_count} lines")
+
             if self.script_content.toPlainText() != content:
-                self.script_content.blockSignals(True)
-                self.script_content.setPlainText(content)
-                self.script_content.blockSignals(False)
+                if from_ai:
+                    # Replace with undoable command for AI changes
+                    self.script_content.blockSignals(True)
+                    self._replace_content_undoable(content)
+                    self.script_content.blockSignals(False)
+                else:
+                    # Normal script selection: clear undo stack and set directly
+                    self.script_content.blockSignals(True)
+                    self.script_content.setPlainText(content)  # this clears undo stack
+                    self.script_content.blockSignals(False)
                 self._update_line_numbers()
                 self._update_line_count()
-            # Store original content for change detection
             self._original_content = content
             self._update_save_button_state()
-            self.script_selected.emit(script_data.get('name', ''))
+            self.script_selected.emit(new_script_name or '')
         else:
             self.script_name_label.setText('No script selected')
             self._original_content = ''
@@ -838,6 +895,8 @@ class ScriptsWidget(QWidget):
             self.paste_btn.setEnabled(False)
             self.script_selected.emit('')
             self.script_content.clear()
+
+        self._update_undo_redo_buttons()
 
     def update_script_name(self, new_name):
         self.current_script_name = new_name
@@ -927,9 +986,10 @@ class ScriptsWidget(QWidget):
                 current_display = self.script_content.toPlainText()
                 if current_display != script:
                     self.script_content.blockSignals(True)
-                    self.script_content.setPlainText(script)
+                    self._replace_content_undoable(script)
                     self.script_content.blockSignals(False)
                 self._original_content = script
+                self._update_save_button_state()
                 self._update_line_numbers()
                 self._update_line_count()
                 print(f"[Vibe Video] Turn {turn} disimpan ke database.")
@@ -1007,23 +1067,25 @@ class ScriptsWidget(QWidget):
         content = script_data.get('script_content', '')
         line_count = len(content.splitlines())
         self.script_name_label.setText(f"Script: {script_data.get('name', 'Unnamed')}  |  {line_count} lines")
-        # Block signals to avoid triggering textChanged during programmatic update
-        self.script_content.blockSignals(True)
-        self.script_content.setPlainText(content)
-        self.script_content.blockSignals(False)
-        self._update_line_numbers()
-        self._update_line_count()
-        # Auto-save the refined script
+
+        # Replace with undoable command (AI change)
+        current_display = self.script_content.toPlainText()
+        if current_display != content:
+            self.script_content.blockSignals(True)
+            self._replace_content_undoable(content)
+            self.script_content.blockSignals(False)
+        # Auto-save and update original content tracking
         if self.db and self.current_script_id:
             try:
                 self.db.update_remotion_script(
                     script_id=self.current_script_id,
                     script_content=content
                 )
-                # Update original content tracking after successful save
                 self._original_content = content
             except Exception as e:
                 print(f"[Vibe Video] Auto-save after refine failed: {e}")
+        self._update_line_numbers()
+        self._update_line_count()
         self._update_save_button_state()
         self.script_updated.emit(script_data)
 
@@ -1057,12 +1119,29 @@ class ScriptsWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Save Error', f'Failed to save script:\n{str(e)}')
 
+    def _on_undo(self):
+        """Undo last edit (AI or manual) via Qt's undo stack."""
+        if self.script_content.document().isUndoAvailable():
+            self.script_content.undo()
+
+    def _on_redo(self):
+        """Redo last undone edit via Qt's redo stack."""
+        if self.script_content.document().isRedoAvailable():
+            self.script_content.redo()
+
     def _on_paste(self):
         """Replace editor content with clipboard text."""
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         if text:
-            self.script_content.setPlainText(text)
+            current = self.script_content.toPlainText()
+            if current != text:
+                self.script_content.blockSignals(True)
+                self._replace_content_undoable(text)
+                self.script_content.blockSignals(False)
+                self._update_line_numbers()
+                self._update_line_count()
+                self._update_save_button_state()
             self.script_content.setFocus()
 
     def _on_open_browser(self):

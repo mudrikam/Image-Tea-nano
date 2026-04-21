@@ -918,6 +918,9 @@ def render_video(
 
         output_lines = []
         if proc.stdout:
+            # Track total frames for weighted progress (rendering 0-50%, encoding 50-100%)
+            total_frames = None
+            encoding_started = False
             while True:
                 line = proc.stdout.readline()
                 if line == '' and proc.poll() is not None:
@@ -942,21 +945,45 @@ def render_video(
                     if clean:
                         output_lines.append(clean)
                         print(f"[Remotion] {clean}")
-                    if progress_callback and ('Rendered' in line or 'Bundl' in line):
-                        frame_match = re.search(r'Rendered\s+(\d+)/(\d+)', line)
-                        if frame_match:
-                            current = int(frame_match.group(1))
-                            total = int(frame_match.group(2))
-                            pct = int(current / total * 100) if total > 0 else 0
-                            # Extract ETA if present
-                            eta_match = re.search(r'time remaining[:\s]+([0-9]+h\s*[0-9]+m\s*[0-9]+s|[0-9]+m\s*[0-9]+s|[0-9]+s)', line, re.IGNORECASE)
-                            eta_text = eta_match.group(1).strip() if eta_match else ''
-                            msg = f"Frame {current}/{total}"
-                            if eta_text:
-                                msg += f", ETA: {eta_text}"
-                            progress_callback(min(pct, 99), msg)
+                    if progress_callback:
+                        # Rendering phase: "Rendered X/Y"
+                        if 'Rendered' in line:
+                            frame_match = re.search(r'Rendered\s+(\d+)/(\d+)', line)
+                            if frame_match:
+                                current = int(frame_match.group(1))
+                                total = int(frame_match.group(2))
+                                if total_frames is None:
+                                    total_frames = total
+                                # Rendering accounts for first 50% of overall progress
+                                pct = int(current / total_frames * 50) if total_frames else 0
+                                # Extract ETA if present
+                                eta_match = re.search(r'time remaining[:\s]+([0-9]+h\s*[0-9]+m\s*[0-9]+s|[0-9]+m\s*[0-9]+s|[0-9]+s)', line, re.IGNORECASE)
+                                eta_text = eta_match.group(1).strip() if eta_match else ''
+                                msg = f"Rendering frame {current}/{total_frames}"
+                                if eta_text:
+                                    msg += f", ETA: {eta_text}"
+                                progress_callback(pct, msg)
+                        # Encoding phase: "Encoded X/Y"
+                        elif 'Encoded' in line:
+                            encode_match = re.search(r'Encoded\s+(\d+)/(\d+)', line)
+                            if encode_match:
+                                current = int(encode_match.group(1))
+                                total = int(encode_match.group(2))
+                                if total_frames is None:
+                                    total_frames = total
+                                # Encoding accounts for last 50% of overall progress (50-100%)
+                                pct = 50 + int(current / total_frames * 50) if total_frames else 50
+                                # Extract ETA if present
+                                eta_match = re.search(r'time remaining[:\s]+([0-9]+h\s*[0-9]+m\s*[0-9]+s|[0-9]+m\s*[0-9]+s|[0-9]+s)', line, re.IGNORECASE)
+                                eta_text = eta_match.group(1).strip() if eta_match else ''
+                                msg = f"Encoding {current}/{total_frames}"
+                                if eta_text:
+                                    msg += f", ETA: {eta_text}"
+                                progress_callback(pct, msg)
+                                encoding_started = True
                         elif 'Bundl' in line:
-                            progress_callback(5, "Bundling...")
+                            # Bundling after encoding, show near-complete
+                            progress_callback(99, "Bundling...")
 
         proc.wait()
 

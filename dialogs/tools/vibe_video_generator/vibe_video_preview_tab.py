@@ -950,7 +950,7 @@ class PreviewTabWidget(QWidget):
         """Update toggle server button text, icon, and enabled state based on server status."""
         if self._server_running:
             self.toggle_server_btn.setText('Stop Server')
-            self.toggle_server_btn.setIcon(qta.icon('fa6s.stop'))
+            self.toggle_server_btn.setIcon(qta.icon('fa6s.circle', color=theme.get_color('error')))
             self.toggle_server_btn.setEnabled(True)
         elif self._server_starting:
             self.toggle_server_btn.setText('Starting...')
