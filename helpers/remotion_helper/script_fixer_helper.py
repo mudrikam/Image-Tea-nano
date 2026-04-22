@@ -1,6 +1,7 @@
 """Script Fixer helper — extracted from vibe_code_actions_widget.py"""
 
 import re
+import json
 
 
 _COMMON_RULES_AND_FORMAT = """
@@ -172,7 +173,7 @@ def apply_search_replace(original: str, ai_response: str) -> str:
 def is_continuation_request(ai_response: str) -> tuple[bool, str | None]:
     """Detect if AI response includes a continuation request with context.
 
-    Expected format at end of response:
+    Expected format (BOTH markers together):
         <<<CONTEXT
         <state to carry forward>
         ===
@@ -185,6 +186,7 @@ def is_continuation_request(ai_response: str) -> tuple[bool, str | None]:
         return False, None
         
     cleaned = ai_response.strip()
+    # Both markers MUST be present together
     pattern = r'<<<CONTEXT\s*\n(.*?)\n===\s*\n<<<TOOL_CALL_RESPONSE\s*$'
     match = re.search(pattern, cleaned, re.DOTALL)
     if match:
@@ -255,3 +257,426 @@ def extract_code_block(text: str) -> str:
     if match:
         return match.group(1).strip()
     return ''
+
+
+# ============================================================================
+# TOOL-CALL INFRASTRUCTURE FOR TOKEN-EFFICIENT REFINEMENT
+# ============================================================================
+
+# JSON Schema definitions for tools (OpenAI/Gemini compatible format)
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_lines",
+            "description": "Read a specific range of lines from the script (maximum 150 lines per request). Use when you need to examine a specific code section.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Starting line number (1-indexed, inclusive)"
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Ending line number (1-indexed, inclusive). The range will be capped at 150 lines maximum."
+                    }
+                },
+                "required": ["start_line", "end_line"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_function",
+            "description": "Extract a specific function or component definition by name. Use to focus on a particular function's implementation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "function_name": {
+                        "type": "string",
+                        "description": "Name of the function or component to read (e.g., 'render', 'MyComponent')"
+                    }
+                },
+                "required": ["function_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_imports",
+            "description": "Get all import statements from the script. Use to check available modules and dependencies.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compact_session",
+            "description": "Summarize accumulated context to reduce token usage for subsequent turns. Call when conversation history grows long. Provide a summary_prompt describing what to condense.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary_prompt": {
+                        "type": "string",
+                        "description": "Instructions for how to summarize the accumulated context (e.g., 'Summarize completed changes and remaining tasks')"
+                    }
+                },
+                "required": ["summary_prompt"]
+            }
+        }
+    }
+]
+
+# Tool call marker that AI appends to request tool use
+TOOL_CALL_MARKER = "<<<TOOL_CALL_RESPONSE"
+
+# System instructions for tool usage (appended to prompts when tools are supported)
+TOOL_USAGE_INSTRUCTIONS = """
+
+TOOL USAGE FOR CONTEXT RETRIEVAL:
+You can request specific code sections using tool calls before making SEARCH/REPLACE changes. This helps you get exact context without receiving the full script every turn.
+
+TOOLS AVAILABLE:
+1. read_lines(start_line, end_line) — Get lines N through M (1-indexed). Each request is limited to 150 lines maximum. Use multiple focused requests if you need more context.
+2. read_function(function_name) — Extract a function/component definition by name.
+3. read_imports() — Get all import statements.
+4. compact_session(summary_prompt) — Condense accumulated context to save tokens; you provide how to summarize.
+
+BEST PRACTICES FOR TOOL USAGE:
+- Keep read_lines requests to 100-150 lines maximum per call. If you need more context, make multiple plan for the next request.
+- Request specific regions rather than large swaths. Use get_script_overview to understand structure first.
+- Before requesting a large range, consider if read_function() would be more efficient for a specific component.
+- If you find yourself needing many line ranges, use compact_session to summarize and reset context.
+
+HOW TO CALL TOOLS:
+At the end of your response, append a JSON object wrapped in ```json``` fences, followed by <<<TOOL_CALL_RESPONSE on its own line:
+
+```json
+{
+  "tool_calls": [
+    {"tool": "read_lines", "parameters": {"start_line": 1, "end_line": 100}},
+    {"tool": "read_function", "parameters": {"function_name": "render"}}
+  ]
+}
+<<<TOOL_CALL_RESPONSE
+```
+
+The system will execute these tools and send you the results in the next turn. Then you can proceed with SEARCH/REPLACE.
+IMPORTANT: If you call tools, DO NOT output SEARCH/REPLACE blocks in the same response. Wait for tool results first.
+"""
+
+
+def get_script_overview(script_content: str, max_lines: int = 30) -> str:
+    """Generate a compressed overview of the script (function list + import summary).
+    
+    Used to send a minimal initial context instead of the full script, saving tokens.
+    """
+    lines = script_content.splitlines()
+    
+    # Collect import lines
+    imports = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('import ') or stripped.startswith('from '):
+            imports.append(line)
+    
+    # Collect function/component definitions
+    definitions = []
+    pattern = r'^(?:export\s+)?(?:const|function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:=|\(|<)'
+    for i, line in enumerate(lines, 1):
+        m = re.match(pattern, line.strip())
+        if m:
+            definitions.append(f"  Line {i}: {m.group(1)}")
+    
+    # Collect key variable declarations that might hold strings (like text color)
+    key_vars = []
+    var_pattern = r'^\s*(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*='
+    for i, line in enumerate(lines, 1):
+        m = re.match(var_pattern, line.strip())
+        if m:
+            var_name = m.group(1)
+            # Only include variables that look like style-related or text-related
+            style_related = any(keyword in var_name.lower() for keyword in ['color', 'text', 'style', 'bg', 'background', 'fill', 'stroke'])
+            if style_related and i <= 200:  # Only first 200 lines to avoid noise
+                key_vars.append(f"  Line {i}: {var_name} = {line.split('=')[1].strip()[:50]}")
+    
+    overview_parts = []
+    overview_parts.append(f"Script Overview ({len(lines)} lines total):")
+    
+    if imports:
+        overview_parts.append(f"\nImports ({len(imports)} lines):")
+        for imp in imports[:10]:  # limit to first 10
+            overview_parts.append(f"  {imp}")
+        if len(imports) > 10:
+            overview_parts.append(f"  ... and {len(imports) - 10} more imports")
+    
+    if definitions:
+        overview_parts.append(f"\nFunction/Component definitions ({len(definitions)}):")
+        for d in definitions[:15]:
+            overview_parts.append(f"  {d}")
+        if len(definitions) > 15:
+            overview_parts.append(f"  ... and {len(definitions) - 15} more")
+    
+    if key_vars:
+        overview_parts.append(f"\nKey style/text variables:")
+        for v in key_vars[:10]:
+            overview_parts.append(f"  {v}")
+    
+    return '\n'.join(overview_parts)
+
+
+def parse_tool_calls(ai_response: str) -> list[dict] | None:
+    """Extract tool calls from AI response.
+    
+    Expected format (marker mandatory at end):
+    ```json
+    { "tool_calls": [...] }
+    <<<TOOL_CALL_RESPONSE
+    ```
+    The closing ``` fence is optional; any text before the JSON block is ignored.
+    Returns list of tool call dicts or None if no valid calls found.
+    """
+    if not ai_response:
+        return None
+    
+    cleaned = ai_response.strip()
+    
+    # Must end with the marker
+    if not re.search(r'\n?<<<TOOL_CALL_RESPONSE\s*$', cleaned):
+        return None
+    
+    # Remove marker
+    without_marker = re.sub(r'\n?<<<TOOL_CALL_RESPONSE\s*$', '', cleaned).strip()
+    
+    # Try to extract JSON from inside ```json ... ``` fences (if present)
+    json_match = re.search(r'```json\s*(.*?)\s*```', without_marker, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1).strip()
+    else:
+        # No fences — find outermost JSON object by locating first '{' and last '}'
+        start = without_marker.find('{')
+        end = without_marker.rfind('}')
+        if start == -1 or end == -1 or start > end:
+            return None
+        json_str = without_marker[start:end+1].strip()
+    
+    if not json_str:
+        return None
+    
+    try:
+        data = json.loads(json_str)
+        tool_calls = data.get('tool_calls', [])
+        if isinstance(tool_calls, list) and tool_calls:
+            return tool_calls
+    except json.JSONDecodeError as e:
+        print(f"[Vibe Video] JSON parse error in tool calls: {e}")
+    
+    return None
+
+
+def execute_tool_call(tool_name: str, params: dict, full_script: str, accumulated_context: str = "") -> tuple[str, str]:
+    """Execute a single tool call and return (result_text, updated_context).
+    
+    Args:
+        tool_name: Name of the tool to execute
+        params: Parameters for the tool
+        full_script: The complete current script content
+        accumulated_context: Existing accumulated context (for compact_session updates)
+    
+    Returns:
+        (tool_result_text, new_accumulated_context)
+    """
+    lines = full_script.splitlines()
+    result = ""
+    
+    if tool_name == "read_lines":
+        req_start = params.get("start_line", 1)
+        req_end = params.get("end_line", req_start)
+        total_lines = len(lines)
+
+        # Validate types
+        try:
+            req_start = int(req_start)
+            req_end = int(req_end)
+        except (ValueError, TypeError):
+            result = f"[Error] Invalid line numbers: start={req_start}, end={req_end}"
+            return result, accumulated_context
+
+        # Enforce maximum range limit (150 lines) to encourage focused requests
+        MAX_LINES_PER_REQUEST = 150
+        requested_count = req_end - req_start + 1
+        if requested_count > MAX_LINES_PER_REQUEST:
+            result = (f"[Warning] Requested {requested_count} lines ({req_start}-{req_end}) exceeds maximum "
+                      f"of {MAX_LINES_PER_REQUEST}. Reducing to {MAX_LINES_PER_REQUEST} lines.")
+            req_end = req_start + MAX_LINES_PER_REQUEST - 1
+
+        # Completely out of range?
+        if req_start > total_lines or req_start < 1:
+            result = (f"[Warning] Requested lines {req_start}-{req_end} are outside script bounds "
+                      f"(script has {total_lines} lines). Returning last 50 lines instead.")
+            # Give last 50 lines as fallback
+            start = max(1, total_lines - 49)
+            end = total_lines
+            selected = lines[start-1:end]
+            result += "\n" + '\n'.join(selected)
+            return result, accumulated_context
+
+        # Normal clamping
+        start = max(1, min(req_start, total_lines))
+        end = max(start, min(req_end, total_lines))
+        selected = lines[start-1:end]
+        result = f"Lines {start}-{end} (of {total_lines}):\n" + '\n'.join(selected)
+
+        # Note adjustments if any
+        if start != req_start or end != req_end or requested_count > MAX_LINES_PER_REQUEST:
+            result += f"\n[Note: requested {req_start}-{req_end}, adjusted to {start}-{end}]"
+
+        return result, accumulated_context
+        
+    elif tool_name == "read_function":
+        func_name = params.get("function_name", "").strip()
+        if not func_name:
+            result = "Error: function_name parameter required."
+            return result, accumulated_context
+        
+        # Find function start: match `function Name(` or `const Name =` (including optional export)
+        patterns = [
+            rf'^(?:export\s+)?function\s+{re.escape(func_name)}\s*\(',
+            rf'^(?:export\s+)?const\s+{re.escape(func_name)}\s*=',
+            rf'^(?:export\s+)?let\s+{re.escape(func_name)}\s*=',
+            rf'^(?:export\s+)?class\s+{re.escape(func_name)}\b',
+        ]
+        start_idx = None
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            for pat in patterns:
+                if re.match(pat, line_stripped):
+                    start_idx = i
+                    break
+            if start_idx is not None:
+                break
+        
+        if start_idx is None:
+            result = f"Function '{func_name}' not found."
+            return result, accumulated_context
+        
+        # Find end using brace counting (handles multi-line bodies)
+        brace_count = 0
+        end_idx = None
+        for i in range(start_idx, len(lines)):
+            for ch in lines[i]:
+                if ch == '{':
+                    brace_count += 1
+                elif ch == '}':
+                    brace_count -= 1
+            if brace_count == 0 and i > start_idx:
+                end_idx = i + 1  # include the closing line
+                break
+        if end_idx is None:
+            end_idx = len(lines)
+        
+        selected = lines[start_idx:end_idx]
+        result = f"Function '{func_name}' (lines {start_idx+1}-{end_idx}):\n" + '\n'.join(selected)
+        return result, accumulated_context
+        
+
+    elif tool_name == "read_imports":
+        imports = [line for line in lines if line.strip().startswith(('import ', 'from '))]
+        result = "Import statements:\n" + '\n'.join(imports) if imports else "No imports found."
+        
+    elif tool_name == "compact_session":
+        summary_prompt = params.get("summary_prompt", "Summarize current progress")
+        # We don't call AI here — that would be recursive. Instead, just note the request.
+        # The AI will handle summarization on its next turn using this prompt.
+        result = f"[compact_session requested: {summary_prompt}]"
+        # Update accumulated_context with note that compaction was requested
+        # The actual compaction will be done by AI on subsequent turn using the summary_prompt as guidance
+        return result, accumulated_context + f"\n[Session compaction requested: {summary_prompt}]"
+    
+    else:
+        result = f"Unknown tool: {tool_name}"
+    
+    return result, accumulated_context
+
+
+def build_tool_aware_initial_prompt(script_content: str, instruction: str) -> str:
+    """Build initial prompt for refinement using tool-aware instructions and compressed script."""
+    overview = get_script_overview(script_content)
+    prompt = f"""You are a Remotion TypeScript/React code refiner with access to tools for retrieving code context.
+{_COMMON_RULES_AND_FORMAT}
+{TOOL_USAGE_INSTRUCTIONS}
+
+CURRENT SCRIPT OVERVIEW (full script NOT provided — use tools to read sections):
+{overview}
+
+USER INSTRUCTION:
+{instruction}
+
+TASK:
+Examine the script overview to understand structure. Use the available tools (read_lines, read_function, read_imports) to retrieve the code sections you need. After receiving tool results, output your SEARCH/REPLACE blocks to apply the changes.
+
+IMPORTANT:
+- Use tools proactively if the instruction is vague; do not guess code.
+- Output SEARCH/REPLACE blocks wrapped in ```typescript``` fences.
+- If you need another turn, use the CONTEXT/TOOL_CALL_RESPONSE block at the end."""
+    return prompt
+
+
+def build_tool_aware_continuation_prompt(original_script: str, accumulated_changes: str, user_error_msg: str, tool_results: list[str] = None, after_tool_call: bool = False) -> str:
+    """Build continuation prompt without full script — AI must use tools to read sections.
+    
+    Args:
+        after_tool_call: If True, AI has already received tool results and MUST NOT request more tools.
+    """
+    overview = get_script_overview(original_script)
+    tool_results_section = ""
+    if tool_results:
+        tool_results_section = "\n\nTOOL RESULTS (from your previous context requests):\n"
+        for i, res in enumerate(tool_results, 1):
+            tool_results_section += f"--- Tool Result {i} ---\n{res}\n"
+    
+    # Determine task instructions based on state
+    if after_tool_call:
+        task_instructions = """TASK:
+You have received the requested code sections below. DO NOT request any more tools.
+USE THE PROVIDED CODE SECTIONS to write your SEARCH/REPLACE blocks. Ensure EXACT line matching including indentation.
+
+If you need another turn after this, use the CONTEXT/TOOL_CALL_RESPONSE block.
+
+CRITICAL:
+- DO NOT call any more tools in this turn. You already have the context you requested.
+- SEARCH blocks MUST match the provided code EXACTLY (including whitespace).
+- Output SEARCH/REPLACE blocks wrapped in ```typescript``` code fences.
+- If this is your final step, just end after SEARCH/REPLACE without any CONTEXT block."""
+    else:
+        task_instructions = """TASK:
+Execute your NEXT planned step. Use tools (read_lines, read_function, read_imports) to retrieve any code sections you need. After receiving tool results, output your SEARCH/REPLACE blocks. If you need another turn after this, use the CONTEXT/TOOL_CALL_RESPONSE block.
+
+CRITICAL:
+- If you call tools, DO NOT output SEARCH/REPLACE in this same response — wait for tool results.
+- When ready to apply changes, output SEARCH/REPLACE blocks wrapped in ```typescript``` code fences.
+- If this is your final step, just end after SEARCH/REPLACE without any CONTEXT block."""
+    
+    prompt = f"""You are continuing a previous script refinement session (with tool support).
+{_COMMON_RULES_AND_FORMAT}
+{TOOL_USAGE_INSTRUCTIONS}
+
+CURRENT SCRIPT OVERVIEW (full script NOT included — use tools to read any section):
+{overview}
+
+YOUR PREVIOUS PLAN & NOTES:
+{accumulated_changes if accumulated_changes else '(none yet)'}
+
+{tool_results_section}
+ORIGINAL INSTRUCTION:
+{user_error_msg}
+
+{task_instructions}
+"""
+    return prompt

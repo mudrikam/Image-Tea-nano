@@ -281,7 +281,7 @@ class ScriptRefineWorker(QThread):
     finished = Signal(bool, str)
     progress = Signal(str)
     turn_completed = Signal(int, str)  # (turn_number, script_content)
-    MAX_RETRIES = 3
+    MAX_RETRIES = 10  # Increased to accommodate tool-call cycles
 
     def __init__(self, api_key, endpoint, service, model, script_content, instruction):
         super().__init__()
@@ -328,113 +328,232 @@ class ScriptRefineWorker(QThread):
     def run(self):
         self.progress.emit("Preparing prompt and instructions...")
         try:
-            from helpers.remotion_helper.script_fixer_helper import apply_search_replace, SCRIPT_REFINE_SYSTEM, strip_continuation_block, is_continuation_request, build_continuation_prompt
+            from helpers.remotion_helper.script_fixer_helper import (
+                apply_search_replace, strip_continuation_block,
+                is_continuation_request,
+                parse_tool_calls, execute_tool_call,
+                build_tool_aware_initial_prompt, build_tool_aware_continuation_prompt,
+                extract_code_block
+            )
             
             current_script = self.script_content
-            accumulated_summary = ""
+            carryover_context = ""  # Context dari <<<CONTEXT untuk dibawa ke turn berikutnya
             
             MAX_TURNS = 10
             
             for turn in range(1, MAX_TURNS + 1):
                 self.progress.emit(f"Preparing turn {turn}...")
                 
+                # Reset per-turn state; carryover hanya dari <<<CONTEXT previous turn
+                accumulated_summary = carryover_context
+                pending_tool_results = []
+                carryover_context = ""  # Reset setelah diplomaiki ke accumulated_summary
+                tools_used_this_turn = False  # Track if AI already requested tools this turn
+                
+                # Build prompt for this turn
                 if turn == 1:
-                    full_prompt = (SCRIPT_REFINE_SYSTEM
-                        + '\n\nORIGINAL SCRIPT:\n' + current_script
-                        + '\n\nINSTRUCTION:\n' + self.instruction)
+                    full_prompt = build_tool_aware_initial_prompt(
+                        script_content=current_script,
+                        instruction=self.instruction
+                    )
                 else:
-                     full_prompt = build_continuation_prompt(
-                         original_script=current_script,
-                         accumulated_changes=accumulated_summary,
-                         user_error_msg=f"User instruction: {self.instruction}"
-                     )
+                    full_prompt = build_tool_aware_continuation_prompt(
+                        original_script=current_script,
+                        accumulated_changes=accumulated_summary,
+                        user_error_msg=f"User instruction: {self.instruction}",
+                        tool_results=None,  # always None — we inject after tool exec via pending_tool_results
+                        after_tool_call=False
+                    )
                 
-                attempt_success = False
-                
-                for attempt in range(1, self.MAX_RETRIES + 1):
-                    self.progress.emit(f"Contacting AI (Turn {turn}, Attempt {attempt}/{self.MAX_RETRIES})...")
-                    print(f'[Vibe Video] Refine Turn {turn}, attempt {attempt}/{self.MAX_RETRIES}')
+                # === RETRY LOOP: increment only on actual failure ===
+                retry_count = 1
+                is_retry_after_tools = False  # flags if we are re-prompting with tool results
+                while retry_count <= self.MAX_RETRIES:
+                    if is_retry_after_tools:
+                        self.progress.emit(f"Re-prompting AI with tool results (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
+                        is_retry_after_tools = False
+                    else:
+                        self.progress.emit(f"Contacting AI (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
                     
-                    print(f"[Vibe Video] Raw AI Request (Turn {turn}, Attempt {attempt}):\n{'-'*40}\n{full_prompt}\n{'-'*40}")
+                    print(f'[Vibe Video] Refine Turn {turn}, retry {retry_count}/{self.MAX_RETRIES}')
+                    
+                    print(f"[Vibe Video] Raw AI Request (Turn {turn}, Retry {retry_count}):\n{'-'*40}\n{full_prompt}\n{'-'*40}")
                     
                     text = self._call_ai(full_prompt)
 
-                    print(f"[Vibe Video] Raw AI Response (Turn {turn}, Attempt {attempt}):\n{'-'*40}\n{text}\n{'-'*40}")
+                    print(f"[Vibe Video] Raw AI Response (Turn {turn}, Retry {retry_count}):\n{'-'*40}\n{text}\n{'-'*40}")
 
                     self.progress.emit(f"Analyzing AI response (Turn {turn}/{MAX_TURNS})...")
 
-                    from helpers.remotion_helper.script_fixer_helper import extract_code_block
+                    # --- TOOL CALL DETECTION (does NOT count as retry) ---
+                    tool_calls = parse_tool_calls(text)
+                    
+                    if tool_calls:
+                        # AI requested tool calls — max 1 tool-call sequence per turn
+                        if tools_used_this_turn:
+                            # AI already used tools this turn, requesting again is invalid → retry
+                            self.progress.emit(f"AI already requested tools this turn, requesting again is invalid. Incrementing retry...")
+                            retry_count += 1
+                            if retry_count > self.MAX_RETRIES:
+                                self.finished.emit(False, f'AI requested tools repeatedly without applying changes after {self.MAX_RETRIES} retries on turn {turn}')
+                                return
+                            full_prompt = build_tool_aware_continuation_prompt(
+                                original_script=current_script,
+                                accumulated_changes=accumulated_summary,
+                                user_error_msg=f"You already received tool results. DO NOT request more tools. Output SEARCH/REPLACE blocks now.",
+                                tool_results=None,
+                                after_tool_call=True
+                            )
+                            continue  # same retry count? Actually we already incremented, so loop continues with new count
+                        
+                        # Build readable summary of requested tools
+                        tool_summaries = []
+                        for tc in tool_calls:
+                            t = tc.get('tool')
+                            p = tc.get('parameters', {})
+                            if t == 'read_function':
+                                tool_summaries.append(f"read_function('{p.get('function_name','?')}')")
+                            elif t == 'read_lines':
+                                tool_summaries.append(f"read_lines({p.get('start_line','?')}-{p.get('end_line','?')})")
+                            elif t == 'read_imports':
+                                tool_summaries.append("read_imports()")
+                            elif t == 'compact_session':
+                                tool_summaries.append(f"compact_session('{p.get('summary_prompt','?')}')")
+                            else:
+                                tool_summaries.append(f"{t}({p})")
+                        
+                        self.progress.emit(f"AI requested context via: {', '.join(tool_summaries)}")
+                        print(f"[Vibe Video] Tool calls detected: {tool_summaries}")
+                        tools_used_this_turn = True  # mark as used
+                        
+                        # Execute each tool
+                        for tc in tool_calls:
+                            tool_name = tc.get('tool')
+                            params = tc.get('parameters', {})
+                            
+                            if tool_name == "compact_session":
+                                self.progress.emit("Compressing session context (compact_session)...")
+                                summary_prompt = params.get("summary_prompt", "Summarize current progress")
+                                summarizer_prompt = (
+                                    "You are a session summarizer. Condense the following accumulated context into a concise summary "
+                                    "preserving key decisions, changes made, and remaining tasks. Keep it brief but informative.\n\n"
+                                    f"Context to summarize:\n{accumulated_summary}\n\n"
+                                    f"Summary instructions: {summary_prompt}\n\n"
+                                    "Summary:"
+                                )
+                                try:
+                                    summary = self._call_ai(summarizer_prompt)
+                                    if not summary or not summary.strip():
+                                        summary = "[No summary generated]"
+                                    result = f"[Session compacted]\n{summary}"
+                                    accumulated_summary = summary
+                                except Exception as e:
+                                    result = f"[Compaction error: {e}]"
+                                pending_tool_results.append(f"[Tool: {tool_name}]\n{result}")
+                            else:
+                                self.progress.emit(f"Executing tool: {tool_name}...")
+                                result, new_context = execute_tool_call(
+                                    tool_name, params, current_script, accumulated_summary
+                                )
+                                pending_tool_results.append(f"[Tool: {tool_name}]\n{result}")
+                                accumulated_summary = new_context
+                        
+                        # Re-prompt with tool results — SAME retry count (no increment)
+                        full_prompt = build_tool_aware_continuation_prompt(
+                            original_script=current_script,
+                            accumulated_changes=accumulated_summary,
+                            user_error_msg=f"User instruction: {self.instruction}",
+                            tool_results=pending_tool_results,
+                            after_tool_call=True
+                        )
+                        pending_tool_results = []
+                        self.progress.emit("Tool results ready — re-prompting AI with context...")
+                        print(f"[Vibe Video] Re-prompting AI with tool results (same retry {retry_count})...")
+                        is_retry_after_tools = True
+                        continue  # same retry_count
+                    
+                    # --- NO TOOL CALLS: process SEARCH/REPLACE or continuation ---
                     fix_content = extract_code_block(text)
                     if not fix_content:
-                        # Fallback to old parsing if no codeblock
                         is_continuation, context = is_continuation_request(text)
                         fix_content = strip_continuation_block(text)
                     else:
-                        # If codeblock found, strip continuation from within it
                         is_continuation, context = is_continuation_request(fix_content)
                         fix_content = strip_continuation_block(fix_content)
                     
                     patched = apply_search_replace(current_script, fix_content)
                     if patched:
-                        print(f'[Vibe Video] Refine applied via SEARCH/REPLACE (Turn {turn}, attempt {attempt})')
+                        print(f'[Vibe Video] Refine applied via SEARCH/REPLACE (Turn {turn}, retry {retry_count})')
                         current_script = patched
                         import re
                         accumulated_summary += f"\n[Turn {turn}] Applied {len(re.findall(r'<<<SEARCH', fix_content))} block(s).\n"
                         
-                        # Emit signal to save progress after this turn
                         self.turn_completed.emit(turn, current_script)
-                        
-                        attempt_success = True
-                        break # Break retry loop, proceed to continuation check
-                        
+                        break  # exit retry while — success
+                    
                     import re
                     
-                    # Prevent fallback if the AI actually intended to use SEARCH/REPLACE but failed
+                    # Fallback: full code replacement
                     if text and '<<<SEARCH' not in text:
-                        self.progress.emit(f"Checking for full code fallback (Turn {turn}, Attempt {attempt}/{self.MAX_RETRIES})...")
+                        self.progress.emit(f"Checking for full code fallback (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
                         for pattern in [r'```(?:tsx?|typescript|javascript)\s*\n(.*?)```', r'```\s*\n(.*?)```']:
                             match = re.search(pattern, text, re.DOTALL)
                             if match:
                                 code = match.group(1).strip()
                                 if 'import' in code or 'export' in code:
-                                    print(f'[Vibe Video] Refine applied via full code fallback (Turn {turn}, attempt {attempt})')
+                                    print(f'[Vibe Video] Refine applied via full code fallback (Turn {turn}, retry {retry_count})')
                                     self.progress.emit("Applying refinements (Full code fallback)...")
                                     self.finished.emit(True, code)
                                     return
                     else:
-                        print(f'[Vibe Video] Turn {turn}, Attempt {attempt} provided SEARCH/REPLACE blocks but failed to apply to current code. Skipping fallback.')
-                                
-                    # If we get here, this attempt failed
-                    self.progress.emit(f"AI response invalid, retrying (Turn {turn}, Attempt {attempt}/{self.MAX_RETRIES})...")
-                    print(f'[Vibe Video] Refine Turn {turn}, attempt {attempt} unusable, retrying...')
+                        print(f'[Vibe Video] Turn {turn}, Retry {retry_count} provided SEARCH/REPLACE blocks but failed to apply. Skipping fallback.')
                     
-                    # Instead of breaking, we loop to the next attempt.
-                    # But we must pass the error to the prompt for the next attempt.
-                    if attempt < self.MAX_RETRIES:
-                        full_prompt = build_continuation_prompt(
-                            original_script=current_script,
-                            accumulated_changes=accumulated_summary,
-                            user_error_msg=f"Your previous instruction failed to apply! Ensure exact matching for <<<SEARCH blocks."
-                        )
+                    # === FAILURE: increment retry and retry ===
+                    retry_count += 1
+                    if retry_count > self.MAX_RETRIES:
+                        self.progress.emit("Failed to produce a valid refinement after max retries.")
+                        self.finished.emit(False, f'AI failed to apply changes after {self.MAX_RETRIES} retries on turn {turn}')
+                        return
+                    
+                    # Build retry prompt with error context
+                    full_prompt = build_tool_aware_continuation_prompt(
+                        original_script=current_script,
+                        accumulated_changes=accumulated_summary,
+                        user_error_msg=f"Your previous response could not be applied! Ensure exact matching for <<<SEARCH blocks.",
+                        tool_results=None,
+                        after_tool_call=tools_used_this_turn
+                    )
+                    print(f"[Vibe Video] Retrying with retry {retry_count}...")
+                    # continue to next while iteration automatically
                 
-                # If we exhausted attempts for this turn without success
-                if not attempt_success:
-                    self.progress.emit("Failed to produce a valid refinement after max retries.")
-                    self.finished.emit(False, f'AI failed to apply changes after {self.MAX_RETRIES} attempts on turn {turn}')
+                # === End of while retry loop (break due to success or returned on failure) ===
+                if retry_count > self.MAX_RETRIES:
                     return
-                    
-                # If attempt was successful, check if it wants to continue
+                
+                # Success on this turn — check if AI wants continuation
                 if is_continuation:
                     self.progress.emit(f"AI requested continuation (Turn {turn}). Proceeding with additional edits...")
                     if context:
                         accumulated_summary += f"AI context: {context}\n"
-                    continue # Proceed to next turn
+                    continue  # next turn
                 else:
-                    # Natural finish
                     self.progress.emit("Applying refinements (SEARCH/REPLACE completed)...")
                     self.finished.emit(True, current_script)
                     return
                 
+                # Success for this turn — check continuation
+                if is_continuation:
+                    self.progress.emit(f"AI requested continuation (Turn {turn}). Proceeding with additional edits...")
+                    if context:
+                        carryover_context = context  # carry context to next turn
+                    else:
+                        carryover_context = ""
+                    continue  # next turn
+                else:
+                    self.progress.emit("Applying refinements (SEARCH/REPLACE completed)...")
+                    self.finished.emit(True, current_script)
+                    return
+                    
             self.progress.emit("Max continuation turns reached.")
             self.finished.emit(True, current_script)
             
