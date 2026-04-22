@@ -545,7 +545,7 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
 
 
 def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tuple[str, str]:
-    """Setup preview directory - persistent, reused across script changes."""
+    """Setup preview directory - persistent, reused across script changes and app sessions."""
     global _preview_dir_initialized, _preview_dir_path
 
     # Sanitize script content first
@@ -558,15 +558,87 @@ def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tupl
     src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
     entry_file = os.path.join(src_dir, REMOTION_ENTRY_FILE)
 
-    # If already initialized, just update script content (and Root.tsx if needed)
-    if _preview_dir_initialized and _preview_dir_path == preview_dir:
-        if os.path.exists(preview_dir):
+    # Check if persistent preview directory is fully intact
+    preview_exists = os.path.isdir(preview_dir)
+    node_modules_ok = False
+    src_ok = False
+    root_config_ok = False
+
+    if preview_exists:
+        # Check node_modules: existence is sufficient (copy is expensive, avoid false positives)
+        dst_node_modules = os.path.join(preview_dir, "node_modules")
+        node_modules_ok = os.path.isdir(dst_node_modules)
+
+        # Check root config files (package.json and tsconfig.json)
+        package_json_path = os.path.join(preview_dir, "package.json")
+        tsconfig_path = os.path.join(preview_dir, "tsconfig.json")
+        if os.path.isfile(package_json_path) and os.path.isfile(tsconfig_path):
+            root_config_ok = True
+
+        # Check src directory structure with required entry file
+        if os.path.isdir(src_dir) and os.path.isfile(entry_file):
+            src_ok = True
+
+    all_ok = preview_exists and node_modules_ok and root_config_ok and src_ok
+
+    # If preview dir is fully valid, reuse it
+    if all_ok:
+        _preview_dir_initialized = True
+        _preview_dir_path = preview_dir
+        _update_preview_script(script_content, render_settings)
+        return preview_dir, entry_file
+
+    # If preview exists but something is missing, try selective repair to avoid recopying node_modules
+    if preview_exists:
+        # Decide: full rebuild only if node_modules missing/corrupt
+        if not node_modules_ok:
+            print("[Remotion] node_modules missing or corrupt, performing full rebuild...")
+            shutil.rmtree(preview_dir, ignore_errors=True)
+            # Will fall through to full creation below
+        else:
+            # node_modules is healthy; repair only the missing parts (root configs and/or src)
+            print("[Remotion] Repairing preview directory (node_modules OK)...")
+            # Ensure src directory exists
+            if not os.path.isdir(src_dir):
+                os.makedirs(src_dir, exist_ok=True)
+            # Copy root config files from tools/remotion if missing (overwrite to refresh)
+            for pkg_file in ["package.json", "package-lock.json"]:
+                src_file = os.path.join(TOOLS_REMOTION, pkg_file)
+                if os.path.exists(src_file):
+                    dst_file = os.path.join(preview_dir, pkg_file)
+                    try:
+                        shutil.copy2(src_file, dst_file)
+                    except Exception as e:
+                        print(f"[Remotion] Warning: Failed to copy {pkg_file}: {e}")
+            # Write tsconfig.json (always fresh)
+            tsconfig_content = {
+                "compilerOptions": {
+                    "target": "es2018",
+                    "module": "commonjs",
+                    "jsx": "react-jsx",
+                    "strict": True,
+                    "moduleResolution": "node",
+                    "esModuleInterop": True,
+                    "skipLibCheck": True,
+                    "forceConsistentCasingInFileNames": True,
+                    "resolveJsonModule": True,
+                    "isolatedModules": True,
+                    "noEmit": True
+                },
+                "include": ["src"]
+            }
+            tsconfig_path = os.path.join(preview_dir, "tsconfig.json")
+            try:
+                with open(tsconfig_path, 'w', encoding='utf-8') as f:
+                    json.dump(tsconfig_content, f, indent=2)
+            except Exception as e:
+                print(f"[Remotion] Warning: Failed to write tsconfig.json: {e}")
+
+            # At this point src_dir exists; ensure entry file will be created by _update_preview_script
+            _preview_dir_initialized = True
+            _preview_dir_path = preview_dir
             _update_preview_script(script_content, render_settings)
             return preview_dir, entry_file
-
-    # First time setup - create fresh directory structure
-    if os.path.exists(preview_dir):
-        shutil.rmtree(preview_dir, ignore_errors=True)
 
     orig_name = REMOTION_TEMP_DIR_NAME
     import helpers.remotion_helper.remotion_helper as _self_mod
@@ -613,11 +685,16 @@ def _update_preview_script(script_content: str, render_settings: dict = None) ->
 
 
 def cleanup_preview_dir(force=False):
-    """Cleanup preview directory - hanya dipanggil saat tab ditutup."""
+    """Cleanup preview directory.
+    
+    With force=False (default), does nothing — the preview directory (including
+    node_modules) is preserved across server stops and application closes for
+    instant restarts. With force=True, deletes the directory and resets state.
+    """
     global _preview_dir_initialized, _preview_dir_path, _preview_server_port
 
     if not force:
-        print('[Remotion] Skipping cleanup - server persistent mode')
+        # Preserve preview directory and state for instant reuse
         return
 
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)

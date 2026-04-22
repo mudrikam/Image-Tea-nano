@@ -8,7 +8,7 @@ import time
 import urllib.request
 import urllib.error
 import json
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar, QMessageBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar, QMessageBox, QApplication
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -75,7 +75,7 @@ def _kill_process_on_port(port: int) -> bool:
         return False
 
 
-def _wait_for_port_release(host: str, port: int, timeout: float = 5.0, interval: float = 0.25) -> bool:
+def _wait_for_port_release(host: str, port: int, timeout: float = 2.0, interval: float = 0.1) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         if not _is_port_open(host, port, timeout=interval):
@@ -84,48 +84,17 @@ def _wait_for_port_release(host: str, port: int, timeout: float = 5.0, interval:
     return not _is_port_open(host, port, timeout=interval)
 
 
-def _wait_for_server(host: str, port: int, timeout: float = 30.0, interval: float = 0.5) -> bool:
-    """Wait until HTTP server is accessible by making HTTP requests."""
+def _wait_for_server(host: str, port: int, timeout: float = 15.0, interval: float = 0.2) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            url = f'http://{host}:{port}/'
-            req = urllib.request.Request(url, method='GET')
-            with urllib.request.urlopen(req, timeout=interval) as response:
+            resp = urllib.request.urlopen(f'http://{host}:{port}/', timeout=1)
+            if resp.status == 200:
                 return True
-        except urllib.error.HTTPError:
-            return True
         except Exception:
-            if _is_port_open(host, port, timeout=interval):
-                healthy, _ = _health_check_server(host, port)
-                if healthy:
-                    return True
-            time.sleep(interval)
+            pass
+        time.sleep(interval)
     return False
-
-
-def _health_check_server(host: str, port: int) -> tuple[bool, str]:
-    """Perform complete health check on Remotion server."""
-    # Step 1: Check TCP connection
-    if not _is_port_open(host, port):
-        return False, f"Port {port} is not accessible (connection refused)"
-
-    # Step 2: Check HTTP response
-    try:
-        url = f'http://{host}:{port}/'
-        req = urllib.request.Request(url, method='GET')
-        req.timeout = 5.0
-        with urllib.request.urlopen(req) as response:
-            status = response.getcode()
-            if status == 200:
-                return True, f"Server healthy (HTTP {status})"
-            else:
-                return True, f"Server responding (HTTP {status})"
-    except urllib.error.HTTPError as e:
-        # HTTP error but server responded
-        return True, f"Server responding (HTTP {e.code})"
-    except Exception as e:
-        return False, f"HTTP check failed: {str(e)}"
 
 
 
@@ -143,12 +112,15 @@ class RemotionStudioWorker(QThread):
         self._proc = None
 
     def run(self):
-        # Kill any existing process on this port first
-        self.status_update.emit(f'Cleaning up port {self._port}...')
-        _kill_process_on_port(self._port)
-        if not _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25):
-            self.server_failed.emit(f'Port {self._port} did not release after cleanup')
-            return
+        # Only clean up port if it's actually in use (faster than always killing)
+        self.status_update.emit(f'Checking port {self._port}...')
+        if _is_port_open('127.0.0.1', self._port, timeout=0.5):
+            self.status_update.emit(f'Port {self._port} in use, cleaning up...')
+            _kill_process_on_port(self._port)
+            if not _wait_for_port_release('127.0.0.1', self._port, timeout=0.5, interval=0.05):
+                print(f'[Remotion] Warning: Port {self._port} still in use after cleanup, attempting anyway')
+        else:
+            self.status_update.emit(f'Port {self._port} is free')
 
         npx_cmd = _find_npx_cmd()
         if not npx_cmd:
@@ -223,6 +195,7 @@ class RemotionStudioWorker(QThread):
 
                 if ('Server listening on' in line or
                     'studio is running' in line.lower() or
+                    f'localhost:{self._port}' in line or
                     f':{self._port}' in line):
                     server_started = True
                     break
@@ -236,36 +209,22 @@ class RemotionStudioWorker(QThread):
             if server_started:
                 self.status_update.emit(f'Waiting for server on port {self._port}...')
                 print(f'[Remotion Studio] Waiting for server to be accessible on port {self._port}...')
-                if _wait_for_server('127.0.0.1', self._port, timeout=60.0):
-                    self.status_update.emit('Performing health check...')
-                    healthy, msg = _health_check_server('127.0.0.1', self._port)
-                    if healthy:
-                        print(f'[Remotion Studio] Health check passed: {msg}')
+                if _wait_for_server('127.0.0.1', self._port, timeout=30.0):
+                    self.server_ready.emit(self._port)
+                else:
+                    self._cleanup_proc()
+                    self.server_failed.emit(f'Server did not become ready within 30s')
+                    return
+            else:
+                # Process did not print a "listening" line but is still running
+                if self._proc.poll() is None:
+                    self.status_update.emit('Checking server status...')
+                    print(f'[Remotion Studio] Process still running, checking HTTP response...')
+                    if _wait_for_server('127.0.0.1', self._port, timeout=10.0):
                         self.server_ready.emit(self._port)
                     else:
                         self._cleanup_proc()
-                        self.server_failed.emit(f'Server started but health check failed: {msg}')
-                        return
-                else:
-                    self._cleanup_proc()
-                    self.server_failed.emit(f'Server reported ready but not accessible on port {self._port} after 60s')
-                    return
-            else:
-                if self._proc.poll() is None:
-                    self.status_update.emit('Checking server status...')
-                    print(f'[Remotion Studio] Process still running, attempting health check...')
-                    if _wait_for_server('127.0.0.1', self._port, timeout=10.0):
-                        healthy, msg = _health_check_server('127.0.0.1', self._port)
-                        if healthy:
-                            print(f'[Remotion Studio] Health check passed: {msg}')
-                            self.server_ready.emit(self._port)
-                        else:
-                            self._cleanup_proc()
-                            self.server_failed.emit(f'Server running but health check failed: {msg}')
-                            return
-                    else:
-                        self._cleanup_proc()
-                        self.server_failed.emit('Server not responding to health check')
+                        self.server_failed.emit('Server not responding to HTTP requests')
                         return
                 else:
                     returncode = self._proc.poll()
@@ -296,7 +255,7 @@ class RemotionStudioWorker(QThread):
             finally:
                 self._proc = None
         _kill_process_on_port(self._port)
-        _wait_for_port_release('127.0.0.1', self._port, timeout=6.0, interval=0.25)
+        _wait_for_port_release('127.0.0.1', self._port, timeout=0.5, interval=0.05)
 
     def stop(self):
         self._cleanup_proc()
@@ -559,6 +518,8 @@ class PreviewTabWidget(QWidget):
         self.webview.setVisible(False)
         self.placeholder.setVisible(True)
         self.placeholder.setText('Preparing Remotion Studio...')
+        # Force UI update to show progress before blocking operation
+        QApplication.processEvents()
 
         try:
             from helpers.remotion_helper.remotion_helper import setup_preview_dir
@@ -769,11 +730,12 @@ class PreviewTabWidget(QWidget):
         if worker is not self._server_worker:
             return
         self._server_starting = False
+        self._server_running = False  # Server failed, so not running
         self.cancel_start_btn.setVisible(False)
         if self._server_retry_count < 3:
             self._server_retry_count += 1
             print(f'[PreviewTab] Studio failed ({error}), retrying ({self._server_retry_count}/3)...')
-            self._stop_server(force_cleanup=True)
+            self._stop_server()
             # Schedule retry with cancellable timer
             if self._retry_timer:
                 self._retry_timer.stop()
@@ -817,7 +779,7 @@ class PreviewTabWidget(QWidget):
             self.webview.setUrl(QUrl('about:blank'))
             self.webview.setVisible(False)
             self.placeholder.setVisible(True)
-            self._stop_server(force_cleanup=True)
+            self._stop_server()
             self._reset_ui('Remotion Studio stopped.')
             self._process_pending_script_selection()
         else:
@@ -851,7 +813,7 @@ class PreviewTabWidget(QWidget):
             return
         self._auto_controls_pending = False
         self._exit_embedded_fullscreen()
-        self._stop_server(force_cleanup=True, wait_ms=4000)
+        self._stop_server(wait_ms=4000)
         self._reset_ui('Remotion Studio start cancelled.')
         self._process_pending_script_selection()
 
@@ -862,7 +824,7 @@ class PreviewTabWidget(QWidget):
         self.webview.setUrl(QUrl('about:blank'))
         self.webview.setVisible(False)
         self.placeholder.setVisible(True)
-        self._stop_server(force_cleanup=True)
+        self._stop_server()
         self._reset_ui('Remotion Studio stopped.')
         # Re-evaluate UI state immediately
         self._process_pending_script_selection()
@@ -986,9 +948,9 @@ class PreviewTabWidget(QWidget):
             self._retry_timer.stop()
             self._retry_timer = None
 
-        # Aggressive cleanup of all Remotion-related processes
-        print('[PreviewTab] Closing - cleaning up all Remotion processes...')
-        self._stop_server(force_cleanup=True)
+        # Stop server but KEEP preview directory (node_modules cached for future sessions)
+        print('[PreviewTab] Closing - stopping server, preserving preview cache...')
+        self._stop_server()  # No force_cleanup — keep node_modules cached
         # Ensure port is freed
         if self._server_port:
             _kill_process_on_port(self._server_port)
