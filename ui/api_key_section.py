@@ -50,12 +50,12 @@ class ApiKeySectionWidget(QWidget):
             pass
         self.join_member_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {theme.get_color('success')};
+                background-color: {theme.get_color('primary')};
                 color: {theme.get_color('white')};
                 border-radius: 4px;
             }}
             QPushButton:hover {{
-                background-color: {theme.get_color('primary')};
+                background-color: {theme.get_color('primary_hover')};
             }}
         """)
         self.join_member_btn.setToolTip(
