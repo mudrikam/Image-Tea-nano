@@ -2,6 +2,7 @@
     "version": "latest",
     "bundle_name": "remotion-bundle",
     "auto_install": true,
+    "auto_update": true,
     "npm_registry": "https://registry.npmjs.org",
     "npm_strict_ssl": true,
     "render_settings": {

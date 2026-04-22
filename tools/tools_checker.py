@@ -7,7 +7,11 @@ import subprocess
 import platform
 import webbrowser
 import time
+import json
 from PySide6.QtWidgets import QMessageBox, QApplication
+
+# Import remotion helper constants for preview directory invalidation
+from helpers.remotion_helper.remotion_helper import PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME
 
 # Add parent directory to path so config can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -436,9 +440,46 @@ def check_folders(reporter=None, progress_reporter=None, unit_callback=None):
             if tool_name in ["ffmpeg", "realesrgan", "exiftool", "ghostscript", "cairo", "waifu2x", "rife", "nodejs", "remotion"]:
                 ok = is_executable_available(tool_name, folder)
                 if ok:
-                    _emit(reporter, f"Preparing tools ({tool_name} ready)")
-                    if callable(unit_callback):
-                        unit_callback()
+                    # Special handling for remotion auto-update
+                    if tool_name == "remotion":
+                        # Read auto_update config
+                        remotion_config_path = os.path.join(BASE_PATH, "configs", "remotion_config.json")
+                        auto_update = True  # default
+                        config_version = "latest"
+                        if os.path.exists(remotion_config_path):
+                            try:
+                                with open(remotion_config_path, 'r') as f:
+                                    remotion_config = json.load(f)
+                                auto_update = remotion_config.get("auto_update", True)
+                                config_version = remotion_config.get("version", "latest")
+                            except Exception as e:
+                                print(f"Warning: Could not read remotion_config.json: {e}")
+                        # Check if update is needed
+                        need_update, update_reason, installed_ver, latest_ver = should_update_remotion(
+                            folder, config_version=config_version, auto_update_enabled=auto_update
+                        )
+                        if need_update:
+                            _emit(reporter, f"Preparing tools (remotion update available: {installed_ver} -> {latest_ver}; updating...)")
+                            if callable(unit_callback):
+                                unit_callback()
+                            print(f"Remotion auto-update: {installed_ver} -> {latest_ver}. Reinstalling...")
+                            ok_update = download_and_install_remotion(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+                            if ok_update:
+                                _emit(reporter, f"Preparing tools (remotion updated to {latest_ver})")
+                                if callable(unit_callback):
+                                    unit_callback()
+                            else:
+                                _emit(reporter, f"Preparing tools (remotion update failed; existing version kept)")
+                                if callable(unit_callback):
+                                    unit_callback()
+                        else:
+                            _emit(reporter, f"Preparing tools ({tool_name} ready)")
+                            if callable(unit_callback):
+                                unit_callback()
+                    else:
+                        _emit(reporter, f"Preparing tools ({tool_name} ready)")
+                        if callable(unit_callback):
+                            unit_callback()
                 else:
                     _emit(reporter, f"Preparing tools ({tool_name} incomplete; downloading)")
                     if callable(unit_callback):
@@ -911,6 +952,18 @@ def show_nodejs_install_dialog(parent=None):
         return "cancelled"
 
 
+def _invalidate_preview_node_modules():
+    """Remove node_modules from persistent preview directory so it gets refreshed from tools/remotion."""
+    preview_node_modules = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME, "node_modules")
+    if os.path.isdir(preview_node_modules):
+        try:
+            import shutil
+            shutil.rmtree(preview_node_modules, ignore_errors=True)
+            print("[Remotion] Invalidated preview node_modules (will be refreshed from updated tools/remotion on next start)")
+        except Exception as e:
+            print(f"[Remotion] Warning: Could not remove preview node_modules: {e}")
+
+
 def download_and_install_remotion(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
     """Download and install Remotion with robust error handling and user-friendly dialogs."""
     remotion_config_path = os.path.join(BASE_PATH, "configs", "remotion_config.json")
@@ -1156,6 +1209,10 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
         # Don't fail here - partial installation might still work
     
     _emit(reporter, "Preparing tools (remotion installed successfully)")
+    
+    # Invalidate persistent preview node_modules so it refreshes from updated tools/remotion
+    _invalidate_preview_node_modules()
+    
     return True
 
 
@@ -1238,6 +1295,102 @@ def _verify_remotion_installation_simple(folder) -> bool:
         return False
     
     return True
+
+def get_installed_remotion_version(remotion_folder):
+    """Get the installed Remotion version from package.json."""
+    package_json_path = os.path.join(remotion_folder, "package.json")
+    if not os.path.exists(package_json_path):
+        return None
+    try:
+        import json
+        with open(package_json_path, 'r') as f:
+            package_json = json.load(f)
+        return package_json.get("dependencies", {}).get("remotion") or package_json.get("devDependencies", {}).get("remotion")
+    except Exception as e:
+        print(f"Warning: Could not read installed Remotion version: {e}")
+        return None
+
+
+def check_latest_remotion_version():
+    """Check the latest Remotion version available on npm registry."""
+    try:
+        import urllib.request
+        import json
+        url = "https://registry.npmjs.org/remotion"
+        req = urllib.request.Request(url, headers={"User-Agent": "Image-Tea/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return data.get("dist-tags", {}).get("latest")
+    except Exception as e:
+        print(f"Warning: Could not check latest Remotion version: {e}")
+        return None
+
+
+def compare_versions(v1, v2):
+    """Compare two version strings. Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2."""
+    if not v1 or not v2:
+        return 0
+    try:
+        def parse(v):
+            # Strip leading 'v', '^', '~' and take only numeric parts
+            cleaned = v.lstrip('v^~').strip()
+            parts = cleaned.split('.')
+            nums = []
+            for p in parts[:3]:  # major, minor, patch only
+                # Extract leading numeric part (ignore any suffixes like -alpha, -beta)
+                num_str = ''
+                for c in p:
+                    if c.isdigit():
+                        num_str += c
+                    else:
+                        break
+                nums.append(int(num_str) if num_str else 0)
+            return nums
+        p1 = parse(v1)
+        p2 = parse(v2)
+        for a, b in zip(p1, p2):
+            if a < b:
+                return -1
+            if a > b:
+                return 1
+        return 0
+    except Exception as e:
+        print(f"Warning: Version comparison failed ({v1} vs {v2}): {e}")
+        return 0
+
+
+def should_update_remotion(remotion_folder, config_version="latest", auto_update_enabled=True):
+    """Determine if Remotion should be updated.
+    
+    Args:
+        remotion_folder: Path to Remotion installation folder
+        config_version: Version specified in remotion_config.json (default: "latest")
+        auto_update_enabled: Whether auto-update is enabled in config (default: True)
+    
+    Returns:
+        tuple: (should_update: bool, reason: str, installed_version: str, latest_version: str)
+    """
+    if not auto_update_enabled:
+        return False, "Auto-update disabled", None, None
+    
+    # Only auto-update if config_version is "latest"
+    if config_version != "latest":
+        return False, f"Config version is pinned to '{config_version}'", None, None
+    
+    installed = get_installed_remotion_version(remotion_folder)
+    if not installed:
+        return False, "No installed version detected", None, None
+    
+    latest = check_latest_remotion_version()
+    if not latest:
+        return False, "Could not determine latest version", installed, None
+    
+    cmp = compare_versions(installed, latest)
+    if cmp < 0:
+        return True, "New version available", installed, latest
+    else:
+        return False, "Already up to date", installed, latest
+
 
 def _cleanup_remotion_folder(folder):
     """Clean up Remotion folder by removing node_modules and package.json if they exist."""
