@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
     QTextEdit, QPushButton, QGroupBox, QListWidget, QListWidgetItem,
     QMessageBox, QSizePolicy
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QTextOption
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont, QTextOption, QIcon
 import qtawesome as qta
 from config import BASE_PATH
 
@@ -16,7 +16,10 @@ class PromptGeneratorConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit Prompt Generator Configuration")
         self.resize(700, 700)
-        
+        icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         self.config_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
         self.config_data = None
         self.prompt_gen_config = None
@@ -54,16 +57,16 @@ class PromptGeneratorConfigDialog(QDialog):
         tab_widget.addTab(instructions_tab, qta.icon('fa6s.pen-to-square'), "Instructions")
         tab_widget.addTab(requirements_tab, qta.icon('fa6s.list-ul'), "Requirements")
         tab_widget.addTab(variation_tab, qta.icon('fa6s.sliders'), "Variation Levels")
-        
-        main_layout.addWidget(tab_widget)
-        
+
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
+
         save_button = QPushButton(qta.icon('fa6s.floppy-disk'), "Save")
+        save_button.setIconSize(QSize(14, 14))
         save_button.clicked.connect(self.save_configuration)
-        
+
         cancel_button = QPushButton(qta.icon('fa6s.xmark'), "Cancel")
+        cancel_button.setIconSize(QSize(14, 14))
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(save_button)
@@ -116,16 +119,19 @@ class PromptGeneratorConfigDialog(QDialog):
         image_layout.addWidget(self.image_req_list)
         
         image_btn_layout = QHBoxLayout()
-        
+
         add_image_req_btn = QPushButton(qta.icon('fa6s.plus'), "Add")
+        add_image_req_btn.setIconSize(QSize(14, 14))
         add_image_req_btn.clicked.connect(lambda: self.add_requirement('image'))
-        
+
         edit_image_req_btn = QPushButton(qta.icon('fa6s.pen-to-square'), "Edit")
+        edit_image_req_btn.setIconSize(QSize(14, 14))
         edit_image_req_btn.clicked.connect(lambda: self.edit_requirement('image'))
-        
+
         remove_image_req_btn = QPushButton(qta.icon('fa6s.trash-can'), "Remove")
+        remove_image_req_btn.setIconSize(QSize(14, 14))
         remove_image_req_btn.clicked.connect(lambda: self.remove_requirement('image'))
-        
+
         image_btn_layout.addWidget(add_image_req_btn)
         image_btn_layout.addWidget(edit_image_req_btn)
         image_btn_layout.addWidget(remove_image_req_btn)
@@ -141,16 +147,19 @@ class PromptGeneratorConfigDialog(QDialog):
         video_layout.addWidget(self.video_req_list)
         
         video_btn_layout = QHBoxLayout()
-        
+
         add_video_req_btn = QPushButton(qta.icon('fa6s.plus'), "Add")
+        add_video_req_btn.setIconSize(QSize(14, 14))
         add_video_req_btn.clicked.connect(lambda: self.add_requirement('video'))
-        
+
         edit_video_req_btn = QPushButton(qta.icon('fa6s.pen-to-square'), "Edit")
+        edit_video_req_btn.setIconSize(QSize(14, 14))
         edit_video_req_btn.clicked.connect(lambda: self.edit_requirement('video'))
-        
+
         remove_video_req_btn = QPushButton(qta.icon('fa6s.trash-can'), "Remove")
+        remove_video_req_btn.setIconSize(QSize(14, 14))
         remove_video_req_btn.clicked.connect(lambda: self.remove_requirement('video'))
-        
+
         video_btn_layout.addWidget(add_video_req_btn)
         video_btn_layout.addWidget(edit_video_req_btn)
         video_btn_layout.addWidget(remove_video_req_btn)
@@ -180,10 +189,11 @@ class PromptGeneratorConfigDialog(QDialog):
         variation_layout.addWidget(self.variation_list)
         
         btn_layout = QHBoxLayout()
-        
+
         edit_btn = QPushButton(qta.icon('fa6s.pen-to-square'), "Edit Selected Level")
+        edit_btn.setIconSize(QSize(14, 14))
         edit_btn.clicked.connect(self.edit_variation_level)
-        
+
         btn_layout.addWidget(edit_btn)
         btn_layout.addStretch()
         
@@ -347,11 +357,13 @@ class RequirementEditDialog(QDialog):
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-        
+
         ok_button = QPushButton(qta.icon('fa6s.check'), " OK")
+        ok_button.setIconSize(QSize(14, 14))
         ok_button.clicked.connect(self.accept)
-        
+
         cancel_button = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
+        cancel_button.setIconSize(QSize(14, 14))
         cancel_button.clicked.connect(self.reject)
         
         button_layout.addWidget(ok_button)

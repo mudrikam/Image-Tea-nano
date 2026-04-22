@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
 	QWidget, QMenu, QToolTip, QTabWidget, QSplitter, QTextEdit,
 	QListWidget, QListWidgetItem, QScrollArea, QFrame
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColor, QFont
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
+from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColor, QFont, QIcon
 import os
 import json
 import csv
@@ -229,6 +229,7 @@ class CSVImportProgressDialog(QDialog):
 		self.progress_bar.setValue(0)
 		layout.addWidget(self.progress_bar)
 		self.cancel_btn = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
+		self.cancel_btn.setIconSize(QSize(14, 14))
 		self.cancel_btn.clicked.connect(self.reject)
 		layout.addWidget(self.cancel_btn)
 		self.worker = None
@@ -260,6 +261,9 @@ class PromptGeneratorDialog(QDialog):
 		self.setModal(False)
 		self.setWindowModality(Qt.NonModal)
 		self.setWindowTitle("Prompt Generator")
+		icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
+		if os.path.exists(icon_path):
+			self.setWindowIcon(QIcon(icon_path))
 		self.setMinimumSize(800, 500)
 		self.page_size = 20
 		self.current_page = 1
@@ -268,8 +272,8 @@ class PromptGeneratorDialog(QDialog):
 		self.worker = None
 		self.is_generating = False
 		self.current_generating_file = None
-		self.gen_icon = qta.icon('fa6s.wand-magic-sparkles')
-		self.stop_icon = qta.icon('fa6s.stop')
+		self.gen_icon = qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white'))
+		self.stop_icon = qta.icon('fa6s.stop', color=theme.get_color('white'))
 		self.last_prompt_count = 0
 		self.api_key = None
 		self.selected_service = None
@@ -385,6 +389,7 @@ class PromptGeneratorDialog(QDialog):
 		_frl.addStretch()
 		self.ref_load_folder_btn = QPushButton(qta.icon('fa6s.folder-open'), " Load Folder")
 		self.ref_load_folder_btn.setFixedWidth(120)
+		self.ref_load_folder_btn.setIconSize(QSize(14, 14))
 		_frl.addWidget(self.ref_load_folder_btn, 0, Qt.AlignRight)
 		self._ref_folder_row.setVisible(False)
 		layout.addWidget(self._ref_folder_row)
@@ -617,6 +622,7 @@ class PromptGeneratorDialog(QDialog):
 		themes_row.addWidget(self.param_themes_combo, 1)
 		add_theme_btn = QPushButton(qta.icon('fa6s.plus'), "")
 		add_theme_btn.setFixedSize(24, 24)
+		add_theme_btn.setIconSize(QSize(14, 14))
 		add_theme_btn.setToolTip("Add current text to theme list")
 		themes_row.addWidget(add_theme_btn)
 		add_theme_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_themes_combo, 'themes'))
@@ -641,6 +647,7 @@ class PromptGeneratorDialog(QDialog):
 		moods_row.addWidget(self.param_moods_combo, 1)
 		add_mood_btn = QPushButton(qta.icon('fa6s.plus'), "")
 		add_mood_btn.setFixedSize(24, 24)
+		add_mood_btn.setIconSize(QSize(14, 14))
 		add_mood_btn.setToolTip("Add current text to mood list")
 		moods_row.addWidget(add_mood_btn)
 		add_mood_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_moods_combo, 'moods'))
@@ -665,6 +672,7 @@ class PromptGeneratorDialog(QDialog):
 		colors_row.addWidget(self.param_colors_combo, 1)
 		add_color_btn = QPushButton(qta.icon('fa6s.plus'), "")
 		add_color_btn.setFixedSize(24, 24)
+		add_color_btn.setIconSize(QSize(14, 14))
 		add_color_btn.setToolTip("Add current text to color palette list")
 		colors_row.addWidget(add_color_btn)
 		add_color_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_colors_combo, 'colors'))
@@ -689,6 +697,7 @@ class PromptGeneratorDialog(QDialog):
 		art_styles_row.addWidget(self.param_art_style_combo, 1)
 		add_art_style_btn = QPushButton(qta.icon('fa6s.plus'), "")
 		add_art_style_btn.setFixedSize(24, 24)
+		add_art_style_btn.setIconSize(QSize(14, 14))
 		add_art_style_btn.setToolTip("Add current text to art style list")
 		art_styles_row.addWidget(add_art_style_btn)
 		add_art_style_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_art_style_combo, 'art_styles'))
@@ -713,11 +722,12 @@ class PromptGeneratorDialog(QDialog):
 		bg_row.addWidget(self.param_bg_combo, 1)
 		add_bg_btn = QPushButton(qta.icon('fa6s.plus'), "")
 		add_bg_btn.setFixedSize(24, 24)
+		add_bg_btn.setIconSize(QSize(14, 14))
 		add_bg_btn.setToolTip("Add current text to background list")
 		bg_row.addWidget(add_bg_btn)
-		add_bg_btn.clicked.connect(lambda: self._add_custom_combo_item(self.param_bg_combo, 'backgrounds'))
 		pick_color_btn = QPushButton(qta.icon('fa6s.palette'), "")
 		pick_color_btn.setFixedSize(24, 24)
+		pick_color_btn.setIconSize(QSize(14, 14))
 		pick_color_btn.setToolTip("Pick a custom background color")
 		pick_color_btn.clicked.connect(self._pick_background_color)
 		bg_row.addWidget(pick_color_btn)
@@ -801,26 +811,31 @@ class PromptGeneratorDialog(QDialog):
 
 		self.refresh_btn = QPushButton(qta.icon('fa6s.rotate-right'), " Refresh")
 		self.refresh_btn.setToolTip("Refresh the prompts table")
+		self.refresh_btn.setIconSize(QSize(14, 14))
 		self.refresh_btn.clicked.connect(self.refresh_table_immediately)
 		toolbar_layout.addWidget(self.refresh_btn)
 
 		self.clear_btn = QPushButton(qta.icon('fa6s.trash'), " Clear All")
 		self.clear_btn.setToolTip("Delete all generated prompts")
+		self.clear_btn.setIconSize(QSize(14, 14))
 		self.clear_btn.clicked.connect(self.clear_all_prompts)
 		toolbar_layout.addWidget(self.clear_btn)
 
 		self.clear_copied_btn = QPushButton(qta.icon('fa6s.trash-can'), " Clear Copied")
 		self.clear_copied_btn.setToolTip("Delete prompts that have been copied")
+		self.clear_copied_btn.setIconSize(QSize(14, 14))
 		self.clear_copied_btn.clicked.connect(self.clear_copied_prompts)
 		toolbar_layout.addWidget(self.clear_copied_btn)
 
 		self.export_btn = QPushButton(qta.icon('fa6s.file-export'), " Export")
 		self.export_btn.setToolTip("Export prompts to CSV or TXT file")
+		self.export_btn.setIconSize(QSize(14, 14))
 		self.export_btn.clicked.connect(self.export_to_csv)
 		toolbar_layout.addWidget(self.export_btn)
 
 		self.import_btn = QPushButton(qta.icon('fa6s.file-import'), " Import")
 		self.import_btn.setToolTip("Import prompts from CSV or TXT file")
+		self.import_btn.setIconSize(QSize(14, 14))
 		self.import_btn.clicked.connect(self.import_from_csv)
 		toolbar_layout.addWidget(self.import_btn)
 
@@ -840,6 +855,7 @@ class PromptGeneratorDialog(QDialog):
 
 		self.prev_btn = QPushButton(qta.icon('fa6s.chevron-left'), "")
 		self.prev_btn.setToolTip("Previous page")
+		self.prev_btn.setIconSize(QSize(16, 16))
 		self.prev_btn.clicked.connect(self.go_prev)
 		paging_layout.addWidget(self.prev_btn)
 
@@ -856,6 +872,7 @@ class PromptGeneratorDialog(QDialog):
 
 		self.next_btn = QPushButton(qta.icon('fa6s.chevron-right'), "")
 		self.next_btn.setToolTip("Next page")
+		self.next_btn.setIconSize(QSize(16, 16))
 		self.next_btn.clicked.connect(self.go_next)
 		paging_layout.addWidget(self.next_btn)
 		layout.addLayout(paging_layout)
@@ -892,6 +909,7 @@ class PromptGeneratorDialog(QDialog):
 		log_header.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		clear_log_btn = QPushButton(qta.icon('fa6s.broom'), " Clear")
 		clear_log_btn.setToolTip("Clear log output")
+		clear_log_btn.setIconSize(QSize(14, 14))
 		clear_log_btn.clicked.connect(self._clear_logs)
 		log_header.addWidget(clear_log_btn)
 		layout.addLayout(log_header)
@@ -951,10 +969,13 @@ class PromptGeneratorDialog(QDialog):
 		img_req_l.addWidget(self.cfg_image_req_list, 1)
 		img_req_btns = QHBoxLayout()
 		add_img_req = QPushButton(qta.icon('fa6s.plus'), " Add")
+		add_img_req.setIconSize(QSize(14, 14))
 		add_img_req.clicked.connect(lambda: self._cfg_add_requirement('image'))
 		edit_img_req = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+		edit_img_req.setIconSize(QSize(14, 14))
 		edit_img_req.clicked.connect(lambda: self._cfg_edit_requirement('image'))
 		del_img_req = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+		del_img_req.setIconSize(QSize(14, 14))
 		del_img_req.clicked.connect(lambda: self._cfg_remove_requirement('image'))
 		for b in (add_img_req, edit_img_req, del_img_req):
 			img_req_btns.addWidget(b)
@@ -966,10 +987,13 @@ class PromptGeneratorDialog(QDialog):
 		vid_req_l.addWidget(self.cfg_video_req_list, 1)
 		vid_req_btns = QHBoxLayout()
 		add_vid_req = QPushButton(qta.icon('fa6s.plus'), " Add")
+		add_vid_req.setIconSize(QSize(14, 14))
 		add_vid_req.clicked.connect(lambda: self._cfg_add_requirement('video'))
 		edit_vid_req = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+		edit_vid_req.setIconSize(QSize(14, 14))
 		edit_vid_req.clicked.connect(lambda: self._cfg_edit_requirement('video'))
 		del_vid_req = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+		del_vid_req.setIconSize(QSize(14, 14))
 		del_vid_req.clicked.connect(lambda: self._cfg_remove_requirement('video'))
 		for b in (add_vid_req, edit_vid_req, del_vid_req):
 			vid_req_btns.addWidget(b)
@@ -987,6 +1011,7 @@ class PromptGeneratorDialog(QDialog):
 		var_layout.addWidget(self.cfg_variation_list, 1)
 		var_btns = QHBoxLayout()
 		edit_var_btn = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit Selected Level")
+		edit_var_btn.setIconSize(QSize(14, 14))
 		edit_var_btn.clicked.connect(self._cfg_edit_variation_level)
 		var_btns.addWidget(edit_var_btn)
 		var_btns.addStretch()
@@ -1008,10 +1033,13 @@ class PromptGeneratorDialog(QDialog):
 			vl.addWidget(lw, 1)
 			btns = QHBoxLayout()
 			add_b = QPushButton(qta.icon('fa6s.plus'), " Add")
+			add_b.setIconSize(QSize(14, 14))
 			add_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_add_list_item(_lw))
 			edit_b = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+			edit_b.setIconSize(QSize(14, 14))
 			edit_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_edit_list_item(_lw))
 			del_b = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+			del_b.setIconSize(QSize(14, 14))
 			del_b.clicked.connect(lambda checked=False, _lw=lw: self._cfg_remove_list_item(_lw))
 			for b in (add_b, edit_b, del_b):
 				btns.addWidget(b)
@@ -1027,10 +1055,13 @@ class PromptGeneratorDialog(QDialog):
 		ar_l.addWidget(self.cfg_aspect_ratios_list, 1)
 		ar_btns = QHBoxLayout()
 		ar_add = QPushButton(qta.icon('fa6s.plus'), " Add")
+		ar_add.setIconSize(QSize(14, 14))
 		ar_add.clicked.connect(lambda: self._cfg_add_list_item(self.cfg_aspect_ratios_list))
 		ar_edit = QPushButton(qta.icon('fa6s.pen-to-square'), " Edit")
+		ar_edit.setIconSize(QSize(14, 14))
 		ar_edit.clicked.connect(lambda: self._cfg_edit_list_item(self.cfg_aspect_ratios_list))
 		ar_del = QPushButton(qta.icon('fa6s.trash-can'), " Remove")
+		ar_del.setIconSize(QSize(14, 14))
 		ar_del.clicked.connect(lambda: self._cfg_remove_list_item(self.cfg_aspect_ratios_list))
 		for b in (ar_add, ar_edit, ar_del):
 			ar_btns.addWidget(b)
@@ -1052,6 +1083,7 @@ class PromptGeneratorDialog(QDialog):
 		save_row = QHBoxLayout()
 		save_row.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		save_cfg_btn = QPushButton(qta.icon('fa6s.floppy-disk'), " Save")
+		save_cfg_btn.setIconSize(QSize(14, 14))
 		save_cfg_btn.clicked.connect(self._save_configure_instructions)
 		save_row.addWidget(save_cfg_btn)
 		layout.addLayout(save_row)
@@ -1107,6 +1139,7 @@ class PromptGeneratorDialog(QDialog):
 		self.generate_btn.setMinimumHeight(40)
 		self.generate_btn.setMinimumWidth(220)
 		self.generate_btn.setToolTip("Generate prompts based on current tab settings")
+		self.generate_btn.setIconSize(QSize(16, 16))
 		self.generate_btn.clicked.connect(self.toggle_generation)
 		self.generate_btn.setStyleSheet(f"""
 			QPushButton {{
@@ -1316,8 +1349,10 @@ class PromptGeneratorDialog(QDialog):
 		btn_row = QHBoxLayout()
 		btn_row.addStretch()
 		ok_btn = QPushButton(qta.icon('fa6s.check'), " OK")
+		ok_btn.setIconSize(QSize(14, 14))
 		ok_btn.clicked.connect(dlg.accept)
 		cancel_btn = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
+		cancel_btn.setIconSize(QSize(14, 14))
 		cancel_btn.clicked.connect(dlg.reject)
 		btn_row.addWidget(ok_btn)
 		btn_row.addWidget(cancel_btn)
@@ -2273,8 +2308,10 @@ class PromptGeneratorDialog(QDialog):
 		btn_row = QHBoxLayout()
 		btn_row.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 		cancel_btn = QPushButton(qta.icon('fa6s.xmark'), " Cancel")
+		cancel_btn.setIconSize(QSize(14, 14))
 		cancel_btn.clicked.connect(dlg.reject)
 		save_btn = QPushButton(qta.icon('fa6s.floppy-disk'), " Save")
+		save_btn.setIconSize(QSize(14, 14))
 		save_btn.clicked.connect(dlg.accept)
 		btn_row.addWidget(cancel_btn)
 		btn_row.addWidget(save_btn)
