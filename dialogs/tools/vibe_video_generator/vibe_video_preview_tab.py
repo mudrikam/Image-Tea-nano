@@ -500,18 +500,31 @@ class PreviewTabWidget(QWidget):
             self.open_browser_btn.setEnabled(True)
 
     def _on_start_server(self, request_id=None, script_content=None):
+        # Guard: prevent concurrent starts
         if self._server_starting or self._server_running:
             return
+        # Mark as starting immediately to block reentrancy
+        self._server_starting = True
+        self._server_running = False
+        # Update UI to reflect starting state
+        self._update_toggle_server_button()
+
         self._auto_controls_pending = True
         if request_id is None:
             request_id = self._preview_request_id
         if script_content is None:
             if not self._scripts_widget:
+                # Reset and restore UI
+                self._server_starting = False
+                self._update_toggle_server_button()
                 return
             script_content = self._scripts_widget.script_content.toPlainText().strip()
         if not script_content:
+            self._server_starting = False
+            self._update_toggle_server_button()
             return
 
+        # Prepare UI
         self.toggle_server_btn.setEnabled(False)
         self.open_browser_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -535,8 +548,6 @@ class PreviewTabWidget(QWidget):
             self.open_browser_btn.setEnabled(True)
             return
 
-        self._server_starting = True
-        self._server_running = True
         self.cancel_start_btn.setVisible(True)
         self._server_port = self._find_free_port(3099)
         worker = RemotionStudioWorker(self._preview_dir, self._server_port, request_id=request_id)
@@ -704,6 +715,7 @@ class PreviewTabWidget(QWidget):
         url = f'http://127.0.0.1:{port}'
         print(f'[Remotion Studio] Ready at {url}')
         self._server_starting = False
+        self._server_running = True  # Server is now fully running
         self.cancel_start_btn.setVisible(False)
         self._server_retry_count = 0
         if self._retry_timer:
@@ -746,6 +758,7 @@ class PreviewTabWidget(QWidget):
         else:
             self._reset_ui(f'Studio failed: {error}')
             self._server_retry_count = 0
+            self._update_toggle_server_button()  # Refresh button state
             self.open_browser_btn.setEnabled(True)
             if self._retry_timer:
                 self._retry_timer.stop()
@@ -891,6 +904,7 @@ class PreviewTabWidget(QWidget):
             worker.deleteLater()
         from helpers.remotion_helper.remotion_helper import cleanup_preview_dir
         cleanup_preview_dir(force=force_cleanup)
+        self._update_toggle_server_button()  # Refresh button state after stop
 
 
 

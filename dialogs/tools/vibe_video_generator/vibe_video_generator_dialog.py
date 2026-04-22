@@ -53,12 +53,15 @@ class VibeVideoGeneratorDialog(QDialog):
 
     def showEvent(self, event: QShowEvent):
         super().showEvent(event)
-        # Reset closing flag and ensure server state is clean when dialog is shown again
-        if hasattr(self, 'preview_tab_widget') and self.preview_tab_widget:
-            self.preview_tab_widget._is_closing = False
-            self.preview_tab_widget._server_starting = False
-            self.preview_tab_widget._server_running = False
-            self.preview_tab_widget._update_toggle_server_button()
+        # Reset state only if dialog was previously closed (not just hidden)
+        if self._is_closing:
+            if hasattr(self, 'preview_tab_widget') and self.preview_tab_widget:
+                # Clear shutdown flags and ensure clean state for fresh start
+                self.preview_tab_widget._is_closing = False
+                self.preview_tab_widget._server_starting = False
+                self.preview_tab_widget._server_running = False
+                self.preview_tab_widget._update_toggle_server_button()
+            self._is_closing = False
         if not is_logged_in():
             QTimer.singleShot(0, self._show_member_required)
         elif is_membership_expired():
