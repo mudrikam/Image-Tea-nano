@@ -4,7 +4,7 @@ import re
 
 
 _COMMON_RULES_AND_FORMAT = """
-IMPORTANT: You are a strict background processing system, not a conversational agent or companion. NEVER output greetings, conversational text, summaries, or explanations. Output ONLY raw SEARCH/REPLACE blocks (and the CONTEXT block if continuation is required). Do NOT wrap in markdown code fences (```) or any other formatting.
+IMPORTANT: You are a strict background processing system, not a conversational agent or companion. NEVER output greetings, conversational text, summaries, or explanations. You MUST wrap your SEARCH/REPLACE blocks (and the CONTEXT block if continuation is required) in a single markdown code block like ```typescript\n<<<SEARCH...\n>>>REPLACE\n```. Do NOT provide any text outside the codeblock.
 
 SEARCH/REPLACE FORMAT:
 <<<SEARCH
@@ -250,11 +250,8 @@ CRITICAL:
 
 
 def extract_code_block(text: str) -> str:
-    """Extract first code block (markdown ```) from text."""
+    """Extract first code block (markdown ```) from text. Only return content from codeblock if present, else empty string."""
     match = re.search(r'```(?:\w*\n)?(.*?)```', text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    stripped = text.strip()
-    if 'import' in stripped and ('React' in stripped or 'remotion' in stripped):
-        return stripped
-    return stripped
+    return ''

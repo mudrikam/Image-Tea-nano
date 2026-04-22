@@ -358,13 +358,21 @@ class ScriptRefineWorker(QThread):
                     print(f"[Vibe Video] Raw AI Request (Turn {turn}, Attempt {attempt}):\n{'-'*40}\n{full_prompt}\n{'-'*40}")
                     
                     text = self._call_ai(full_prompt)
-                    
+
                     print(f"[Vibe Video] Raw AI Response (Turn {turn}, Attempt {attempt}):\n{'-'*40}\n{text}\n{'-'*40}")
-                    
+
                     self.progress.emit(f"Analyzing AI response (Turn {turn}/{MAX_TURNS})...")
-                    
-                    is_continuation, context = is_continuation_request(text)
-                    fix_content = strip_continuation_block(text)
+
+                    from helpers.remotion_helper.script_fixer_helper import extract_code_block
+                    fix_content = extract_code_block(text)
+                    if not fix_content:
+                        # Fallback to old parsing if no codeblock
+                        is_continuation, context = is_continuation_request(text)
+                        fix_content = strip_continuation_block(text)
+                    else:
+                        # If codeblock found, strip continuation from within it
+                        is_continuation, context = is_continuation_request(fix_content)
+                        fix_content = strip_continuation_block(fix_content)
                     
                     patched = apply_search_replace(current_script, fix_content)
                     if patched:
@@ -676,6 +684,11 @@ class ScriptsWidget(QWidget):
         self._redo_shortcut = QShortcut(QKeySequence('Ctrl+Alt+Y'), self)
         self._redo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self._redo_shortcut.activated.connect(self._on_redo)
+
+        # Keyboard shortcut for save (Ctrl+S)
+        self._save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        self._save_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._save_shortcut.activated.connect(self._on_save)
 
     def _apply_theme(self):
         styles, default_text, bg = get_theme_colors()
