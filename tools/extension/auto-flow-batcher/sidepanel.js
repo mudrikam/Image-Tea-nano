@@ -17,15 +17,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   const typeGroup = document.getElementById('typeGroup');
   const btnClearLogs = document.getElementById('btnClearLogs');
 
-   // Stats
    const valQueue = document.getElementById('valQueue');
    const valSuccess = document.getElementById('valSuccess');
    const valFailed = document.getElementById('valFailed');
    const valDownloaded = document.getElementById('valDownloaded');
+   const countdownRow = document.getElementById('countdownRow');
+   const valCountdown = document.getElementById('valCountdown');
 
    // Clear logs on every sidepanel open (clean start)
    logArea.innerHTML = '';
 
+   let countdownInterval = null;
      let filePrompts = [];
      let prompts = [];
      let currentIndex = 0;
@@ -143,12 +145,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Reset state for new run
-    currentIndex = 0;
-    successCount = 0;
-    failedCount = 0;
-    downloadedCount = 0;
-    updateStats();
+     // Reset state for new run
+     currentIndex = 0;
+     successCount = 0;
+     failedCount = 0;
+     downloadedCount = 0;
+     updateStats();
+     // Hide countdown until first update
+     countdownRow.classList.add('hidden');
 
      // Gather Config
      const settings = {
@@ -295,11 +299,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Message listener for real-time logs from content script
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.action === "LOG_FROM_CONTENT") {
-      appendLog(`[Script] ${msg.message}`, 'info');
-    }
-  });
+   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+     if (msg.action === "LOG_FROM_CONTENT") {
+       appendLog(`[Script] ${msg.message}`, 'info');
+     }
+     // Handle countdown timer updates from content script
+     if (msg.action === "MONITOR_COUNTDOWN") {
+       const remaining = msg.remaining;
+       if (remaining !== undefined) {
+         valCountdown.innerText = remaining;
+         if (remaining > 0) {
+           countdownRow.classList.remove('hidden');
+         } else {
+           countdownRow.classList.add('hidden');
+         }
+       }
+     }
+     // Handle batch completion (hide countdown)
+     if (msg.action === "BATCH_COMPLETE") {
+       countdownRow.classList.add('hidden');
+     }
+   });
 
   appendLog('Extension loaded. Ready to attach to page.', 'info');
 

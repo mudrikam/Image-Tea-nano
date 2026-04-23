@@ -725,32 +725,20 @@ if (window.top !== window.self) {
         return false;
       }
 
-      // Get all current image URLs on page
-      function getCurrentImageUrls() {
-        const urls = new Set();
-        const images = document.querySelectorAll('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
-        images.forEach(img => {
-          const src = img.src || img.currentSrc || img.getAttribute('src');
-          if (src && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
-            urls.add(src);
+      // Get all current image tile IDs on page (data-tile-id attribute)
+      function getCurrentTileIds() {
+        const ids = new Set();
+        const tiles = document.querySelectorAll('[data-tile-id]');
+        tiles.forEach(tile => {
+          const tileId = tile.getAttribute('data-tile-id');
+          if (tileId && tileId.startsWith('fe_id_')) {
+            ids.add(tileId);
           }
         });
-        return urls;
+        return ids;
       }
 
-      // Find image elements that are newly appeared (not in excludeSet)
-      function findNewImageElements(count, excludeSet) {
-        const images = document.querySelectorAll('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
-        const newInfos = [];
-        images.forEach(img => {
-          const src = img.src || img.currentSrc || img.getAttribute('src');
-          if (src && !excludeSet.has(src) && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
-            newInfos.push({ url: src, element: img });
-          }
-        });
-        // Sort by DOM order (newer appended later) → last N
-        return newInfos.slice(-count);
-      }
+
 
       // Detect failure elements (Gagal/Error messages)
       function detectFailures() {
@@ -766,31 +754,72 @@ if (window.top !== window.self) {
       }
 
       // Wait for generation to complete, monitor new images, detect failures
-      async function monitorGeneration(expectedCount, beforeUrls, settings) {
-        const MAX_WAIT_SECONDS = (settings.type === 'video') ? 180 : 180; // 3 min for both (Flow can be slow)
+      async function monitorGeneration(expectedCount, beforeTileIds, settings) {
+        const MAX_WAIT_SECONDS = (settings.type === 'video') ? 180 : 180; // 3 min for both
         const POLL_INTERVAL = 1500;
+        const COUNTDOWN_UPDATE_INTERVAL = 1000; // send countdown every 1s
         const maxWaitMs = MAX_WAIT_SECONDS * 1000;
 
         log(`>>> Monitoring generation: expect ${expectedCount} new images, timeout ${MAX_WAIT_SECONDS}s`);
-
-        log(`DEBUG: Pre-generation snapshot: ${beforeUrls.size} images already present`);
+        log(`DEBUG: Pre-generation snapshot: ${beforeTileIds.size} tile IDs already present`);
 
         const startTime = Date.now();
         let scanCount = 0;
-        let lastNewCount = 0;
+        let lastSeenCount = 0;
         let consecutiveNoChange = 0;
+        let lastCountdownSent = 0;
+
+        // Accumulate all newly seen tile IDs and their image URLs (so we don't lose them if DOM changes)
+        const seenTileIds = new Set();
+        const foundTiles = []; // array of {tileId, url, element}
+
+        const sendCountdown = (remaining) => {
+          chrome.runtime.sendMessage({
+            action: 'MONITOR_COUNTDOWN',
+            remaining: remaining
+          }).catch(() => {});
+        };
+
+        const tryAddTile = (tileId) => {
+          if (seenTileIds.has(tileId)) return;
+          const tile = document.querySelector(`[data-tile-id="${tileId}"]`);
+          if (!tile) return;
+          const img = tile.querySelector('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
+          if (!img) return;
+          const src = img.src || img.currentSrc || img.getAttribute('src');
+          if (src && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
+            seenTileIds.add(tileId);
+            foundTiles.push({ tileId, url: src, element: img, tile: tile });
+            log(`DEBUG: Captured new tile ${tileId.substring(0, 12)} → ${src.substring(0, 40)}`);
+          }
+        };
+
         const MAX_CONSECUTIVE_NO_CHANGE = 5; // ~7.5s of no changes
 
         while (Date.now() - startTime < maxWaitMs) {
           if (!isRunning) {
             log('>>> ABORT: Monitoring stopped by user');
+            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
             break;
           }
 
           scanCount++;
-          const currentUrls = getCurrentImageUrls();
-          const newUrls = new Set([...currentUrls].filter(url => !beforeUrls.has(url)));
-          const newCount = newUrls.size;
+          // Get current tile IDs
+          const currentTileIds = getCurrentTileIds();
+          const newTileIds = new Set([...currentTileIds].filter(id => !beforeTileIds.has(id)));
+
+          // Accumulate any new tiles we haven't seen before
+          newTileIds.forEach(tryAddTile);
+
+          const seenCount = seenTileIds.size;
+
+          // Send countdown update every second
+          const elapsed = Date.now() - startTime;
+          const remaining = Math.max(0, Math.ceil((maxWaitMs - elapsed) / 1000));
+          if (remaining !== lastCountdownSent) {
+            sendCountdown(remaining);
+            lastCountdownSent = remaining;
+          }
 
           // Check for failures
           const failures = detectFailures();
@@ -799,41 +828,46 @@ if (window.top !== window.self) {
           }
 
           // Log progress
-          if (newCount !== lastNewCount) {
-            log(`>>> Generation progress: ${newCount}/${expectedCount} new images detected`);
+          if (seenCount !== lastSeenCount) {
+            log(`>>> Generation progress: ${seenCount}/${expectedCount} new tiles detected`);
             consecutiveNoChange = 0;
           } else {
             consecutiveNoChange++;
           }
-          lastNewCount = newCount;
+          lastSeenCount = seenCount;
 
-          // Success condition
-          if (newCount >= expectedCount) {
-            log(`>>> SUCCESS: All ${expectedCount} images appeared`);
-            return { status: 'complete', found: newCount, failed: failures.length };
+          // Success condition: we have at least expectedCount new tiles
+          if (seenCount >= expectedCount) {
+            log(`>>> SUCCESS: All ${expectedCount} tiles appeared`);
+            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+            return { status: 'complete', found: seenCount, failed: failures.length, foundTiles };
           }
 
           // Smart early exit: some images + no new + failures → partial
-          if (newCount > 0 && consecutiveNoChange >= MAX_CONSECUTIVE_NO_CHANGE && failures.length > 0) {
-            log(`>>> PARTIAL: ${newCount} images found, ${failures.length} failures, no new after ${MAX_CONSECUTIVE_NO_CHANGE} polls`);
-            return { status: 'partial', found: newCount, failed: failures.length };
+          if (seenCount > 0 && consecutiveNoChange >= MAX_CONSECUTIVE_NO_CHANGE && failures.length > 0) {
+            log(`>>> PARTIAL: ${seenCount} tiles found, ${failures.length} failures, no new after ${MAX_CONSECUTIVE_NO_CHANGE} polls`);
+            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+            return { status: 'partial', found: seenCount, failed: failures.length, foundTiles };
           }
 
           // Timeout
           if (Date.now() - startTime >= maxWaitMs) {
-            if (newCount > 0) {
-              log(`>>> TIMEOUT: Found ${newCount}/${expectedCount} (${failures.length} failures)`);
-              return { status: 'partial', found: newCount, failed: failures.length };
+            if (seenCount > 0) {
+              log(`>>> TIMEOUT: Found ${seenCount}/${expectedCount} (${failures.length} failures)`);
+              chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+              return { status: 'partial', found: seenCount, failed: failures.length, foundTiles };
             } else {
-              log('>>> TIMEOUT: No new images detected');
-              return { status: 'failed', found: 0, failed: failures.length };
+              log('>>> TIMEOUT: No new tiles detected');
+              chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+              return { status: 'failed', found: 0, failed: failures.length, foundTiles: [] };
             }
           }
 
           await new Promise(r => setTimeout(r, POLL_INTERVAL));
         }
 
-        return { status: 'timeout', found: 0, failed: 0 };
+        chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+        return { status: 'timeout', found: seenTileIds.size, failed: 0, foundTiles };
       }
 
       // Download a single image via background script (chrome.downloads)
@@ -858,33 +892,31 @@ if (window.top !== window.self) {
       }
 
       // Process batch: monitor, detect, download
-      async function processBatch(promptIndex, batchCount, beforeUrls, settings) {
+      async function processBatch(promptIndex, batchCount, beforeTileIds, settings) {
         log(`>>> Starting batch processing: expect ${batchCount} images for prompt ${promptIndex + 1}`);
 
         // Step 1: Monitor generation (after Create button clicked by caller)
-        const monitorResult = await monitorGeneration(batchCount, beforeUrls, settings);
+        const monitorResult = await monitorGeneration(batchCount, beforeTileIds, settings);
 
-        if (monitorResult.found === 0) {
+        // Use the accumulated foundTiles (captured at first sight, even if DOM later changes)
+        const foundTiles = monitorResult.foundTiles;
+        const foundCount = foundTiles.length;
+
+        if (foundCount === 0) {
           log(`>>> FAILED: No images detected for prompt ${promptIndex + 1}`);
           return { success: false, downloaded: 0, message: 'No images detected' };
         }
 
-        // Step 2: Collect NEW image elements (not in beforeUrls)
-        const newImageInfos = findNewImageElements(monitorResult.found + 5, beforeUrls); // fetch slightly more in case of noise
-        // Only take up to batchCount images, and at most monitorResult.found
-        const maxToTake = Math.min(batchCount, monitorResult.found);
-        const targetImages = newImageInfos.slice(0, maxToTake);
-        const newImageCount = targetImages.length;
-        log(`>>> Collected ${newImageCount} new image elements (expected ${batchCount}, found ${monitorResult.found})`);
+        log(`>>> Batch monitoring complete: ${monitorResult.status}, captured ${foundCount} tile(s) during generation`);
 
-        // Step 3: Download images
+        // Step 2: Download images from captured tiles (up to batchCount)
+        const maxToTake = Math.min(batchCount, foundCount);
         let downloaded = 0;
-        for (let i = 0; i < targetImages.length && isRunning; i++) {
-          const imgInfo = targetImages[i];
-          log(`>>> Downloading image ${i + 1}/${targetImages.length}: ${imgInfo.url.substring(0, 60)}`);
-          downloadImage(imgInfo.url, promptIndex, i, settings);
+        for (let i = 0; i < maxToTake && isRunning; i++) {
+          const tileInfo = foundTiles[i];
+          log(`>>> Downloading image ${i + 1}/${maxToTake}: ${tileInfo.url.substring(0, 60)}`);
+          downloadImage(tileInfo.url, promptIndex, i, settings);
           downloaded++;
-
           // Small delay between downloads
           await new Promise(r => setTimeout(r, 500));
         }
@@ -892,7 +924,7 @@ if (window.top !== window.self) {
         return {
           success: monitorResult.status === 'complete' && downloaded >= batchCount,
           downloaded: downloaded,
-          message: `${monitorResult.status}: ${monitorResult.found} found, ${downloaded} downloaded, ${monitorResult.failed} failed`
+          message: `${monitorResult.status}: ${foundCount} captured, ${downloaded} downloaded, ${monitorResult.failed} failed`
         };
       }
 
@@ -924,55 +956,64 @@ if (window.top !== window.self) {
           // Get editor content element (works for empty or populated editor)
           let pEl = getParagraph(editor);
 
-          // If no paragraph found, try to create one by clicking/focusing first
-          if (!pEl) {
-            log('WARN: No paragraph found, trying to focus blank editor');
-            editor.scrollIntoView({ behavior: 'instant', block: 'center' });
-            await new Promise(r => setTimeout(r, 200));
+           // If no paragraph found, try to create one by focusing first
+           if (!pEl) {
+             log('WARN: No paragraph found, trying to focus blank editor');
+             editor.scrollIntoView({ behavior: 'instant', block: 'center' });
+             await new Promise(r => setTimeout(r, 200));
 
-            pEl = getParagraph(editor);
-            if (!pEl) {
-              log('WARN: Still no paragraph, typing directly into editor');
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(editor);
-              sel.removeAllRanges();
-              sel.addRange(range);
+             pEl = getParagraph(editor);
+             if (!pEl) {
+               log('WARN: Still no paragraph, typing directly into editor');
+               const sel = window.getSelection();
+               const range = document.createRange();
+               range.selectNodeContents(editor);
+               sel.removeAllRanges();
+               sel.addRange(range);
 
-              const beforeInput = new InputEvent('beforeinput', {
-                inputType: 'insertText',
-                data: prompt,
-                bubbles: true,
-                cancelable: true,
-                isComposing: false
-              });
-              editor.dispatchEvent(beforeInput);
-              await new Promise(r => setTimeout(r, 800));
+               const beforeInput = new InputEvent('beforeinput', {
+                 inputType: 'insertText',
+                 data: prompt,
+                 bubbles: true,
+                 cancelable: true,
+                 isComposing: false
+               });
+               editor.dispatchEvent(beforeInput);
+               await new Promise(r => setTimeout(r, 800));
 
-                if (editor.textContent.includes(prompt)) {
-                  log('>>> SUCCESS (direct editor insert)');
-                  const clicked = await clickVariantButton();
-                  if (clicked) {
-                    await selectModeTab(settings.type, settings.ratio, settings.batch);
-                    await closePopupMenu();
-                    const beforeUrls = getCurrentImageUrls();
-                    const createClicked = await clickCreateButton();
-                       if (createClicked && isRunning) {
-                         const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
-                         log(`>>> Batch result: ${batchResult.message}`);
-                         return {
-                           status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
-                           message: batchResult.message,
-                           downloaded: batchResult.downloaded,
-                           expected: parseInt(settings.batch)
-                         };
-                       }
-                  }
-                  return { status: 'success', message: 'Prompt typed (direct)' };
-                }
-              throw new Error('Editor paragraph element not found even after direct insert attempt');
-            }
-          }
+               // Verify direct typing succeeded
+               if (!editor.textContent || !editor.textContent.trim().includes(prompt.trim())) {
+                 throw new Error('Direct typing failed: prompt text not found in editor');
+               }
+
+               log('>>> SUCCESS (direct editor insert)');
+               // UI automation
+               const clicked = await clickVariantButton();
+               if (clicked) {
+                 await selectModeTab(settings.type, settings.ratio, settings.batch);
+                 await closePopupMenu();
+                 const beforeTileIds = getCurrentTileIds();
+                 const createClicked = await clickCreateButton();
+                 if (createClicked && isRunning) {
+                   const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
+                   log(`>>> Batch result: ${batchResult.message}`);
+                   return {
+                     status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                     message: batchResult.message,
+                     downloaded: batchResult.downloaded,
+                     expected: parseInt(settings.batch)
+                   };
+                 } else if (!isRunning) {
+                   return { status: 'stopped', message: 'Stopped during batch processing' };
+                 } else {
+                   return { status: 'failed', message: 'Failed to click Create button' };
+                 }
+               }
+               // If UI interaction failed to start, still consider prompt typed
+               return { status: 'success', message: 'Prompt typed (direct, UI start failed)' };
+             }
+             // If pEl became available after focus attempt, fall through to main verification
+           }
 
           log(`Paragraph: ${pEl.tagName}, innerHTML before: ${pEl.innerHTML.substring(0, 50)}`);
 
@@ -1028,22 +1069,22 @@ if (window.top !== window.self) {
              if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
                log('>>> SUCCESS (verified via editor.textContent)');
                const clicked = await clickVariantButton();
-               if (clicked) {
-                 await selectModeTab(settings.type, settings.ratio, settings.batch);
-                 await closePopupMenu();
-                 const beforeUrls = getCurrentImageUrls();
-                 const createClicked = await clickCreateButton();
-                 if (createClicked && isRunning) {
-                   const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
-                   log(`>>> Batch result: ${batchResult.message}`);
-                   return {
-                     status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
-                     message: batchResult.message,
-                     downloaded: batchResult.downloaded,
-                     expected: parseInt(settings.batch)
-                   };
-                 }
-               }
+                if (clicked) {
+                  await selectModeTab(settings.type, settings.ratio, settings.batch);
+                  await closePopupMenu();
+                  const beforeTileIds = getCurrentTileIds();
+                  const createClicked = await clickCreateButton();
+                  if (createClicked && isRunning) {
+                    const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
+                    log(`>>> Batch result: ${batchResult.message}`);
+                    return {
+                      status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                      message: batchResult.message,
+                      downloaded: batchResult.downloaded,
+                      expected: parseInt(settings.batch)
+                    };
+                  }
+                }
                return { status: 'success', message: 'Prompt typed (editor content check)' };
              }
              throw new Error('Cannot verify: paragraph element missing and editor.textContent does not contain prompt');
@@ -1066,32 +1107,32 @@ if (window.top !== window.self) {
 
             // Click variant settings button to open popup menu
             const clicked = await clickVariantButton();
-            if (clicked) {
-              // Select mode tab (image/video), ratio, and batch count
-              await selectModeTab(settings.type, settings.ratio, settings.batch);
-              // Close popup menu to avoid interfering with next prompt
-              await closePopupMenu();
+              if (clicked) {
+                // Select mode tab (image/video), ratio, and batch count
+                await selectModeTab(settings.type, settings.ratio, settings.batch);
+                // Close popup menu to avoid interfering with next prompt
+                await closePopupMenu();
 
-              // NEW: Capture pre-generation snapshot BEFORE clicking Create
-              const beforeUrls = getCurrentImageUrls();
+                // Capture pre-generation snapshot of tile IDs BEFORE clicking Create
+                const beforeTileIds = getCurrentTileIds();
 
-              // NEW: Click Create button to send prompt and then monitor/download
-              const createClicked = await clickCreateButton();
-              if (createClicked && isRunning) {
-                        const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
-                        log(`>>> Batch result: ${batchResult.message}`);
-                        return {
-                          status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
-                          message: batchResult.message,
-                          downloaded: batchResult.downloaded,
-                          expected: parseInt(settings.batch)
-                        };
-              } else if (!isRunning) {
-                return { status: 'stopped', message: 'Stopped during batch processing' };
-              } else {
-                return { status: 'failed', message: 'Failed to click Create button' };
+                // Click Create button to send prompt and then monitor/download
+                const createClicked = await clickCreateButton();
+                if (createClicked && isRunning) {
+                  const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
+                  log(`>>> Batch result: ${batchResult.message}`);
+                  return {
+                    status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                    message: batchResult.message,
+                    downloaded: batchResult.downloaded,
+                    expected: parseInt(settings.batch)
+                  };
+                } else if (!isRunning) {
+                  return { status: 'stopped', message: 'Stopped during batch processing' };
+                } else {
+                  return { status: 'failed', message: 'Failed to click Create button' };
+                }
               }
-            }
 
           return { status: 'success', message: 'Prompt typed' };
         } catch (err) {
