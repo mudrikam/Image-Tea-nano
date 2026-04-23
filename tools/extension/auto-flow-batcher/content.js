@@ -171,7 +171,7 @@ if (window.top !== window.self) {
         return false;
       }
 
-        async function selectModeTab(mode, ratio = null, batch = '1') {
+       async function selectModeTab(mode, ratio = null, batch = '1') {
         const MAX_RETRIES = 10;
         const RETRY_DELAY = 150;
 
@@ -402,7 +402,7 @@ if (window.top !== window.self) {
                 }
               }
 
-              // Success after completing video flow
+              // Success after completing video flow (up to batch)
               return true;
             }
 
@@ -426,10 +426,10 @@ if (window.top !== window.self) {
                 }
               }
 
-               if (!ratioTab) {
-                 log(`WARN: Ratio tab "${ratio}" not found, will skip ratio selection`);
-                 // Don't return — continue to batch selection
-               } else if (ratioTab.getAttribute('aria-selected') !== 'true') {
+              if (!ratioTab) {
+                log(`WARN: Ratio tab "${ratio}" not found, will skip ratio selection`);
+                // Don't return — continue to batch selection
+              } else if (ratioTab.getAttribute('aria-selected') !== 'true') {
                 const style = window.getComputedStyle(ratioTab);
                 if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
                   await new Promise(r => setTimeout(r, RETRY_DELAY));
@@ -457,65 +457,68 @@ if (window.top !== window.self) {
                 log(`>>> Ratio "${ratio}" already selected`);
               }
 
-               // STEP 2c: After ratio, select batch count
-               if (batch) {
-                 await new Promise(r => setTimeout(r, 200));
-                 const finalMenu = document.querySelector('div[role="menu"][data-state="open"]');
-                 if (!finalMenu) {
-                   log('WARN: Menu disappeared after selecting ratio');
-                   return true;
-                 }
+              // STEP 2c: After ratio, select batch count
+              if (batch) {
+                await new Promise(r => setTimeout(r, 200));
+                const finalMenu = document.querySelector('div[role="menu"][data-state="open"]');
+                if (!finalMenu) {
+                  log('WARN: Menu disappeared after selecting ratio');
+                  return true;
+                }
 
-                 const batchTabs = finalMenu.querySelectorAll('button[role="tab"]');
-                 let batchTab = null;
-                 const batchKey = `x${batch}`;
-                 for (let tab of batchTabs) {
-                   const txt = (tab.textContent || '').trim();
-                   if (txt.toLowerCase() === batchKey.toLowerCase()) {
-                     batchTab = tab;
-                     log(`DEBUG: Found batch tab "${batchKey}": "${txt}"`);
-                     break;
-                   }
-                 }
+                const batchTabs = finalMenu.querySelectorAll('button[role="tab"]');
+                let batchTab = null;
+                const batchKey = `x${batch}`;
+                for (let tab of batchTabs) {
+                  const txt = (tab.textContent || '').trim();
+                  if (txt.toLowerCase() === batchKey.toLowerCase()) {
+                    batchTab = tab;
+                    log(`DEBUG: Found batch tab "${batchKey}": "${txt}"`);
+                    break;
+                  }
+                }
 
-                 if (!batchTab) {
-                   log(`WARN: Batch tab "${batchKey}" not found, available: ${Array.from(batchTabs).map(t => t.textContent.trim()).join(', ')}`);
-                 } else if (batchTab.getAttribute('aria-selected') !== 'true') {
-                   const style = window.getComputedStyle(batchTab);
-                   if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-                     log(`WARN: Batch tab "${batchKey}" is disabled/not visible`);
-                   } else {
-                     batchTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                     await new Promise(r => setTimeout(r, 80));
-                     batchTab.focus();
-                     await new Promise(r => setTimeout(r, 50));
+                if (!batchTab) {
+                  log(`WARN: Batch tab "${batchKey}" not found, available: ${Array.from(batchTabs).map(t => t.textContent.trim()).join(', ')}`);
+                } else if (batchTab.getAttribute('aria-selected') !== 'true') {
+                  const style = window.getComputedStyle(batchTab);
+                  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                    log(`WARN: Batch tab "${batchKey}" is disabled/not visible`);
+                  } else {
+                    batchTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    await new Promise(r => setTimeout(r, 80));
+                    batchTab.focus();
+                    await new Promise(r => setTimeout(r, 50));
 
-                     const rect3 = batchTab.getBoundingClientRect();
-                     const cx3 = rect3.left + rect3.width / 2;
-                     const cy3 = rect3.top + rect3.height / 2;
+                    const rect3 = batchTab.getBoundingClientRect();
+                    const cx3 = rect3.left + rect3.width / 2;
+                    const cy3 = rect3.top + rect3.height / 2;
 
-                     batchTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
-                     await new Promise(r => setTimeout(r, 50));
-                     batchTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
-                     await new Promise(r => setTimeout(r, 50));
-                     batchTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    batchTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    batchTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    batchTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
 
-                     log(`>>> Batch tab "${batchKey}" clicked`);
-                     await new Promise(r => setTimeout(r, 250));
+                    log(`>>> Batch tab "${batchKey}" clicked`);
+                    await new Promise(r => setTimeout(r, 250));
 
-                     if (batchTab.getAttribute('aria-selected') === 'true') {
-                       log(`>>> Batch confirmed: ${batchKey}`);
-                     } else {
-                       log(`WARN: Batch "${batchKey}" not confirmed after click`);
-                     }
-                   }
-                 } else {
-                   log(`>>> Batch "${batchKey}" already selected`);
-                 }
-               }
+                    if (batchTab.getAttribute('aria-selected') === 'true') {
+                      log(`>>> Batch confirmed: ${batchKey}`);
+                    } else {
+                      log(`WARN: Batch "${batchKey}" not confirmed after click`);
+                    }
+                  }
+                } else {
+                  log(`>>> Batch "${batchKey}" already selected`);
+                }
+              }
+
+              // Success after completing image flow (up to batch)
+              return true;
             }
 
-            // Success if we got here
+            // Should not get here
             return true;
           } catch (e) {
             await new Promise(r => setTimeout(r, RETRY_DELAY));
@@ -527,7 +530,7 @@ if (window.top !== window.self) {
       }
 
 // Close the popup menu — uses double-click on trigger, then click outside, then Escape
-       async function closePopupMenu() {
+        async function closePopupMenu() {
          const MAX_RETRIES = 5;
          const RETRY_DELAY = 150;
 
@@ -688,12 +691,12 @@ if (window.top !== window.self) {
                if (editor.textContent.includes(prompt)) {
                  log('>>> SUCCESS (direct editor insert)');
                  // Proceed to UI steps
-                 const clicked = await clickVariantButton();
+                  const clicked = await clickVariantButton();
                   if (clicked) {
                     await selectModeTab(settings.type, settings.ratio, settings.batch);
                     await closePopupMenu();
                   }
-                 return { status: 'success', message: 'Prompt typed (direct)' };
+                  return { status: 'success', message: 'Prompt typed (direct)' };
                }
               throw new Error('Editor paragraph element not found even after direct insert attempt');
             }
@@ -751,15 +754,15 @@ if (window.top !== window.self) {
           if (!verifyP) {
             log('WARN: Could not find paragraph for verification, assuming success');
             // Continue anyway - text might be in editor
-             if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
-               log('>>> SUCCESS (verified via editor.textContent)');
-               const clicked = await clickVariantButton();
-                if (clicked) {
-                  await selectModeTab(settings.type, settings.ratio, settings.batch);
-                  await closePopupMenu();
-                }
-               return { status: 'success', message: 'Prompt typed (editor content check)' };
-             }
+                if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
+                log('>>> SUCCESS (verified via editor.textContent)');
+                 const clicked = await clickVariantButton();
+                  if (clicked) {
+                    await selectModeTab(settings.type, settings.ratio, settings.batch);
+                    await closePopupMenu();
+                  }
+                return { status: 'success', message: 'Prompt typed (editor content check)' };
+              }
             throw new Error('Cannot verify: paragraph element missing and editor.textContent does not contain prompt');
           }
 
@@ -779,8 +782,8 @@ if (window.top !== window.self) {
             return { status: 'stopped', message: 'Stopped by user' };
           }
 
-           // Click variant settings button to open popup menu
-           const clicked = await clickVariantButton();
+            // Click variant settings button to open popup menu
+            const clicked = await clickVariantButton();
             if (clicked) {
               // Select mode tab (image/video), ratio, and batch count
               await selectModeTab(settings.type, settings.ratio, settings.batch);

@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const valPct = document.getElementById('valPct');
   const totalPromptsLabel = document.getElementById('totalPromptsLabel');
   const fileLabel = document.getElementById('fileLabel');
-  const modelSelect = document.getElementById('modelSelect');
   const typeGroup = document.getElementById('typeGroup');
   const btnClearLogs = document.getElementById('btnClearLogs');
 
@@ -26,21 +25,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Clear logs on every sidepanel open (clean start)
   logArea.innerHTML = '';
 
-   let filePrompts = [];
-   let prompts = [];
-   let currentIndex = 0;
-   let successCount = 0;
-   let failedCount = 0;
-   let isRunning = false;
-   let targetTabId = null; // store tab ID for STOP messaging
+    let filePrompts = [];
+    let prompts = [];
+    let currentIndex = 0;
+    let successCount = 0;
+    let failedCount = 0;
+    let isRunning = false;
+    let targetTabId = null; // store tab ID for STOP messaging
 
-   const MODELS = {
-     image: ['Nano Banana 2', 'Nano Banana Pro', 'Imagen 4'],
-     video: ['Veo 3.1 - Fast', 'Veo 3.1 - Lite', 'Veo 3.1 - Quality']
-   };
-
-   // Filter ratio options based on selected media type
-   function updateRatioOptions(type) {
+    // Filter ratio options based on selected media type
+    function updateRatioOptions(type) {
      const allRatioInputs = document.querySelectorAll('input[name="ratio"]');
      let validRatio = null;
 
@@ -69,19 +63,18 @@ document.addEventListener('DOMContentLoaded', async () => {
          }
        }
      });
-   }
+    }
 
-   // Update models on media type change
-   typeGroup.addEventListener('change', (e) => {
-     if(e.target.name === 'type') {
-       const selectedType = document.querySelector('input[name="type"]:checked').value;
-       modelSelect.innerHTML = MODELS[selectedType].map(m => `<option value="${m}">${m}</option>`).join('');
-       // Filter ratio options based on media type
-       updateRatioOptions(selectedType);
-     }
-   });
+    // Update models on media type change
+    typeGroup.addEventListener('change', (e) => {
+      if(e.target.name === 'type') {
+        const selectedType = document.querySelector('input[name="type"]:checked').value;
+        // Filter ratio options based on media type
+        updateRatioOptions(selectedType);
+      }
+    });
 
-  const calculateTotal = () => {
+   const calculateTotal = () => {
     const manualPrompts = manualInput.value.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     totalPromptsLabel.innerText = filePrompts.length + manualPrompts.length;
   };
@@ -154,18 +147,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     failedCount = 0;
     updateStats();
 
-    // Gather Config
-    const settings = {
-      type: document.querySelector('input[name="type"]:checked').value,
-      ratio: document.querySelector('input[name="ratio"]:checked').value,
-      batch: document.querySelector('input[name="batch"]:checked').value,
-      model: modelSelect.value
-    };
+     // Gather Config
+     const settings = {
+       type: document.querySelector('input[name="type"]:checked').value,
+       ratio: document.querySelector('input[name="ratio"]:checked').value,
+       batch: document.querySelector('input[name="batch"]:checked').value
+     };
 
-    isRunning = true;
-    btnStart.classList.add('hidden');
-    btnStop.classList.remove('hidden');
-    appendLog(`Starting Automation for ${prompts.length} tasks... (${settings.batch}x ${settings.model})`, 'act');
+     isRunning = true;
+     btnStart.classList.add('hidden');
+     btnStop.classList.remove('hidden');
+     appendLog(`Starting Automation for ${prompts.length} tasks... (${settings.batch}x per prompt)`, 'act');
 
      // Check active tab
      const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
