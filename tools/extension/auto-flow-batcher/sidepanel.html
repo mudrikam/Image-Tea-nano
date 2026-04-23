@@ -80,6 +80,16 @@
       letter-spacing: -0.5px;
       text-transform: uppercase;
     }
+    .header .title-group {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+    .header .version {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
     .badge {
       font-size: 10px;
       background-color: rgba(242, 125, 38, 0.1);
@@ -540,11 +550,14 @@
 </head>
 <body>
     <header class="header">
-      <div class="header-left">
+       <div class="header-left">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
-        <h1>Auto Flow Batcher</h1>
+        <div class="title-group">
+          <h1>Auto Flow Batcher</h1>
+          <span class="version" id="extensionVersion"></span>
+        </div>
       </div>
       <span class="badge">Desainia Studio</span>
     </header>
@@ -572,12 +585,12 @@
     <div id="mainInterface" class="content">
       <!-- Controls Bar - Top -->
       <section class="controls-bar">
-        <button class="btn-primary" id="btnStart" title="Start processing">
-          <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-          Start
-        </button>
+         <button class="btn-primary" id="btnStart" title="Start processing">
+           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+             <path d="M8 5v14l11-7z"/>
+           </svg>
+           <span class="btn-label">Start</span>
+         </button>
         <button class="btn-primary btn-pause hidden" id="btnPause" title="Pause processing">
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>

@@ -1,4 +1,18 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  // Load extension version from manifest
+  try {
+    const resp = await fetch('manifest.json');
+    if (resp.ok) {
+      const manifest = await resp.json();
+      const verEl = document.getElementById('extensionVersion');
+      if (verEl && manifest.version) {
+        verEl.textContent = 'v' + manifest.version;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not load manifest version:', e);
+  }
+
   // UI Elements - Landing Page
   const landingPage = document.getElementById('landingPage');
   const mainInterface = document.getElementById('mainInterface');
@@ -481,6 +495,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       isRunning = false;
       btnPause.classList.add('hidden');
       btnStart.classList.remove('hidden');
+      btnStart.querySelector('.btn-label').textContent = 'Continue';
       btnStop.classList.remove('hidden');
       manualInput.classList.remove('processing');
       appendLog('Process paused.', 'warn');
@@ -513,6 +528,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     countdownInterval = null;
     targetTabId = null;
     btnStart.classList.remove('hidden');
+    btnStart.querySelector('.btn-label').textContent = 'Start';
     btnPause.classList.add('hidden');
     btnStop.classList.add('hidden');
     manualInput.classList.remove('processing');
