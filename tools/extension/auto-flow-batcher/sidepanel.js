@@ -26,12 +26,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Clear logs on every sidepanel open (clean start)
   logArea.innerHTML = '';
 
-  let filePrompts = [];
-  let prompts = [];
-  let currentIndex = 0;
-  let successCount = 0;
-  let failedCount = 0;
-  let isRunning = false;
+   let filePrompts = [];
+   let prompts = [];
+   let currentIndex = 0;
+   let successCount = 0;
+   let failedCount = 0;
+   let isRunning = false;
+   let targetTabId = null; // store tab ID for STOP messaging
 
   const MODELS = {
     image: ['Nano Banana 2', 'Nano Banana Pro', 'Imagen 4'],
@@ -132,13 +133,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnStop.classList.remove('hidden');
     appendLog(`Starting Automation for ${prompts.length} tasks... (${settings.batch}x ${settings.model})`, 'act');
 
-    // Check active tab
-    const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!targetTab) {
-      appendLog('No active tab found to inject the content script.', 'error');
-      stopProcess();
-      return;
-    }
+     // Check active tab
+     const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+     if (!targetTab) {
+       appendLog('No active tab found to inject the content script.', 'error');
+       stopProcess();
+       return;
+     }
+
+     // Store tabId for STOP
+     targetTabId = targetTab.id;
 
     // Auto-inject content script if missing
     try {
@@ -166,10 +170,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     processQueue(settings, targetTab.id);
   });
 
-  btnStop.addEventListener('click', () => {
-    stopProcess();
-    appendLog('Process aborted by user.', 'warn');
-  });
+   btnStop.addEventListener('click', () => {
+     stopProcess();
+     appendLog('Process aborted by user.', 'warn');
+     // Send STOP to stored tab
+     if (targetTabId) {
+       chrome.tabs.sendMessage(targetTabId, { action: "STOP" }).catch(() => {});
+     }
+   });
 
   async function processQueue(settings, tabId) {
     while (isRunning && currentIndex < prompts.length) {
@@ -215,11 +223,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function stopProcess() {
-    isRunning = false;
-    btnStart.classList.remove('hidden');
-    btnStop.classList.add('hidden');
-  }
+   function stopProcess() {
+     isRunning = false;
+     targetTabId = null;
+     btnStart.classList.remove('hidden');
+     btnStop.classList.add('hidden');
+   }
 
   function updateStats() {
     const total = prompts.length;

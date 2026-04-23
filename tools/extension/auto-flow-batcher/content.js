@@ -3,13 +3,15 @@
 
 if (window.top !== window.self) {
 } else {
-  (function () {
-    function log(msg) {
-      try {
-        chrome.runtime.sendMessage({ action: "LOG_FROM_CONTENT", message: msg }).catch(() => {});
-      } catch (e) {}
-      console.log('[AFB]', msg);
-    }
+   (function () {
+     let isRunning = true;
+
+     function log(msg) {
+       try {
+         chrome.runtime.sendMessage({ action: "LOG_FROM_CONTENT", message: msg }).catch(() => {});
+       } catch (e) {}
+       console.log('[AFB]', msg);
+     }
 
     function findEditor() {
       return document.querySelector('[data-slate-editor="true"]') ||
@@ -36,14 +38,14 @@ if (window.top !== window.self) {
            if (buttons.length === 1) {
              button = buttons[0];
            } else {
-             for (let btn of buttons) {
-               const txt = (btn.textContent || '').trim();
-               if (txt.includes('🍌') || txt.includes('📷') || txt.includes('Nano Banana') || txt.includes('Imagen') || txt.includes('3D') || txt.includes('Audio')) {
-                 button = btn;
-                 log(`DEBUG: Selected variant button by text: "${txt.substring(0, 50)}"`);
-                 break;
-               }
-             }
+              for (let btn of buttons) {
+                const txt = (btn.textContent || '').trim();
+                if (txt.includes('🍌') || txt.includes('📷') || txt.includes('Nano Banana') || txt.includes('Imagen') || txt.includes('Veo') || txt.includes('3D') || txt.includes('Audio') || txt.includes('Video') || txt.includes('Image')) {
+                  button = btn;
+                  log(`DEBUG: Selected variant button by text: "${txt.substring(0, 50)}"`);
+                  break;
+                }
+              }
              if (!button) {
                for (let btn of buttons) {
                  const txt = (btn.textContent || '').trim();
@@ -149,9 +151,211 @@ if (window.top !== window.self) {
        return false;
      }
 
-     async function processPrompt(prompt, settings) {
-       try {
-         log(`>>> START: "${prompt}"`);
+     // Select mode tab (Image/Video) inside the opened popup menu
+     async function selectModeTab(mode) {
+       const MAX_RETRIES = 15;
+       const RETRY_DELAY = 300;
+
+       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+         try {
+           // Find open popup menu
+           const menu = document.querySelector('div[role="menu"][data-state="open"]');
+           if (!menu) {
+             await new Promise(r => setTimeout(r, RETRY_DELAY));
+             continue;
+           }
+
+           // Find all tabs within menu
+           const tabs = menu.querySelectorAll('button[role="tab"]');
+           log(`DEBUG: Found ${tabs.length} mode tabs in popup`);
+
+           let targetTab = null;
+           for (let tab of tabs) {
+             const txt = (tab.textContent || '').trim().toLowerCase();
+             if (txt.includes(mode.toLowerCase())) {
+               targetTab = tab;
+               log(`DEBUG: Found ${mode} tab: "${txt}"`);
+               break;
+             }
+           }
+
+           if (!targetTab) {
+             await new Promise(r => setTimeout(r, RETRY_DELAY));
+             continue;
+           }
+
+           // If already selected, skip
+           if (targetTab.getAttribute('aria-selected') === 'true') {
+             log(`>>> Mode tab "${mode}" already selected`);
+             return true;
+           }
+
+           // Safety: visible?
+           const style = window.getComputedStyle(targetTab);
+           if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+             await new Promise(r => setTimeout(r, RETRY_DELAY));
+             continue;
+           }
+
+           // Click with mouse events
+           targetTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+           await new Promise(r => setTimeout(r, 150));
+           targetTab.focus();
+           await new Promise(r => setTimeout(r, 100));
+
+           const rect = targetTab.getBoundingClientRect();
+           const cx = rect.left + rect.width / 2;
+           const cy = rect.top + rect.height / 2;
+
+           targetTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+           await new Promise(r => setTimeout(r, 100));
+           targetTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+           await new Promise(r => setTimeout(r, 100));
+           targetTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+
+           log(`>>> Mode tab "${mode}" clicked (attempt ${attempt})`);
+           await new Promise(r => setTimeout(r, 500));
+
+           // Verify
+           if (targetTab.getAttribute('aria-selected') === 'true') {
+             log(`>>> Mode confirmed: ${mode}`);
+             return true;
+           }
+         } catch (e) {
+           await new Promise(r => setTimeout(r, RETRY_DELAY));
+         }
+       }
+
+       log(`WARN: Mode tab "${mode}" not selected after retries`);
+       return false;
+     }
+
+      // Close the popup menu — uses double-click on trigger, then click outside, then Escape
+      async function closePopupMenu() {
+        const MAX_RETRIES = 8;
+        const RETRY_DELAY = 300;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            // Find variant trigger button
+            const buttons = document.querySelectorAll('button[aria-haspopup="menu"]');
+            let button = null;
+            for (let btn of buttons) {
+              const txt = (btn.textContent || '').trim();
+              if (txt.includes('🍌') || txt.includes('📷') || txt.includes('Nano Banana') || txt.includes('Imagen') || txt.includes('Veo') || txt.includes('3D') || txt.includes('Audio') || txt.includes('Video') || txt.includes('Image')) {
+                button = btn;
+                break;
+              }
+            }
+            if (!button) {
+              // No button = menu probably gone
+              log(`>>> Popup closed (button gone)`);
+              return true;
+            }
+
+            const state = button.getAttribute('data-state');
+            const expanded = button.getAttribute('aria-expanded');
+            if (state === 'closed' && expanded !== 'true') {
+              log(`>>> Popup already closed`);
+              return true;
+            }
+
+            // Strategy 1: double-click the button
+            const rect = button.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+
+            const doClick = (el) => {
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+              el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+            };
+
+            // First click
+            doClick(button);
+            await new Promise(r => setTimeout(r, 150));
+            // Second click (toggle)
+            doClick(button);
+            await new Promise(r => setTimeout(r, 600));
+
+            // Verify
+            const newState = button.getAttribute('data-state');
+            const newExpanded = button.getAttribute('aria-expanded');
+            const controlsId = button.getAttribute('aria-controls');
+            let popupGone = true;
+            if (controlsId) {
+              const popup = document.getElementById(controlsId);
+              if (popup) {
+                const style = window.getComputedStyle(popup);
+                popupGone = style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || style.pointerEvents === 'none';
+              }
+            }
+
+            // After double-click, check if popup menu is gone
+            const stillOpen = document.querySelector('div[role="menu"][data-state="open"]');
+            if (!stillOpen) {
+              log(`>>> Popup closed after double-click`);
+              return true;
+            }
+
+            // Strategy 2: click outside (top-left corner of page)
+            const body = document.body;
+            const bodyRect = body.getBoundingClientRect();
+            const outsideX = bodyRect.left + 5;
+            const outsideY = bodyRect.top + 5;
+
+            body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: outsideX, clientY: outsideY, button: 0 }));
+            body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: outsideX, clientY: outsideY, button: 0 }));
+            body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: outsideX, clientY: outsideY, button: 0 }));
+            await new Promise(r => setTimeout(r, 600));
+
+            // Re-check after click-outside
+            const stillOpen2 = document.querySelector('div[role="menu"][data-state="open"]');
+            if (!stillOpen2) {
+              log(`>>> Popup closed after click-outside`);
+              return true;
+            }
+
+            // Strategy 3: Escape key — focus menu first then dispatch
+            const menu = document.querySelector('div[role="menu"][data-state="open"]');
+            if (menu) {
+              menu.focus();
+            }
+            const escEvent = new KeyboardEvent('keydown', {
+              key: 'Escape',
+              code: 'Escape',
+              keyCode: 27,
+              which: 27,
+              bubbles: true,
+              cancelable: true
+            });
+            document.dispatchEvent(escEvent);
+            await new Promise(r => setTimeout(r, 600));
+
+            const stillOpen3 = document.querySelector('div[role="menu"][data-state="open"]');
+            if (!stillOpen3) {
+              log(`>>> Popup closed after Escape`);
+              return true;
+            }
+
+          } catch (e) {
+            await new Promise(r => setTimeout(r, RETRY_DELAY));
+          }
+        }
+
+        log('WARN: Popup may still be open after all close attempts');
+        return false;
+      }
+
+      async function processPrompt(prompt, settings) {
+        try {
+          // Check stop flag
+          if (!isRunning) {
+            log('>>> ABORT: Process stopped by user (pre-check)');
+            return { status: 'stopped', message: 'Stopped by user' };
+          }
+
+          log(`>>> START: "${prompt}"`);
 
          let editor = null;
          for (let i = 0; i < 40; i++) {
@@ -213,34 +417,57 @@ if (window.top !== window.self) {
          log(`VERIFY: expected="${prompt}" actual="${actual}"`);
          log(`pEl.innerHTML: ${verifyP.innerHTML.substring(0, 300)}`);
 
-         if (actual !== prompt.trim()) {
-           throw new Error(`Mismatch: expected "${prompt}", got "${actual}"`);
-         }
+          if (actual !== prompt.trim()) {
+            throw new Error(`Mismatch: expected "${prompt}", got "${actual}"`);
+          }
 
-         log('>>> SUCCESS');
+          log('>>> SUCCESS');
 
-         // Click variant settings button to open popup menu after prompt is in
-         await clickVariantButton();
+          // Check stop before UI interaction
+          if (!isRunning) {
+            log('>>> ABORT: Process stopped by user (before UI)');
+            return { status: 'stopped', message: 'Stopped by user' };
+          }
 
-         return { status: 'success', message: 'Prompt typed' };
+          // Click variant settings button to open popup menu
+          const clicked = await clickVariantButton();
+          if (clicked) {
+            // Select mode tab (image/video) based on settings
+            await selectModeTab(settings.type);
+            // Close popup menu to avoid interfering with next prompt
+            await closePopupMenu();
+          }
+
+          return { status: 'success', message: 'Prompt typed' };
        } catch (err) {
          log(`>>> ERROR: ${err.message}`);
          return { status: 'failed', message: err.message };
        }
      }
 
-    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-      if (msg.action === 'PING') {
-        sendResponse({ status: 'ok' });
-        return true;
-      }
-      if (msg.action === 'PROCESS_PROMPT') {
-        processPrompt(msg.payload.prompt, msg.payload.settings)
-          .then(r => sendResponse(r))
-          .catch(e => sendResponse({ status: 'failed', message: e.message }));
-        return true;
-      }
-    });
+     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+       if (msg.action === 'PING') {
+         sendResponse({ status: 'ok' });
+         return true;
+       }
+       if (msg.action === 'STOP') {
+         isRunning = false;
+         log('>>> STOP received — aborting');
+         sendResponse({ status: 'stopped' });
+         return true;
+       }
+       if (msg.action === 'PROCESS_PROMPT') {
+         // Check isRunning before starting
+         if (!isRunning) {
+           sendResponse({ status: 'stopped', message: 'Process stopped by user' });
+           return true;
+         }
+         processPrompt(msg.payload.prompt, msg.payload.settings)
+           .then(r => sendResponse(r))
+           .catch(e => sendResponse({ status: 'failed', message: e.message }));
+         return true;
+       }
+     });
 
     log('Content script loaded and ready');
   })();
