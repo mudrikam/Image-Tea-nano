@@ -835,7 +835,21 @@ class ActionSequencerDialog(QDialog):
                 print(f"Launching {platform_name} with JSX: {jsx_result}")
                 self.single_segment_started.emit(0, 1)
                 self.single_delay_countdown.emit("-")
-                subprocess.Popen([exec_path, jsx_result], shell=False)
+                
+                # Execute JSX and WAIT for it to complete (not fire-and-forget)
+                import subprocess
+                process_timeout = 300  # 5 minutes max
+                try:
+                    print(f"Waiting for {platform_name} to complete JSX execution...")
+                    result = subprocess.run([exec_path, jsx_result], timeout=process_timeout)
+                    print(f"{platform_name} JSX completed with return code: {result.returncode}")
+                except subprocess.TimeoutExpired:
+                    print(f"ERROR: JSX execution timeout after {process_timeout}s")
+                    self.status_bar_widget.update_status("Timeout")
+                except Exception as e:
+                    print(f"ERROR: Failed to execute JSX: {e}")
+                    self.status_bar_widget.update_status("Error")
+                
                 self.single_completed.emit()
             elif isinstance(jsx_result, list):
                 print(f"Launching {platform_name} with {len(jsx_result)} JSX segments (delayed execution)")
@@ -1049,6 +1063,9 @@ class ActionSequencerDialog(QDialog):
         self.status_bar_widget.set_run_button_enabled(True)
         self.status_bar_widget.update_files_count(0, '')
 
+        # Get source path from config
+        source_path = self.config.get('source_path', '')
+        
         try:
             self.action_bar_widget.set_source_path("")
             self.action_bar_widget.set_file_path("")
@@ -1056,7 +1073,32 @@ class ActionSequencerDialog(QDialog):
             pass
         self.action_bar_widget.disable_all_load_buttons()
 
-        print("Tool cleared to initial state")
+        # Reload files from source path if configured
+        if source_path and os.path.exists(source_path):
+            if os.path.isdir(source_path):
+                print(f"Reloading files from source path: {source_path}")
+                self.loaded_files = []
+                for root, dirs, files in os.walk(source_path):
+                    for file in files:
+                        filepath = os.path.join(root, file)
+                        self.loaded_files.append(filepath)
+                self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
+                try:
+                    self.action_bar_widget.set_source_path(source_path)
+                except Exception:
+                    pass
+            else:
+                # Single file
+                self.loaded_files = [source_path]
+                self.status_bar_widget.update_files_count(1, 'manual')
+                try:
+                    self.action_bar_widget.set_file_path(source_path)
+                except Exception:
+                    pass
+        
+        self.action_bar_widget.enable_load_buttons()
+
+        print("Tool cleared and reloaded to initial state")
 
     def on_clear_source(self):
         """Clear only the source and selected file (do not clear output or other settings)."""

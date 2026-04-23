@@ -24,27 +24,63 @@ class PhotoshopJSXGenerator:
         Returns:
             List of tuples: [(steps_segment, delay_ms_after), ...]
             delay_ms_after is 0 for the last segment or if no delay follows
+            
+        Export steps are grouped with the preceding non-export segment to ensure
+        they execute in the same JSX file. Segments with only export steps are
+        merged with the previous segment.
         """
         segments = []
         current_segment = []
+        pending_exports = []  # Buffer export steps until we have non-export steps
         
         for step in preset_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
-            if action_detail and action_detail.get('type') == 'Delay':
+            
+            # Skip if action no longer exists (should be filtered earlier but be safe)
+            if not action_detail:
+                print(f"WARNING: Step references deleted action_id={step['action_id']}, skipping...")
+                continue
+                
+            action_type = action_detail.get('type', 'Unknown')
+            print(f"DEBUG: Processing step order={step['order_index']}, type={action_type}, name='{action_detail.get('name', '?')}'")
+            
+            if action_type == 'Delay':
+                # Flush any pending exports to current segment before closing
+                if pending_exports:
+                    current_segment.extend(pending_exports)
+                    pending_exports = []
+                
                 delay_ms = action_detail.get('delay', 0)
                 if current_segment:
                     segments.append((current_segment, delay_ms))
                     current_segment = []
                 elif segments:
+                    # Merge consecutive delays
                     last_segment, last_delay = segments[-1]
                     segments[-1] = (last_segment, last_delay + delay_ms)
                 else:
+                    # Delay at start - create empty segment for timing purposes
                     segments.append(([], delay_ms))
+            elif action_type == 'Export':
+                # Buffer export steps
+                pending_exports.append(step)
             else:
+                # Non-export step (Action or Script) - flush pending exports first
+                if pending_exports:
+                    current_segment.extend(pending_exports)
+                    pending_exports = []
                 current_segment.append(step)
+        
+        # Flush remaining exports to current segment
+        if pending_exports:
+            current_segment.extend(pending_exports)
         
         if current_segment:
             segments.append((current_segment, 0))
+        
+        print(f"DEBUG: Split into {len(segments)} segments")
+        for i, (seg, delay) in enumerate(segments):
+            print(f"  Segment {i}: {len(seg)} steps, delay_after={delay}ms")
         
         return segments
     
@@ -64,14 +100,43 @@ class PhotoshopJSXGenerator:
         """
         preset_steps = self.db.get_preset_steps(preset_id)
         
+        if not preset_steps:
+            print(f"WARNING: No steps found for preset {preset_id}")
+            return None
+        
+        # Filter out any steps that reference non-existent actions
+        valid_steps = []
+        for step in preset_steps:
+            action_detail = self.db.get_action_by_id(step['action_id'])
+            if action_detail:
+                valid_steps.append(step)
+            else:
+                print(f"WARNING: Skipping step {step.get('order_index', '?')} - action_id={step['action_id']} no longer exists in database")
+        
+        if not valid_steps:
+            print(f"ERROR: All steps in preset {preset_id} reference deleted/non-existent actions")
+            return None
+        
         is_batch = len(source_files) > 0 and not is_single_run_with_file
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        if self._has_delay_actions(preset_steps):
-            return self._generate_split_jsx(preset_id, preset_steps, source_files, output_path, config, is_batch, is_single_run_with_file, timestamp)
+        # Debug log step types
+        step_types = []
+        for s in valid_steps:
+            action_detail = self.db.get_action_by_id(s['action_id'])
+            step_types.append(action_detail.get('type', 'Unknown') if action_detail else 'Unknown')
+        print(f"DEBUG: Generating JSX for preset {preset_id} with {len(valid_steps)} steps")
+        print(f"DEBUG: Step types: {step_types}")
+        print(f"DEBUG: is_batch={is_batch}, is_single_run_with_file={is_single_run_with_file}")
+        print(f"DEBUG: source_files count: {len(source_files)}")
         
-        jsx_code = self._generate_jsx_code(preset_steps, source_files, output_path, config, is_batch, is_single_run_with_file)
+        if self._has_delay_actions(valid_steps):
+            print(f"DEBUG: Has delay actions - using split JSX generation")
+            return self._generate_split_jsx(preset_id, valid_steps, source_files, output_path, config, is_batch, is_single_run_with_file, timestamp)
+        
+        print(f"DEBUG: No delays - generating single JSX file")
+        jsx_code = self._generate_jsx_code(valid_steps, source_files, output_path, config, is_batch, is_single_run_with_file)
         
         jsx_filename = f"preset_{preset_id}_{timestamp}.jsx"
         jsx_path = os.path.join(self.jsx_dir, jsx_filename)
@@ -95,10 +160,16 @@ class PhotoshopJSXGenerator:
         result = []
         
         for idx, (segment_steps, delay_after) in enumerate(segments):
-            if not segment_steps:
-                if result and delay_after > 0:
+            # Handle empty segments - only skip if no delay OR this is not the first segment
+            # Empty segment with delay at start should be preserved (represents initial delay)
+            if not segment_steps and delay_after == 0:
+                continue
+            if not segment_steps and delay_after > 0:
+                if result:
+                    # Add delay to previous segment
                     last_path, last_delay = result[-1]
                     result[-1] = (last_path, last_delay + delay_after)
+                # else: Skip standalone empty segment (no previous segment to add delay to)
                 continue
             
             is_first_segment = (idx == 0)
@@ -207,17 +278,21 @@ class PhotoshopJSXGenerator:
         
         for step in non_export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
-            if action_detail:
-                jsx.append(f"{indent}// Step {step['order_index']}: {step['name']}")
-                action_type = action_detail.get('type', 'Action')
-                if action_type == 'Action':
-                    jsx.append(f"{indent}app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                elif action_type == 'Script':
-                    js_code = action_detail.get('javascript_code', '').strip()
-                    if js_code:
-                        for line in js_code.split('\n'):
-                            jsx.append(f"{indent}{line}")
-                jsx.append("")
+            if not action_detail:
+                print(f"WARNING: Action not found for step {step.get('order_index', '?')}, skipping...")
+                continue
+            jsx.append(f"{indent}// Step {step['order_index']}: {step['name']}")
+            action_type = action_detail.get('type', 'Action')
+            if action_type == 'Action':
+                jsx.append(f"{indent}app.doAction('{action_detail['name']}', '{step['action_set']}');")
+            elif action_type == 'Script':
+                js_code = action_detail.get('javascript_code', '').strip()
+                if js_code:
+                    for line in js_code.split('\n'):
+                        jsx.append(f"{indent}{line}")
+                else:
+                    print(f"WARNING: Script action '{action_detail.get('name', '?')}' has no javascript_code, skipping...")
+            jsx.append("")
         
         for step in export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
@@ -253,17 +328,21 @@ class PhotoshopJSXGenerator:
         
         for step in non_export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
-            if action_detail:
-                jsx.append(f"    // Step {step['order_index']}: {step['name']}")
-                action_type = action_detail.get('type', 'Action')
-                if action_type == 'Action':
-                    jsx.append(f"    app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                elif action_type == 'Script':
-                    js_code = action_detail.get('javascript_code', '').strip()
-                    if js_code:
-                        for line in js_code.split('\n'):
-                            jsx.append(f"    {line}")
-                jsx.append("")
+            if not action_detail:
+                print(f"WARNING: Action not found for step {step.get('order_index', '?')}, skipping...")
+                continue
+            jsx.append(f"    // Step {step['order_index']}: {step['name']}")
+            action_type = action_detail.get('type', 'Action')
+            if action_type == 'Action':
+                jsx.append(f"    app.doAction('{action_detail['name']}', '{step['action_set']}');")
+            elif action_type == 'Script':
+                js_code = action_detail.get('javascript_code', '').strip()
+                if js_code:
+                    for line in js_code.split('\n'):
+                        jsx.append(f"    {line}")
+                else:
+                    print(f"WARNING: Script action '{action_detail.get('name', '?')}' has no javascript_code, skipping...")
+            jsx.append("")
         
         for step in export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
@@ -283,6 +362,8 @@ class PhotoshopJSXGenerator:
     
     def _generate_active_doc_segment_code(self, jsx, non_export_steps, export_steps, is_first_segment, is_last_segment):
         """Generate active document code for a segment (single run without source)"""
+        has_content = bool(non_export_steps) or bool(export_steps)
+        
         if is_first_segment:
             jsx.append("    if (app.documents.length == 0) {")
             jsx.append("        alert('No open document found. Please open a document.');")
@@ -294,17 +375,21 @@ class PhotoshopJSXGenerator:
         
         for step in non_export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
-            if action_detail:
-                jsx.append(f"        // Step {step['order_index']}: {step['name']}")
-                action_type = action_detail.get('type', 'Action')
-                if action_type == 'Action':
-                    jsx.append(f"        app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                elif action_type == 'Script':
-                    js_code = action_detail.get('javascript_code', '').strip()
-                    if js_code:
-                        for line in js_code.split('\n'):
-                            jsx.append(f"        {line}")
-                jsx.append("")
+            if not action_detail:
+                print(f"WARNING: Action not found for step {step.get('order_index', '?')}, skipping...")
+                continue
+            jsx.append(f"        // Step {step['order_index']}: {step['name']}")
+            action_type = action_detail.get('type', 'Action')
+            if action_type == 'Action':
+                jsx.append(f"        app.doAction('{action_detail['name']}', '{step['action_set']}');")
+            elif action_type == 'Script':
+                js_code = action_detail.get('javascript_code', '').strip()
+                if js_code:
+                    for line in js_code.split('\n'):
+                        jsx.append(f"        {line}")
+                else:
+                    print(f"WARNING: Script action '{action_detail.get('name', '?')}' has no javascript_code, skipping...")
+            jsx.append("")
         
         for step in export_steps:
             action_detail = self.db.get_action_by_id(step['action_id'])
@@ -317,7 +402,9 @@ class PhotoshopJSXGenerator:
                     jsx.append(line)
                 jsx.append("")
         
-        if is_first_segment:
+        # Only close the else block if we opened it AND we have content
+        # If no content (no actions/steps defined), the alert already handles it
+        if is_first_segment and has_content:
             jsx.append("    }")
 
     def _generate_jsx_code(self, preset_steps, source_files, output_path, config, is_batch, is_single_run_with_file):
@@ -378,43 +465,7 @@ class PhotoshopJSXGenerator:
             jsx.append("        var doc = safeOpen(sourceFiles[i]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("")
-            
-            for step in non_export_steps:
-                action_detail = self.db.get_action_by_id(step['action_id'])
-                if action_detail:
-                    jsx.append(f"        // Step {step['order_index']}: {step['name']}")
-                    
-                    action_type = action_detail.get('type', 'Action')
-                    
-                    if action_type == 'Action':
-                        jsx.append(f"        app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                    elif action_type == 'Delay':
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"        $.sleep({delay_ms});")
-                    elif action_type == 'Script':
-                        js_code = action_detail.get('javascript_code', '').strip()
-                        if js_code:
-                            for line in js_code.split('\n'):
-                                jsx.append(f"        {line}")
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"        $.sleep({delay_ms});")
-                    
-                    jsx.append("")
-            
-            if export_steps:
-                for step in export_steps:
-                    action_detail = self.db.get_action_by_id(step['action_id'])
-                    if action_detail:
-                        export_format = action_detail.get('export_format', 'PNG').upper()
-                        export_setting = action_detail.get('export_setting', 100)
-                        jsx.append(f"        // Export: {action_detail['name']}")
-                        export_code = self._generate_export_code(export_format, "        ", export_setting)
-                        for line in export_code.split('\n'):
-                            jsx.append(line)
-                        jsx.append("")
-            
+            jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="        ")
             jsx.append("        doc.close(SaveOptions.DONOTSAVECHANGES);")
             jsx.append("    }")
         elif is_single_run_with_file:
@@ -423,90 +474,18 @@ class PhotoshopJSXGenerator:
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("    }")
             jsx.append("")
-            
-            for step in non_export_steps:
-                action_detail = self.db.get_action_by_id(step['action_id'])
-                if action_detail:
-                    jsx.append(f"    // Step {step['order_index']}: {step['name']}")
-                    
-                    action_type = action_detail.get('type', 'Action')
-                    
-                    if action_type == 'Action':
-                        jsx.append(f"    app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                    elif action_type == 'Delay':
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"    $.sleep({delay_ms});")
-                    elif action_type == 'Script':
-                        js_code = action_detail.get('javascript_code', '').strip()
-                        if js_code:
-                            for line in js_code.split('\n'):
-                                jsx.append(f"    {line}")
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"    $.sleep({delay_ms});")
-                    
-                    jsx.append("")
-            
-            if export_steps:
-                for step in export_steps:
-                    action_detail = self.db.get_action_by_id(step['action_id'])
-                    if action_detail:
-                        export_format = action_detail.get('export_format', 'PNG').upper()
-                        export_setting = action_detail.get('export_setting', 100)
-                        jsx.append(f"    // Export: {action_detail['name']}")
-                        export_code = self._generate_export_code(export_format, "    ", export_setting)
-                        for line in export_code.split('\n'):
-                            jsx.append(line)
-                        jsx.append("")
-            # If a source file was opened for single-run, close it after processing
+            jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="    ")
             jsx.append("    if (sourceFiles.length > 0) {")
             jsx.append("        doc.close(SaveOptions.DONOTSAVECHANGES);")
             jsx.append("    }")
         else:
-            # Single-run without an explicit source files list: use the currently active document
             jsx.append("    if (app.documents.length == 0) {")
-            jsx.append("        alert('No open document found for single-run without source. Please open or select a document.');")
+            jsx.append("        alert('No open document found. Please open a document first.');")
             jsx.append("    } else {")
             jsx.append("        var doc = app.activeDocument;")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
             jsx.append("")
-            for step in non_export_steps:
-                action_detail = self.db.get_action_by_id(step['action_id'])
-                if action_detail:
-                    jsx.append(f"        // Step {step['order_index']}: {step['name']}")
-                    
-                    action_type = action_detail.get('type', 'Action')
-                    
-                    if action_type == 'Action':
-                        jsx.append(f"        app.doAction('{action_detail['name']}', '{step['action_set']}');")
-                    elif action_type == 'Delay':
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"        $.sleep({delay_ms});")
-                    elif action_type == 'Script':
-                        js_code = action_detail.get('javascript_code', '').strip()
-                        if js_code:
-                            for line in js_code.split('\n'):
-                                jsx.append(f"        {line}")
-                        delay_ms = action_detail.get('delay', 0)
-                        if delay_ms > 0:
-                            jsx.append(f"        $.sleep({delay_ms});")
-                    
-                    jsx.append("")
-            
-            if export_steps:
-                for step in export_steps:
-                    action_detail = self.db.get_action_by_id(step['action_id'])
-                    if action_detail:
-                        export_format = action_detail.get('export_format', 'PNG').upper()
-                        export_setting = action_detail.get('export_setting', 100)
-                        jsx.append(f"        // Export: {action_detail['name']}")
-                        export_code = self._generate_export_code(export_format, "        ", export_setting)
-                        for line in export_code.split('\n'):
-                            jsx.append(line)
-                        jsx.append("")
-            # close the active document context
+            jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="        ")
             jsx.append("    }")
         
         jsx.append("} catch(e) {")
@@ -514,6 +493,49 @@ class PhotoshopJSXGenerator:
         jsx.append("}")
         
         return "\n".join(jsx)
+    
+    def _add_steps_to_jsx(self, jsx, non_export_steps, export_steps, indent="    "):
+        """Helper to add steps (actions, scripts, exports) to JSX code"""
+        for step in non_export_steps:
+            action_detail = self.db.get_action_by_id(step['action_id'])
+            if not action_detail:
+                print(f"WARNING: Action not found for step {step.get('order_index', '?')}, skipping...")
+                continue
+            jsx.append(f"{indent}// Step {step['order_index']}: {step['name']}")
+            
+            action_type = action_detail.get('type', 'Action')
+            
+            if action_type == 'Action':
+                jsx.append(f"{indent}app.doAction('{action_detail['name']}', '{step['action_set']}');")
+            elif action_type == 'Delay':
+                delay_ms = action_detail.get('delay', 0)
+                if delay_ms > 0:
+                    jsx.append(f"{indent}$.sleep({delay_ms});")
+            elif action_type == 'Script':
+                js_code = action_detail.get('javascript_code', '').strip()
+                if js_code:
+                    for line in js_code.split('\n'):
+                        jsx.append(f"{indent}{line}")
+                    delay_ms = action_detail.get('delay', 0)
+                    if delay_ms > 0:
+                        jsx.append(f"{indent}$.sleep({delay_ms});")
+                else:
+                    print(f"WARNING: Script action '{action_detail.get('name', '?')}' has no javascript_code, skipping...")
+            
+            jsx.append("")
+        
+        for step in export_steps:
+            action_detail = self.db.get_action_by_id(step['action_id'])
+            if action_detail:
+                export_format = action_detail.get('export_format', 'PNG').upper()
+                export_setting = action_detail.get('export_setting', 100)
+                jsx.append(f"{indent}// Export: {action_detail['name']}")
+                export_code = self._generate_export_code(export_format, indent, export_setting)
+                for line in export_code.split('\n'):
+                    jsx.append(line)
+                jsx.append("")
+        
+        return jsx
     
     def _generate_safe_open_function(self):
         lines = []
@@ -545,8 +567,16 @@ class PhotoshopJSXGenerator:
         return lines
 
     def _generate_export_code(self, export_format, indent, export_setting=100):
-        """Generate export code for Photoshop"""
+        """Generate export code for Photoshop
+        
+        Handles multiple exports by ensuring proper document state reset between exports.
+        """
         code_lines = []
+        
+        # Add reset/flatten for document before export to handle multiple exports
+        code_lines.append(f"{indent}// Reset document state before export")
+        code_lines.append(f"{indent}app.activeDocument.flatten();")
+        code_lines.append("")
         
         if export_format == 'PNG':
             code_lines.append(f"{indent}var pngOptions = new ExportOptionsSaveForWeb();")

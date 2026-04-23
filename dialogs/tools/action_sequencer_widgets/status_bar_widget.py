@@ -1,4 +1,4 @@
-﻿from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
                                QProgressBar, QSizePolicy)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
@@ -299,6 +299,10 @@ class StatusBarWidget(QWidget):
         self.start_time = None
         self.total_files = 0
         self.processed_files = 0
+
+        # Reset progress bar
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Ready")
 
         # Hide restart button when resetting
         self.restart_button.hide()

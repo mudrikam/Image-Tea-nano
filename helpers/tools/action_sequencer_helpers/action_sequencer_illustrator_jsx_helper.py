@@ -144,7 +144,9 @@ class IllustratorJSXGenerator:
         jsx.append("        } else if (step.type == 'Delay') {")
         jsx.append("            $.sleep(step.delay);")
         jsx.append("        } else if (step.type == 'Script') {")
-        jsx.append("            eval(step.code);")
+        jsx.append("            if (step.code && step.code.length > 0) {")
+        jsx.append("                eval(step.code);")
+        jsx.append("            }")
         jsx.append("            if (step.delay > 0) $.sleep(step.delay);")
         jsx.append("        } else if (step.type == 'Export') {")
         jsx.append("            executeExport(step.export_format, step.export_setting || 100);")
@@ -301,10 +303,17 @@ class IllustratorJSXGenerator:
         print(f"Generated resident JSX: {self.resident_jsx}")
         return self.resident_jsx
     
-    def send_command(self, preset_id, source_files, output_path, config, is_single_run_with_file=False):
-        """Send command to resident script"""
-        preset_steps = self.db.get_preset_steps(preset_id)
+    def send_command(self, preset_id, preset_steps, source_files, output_path, config, is_single_run_with_file=False):
+        """Send command to resident script
         
+        Args:
+            preset_id: Preset ID
+            preset_steps: Pre-validated list of steps (already filtered for valid action_ids)
+            source_files: List of source files
+            output_path: Output path
+            config: Config dict
+            is_single_run_with_file: Boolean
+        """
         is_batch = len(source_files) > 0 and not is_single_run_with_file
         
         # Build steps array
@@ -324,7 +333,11 @@ class IllustratorJSXGenerator:
                 elif action_type == 'Delay':
                     step_data['delay'] = action_detail.get('delay', 0)
                 elif action_type == 'Script':
-                    step_data['code'] = action_detail.get('javascript_code', '')
+                    js_code = action_detail.get('javascript_code', '')
+                    if not js_code or not js_code.strip():
+                        print(f"WARNING: Script action '{action_detail.get('name', '?')}' has no javascript_code, skipping...")
+                        continue  # Skip this step entirely
+                    step_data['code'] = js_code
                     step_data['delay'] = action_detail.get('delay', 0)
                 elif action_type == 'Export':
                     export_format = action_detail.get('export_format', 'PNG')
@@ -379,6 +392,33 @@ class IllustratorJSXGenerator:
         Returns:
             tuple: (jsx_path, is_resident) - path to JSX and whether using resident
         """
+        preset_steps = self.db.get_preset_steps(preset_id)
+        
+        if not preset_steps:
+            print(f"WARNING: No steps found for preset {preset_id}")
+            return (None, False)
+        
+        # Filter out steps that reference non-existent actions
+        valid_steps = []
+        for step in preset_steps:
+            action_detail = self.db.get_action_by_id(step['action_id'])
+            if action_detail:
+                valid_steps.append(step)
+            else:
+                print(f"WARNING: Skipping step {step.get('order_index', '?')} - action_id={step['action_id']} no longer exists in database")
+        
+        if not valid_steps:
+            print(f"ERROR: All steps in preset {preset_id} reference deleted/non-existent actions")
+            return (None, False)
+        
+        # Debug log step types
+        step_types = []
+        for s in valid_steps:
+            action_detail = self.db.get_action_by_id(s['action_id'])
+            step_types.append(action_detail.get('type', 'Unknown') if action_detail else 'Unknown')
+        print(f"DEBUG Illustrator: Generating JSX for preset {preset_id} with {len(valid_steps)} steps")
+        print(f"DEBUG Illustrator: Step types: {step_types}")
+        
         # ALWAYS regenerate resident script to get latest code
         print("Regenerating resident JSX with latest code...")
         resident_path = self.generate_resident_jsx()
@@ -386,11 +426,11 @@ class IllustratorJSXGenerator:
         # Check if resident is alive
         if self.is_resident_alive():
             print("Resident script detected - sending command")
-            self.send_command(preset_id, source_files, output_path, config, is_single_run_with_file)
+            self.send_command(preset_id, valid_steps, source_files, output_path, config, is_single_run_with_file)
             return (None, True)  # No JSX file needed, using resident
         
         # Send initial command for new resident
         print("Starting new resident script")
-        self.send_command(preset_id, source_files, output_path, config, is_single_run_with_file)
+        self.send_command(preset_id, valid_steps, source_files, output_path, config, is_single_run_with_file)
         
         return (resident_path, False)  # Return resident JSX to launch
