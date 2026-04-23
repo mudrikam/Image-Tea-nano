@@ -633,6 +633,271 @@ if (window.top !== window.self) {
          return false;
        }
 
+      // Click the "Create" button to send the prompt (after popup closed)
+      async function clickCreateButton() {
+        const MAX_RETRIES = 15;
+        const RETRY_DELAY = 200;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            // Find Create button: MUST have arrow_forward icon, NOT add_2 (which is for reference upload)
+            // Also exclude buttons with aria-haspopup="dialog"
+            const buttons = document.querySelectorAll('button');
+            let createBtn = null;
+
+            // First pass: look for arrow_forward icon specifically
+            for (let btn of buttons) {
+              const txt = (btn.textContent || '').trim();
+              const hasArrow = btn.innerHTML.includes('arrow_forward') ||
+                               btn.querySelector('i[font-size="1.25rem"]')?.innerHTML?.includes('arrow_forward') ||
+                               (btn.querySelector('.google-symbols') && btn.textContent.trim() === '');
+              const hasAdd2 = btn.innerHTML.includes('add_2') ||
+                              btn.querySelector('i[font-size="1.35rem"]')?.innerHTML?.includes('add_2');
+              const isDialog = btn.getAttribute('aria-haspopup') === 'dialog';
+
+              // Skip reference upload button (add_2 + aria-haspopup="dialog")
+              if (hasAdd2 || isDialog) {
+                continue;
+              }
+
+              if ((txt.includes('Create') || txt === '') && hasArrow) {
+                createBtn = btn;
+                log(`DEBUG: Found Create button by arrow_forward icon (attempt ${attempt})`);
+                break;
+              }
+            }
+
+            // Fallback: try known class pattern for Create button (NOT dialog)
+            if (!createBtn) {
+              // The Create button typically has: sc-e8425ea6-0 gLXNUV ... ewQKQI eaSocK jaSpBd
+              // The dialog upload button has: ... AyIIS hxYNKs
+              const allButtons = document.querySelectorAll('button.ewQKQI:not(.AyIIS)');
+              for (let btn of allButtons) {
+                const hasArrow = btn.innerHTML.includes('arrow_forward');
+                const hasAdd2 = btn.innerHTML.includes('add_2');
+                if (hasArrow && !hasAdd2) {
+                  createBtn = btn;
+                  log(`DEBUG: Found Create button by class+arrow pattern (attempt ${attempt})`);
+                  break;
+                }
+              }
+            }
+
+            if (!createBtn) {
+              await new Promise(r => setTimeout(r, RETRY_DELAY));
+              continue;
+            }
+
+            const style = window.getComputedStyle(createBtn);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || createBtn.disabled) {
+              await new Promise(r => setTimeout(r, RETRY_DELAY));
+              continue;
+            }
+
+            const rect = createBtn.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+
+            // Dispatch pointer events
+            createBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
+            await new Promise(r => setTimeout(r, 50));
+            createBtn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
+            await new Promise(r => setTimeout(r, 50));
+            createBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+
+            log(`>>> Create button clicked (attempt ${attempt})`);
+            await new Promise(r => setTimeout(r, 500));
+
+            // Verify: button still visible but don't require state change
+            const stillExists = document.body.contains(createBtn);
+            if (stillExists) {
+              log(`DEBUG: Create button still exists after click`);
+            }
+
+            return true;
+          } catch (e) {
+            log(`DEBUG: Error clicking Create button (attempt ${attempt}): ${e.message}`);
+            await new Promise(r => setTimeout(r, RETRY_DELAY));
+          }
+        }
+
+        log('WARN: Create button not found/clicked after retries');
+        return false;
+      }
+
+      // Get all current image URLs on page
+      function getCurrentImageUrls() {
+        const urls = new Set();
+        const images = document.querySelectorAll('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
+        images.forEach(img => {
+          const src = img.src || img.currentSrc || img.getAttribute('src');
+          if (src && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
+            urls.add(src);
+          }
+        });
+        return urls;
+      }
+
+      // Find image elements that are newly appeared (not in excludeSet)
+      function findNewImageElements(count, excludeSet) {
+        const images = document.querySelectorAll('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
+        const newInfos = [];
+        images.forEach(img => {
+          const src = img.src || img.currentSrc || img.getAttribute('src');
+          if (src && !excludeSet.has(src) && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
+            newInfos.push({ url: src, element: img });
+          }
+        });
+        // Sort by DOM order (newer appended later) → last N
+        return newInfos.slice(-count);
+      }
+
+      // Detect failure elements (Gagal/Error messages)
+      function detectFailures() {
+        const failures = [];
+        const failureElements = document.querySelectorAll('div[class*="sc-adc89304"], div[class*="AGiNi"]');
+        failureElements.forEach(el => {
+          const text = el.textContent || '';
+          if (text.includes('Gagal') || text.includes('error') || text.includes('Error') || text.includes('Maaf, terjadi error')) {
+            failures.push(el);
+          }
+        });
+        return failures;
+      }
+
+      // Wait for generation to complete, monitor new images, detect failures
+      async function monitorGeneration(expectedCount, beforeUrls, settings) {
+        const MAX_WAIT_SECONDS = (settings.type === 'video') ? 180 : 180; // 3 min for both (Flow can be slow)
+        const POLL_INTERVAL = 1500;
+        const maxWaitMs = MAX_WAIT_SECONDS * 1000;
+
+        log(`>>> Monitoring generation: expect ${expectedCount} new images, timeout ${MAX_WAIT_SECONDS}s`);
+
+        log(`DEBUG: Pre-generation snapshot: ${beforeUrls.size} images already present`);
+
+        const startTime = Date.now();
+        let scanCount = 0;
+        let lastNewCount = 0;
+        let consecutiveNoChange = 0;
+        const MAX_CONSECUTIVE_NO_CHANGE = 5; // ~7.5s of no changes
+
+        while (Date.now() - startTime < maxWaitMs) {
+          if (!isRunning) {
+            log('>>> ABORT: Monitoring stopped by user');
+            break;
+          }
+
+          scanCount++;
+          const currentUrls = getCurrentImageUrls();
+          const newUrls = new Set([...currentUrls].filter(url => !beforeUrls.has(url)));
+          const newCount = newUrls.size;
+
+          // Check for failures
+          const failures = detectFailures();
+          if (failures.length > 0) {
+            log(`WARN: Detected ${failures.length} failure element(s)`);
+          }
+
+          // Log progress
+          if (newCount !== lastNewCount) {
+            log(`>>> Generation progress: ${newCount}/${expectedCount} new images detected`);
+            consecutiveNoChange = 0;
+          } else {
+            consecutiveNoChange++;
+          }
+          lastNewCount = newCount;
+
+          // Success condition
+          if (newCount >= expectedCount) {
+            log(`>>> SUCCESS: All ${expectedCount} images appeared`);
+            return { status: 'complete', found: newCount, failed: failures.length };
+          }
+
+          // Smart early exit: some images + no new + failures → partial
+          if (newCount > 0 && consecutiveNoChange >= MAX_CONSECUTIVE_NO_CHANGE && failures.length > 0) {
+            log(`>>> PARTIAL: ${newCount} images found, ${failures.length} failures, no new after ${MAX_CONSECUTIVE_NO_CHANGE} polls`);
+            return { status: 'partial', found: newCount, failed: failures.length };
+          }
+
+          // Timeout
+          if (Date.now() - startTime >= maxWaitMs) {
+            if (newCount > 0) {
+              log(`>>> TIMEOUT: Found ${newCount}/${expectedCount} (${failures.length} failures)`);
+              return { status: 'partial', found: newCount, failed: failures.length };
+            } else {
+              log('>>> TIMEOUT: No new images detected');
+              return { status: 'failed', found: 0, failed: failures.length };
+            }
+          }
+
+          await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        }
+
+        return { status: 'timeout', found: 0, failed: 0 };
+      }
+
+      // Download a single image via background script (chrome.downloads)
+      function downloadImage(url, promptIndex, batchIndex, settings) {
+        const ext = (settings.type === 'video') ? 'mp4' : 'jpg';
+        const prefix = (settings.type === 'video') ? 'Flow_Video' : 'Flow_Image';
+
+        // Generate prompt words for filename (first 5 words, sanitized)
+        const promptWords = ''; // Could enhance if we have access to current prompt text
+
+        chrome.runtime.sendMessage({
+          type: 'DOWNLOAD_CONTENT',
+          url: url,
+          promptIndex: promptIndex,
+          extension: ext,
+          prefix: prefix,
+          promptWords: promptWords,
+          batchIndex: batchIndex
+        }).catch(err => {
+          log(`ERROR: Failed to send download message: ${err.message}`);
+        });
+      }
+
+      // Process batch: monitor, detect, download
+      async function processBatch(promptIndex, batchCount, beforeUrls, settings) {
+        log(`>>> Starting batch processing: expect ${batchCount} images for prompt ${promptIndex + 1}`);
+
+        // Step 1: Monitor generation (after Create button clicked by caller)
+        const monitorResult = await monitorGeneration(batchCount, beforeUrls, settings);
+
+        if (monitorResult.found === 0) {
+          log(`>>> FAILED: No images detected for prompt ${promptIndex + 1}`);
+          return { success: false, downloaded: 0, message: 'No images detected' };
+        }
+
+        // Step 2: Collect NEW image elements (not in beforeUrls)
+        const newImageInfos = findNewImageElements(monitorResult.found + 5, beforeUrls); // fetch slightly more in case of noise
+        // Only take up to batchCount images, and at most monitorResult.found
+        const maxToTake = Math.min(batchCount, monitorResult.found);
+        const targetImages = newImageInfos.slice(0, maxToTake);
+        const newImageCount = targetImages.length;
+        log(`>>> Collected ${newImageCount} new image elements (expected ${batchCount}, found ${monitorResult.found})`);
+
+        // Step 3: Download images
+        let downloaded = 0;
+        for (let i = 0; i < targetImages.length && isRunning; i++) {
+          const imgInfo = targetImages[i];
+          log(`>>> Downloading image ${i + 1}/${targetImages.length}: ${imgInfo.url.substring(0, 60)}`);
+          downloadImage(imgInfo.url, promptIndex, i, settings);
+          downloaded++;
+
+          // Small delay between downloads
+          await new Promise(r => setTimeout(r, 500));
+        }
+
+        return {
+          success: monitorResult.status === 'complete' && downloaded >= batchCount,
+          downloaded: downloaded,
+          message: `${monitorResult.status}: ${monitorResult.found} found, ${downloaded} downloaded, ${monitorResult.failed} failed`
+        };
+      }
+
+
+
       async function processPrompt(prompt, settings) {
         try {
           // Check stop flag
@@ -658,25 +923,22 @@ if (window.top !== window.self) {
 
           // Get editor content element (works for empty or populated editor)
           let pEl = getParagraph(editor);
-          
+
           // If no paragraph found, try to create one by clicking/focusing first
           if (!pEl) {
             log('WARN: No paragraph found, trying to focus blank editor');
-            // For empty editor, Slate should have a placeholder paragraph
-            // Try scrolling to force render
             editor.scrollIntoView({ behavior: 'instant', block: 'center' });
             await new Promise(r => setTimeout(r, 200));
-            
+
             pEl = getParagraph(editor);
             if (!pEl) {
-              // Last resort: try typing directly into editor
               log('WARN: Still no paragraph, typing directly into editor');
               const sel = window.getSelection();
               const range = document.createRange();
               range.selectNodeContents(editor);
               sel.removeAllRanges();
               sel.addRange(range);
-              
+
               const beforeInput = new InputEvent('beforeinput', {
                 inputType: 'insertText',
                 data: prompt,
@@ -686,18 +948,28 @@ if (window.top !== window.self) {
               });
               editor.dispatchEvent(beforeInput);
               await new Promise(r => setTimeout(r, 800));
-              
-              // Check if text appeared
-               if (editor.textContent.includes(prompt)) {
-                 log('>>> SUCCESS (direct editor insert)');
-                 // Proceed to UI steps
+
+                if (editor.textContent.includes(prompt)) {
+                  log('>>> SUCCESS (direct editor insert)');
                   const clicked = await clickVariantButton();
                   if (clicked) {
                     await selectModeTab(settings.type, settings.ratio, settings.batch);
                     await closePopupMenu();
+                    const beforeUrls = getCurrentImageUrls();
+                    const createClicked = await clickCreateButton();
+                       if (createClicked && isRunning) {
+                         const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
+                         log(`>>> Batch result: ${batchResult.message}`);
+                         return {
+                           status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                           message: batchResult.message,
+                           downloaded: batchResult.downloaded,
+                           expected: parseInt(settings.batch)
+                         };
+                       }
                   }
                   return { status: 'success', message: 'Prompt typed (direct)' };
-               }
+                }
               throw new Error('Editor paragraph element not found even after direct insert attempt');
             }
           }
@@ -750,26 +1022,36 @@ if (window.top !== window.self) {
             await new Promise(r => setTimeout(r, 400));
             verifyP = getParagraph(editor);
           }
-          
-          if (!verifyP) {
-            log('WARN: Could not find paragraph for verification, assuming success');
-            // Continue anyway - text might be in editor
-                if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
-                log('>>> SUCCESS (verified via editor.textContent)');
-                 const clicked = await clickVariantButton();
-                  if (clicked) {
-                    await selectModeTab(settings.type, settings.ratio, settings.batch);
-                    await closePopupMenu();
-                  }
-                return { status: 'success', message: 'Prompt typed (editor content check)' };
-              }
-            throw new Error('Cannot verify: paragraph element missing and editor.textContent does not contain prompt');
-          }
+
+           if (!verifyP) {
+             log('WARN: Could not find paragraph for verification, assuming success');
+             if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
+               log('>>> SUCCESS (verified via editor.textContent)');
+               const clicked = await clickVariantButton();
+               if (clicked) {
+                 await selectModeTab(settings.type, settings.ratio, settings.batch);
+                 await closePopupMenu();
+                 const beforeUrls = getCurrentImageUrls();
+                 const createClicked = await clickCreateButton();
+                 if (createClicked && isRunning) {
+                   const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
+                   log(`>>> Batch result: ${batchResult.message}`);
+                   return {
+                     status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                     message: batchResult.message,
+                     downloaded: batchResult.downloaded,
+                     expected: parseInt(settings.batch)
+                   };
+                 }
+               }
+               return { status: 'success', message: 'Prompt typed (editor content check)' };
+             }
+             throw new Error('Cannot verify: paragraph element missing and editor.textContent does not contain prompt');
+           }
 
           const actual = verifyP.textContent.trim();
           log(`VERIFY: expected="${prompt}" actual="${actual}"`);
 
-          // Accept if exact match OR partial match (prefix)
           if (actual !== prompt.trim() && !actual.includes(prompt.trim()) && !prompt.trim().includes(actual)) {
             log(`WARN: Text may not fully match, but continuing`);
           }
@@ -789,6 +1071,26 @@ if (window.top !== window.self) {
               await selectModeTab(settings.type, settings.ratio, settings.batch);
               // Close popup menu to avoid interfering with next prompt
               await closePopupMenu();
+
+              // NEW: Capture pre-generation snapshot BEFORE clicking Create
+              const beforeUrls = getCurrentImageUrls();
+
+              // NEW: Click Create button to send prompt and then monitor/download
+              const createClicked = await clickCreateButton();
+              if (createClicked && isRunning) {
+                        const batchResult = await processBatch(0, parseInt(settings.batch), beforeUrls, settings);
+                        log(`>>> Batch result: ${batchResult.message}`);
+                        return {
+                          status: batchResult.downloaded === 0 ? 'failed' : (batchResult.success ? 'success' : 'partial'),
+                          message: batchResult.message,
+                          downloaded: batchResult.downloaded,
+                          expected: parseInt(settings.batch)
+                        };
+              } else if (!isRunning) {
+                return { status: 'stopped', message: 'Stopped during batch processing' };
+              } else {
+                return { status: 'failed', message: 'Failed to click Create button' };
+              }
             }
 
           return { status: 'success', message: 'Prompt typed' };

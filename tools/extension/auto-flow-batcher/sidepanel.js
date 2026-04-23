@@ -17,21 +17,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const typeGroup = document.getElementById('typeGroup');
   const btnClearLogs = document.getElementById('btnClearLogs');
 
-  // Stats
-  const valQueue = document.getElementById('valQueue');
-  const valSuccess = document.getElementById('valSuccess');
-  const valFailed = document.getElementById('valFailed');
+   // Stats
+   const valQueue = document.getElementById('valQueue');
+   const valSuccess = document.getElementById('valSuccess');
+   const valFailed = document.getElementById('valFailed');
+   const valDownloaded = document.getElementById('valDownloaded');
 
-  // Clear logs on every sidepanel open (clean start)
-  logArea.innerHTML = '';
+   // Clear logs on every sidepanel open (clean start)
+   logArea.innerHTML = '';
 
-    let filePrompts = [];
-    let prompts = [];
-    let currentIndex = 0;
-    let successCount = 0;
-    let failedCount = 0;
-    let isRunning = false;
-    let targetTabId = null; // store tab ID for STOP messaging
+     let filePrompts = [];
+     let prompts = [];
+     let currentIndex = 0;
+     let successCount = 0;
+     let failedCount = 0;
+     let downloadedCount = 0; // Total images downloaded
+     let isRunning = false;
+     let targetTabId = null; // store tab ID for STOP messaging
 
     // Filter ratio options based on selected media type
     function updateRatioOptions(type) {
@@ -145,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentIndex = 0;
     successCount = 0;
     failedCount = 0;
+    downloadedCount = 0;
     updateStats();
 
      // Gather Config
@@ -227,9 +230,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (!isRunning) break;
 
-        if (response.status === 'success') {
+        // Treat 'success' and 'partial' as successful prompt processing
+        if (response.status === 'success' || response.status === 'partial') {
           successCount++;
-          appendLog(`[${currentIndex + 1}] OK: ${response.ids ? response.ids.length : 1} variations saved.`, 'success');
+          const downloaded = response.downloaded || 0;
+          downloadedCount += downloaded;
+          const msg = response.status === 'partial'
+            ? `[${currentIndex + 1}] ${response.message}`
+            : `[${currentIndex + 1}] OK: ${response.ids ? response.ids.length : 1} variations saved.`;
+          appendLog(msg, 'success');
         } else {
           failedCount++;
           appendLog(`[${currentIndex + 1}] Failed: ${response.message}`, 'error');
@@ -261,6 +270,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     valQueue.innerText = total > 0 ? `${currentIndex} / ${total}` : '0 / 0';
     valSuccess.innerText = successCount;
     valFailed.innerText = failedCount;
+    valDownloaded.innerText = downloadedCount;
 
     const p = total > 0 ? ((successCount + failedCount) / total) * 100 : 0;
     progressBar.style.width = `${p}%`;
