@@ -171,8 +171,7 @@ if (window.top !== window.self) {
         return false;
       }
 
-// Select mode tab (Image/Video) inside the opened popup menu
-      async function selectModeTab(mode) {
+        async function selectModeTab(mode, ratio = null, batch = '1') {
         const MAX_RETRIES = 10;
         const RETRY_DELAY = 150;
 
@@ -189,12 +188,14 @@ if (window.top !== window.self) {
             const tabs = menu.querySelectorAll('button[role="tab"]');
             log(`DEBUG: Found ${tabs.length} mode tabs in popup`);
 
+            // STEP 1: Select top-level tab (Image or Video)
             let targetTab = null;
+            const upperMode = mode.toUpperCase();
             for (let tab of tabs) {
-              const txt = (tab.textContent || '').trim().toLowerCase();
-              if (txt.includes(mode.toLowerCase())) {
+              const txt = (tab.textContent || '').trim();
+              if (txt.toUpperCase().includes(upperMode)) {
                 targetTab = tab;
-                log(`DEBUG: Found ${mode} tab: "${txt}"`);
+                log(`DEBUG: Found top-level ${mode} tab: "${txt}"`);
                 break;
               }
             }
@@ -204,49 +205,324 @@ if (window.top !== window.self) {
               continue;
             }
 
-            // If already selected, skip
-            if (targetTab.getAttribute('aria-selected') === 'true') {
-              log(`>>> Mode tab "${mode}" already selected`);
+            // If not selected, click it
+            if (targetTab.getAttribute('aria-selected') !== 'true') {
+              const style = window.getComputedStyle(targetTab);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                await new Promise(r => setTimeout(r, RETRY_DELAY));
+                continue;
+              }
+
+              targetTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              await new Promise(r => setTimeout(r, 80));
+              targetTab.focus();
+              await new Promise(r => setTimeout(r, 50));
+
+              const rect = targetTab.getBoundingClientRect();
+              const cx = rect.left + rect.width / 2;
+              const cy = rect.top + rect.height / 2;
+
+              targetTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+              await new Promise(r => setTimeout(r, 50));
+              targetTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+              await new Promise(r => setTimeout(r, 50));
+              targetTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+
+              log(`>>> Top-level tab "${mode}" clicked (attempt ${attempt})`);
+              await new Promise(r => setTimeout(r, 500));
+            } else {
+              log(`>>> Top-level tab "${mode}" already selected`);
+            }
+
+            // STEP 2a: For video mode, select "Ingredients" sub-tab first
+            if (mode === 'video') {
+              await new Promise(r => setTimeout(r, 200));
+              const updatedMenu = document.querySelector('div[role="menu"][data-state="open"]');
+              if (!updatedMenu) {
+                log('WARN: Menu disappeared after selecting Video tab');
+                return true;
+              }
+
+              // Select Ingredients sub-tab
+              const allSubTabs = updatedMenu.querySelectorAll('button[role="tab"]');
+              let ingredientsTab = null;
+              for (let tab of allSubTabs) {
+                const txt = (tab.textContent || '').trim().toLowerCase();
+                if (txt.includes('ingredients')) {
+                  ingredientsTab = tab;
+                  log(`DEBUG: Found Ingredients sub-tab: "${txt}"`);
+                  break;
+                }
+              }
+
+              if (!ingredientsTab) {
+                log('WARN: Ingredients sub-tab not found');
+              } else if (ingredientsTab.getAttribute('aria-selected') !== 'true') {
+                const style = window.getComputedStyle(ingredientsTab);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                  await new Promise(r => setTimeout(r, RETRY_DELAY));
+                  continue;
+                }
+
+                ingredientsTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await new Promise(r => setTimeout(r, 80));
+                ingredientsTab.focus();
+                await new Promise(r => setTimeout(r, 50));
+
+                const rect2 = ingredientsTab.getBoundingClientRect();
+                const cx2 = rect2.left + rect2.width / 2;
+                const cy2 = rect2.top + rect2.height / 2;
+
+                ingredientsTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+                await new Promise(r => setTimeout(r, 50));
+                ingredientsTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+                await new Promise(r => setTimeout(r, 50));
+                ingredientsTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+
+                log(`>>> Ingredients sub-tab clicked`);
+                await new Promise(r => setTimeout(r, 250));
+              } else {
+                log(`>>> Ingredients already selected`);
+              }
+
+              // STEP 2b: After selecting Ingredients, now select the ratio sub-tab for video (16:9 or 9:16)
+              await new Promise(r => setTimeout(r, 200));
+              const finalMenu = document.querySelector('div[role="menu"][data-state="open"]');
+              if (!finalMenu) {
+                log('WARN: Menu disappeared after selecting Ingredients');
+                return true;
+              }
+
+              const ratioTabs = finalMenu.querySelectorAll('button[role="tab"]');
+              let targetRatioTab = null;
+              if (ratio) {
+                for (let tab of ratioTabs) {
+                  const txt = (tab.textContent || '').trim().toLowerCase();
+                  if (txt.includes(ratio.toLowerCase())) {
+                    targetRatioTab = tab;
+                    log(`DEBUG: Found video ratio tab "${ratio}": "${txt}"`);
+                    break;
+                  }
+                }
+              }
+
+              if (!targetRatioTab && ratio) {
+                log(`WARN: Video ratio tab "${ratio}" not found, available: ${Array.from(ratioTabs).map(t => t.textContent.trim()).join(', ')}`);
+                // Not fatal — continue without ratio selection
+              } else if (targetRatioTab) {
+                if (targetRatioTab.getAttribute('aria-selected') !== 'true') {
+                  const style = window.getComputedStyle(targetRatioTab);
+                  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                    // Skip if disabled
+                    log(`WARN: Ratio tab "${ratio}" is disabled/not visible`);
+                  } else {
+                    targetRatioTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    await new Promise(r => setTimeout(r, 80));
+                    targetRatioTab.focus();
+                    await new Promise(r => setTimeout(r, 50));
+
+                    const rect3 = targetRatioTab.getBoundingClientRect();
+                    const cx3 = rect3.left + rect3.width / 2;
+                    const cy3 = rect3.top + rect3.height / 2;
+
+                    targetRatioTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    targetRatioTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    targetRatioTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+
+                    log(`>>> Video ratio tab "${ratio}" clicked`);
+                    await new Promise(r => setTimeout(r, 250));
+
+                    if (targetRatioTab.getAttribute('aria-selected') === 'true') {
+                      log(`>>> Video ratio confirmed: ${ratio}`);
+                    } else {
+                      log(`WARN: Video ratio not confirmed after click`);
+                    }
+                  }
+                } else {
+                  log(`>>> Video ratio "${ratio}" already selected`);
+                }
+              }
+
+              // STEP 2c: After ratio, select batch count
+              if (batch) {
+                await new Promise(r => setTimeout(r, 200));
+                const batchMenu = document.querySelector('div[role="menu"][data-state="open"]');
+                if (!batchMenu) {
+                  log('WARN: Menu disappeared after selecting video ratio');
+                  return true;
+                }
+
+                const batchTabs = batchMenu.querySelectorAll('button[role="tab"]');
+                let batchTab = null;
+                const batchKey = `x${batch}`;
+                for (let tab of batchTabs) {
+                  const txt = (tab.textContent || '').trim();
+                  if (txt.toLowerCase() === batchKey.toLowerCase()) {
+                    batchTab = tab;
+                    log(`DEBUG: Found video batch tab "${batchKey}": "${txt}"`);
+                    break;
+                  }
+                }
+
+                if (!batchTab) {
+                  log(`WARN: Video batch tab "${batchKey}" not found, available: ${Array.from(batchTabs).map(t => t.textContent.trim()).join(', ')}`);
+                } else if (batchTab.getAttribute('aria-selected') !== 'true') {
+                  const style = window.getComputedStyle(batchTab);
+                  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                    log(`WARN: Batch tab "${batchKey}" is disabled/not visible`);
+                  } else {
+                    batchTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    await new Promise(r => setTimeout(r, 80));
+                    batchTab.focus();
+                    await new Promise(r => setTimeout(r, 50));
+
+                    const rect3 = batchTab.getBoundingClientRect();
+                    const cx3 = rect3.left + rect3.width / 2;
+                    const cy3 = rect3.top + rect3.height / 2;
+
+                    batchTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    batchTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                    await new Promise(r => setTimeout(r, 50));
+                    batchTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+
+                    log(`>>> Video batch tab "${batchKey}" clicked`);
+                    await new Promise(r => setTimeout(r, 250));
+
+                    if (batchTab.getAttribute('aria-selected') === 'true') {
+                      log(`>>> Video batch confirmed: ${batchKey}`);
+                    } else {
+                      log(`WARN: Video batch not confirmed after click`);
+                    }
+                  }
+                } else {
+                  log(`>>> Video batch "${batchKey}" already selected`);
+                }
+              }
+
+              // Success after completing video flow
               return true;
             }
 
-            // Safety: visible?
-            const style = window.getComputedStyle(targetTab);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-              await new Promise(r => setTimeout(r, RETRY_DELAY));
-              continue;
+            // STEP 2b: For image mode, select ratio sub-tab if ratio provided
+            if (mode === 'image' && ratio) {
+              await new Promise(r => setTimeout(r, 200));
+              const updatedMenu = document.querySelector('div[role="menu"][data-state="open"]');
+              if (!updatedMenu) {
+                log('WARN: Menu disappeared after selecting Image tab');
+                return true;
+              }
+
+              const subTabs = updatedMenu.querySelectorAll('button[role="tab"]');
+              let ratioTab = null;
+              for (let tab of subTabs) {
+                const txt = (tab.textContent || '').trim();
+                if (txt.toLowerCase().includes(ratio.toLowerCase())) {
+                  ratioTab = tab;
+                  log(`DEBUG: Found ratio tab "${ratio}": "${txt}"`);
+                  break;
+                }
+              }
+
+               if (!ratioTab) {
+                 log(`WARN: Ratio tab "${ratio}" not found, will skip ratio selection`);
+                 // Don't return — continue to batch selection
+               } else if (ratioTab.getAttribute('aria-selected') !== 'true') {
+                const style = window.getComputedStyle(ratioTab);
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                  await new Promise(r => setTimeout(r, RETRY_DELAY));
+                  continue;
+                }
+
+                ratioTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await new Promise(r => setTimeout(r, 80));
+                ratioTab.focus();
+                await new Promise(r => setTimeout(r, 50));
+
+                const rect2 = ratioTab.getBoundingClientRect();
+                const cx2 = rect2.left + rect2.width / 2;
+                const cy2 = rect2.top + rect2.height / 2;
+
+                ratioTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+                await new Promise(r => setTimeout(r, 50));
+                ratioTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+                await new Promise(r => setTimeout(r, 50));
+                ratioTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx2, clientY: cy2, button: 0 }));
+
+                log(`>>> Ratio tab "${ratio}" clicked`);
+                await new Promise(r => setTimeout(r, 250));
+              } else {
+                log(`>>> Ratio "${ratio}" already selected`);
+              }
+
+               // STEP 2c: After ratio, select batch count
+               if (batch) {
+                 await new Promise(r => setTimeout(r, 200));
+                 const finalMenu = document.querySelector('div[role="menu"][data-state="open"]');
+                 if (!finalMenu) {
+                   log('WARN: Menu disappeared after selecting ratio');
+                   return true;
+                 }
+
+                 const batchTabs = finalMenu.querySelectorAll('button[role="tab"]');
+                 let batchTab = null;
+                 const batchKey = `x${batch}`;
+                 for (let tab of batchTabs) {
+                   const txt = (tab.textContent || '').trim();
+                   if (txt.toLowerCase() === batchKey.toLowerCase()) {
+                     batchTab = tab;
+                     log(`DEBUG: Found batch tab "${batchKey}": "${txt}"`);
+                     break;
+                   }
+                 }
+
+                 if (!batchTab) {
+                   log(`WARN: Batch tab "${batchKey}" not found, available: ${Array.from(batchTabs).map(t => t.textContent.trim()).join(', ')}`);
+                 } else if (batchTab.getAttribute('aria-selected') !== 'true') {
+                   const style = window.getComputedStyle(batchTab);
+                   if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                     log(`WARN: Batch tab "${batchKey}" is disabled/not visible`);
+                   } else {
+                     batchTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                     await new Promise(r => setTimeout(r, 80));
+                     batchTab.focus();
+                     await new Promise(r => setTimeout(r, 50));
+
+                     const rect3 = batchTab.getBoundingClientRect();
+                     const cx3 = rect3.left + rect3.width / 2;
+                     const cy3 = rect3.top + rect3.height / 2;
+
+                     batchTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                     await new Promise(r => setTimeout(r, 50));
+                     batchTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+                     await new Promise(r => setTimeout(r, 50));
+                     batchTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx3, clientY: cy3, button: 0 }));
+
+                     log(`>>> Batch tab "${batchKey}" clicked`);
+                     await new Promise(r => setTimeout(r, 250));
+
+                     if (batchTab.getAttribute('aria-selected') === 'true') {
+                       log(`>>> Batch confirmed: ${batchKey}`);
+                     } else {
+                       log(`WARN: Batch "${batchKey}" not confirmed after click`);
+                     }
+                   }
+                 } else {
+                   log(`>>> Batch "${batchKey}" already selected`);
+                 }
+               }
             }
 
-            // Click with mouse events
-            targetTab.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            await new Promise(r => setTimeout(r, 80));
-            targetTab.focus();
-            await new Promise(r => setTimeout(r, 50));
-
-            const rect = targetTab.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-
-            targetTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
-            await new Promise(r => setTimeout(r, 50));
-            targetTab.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
-            await new Promise(r => setTimeout(r, 50));
-            targetTab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
-
-            log(`>>> Mode tab "${mode}" clicked (attempt ${attempt})`);
-            await new Promise(r => setTimeout(r, 250));
-
-            // Verify
-            if (targetTab.getAttribute('aria-selected') === 'true') {
-              log(`>>> Mode confirmed: ${mode}`);
-              return true;
-            }
+            // Success if we got here
+            return true;
           } catch (e) {
             await new Promise(r => setTimeout(r, RETRY_DELAY));
           }
         }
 
-        log(`WARN: Mode tab "${mode}" not selected after retries`);
+        log(`WARN: Mode tab "${mode}" (or sub-tab) not fully selected after retries`);
         return false;
       }
 
@@ -409,16 +685,16 @@ if (window.top !== window.self) {
               await new Promise(r => setTimeout(r, 800));
               
               // Check if text appeared
-              if (editor.textContent.includes(prompt)) {
-                log('>>> SUCCESS (direct editor insert)');
-                // Proceed to UI steps
-                const clicked = await clickVariantButton();
-                if (clicked) {
-                  await selectModeTab(settings.type);
-                  await closePopupMenu();
-                }
-                return { status: 'success', message: 'Prompt typed (direct)' };
-              }
+               if (editor.textContent.includes(prompt)) {
+                 log('>>> SUCCESS (direct editor insert)');
+                 // Proceed to UI steps
+                 const clicked = await clickVariantButton();
+                  if (clicked) {
+                    await selectModeTab(settings.type, settings.ratio, settings.batch);
+                    await closePopupMenu();
+                  }
+                 return { status: 'success', message: 'Prompt typed (direct)' };
+               }
               throw new Error('Editor paragraph element not found even after direct insert attempt');
             }
           }
@@ -475,15 +751,15 @@ if (window.top !== window.self) {
           if (!verifyP) {
             log('WARN: Could not find paragraph for verification, assuming success');
             // Continue anyway - text might be in editor
-            if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
-              log('>>> SUCCESS (verified via editor.textContent)');
-              const clicked = await clickVariantButton();
-              if (clicked) {
-                await selectModeTab(settings.type);
-                await closePopupMenu();
-              }
-              return { status: 'success', message: 'Prompt typed (editor content check)' };
-            }
+             if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
+               log('>>> SUCCESS (verified via editor.textContent)');
+               const clicked = await clickVariantButton();
+                if (clicked) {
+                  await selectModeTab(settings.type, settings.ratio, settings.batch);
+                  await closePopupMenu();
+                }
+               return { status: 'success', message: 'Prompt typed (editor content check)' };
+             }
             throw new Error('Cannot verify: paragraph element missing and editor.textContent does not contain prompt');
           }
 
@@ -503,14 +779,14 @@ if (window.top !== window.self) {
             return { status: 'stopped', message: 'Stopped by user' };
           }
 
-          // Click variant settings button to open popup menu
-          const clicked = await clickVariantButton();
-          if (clicked) {
-            // Select mode tab (image/video) based on settings
-            await selectModeTab(settings.type);
-            // Close popup menu to avoid interfering with next prompt
-            await closePopupMenu();
-          }
+           // Click variant settings button to open popup menu
+           const clicked = await clickVariantButton();
+            if (clicked) {
+              // Select mode tab (image/video), ratio, and batch count
+              await selectModeTab(settings.type, settings.ratio, settings.batch);
+              // Close popup menu to avoid interfering with next prompt
+              await closePopupMenu();
+            }
 
           return { status: 'success', message: 'Prompt typed' };
         } catch (err) {

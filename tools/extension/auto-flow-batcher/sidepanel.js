@@ -34,18 +34,52 @@ document.addEventListener('DOMContentLoaded', async () => {
    let isRunning = false;
    let targetTabId = null; // store tab ID for STOP messaging
 
-  const MODELS = {
-    image: ['Nano Banana 2', 'Nano Banana Pro', 'Imagen 4'],
-    video: ['Veo 3.1 - Fast', 'Veo 3.1 - Lite', 'Veo 3.1 - Quality']
-  };
+   const MODELS = {
+     image: ['Nano Banana 2', 'Nano Banana Pro', 'Imagen 4'],
+     video: ['Veo 3.1 - Fast', 'Veo 3.1 - Lite', 'Veo 3.1 - Quality']
+   };
 
-  // Update models on media type change
-  typeGroup.addEventListener('change', (e) => {
-    if(e.target.name === 'type') {
-      const selectedType = document.querySelector('input[name="type"]:checked').value;
-      modelSelect.innerHTML = MODELS[selectedType].map(m => `<option value="${m}">${m}</option>`).join('');
-    }
-  });
+   // Filter ratio options based on selected media type
+   function updateRatioOptions(type) {
+     const allRatioInputs = document.querySelectorAll('input[name="ratio"]');
+     let validRatio = null;
+
+     allRatioInputs.forEach(input => {
+       const pill = input.closest('.radio-pill');
+       const validFor = input.getAttribute('data-valid-for'); // e.g. "image,video"
+       
+       if (validFor) {
+         const validTypes = validFor.split(',');
+         if (validTypes.includes(type)) {
+           pill.classList.remove('disabled');
+           input.disabled = false;
+         } else {
+           pill.classList.add('disabled');
+           input.disabled = true;
+           // If currently checked and becomes invalid, switch to first valid
+           if (input.checked) {
+             input.checked = false;
+             // Find first valid ratio for this type
+             const firstValid = Array.from(allRatioInputs).find(inp => {
+               const vf = inp.getAttribute('data-valid-for');
+               return vf && vf.split(',').includes(type);
+             });
+             if (firstValid) firstValid.checked = true;
+           }
+         }
+       }
+     });
+   }
+
+   // Update models on media type change
+   typeGroup.addEventListener('change', (e) => {
+     if(e.target.name === 'type') {
+       const selectedType = document.querySelector('input[name="type"]:checked').value;
+       modelSelect.innerHTML = MODELS[selectedType].map(m => `<option value="${m}">${m}</option>`).join('');
+       // Filter ratio options based on media type
+       updateRatioOptions(selectedType);
+     }
+   });
 
   const calculateTotal = () => {
     const manualPrompts = manualInput.value.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
@@ -267,8 +301,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   appendLog('Extension loaded. Ready to attach to page.', 'info');
 
-  // Run detection on load
-  initView();
+   // Run detection on load
+   initView();
+   // Initialize ratio filter for current type
+   const initialType = document.querySelector('input[name="type"]:checked').value;
+   updateRatioOptions(initialType);
 
   // Re-check when extension window gains focus
   window.addEventListener('focus', () => {

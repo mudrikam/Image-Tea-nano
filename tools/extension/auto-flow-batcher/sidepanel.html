@@ -166,17 +166,20 @@
     .radio-group {
       display: flex; flex-wrap: wrap; gap: 6px;
     }
-    .radio-pill input { display: none; }
-    .radio-pill label {
-      display: block; padding: 4px 8px;
-      background-color: var(--border-color); color: var(--text-main);
-      border-radius: 4px; cursor: pointer; font-size: 10px;
-      transition: background-color 0.2s;
-    }
-    .radio-pill label:hover { background-color: var(--bg-hover); }
-    .radio-pill input:checked + label {
-      background-color: var(--accent); color: #000; font-weight: bold;
-    }
+     .radio-pill input { display: none; }
+     .radio-pill label {
+       display: block; padding: 4px 8px;
+       background-color: var(--border-color); color: var(--text-main);
+       border-radius: 4px; cursor: pointer; font-size: 10px;
+       transition: background-color 0.2s;
+     }
+     .radio-pill label:hover { background-color: var(--bg-hover); }
+     .radio-pill input:checked + label {
+       background-color: var(--accent); color: #000; font-weight: bold;
+     }
+     .radio-pill.disabled label {
+       opacity: 0.4; cursor: not-allowed; pointer-events: none;
+     }
     .tracker-box {
       background-color: var(--bg-section); border: 1px solid var(--border-color);
       border-radius: 8px; padding: 12px;
@@ -359,11 +362,11 @@
         <div>
           <label class="section-title">Aspect Ratio</label>
           <div class="radio-group" id="ratioGroup">
-            <div class="radio-pill"><input type="radio" name="ratio" id="r169" value="16:9" checked><label for="r169">16:9</label></div>
-            <div class="radio-pill"><input type="radio" name="ratio" id="r43" value="4:3"><label for="r43">4:3</label></div>
-            <div class="radio-pill"><input type="radio" name="ratio" id="r11" value="1:1"><label for="r11">1:1</label></div>
-            <div class="radio-pill"><input type="radio" name="ratio" id="r34" value="3:4"><label for="r34">3:4</label></div>
-            <div class="radio-pill"><input type="radio" name="ratio" id="r916" value="9:16"><label for="r916">9:16</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r169" value="16:9" data-valid-for="image,video" checked><label for="r169">16:9</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r43" value="4:3" data-valid-for="image"><label for="r43">4:3</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r11" value="1:1" data-valid-for="image"><label for="r11">1:1</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r34" value="3:4" data-valid-for="image"><label for="r34">3:4</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r916" value="9:16" data-valid-for="image,video"><label for="r916">9:16</label></div>
           </div>
         </div>
         
