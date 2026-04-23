@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Flow Batcher",
+  "version": "1.0.0",
+  "description": "Automates prompt inputs and multi-generation tasks on Google Flow with smart error retry and auto-download.",
+  "icons": {
+    "16": "icons/logo_16.png",
+    "32": "icons/logo_32.png",
+    "48": "icons/logo_48.png",
+    "128": "icons/logo_128.png"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.google.com/*",
+    "*://labs.google/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Auto Flow Batcher",
+    "default_icon": {
+      "16": "icons/logo_16.png",
+      "32": "icons/logo_32.png",
+      "48": "icons/logo_48.png",
+      "128": "icons/logo_128.png",
+      "256": "icons/logo_256.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+   "content_scripts": [
+     {
+       "matches": ["*://labs.google/fx/tools/flow*"],
+       "js": ["content.js"]
+     }
+   ]
+}
