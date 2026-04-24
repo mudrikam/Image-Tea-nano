@@ -3,8 +3,15 @@
 
 if (window.top !== window.self) {
 } else {
-   (function () {
-     let isRunning = true;
+  (function () {
+    // Guard: only run on Flow editor pages, not the project list/home
+    const isEditorPage = location.href.includes('/labs.google/fx/tools/flow/project/');
+    if (!isEditorPage) {
+      console.log('[AFB] Not on Flow editor page, skipping content script');
+      return;
+    }
+
+    let isRunning = true;
 
      function log(msg) {
        try {
