@@ -31,16 +31,17 @@ document.addEventListener('DOMContentLoaded', async () => {
    const promptDisplay = document.getElementById('promptDisplay');
 
    // UI Elements - Main Interface
-  const fileInput = document.getElementById('fileInput');
-  const fileDropArea = document.getElementById('fileDropArea');
-  const manualInput = document.getElementById('manualInput');
-  const logArea = document.getElementById('logArea');
-  const progressBar = document.getElementById('progressBar');
-  const valPct = document.getElementById('valPct');
-  const totalPromptsLabel = document.getElementById('totalPromptsLabel');
-  const fileLabel = document.getElementById('fileLabel');
-  const typeGroup = document.getElementById('typeGroup');
-  const queueTableBody = document.getElementById('queueTableBody');
+   const fileInput = document.getElementById('fileInput');
+   const fileDropArea = document.getElementById('fileDropArea');
+   const manualInput = document.getElementById('manualInput');
+   const logArea = document.getElementById('logArea');
+   const progressBar = document.getElementById('progressBar');
+   const valPct = document.getElementById('valPct');
+   const queueProgress = document.getElementById('queueProgress');
+   const queueRemaining = document.getElementById('queueRemaining');
+   const fileLabel = document.getElementById('fileLabel');
+   const typeGroup = document.getElementById('typeGroup');
+   const queueTableBody = document.getElementById('queueTableBody');
 
   // UI Stats Elements
   const valQueue = document.getElementById('valQueue');
@@ -322,22 +323,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     appendLog('Extension loaded. Ready to attach to page.', 'info');
   }
 
-  // Update queue data array and refresh table
-  function updateQueue() {
-    prompts = currentPrompts;
+   // Update queue data array and refresh table
+   function updateQueue() {
+     prompts = currentPrompts;
 
-    // Rebuild queueData with fresh pending status
-    queueData = prompts.map((prompt, idx) => ({
-      prompt: prompt,
-      status: 'pending',
-      generatedCount: 0,
-      index: idx
-    }));
+     // Rebuild queueData with fresh pending status
+     queueData = prompts.map((prompt, idx) => ({
+       prompt: prompt,
+       status: 'pending',
+       generatedCount: 0,
+       index: idx
+     }));
 
-    totalPromptsLabel.innerText = prompts.length;
-    valQueue.innerText = prompts.length > 0 ? `${currentIndex} / ${prompts.length}` : '0 / 0';
-    renderQueueTable();
-  }
+     updateQueueProgressLabel();
+     renderQueueTable();
+   }
+
+   // Update queue progress label: "X/Y" format + remaining
+   function updateQueueProgressLabel() {
+     const total = prompts.length;
+     const completed = currentIndex;
+     const remaining = Math.max(0, total - completed);
+     if (total > 0) {
+       queueProgress.innerText = `${completed}/${total}`;
+       queueRemaining.innerText = `(${remaining} remaining)`;
+     } else {
+       queueProgress.innerText = '0';
+       queueRemaining.innerText = '';
+     }
+   }
 
   // Render prompt queue table
   function renderQueueTable() {
@@ -645,18 +659,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 1000);
   }
 
-  // Update stats display
-  function updateStats() {
-    const total = prompts.length;
-    valQueue.innerText = total > 0 ? `${currentIndex} / ${total}` : '0 / 0';
-    valSuccess.innerText = successCount;
-    valFailed.innerText = failedCount;
-    valDownloaded.innerText = downloadedCount;
+   // Update stats display
+   function updateStats() {
+     const total = prompts.length;
+     valQueue.innerText = total > 0 ? `${currentIndex} / ${total}` : '0 / 0';
+     valSuccess.innerText = successCount;
+     valFailed.innerText = failedCount;
+     valDownloaded.innerText = downloadedCount;
 
-    const p = total > 0 ? ((successCount + failedCount) / total) * 100 : 0;
-    progressBar.style.width = `${p}%`;
-    valPct.innerText = `${Math.round(p)}%`;
-  }
+     const p = total > 0 ? ((successCount + failedCount) / total) * 100 : 0;
+     progressBar.style.width = `${p}%`;
+     valPct.innerText = `${Math.round(p)}%`;
+
+     // Update queue progress label
+     updateQueueProgressLabel();
+   }
 
   // Append log message
   function appendLog(message, type = 'info') {
