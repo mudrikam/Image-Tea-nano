@@ -233,6 +233,57 @@
     }
     .btn-upload:hover { background-color: var(--bg-hover); }
 
+    /* Prompt Display Container (highlight individual prompts during automation) */
+    .prompt-display-container {
+      display: none;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 12px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      height: 200px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .prompt-display-container.visible {
+      display: block;
+    }
+    .prompt-line {
+      padding: 4px 8px;
+      margin: 2px 0;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      transition: all 0.3s ease;
+    }
+    .prompt-line.prompt-pending {
+      color: var(--text-muted);
+      background: transparent;
+    }
+    .prompt-line.prompt-completed {
+      color: #5a5a6a;
+      background: rgba(30, 30, 40, 0.5);
+      text-decoration: line-through;
+      text-decoration-color: #4a4a5a;
+    }
+    .prompt-line.prompt-failed {
+      color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+    .prompt-line.prompt-active {
+      color: var(--accent);
+      background: rgba(242, 125, 38, 0.15);
+      border: 1px solid var(--accent);
+      box-shadow: 0 0 15px rgba(242, 125, 38, 0.3), inset 0 0 10px rgba(242, 125, 38, 0.1);
+      animation: prompt-glow 1.5s ease-in-out infinite;
+    }
+    @keyframes prompt-glow {
+      0%, 100% { box-shadow: 0 0 15px rgba(242, 125, 38, 0.3), inset 0 0 10px rgba(242, 125, 38, 0.1); }
+      50% { box-shadow: 0 0 25px rgba(242, 125, 38, 0.5), inset 0 0 15px rgba(242, 125, 38, 0.2); }
+    }
+
     textarea.manual-input {
       width: 100%;
       background-color: var(--bg-input);
@@ -650,7 +701,7 @@
         <label class="section-title">Prompt Input</label>
 
         <!-- Load buttons row (small, sebaris) -->
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
           <button class="btn-upload" id="btnLoadTXT" title="Load TXT file">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -662,6 +713,18 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
             Load CSV
+          </button>
+          <button class="btn-upload" id="btnPaste" title="Paste prompt from clipboard">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Paste
+          </button>
+          <button class="btn-upload" id="btnClearInput" title="Clear all prompts" style="background-color: var(--error);">
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Clear
           </button>
         </div>
 
@@ -676,6 +739,9 @@
 
         <!-- Manual input textarea - larger -->
         <textarea id="manualInput" class="manual-input" rows="5" placeholder="Type prompts manually (one per line, or numbered format:&#10;1. first prompt&#10;2. second prompt&#10;&#10;Blank lines separate groups)"></textarea>
+
+        <!-- Prompt display container (shown during processing) -->
+        <div id="promptDisplay" class="prompt-display-container"></div>
       </section>
 
       <!-- Prompt Queue Table -->

@@ -15,7 +15,8 @@
     "activeTab",
     "scripting",
     "downloads",
-    "clipboardWrite"
+    "clipboardWrite",
+    "clipboardRead"
   ],
   "host_permissions": [
     "*://*.google.com/*",

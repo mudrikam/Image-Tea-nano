@@ -25,9 +25,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnReset = document.getElementById('btnReset');
   const btnLoadTXT = document.getElementById('btnLoadTXT');
   const btnLoadCSV = document.getElementById('btnLoadCSV');
-  const btnClearLogs = document.getElementById('btnClearLogs');
+   const btnClearLogs = document.getElementById('btnClearLogs');
+   const btnPaste = document.getElementById('btnPaste');
+   const btnClearInput = document.getElementById('btnClearInput');
+   const promptDisplay = document.getElementById('promptDisplay');
 
-  // UI Elements - Main Interface
+   // UI Elements - Main Interface
   const fileInput = document.getElementById('fileInput');
   const fileDropArea = document.getElementById('fileDropArea');
   const manualInput = document.getElementById('manualInput');
@@ -157,24 +160,65 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    return prompts;
-  }
+     return prompts;
+   }
 
-  // Load file content and auto-populate textarea
-  function loadFileContent(file) {
-    const reader = new FileReader();
-    fileLabel.innerText = file.name;
-    reader.onload = (event) => {
-      const text = event.target.result;
-      const parsedPrompts = parsePrompts(text);
-      currentPrompts = parsedPrompts;
-      manualInput.value = text;
-      fileInput.value = ''; // Reset so same file can be selected again
-      updateQueue();
-      appendLog(`Queue loaded: ${currentPrompts.length} prompts from file.`, 'info');
-    };
-    reader.readAsText(file);
-  }
+   // Escape HTML to prevent XSS
+   function escapeHtml(text) {
+     const div = document.createElement('div');
+     div.textContent = text;
+     return div.innerHTML;
+   }
+
+   // Render prompt display with color-coded status
+   function renderPromptDisplay() {
+     if (!promptDisplay || queueData.length === 0) {
+       promptDisplay.innerHTML = '<div style="color: var(--text-muted); padding: 8px;">No prompts</div>';
+       return;
+     }
+
+     let html = '';
+     queueData.forEach((item, idx) => {
+       let statusClass = 'prompt-pending';
+       if (item.status === 'processing') {
+         statusClass = 'prompt-active';
+       } else if (item.status === 'completed') {
+         statusClass = 'prompt-completed';
+       } else if (item.status === 'failed') {
+         statusClass = 'prompt-failed';
+       } else if (item.status === 'partial') {
+         statusClass = 'prompt-completed'; // treat partial as completed
+       }
+       html += `<div class="prompt-line ${statusClass}">${escapeHtml(item.prompt)}</div>`;
+     });
+     promptDisplay.innerHTML = html;
+
+     // Auto-scroll to active prompt
+     const activeEl = promptDisplay.querySelector('.prompt-active');
+     if (activeEl) {
+       activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+     }
+   }
+
+   // Load file content and auto-populate textarea
+   function loadFileContent(file) {
+     if (isRunning) {
+       appendLog('Cannot load file while processing. Stop first.', 'warn');
+       return;
+     }
+     const reader = new FileReader();
+     fileLabel.innerText = file.name;
+     reader.onload = (event) => {
+       const text = event.target.result;
+       const parsedPrompts = parsePrompts(text);
+       currentPrompts = parsedPrompts;
+       manualInput.value = text;
+       fileInput.value = ''; // Reset so same file can be selected again
+       updateQueue();
+       appendLog(`Queue loaded: ${currentPrompts.length} prompts from file.`, 'info');
+     };
+     reader.readAsText(file);
+   }
 
   // File input change handler
   fileInput.addEventListener('change', (e) => {
@@ -209,14 +253,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     fileInput.click();
   });
 
-  // Load CSV button
-  btnLoadCSV.addEventListener('click', (e) => {
-    e.stopPropagation();
-    fileInput.accept = '.csv';
-    fileInput.click();
-  });
+   // Load CSV button
+   btnLoadCSV.addEventListener('click', (e) => {
+     e.stopPropagation();
+     fileInput.accept = '.csv';
+     fileInput.click();
+   });
 
-  // Check if current tab is on Flow page
+   // Paste button - read clipboard and replace prompts
+   btnPaste.addEventListener('click', async () => {
+     if (isRunning) {
+       appendLog('Cannot paste while processing. Stop first.', 'warn');
+       return;
+     }
+     try {
+       const text = await navigator.clipboard.readText();
+       if (text) {
+         manualInput.value = text;
+         currentPrompts = parsePrompts(text);
+         updateQueue();
+         appendLog('Pasted prompts from clipboard.', 'info');
+       }
+     } catch (err) {
+       appendLog('Failed to read clipboard: ' + err.message, 'error');
+     }
+   });
+
+   // Clear button - clear all prompts
+   btnClearInput.addEventListener('click', () => {
+     if (isRunning) {
+       appendLog('Cannot clear while processing. Stop first.', 'warn');
+       return;
+     }
+     manualInput.value = '';
+     currentPrompts = [];
+     updateQueue();
+     appendLog('Prompts cleared.', 'info');
+   });
+
+   // Check if current tab is on Flow page
   async function checkCurrentTab() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const flowUrlPattern = /https?:\/\/labs\.google\/fx\/tools\/flow/i;
@@ -378,14 +453,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const settings = getSettings();
 
-    isRunning = true;
-    btnStart.classList.add('hidden');
-    btnPause.classList.remove('hidden');
-    btnStop.classList.remove('hidden');
-    manualInput.classList.add('processing');
-    manualInput.readOnly = true;
+     isRunning = true;
+     btnStart.classList.add('hidden');
+     btnPause.classList.remove('hidden');
+     btnStop.classList.remove('hidden');
+     manualInput.classList.add('processing');
+     manualInput.readOnly = true;
+     manualInput.style.display = 'none';
+     promptDisplay.classList.add('visible');
+     renderPromptDisplay();
 
-    appendLog(`Starting Automation for ${prompts.length} prompts... (${settings.batch}x per prompt)`, 'act');
+     appendLog(`Starting Automation for ${prompts.length} prompts... (${settings.batch}x per prompt)`, 'act');
 
     // Check active tab
     const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -424,15 +502,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Main processing loop
-  async function processQueue(settings) {
-    while (isRunning && currentIndex < prompts.length) {
-      const promptData = queueData[currentIndex];
-      promptData.status = 'processing';
-      renderQueueTable();
+   async function processQueue(settings) {
+     while (isRunning && currentIndex < prompts.length) {
+       const promptData = queueData[currentIndex];
+       promptData.status = 'processing';
+       renderQueueTable();
+       renderPromptDisplay(); // show active highlight immediately
 
-      updateStats();
-      manualInput.classList.add('processing');
-      appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
+       updateStats();
+       manualInput.classList.add('processing');
+       appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
 
       try {
         // Use stored targetTabId
@@ -477,10 +556,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         appendLog(`[${currentIndex + 1}] Execution Error: ${err.message}`, 'error');
       }
 
-      currentIndex++;
-      updateStats();
-      renderQueueTable();
-    }
+       currentIndex++;
+       updateStats();
+       renderQueueTable();
+       renderPromptDisplay();
+     }
 
     if (currentIndex >= prompts.length && isRunning) {
       appendLog('All prompts completed successfully!', 'success');
@@ -521,29 +601,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     fullReset();
   });
 
-  function stopProcess() {
-    isRunning = false;
-    isPaused = false;
-    clearInterval(countdownInterval);
-    countdownInterval = null;
-    targetTabId = null;
-    btnStart.classList.remove('hidden');
-    btnStart.querySelector('.btn-label').textContent = 'Start';
-    btnPause.classList.add('hidden');
-    btnStop.classList.add('hidden');
-    manualInput.classList.remove('processing');
-    manualInput.readOnly = false;
-    valCountdown.innerText = '--';
-    countdownRow.classList.add('hidden');
+   function stopProcess() {
+     isRunning = false;
+     isPaused = false;
+     clearInterval(countdownInterval);
+     countdownInterval = null;
+     targetTabId = null;
+     btnStart.classList.remove('hidden');
+     btnStart.querySelector('.btn-label').textContent = 'Start';
+     btnPause.classList.add('hidden');
+     btnStop.classList.add('hidden');
+     manualInput.classList.remove('processing');
+     manualInput.readOnly = false;
+     manualInput.style.display = '';
+     promptDisplay.classList.remove('visible');
+     valCountdown.innerText = '--';
+     countdownRow.classList.add('hidden');
 
-    // Reset any processing rows
-    queueData.forEach(item => {
-      if (item.status === 'processing') {
-        item.status = 'failed';
-      }
-    });
-    renderQueueTable();
-  }
+     // Reset any processing rows
+     queueData.forEach(item => {
+       if (item.status === 'processing') {
+         item.status = 'failed';
+       }
+     });
+     renderQueueTable();
+   }
 
   // Start countdown timer
   function startCountdown(seconds) {
