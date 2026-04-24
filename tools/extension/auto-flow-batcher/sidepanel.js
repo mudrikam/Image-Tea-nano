@@ -292,16 +292,15 @@ document.addEventListener('DOMContentLoaded', async () => {
      appendLog('Prompts cleared.', 'info');
    });
 
-   // Check if current tab is on Flow page
-   async function checkCurrentTab() {
-     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-     if (!tab || !tab.url) return false;
-     // Match Flow pages with optional '/id' segment: 
-     // - https://labs.google/fx/tools/flow...
-     // - https://labs.google/fx/id/tools/flow...
-     const flowPattern = /labs\.google(\.com)?\/fx\/(?:id\/)?tools\/flow/i;
-     return flowPattern.test(tab.url);
-   }
+    // Check if current tab is on Flow page
+    async function checkCurrentTab() {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) return false;
+      // Match Flow pages with optional locale segment (e.g., /id/, /my/, /en/, or none)
+      // Pattern: /labs.google[.com]/fx/[optional-locale]/tools/flow
+      const flowPattern = /labs\.google(\.com)?\/fx\/(?:[^/]+\/)?tools\/flow/i;
+      return flowPattern.test(tab.url);
+    }
 
   // Show appropriate view based on tab
   async function initView() {

@@ -4,13 +4,14 @@
 if (window.top !== window.self) {
 } else {
   (function () {
-    // Guard: only run on Flow editor pages, not the project list/home
-    const isEditorPage = location.href.includes('/labs.google/fx/tools/flow/project/') ||
-                        location.href.includes('/labs.google/fx/id/tools/flow/project/');
-    if (!isEditorPage) {
-      console.log('[AFB] Not on Flow editor page, skipping content script');
-      return;
-    }
+     // Guard: only run on Flow editor pages, not the project list/home
+     // Supports any locale prefix (e.g., /id/, /my/, /en/, or none) before /tools/flow/
+     const isEditorPage = location.href.includes('/labs.google/fx/') &&
+                          location.href.includes('/tools/flow/project/');
+     if (!isEditorPage) {
+       console.log('[AFB] Not on Flow editor page, skipping content script');
+       return;
+     }
 
     let isRunning = true;
 
@@ -748,13 +749,13 @@ if (window.top !== window.self) {
 
 
 
-      // Detect failure elements (Gagal/Error messages)
+      // Detect visible failure elements (class-based, language-agnostic)
       function detectFailures() {
-        const failures = [];
         const failureElements = document.querySelectorAll('div[class*="sc-adc89304"], div[class*="AGiNi"]');
+        const failures = [];
         failureElements.forEach(el => {
-          const text = el.textContent || '';
-          if (text.includes('Gagal') || text.includes('error') || text.includes('Error') || text.includes('Maaf, terjadi error')) {
+          // Only count if visible (inside an element with data-state="open")
+          if (el.closest('[data-state="open"]')) {
             failures.push(el);
           }
         });
@@ -792,11 +793,12 @@ if (window.top !== window.self) {
           if (seenTileIds.has(tileId)) return;
           const tile = document.querySelector(`[data-tile-id="${tileId}"]`);
           if (!tile) return;
-          // Support both images and videos
-          const mediaElement = tile.querySelector('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"], video[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
+          // Support both images and videos; match media endpoint regardless of locale prefix in path
+          const mediaElement = tile.querySelector('img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"]');
           if (!mediaElement) return;
           const src = mediaElement.src || mediaElement.currentSrc || mediaElement.getAttribute('src');
-          if (src && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
+          // Ensure it's a media redirect URL with a name parameter (works for any locale path)
+          if (src && src.includes('media.getMediaUrlRedirect') && src.includes('name=')) {
             seenTileIds.add(tileId);
             foundTiles.push({ tileId, url: src, element: mediaElement, tile: tile });
             log(`DEBUG: Captured new tile ${tileId.substring(0, 12)} → ${src.substring(0, 40)}`);
