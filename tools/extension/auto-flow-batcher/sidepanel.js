@@ -293,11 +293,15 @@ document.addEventListener('DOMContentLoaded', async () => {
    });
 
    // Check if current tab is on Flow page
-  async function checkCurrentTab() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const flowUrlPattern = /https?:\/\/labs\.google\/fx\/tools\/flow/i;
-    return tab && flowUrlPattern.test(tab.url);
-  }
+   async function checkCurrentTab() {
+     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+     if (!tab || !tab.url) return false;
+     // Match Flow pages with optional '/id' segment: 
+     // - https://labs.google/fx/tools/flow...
+     // - https://labs.google/fx/id/tools/flow...
+     const flowPattern = /labs\.google(\.com)?\/fx\/(?:id\/)?tools\/flow/i;
+     return flowPattern.test(tab.url);
+   }
 
   // Show appropriate view based on tab
   async function initView() {
@@ -756,8 +760,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Listen for active tab changes
-  chrome.tabs.onActivated.addListener(() => {
-    initView();
-  });
-});
+   // Listen for active tab changes
+   chrome.tabs.onActivated.addListener(() => {
+     initView();
+   });
+
+   // Initial view check when sidepanel loads
+   initView();
+ });
