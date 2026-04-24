@@ -760,7 +760,7 @@ if (window.top !== window.self) {
         const COUNTDOWN_UPDATE_INTERVAL = 1000; // send countdown every 1s
         const maxWaitMs = MAX_WAIT_SECONDS * 1000;
 
-        log(`>>> Monitoring generation: expect ${expectedCount} new images, timeout ${MAX_WAIT_SECONDS}s`);
+        log(`>>> Monitoring generation: expect ${expectedCount} new media items, timeout ${MAX_WAIT_SECONDS}s`);
         log(`DEBUG: Pre-generation snapshot: ${beforeTileIds.size} tile IDs already present`);
 
         const startTime = Date.now();
@@ -784,12 +784,13 @@ if (window.top !== window.self) {
           if (seenTileIds.has(tileId)) return;
           const tile = document.querySelector(`[data-tile-id="${tileId}"]`);
           if (!tile) return;
-          const img = tile.querySelector('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
-          if (!img) return;
-          const src = img.src || img.currentSrc || img.getAttribute('src');
+          // Support both images and videos
+          const mediaElement = tile.querySelector('img[src*="/fx/api/trpc/media.getMediaUrlRedirect"], video[src*="/fx/api/trpc/media.getMediaUrlRedirect"]');
+          if (!mediaElement) return;
+          const src = mediaElement.src || mediaElement.currentSrc || mediaElement.getAttribute('src');
           if (src && src.includes('/fx/api/trpc/media.getMediaUrlRedirect?name=')) {
             seenTileIds.add(tileId);
-            foundTiles.push({ tileId, url: src, element: img, tile: tile });
+            foundTiles.push({ tileId, url: src, element: mediaElement, tile: tile });
             log(`DEBUG: Captured new tile ${tileId.substring(0, 12)} → ${src.substring(0, 40)}`);
           }
         };
@@ -893,7 +894,7 @@ if (window.top !== window.self) {
 
       // Process batch: monitor, detect, download
       async function processBatch(promptIndex, batchCount, beforeTileIds, settings) {
-        log(`>>> Starting batch processing: expect ${batchCount} images for prompt ${promptIndex + 1}`);
+        log(`>>> Starting batch processing: expect ${batchCount} media items for prompt ${promptIndex + 1}`);
 
         // Step 1: Monitor generation (after Create button clicked by caller)
         const monitorResult = await monitorGeneration(batchCount, beforeTileIds, settings);
@@ -903,8 +904,8 @@ if (window.top !== window.self) {
         const foundCount = foundTiles.length;
 
         if (foundCount === 0) {
-          log(`>>> FAILED: No images detected for prompt ${promptIndex + 1}`);
-          return { success: false, downloaded: 0, message: 'No images detected' };
+          log(`>>> FAILED: No media detected for prompt ${promptIndex + 1}`);
+          return { success: false, downloaded: 0, message: 'No media detected' };
         }
 
         log(`>>> Batch monitoring complete: ${monitorResult.status}, captured ${foundCount} tile(s) during generation`);
@@ -914,7 +915,7 @@ if (window.top !== window.self) {
         let downloaded = 0;
         for (let i = 0; i < maxToTake && isRunning; i++) {
           const tileInfo = foundTiles[i];
-          log(`>>> Downloading image ${i + 1}/${maxToTake}: ${tileInfo.url.substring(0, 60)}`);
+          log(`>>> Downloading media ${i + 1}/${maxToTake}: ${tileInfo.url.substring(0, 60)}`);
           downloadImage(tileInfo.url, promptIndex, i, settings);
           downloaded++;
           // Small delay between downloads

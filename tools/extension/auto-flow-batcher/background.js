@@ -41,6 +41,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'DOWNLOAD_DONE') {
     const count = message.count || 0;
     const sessionId = message.sessionId || '';
-    console.log(`[AFB] Download batch complete: ${count} images, session ${sessionId}`);
+    console.log(`[AFB] Download batch complete: ${count} media items, session ${sessionId}`);
   }
 });
