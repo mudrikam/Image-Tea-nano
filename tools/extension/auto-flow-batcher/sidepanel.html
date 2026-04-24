@@ -97,6 +97,17 @@
       padding: 2px 8px;
       border-radius: 4px;
       border: 1px solid rgba(242, 125, 38, 0.2);
+      text-decoration: none !important;
+      transition: all 0.2s;
+      display: inline-block;
+    }
+    .badge-link {
+      text-decoration: none !important;
+    }
+    .badge-link:hover .badge {
+      background-color: rgba(242, 125, 38, 0.2);
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(242, 125, 38, 0.3);
     }
     .content {
       flex: 1;
@@ -562,17 +573,14 @@
       width: 80px;
       height: 80px;
       margin: 0 auto 20px auto;
-      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-      border-radius: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 8px 24px rgba(242, 125, 38, 0.3);
     }
-    .landing-logo svg {
-      width: 40px;
-      height: 40px;
-      color: #000;
+    .landing-logo img {
+      width: 80px;
+      height: auto;
+      filter: drop-shadow(0 0 12px rgba(242, 125, 38, 0.6));
     }
     .landing-title {
       font-size: 20px;
@@ -610,16 +618,16 @@
           <span class="version" id="extensionVersion"></span>
         </div>
       </div>
-      <span class="badge">Desainia Studio</span>
+      <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" class="badge-link">
+        <span class="badge">Desainia Studio</span>
+      </a>
     </header>
 
     <!-- Landing Page (shown when not on Flow) -->
     <div id="landingPage" class="landing-page hidden">
       <div class="landing-content">
         <div class="landing-logo">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
+          <img src="icons/logo_128.png" alt="Auto Flow Batcher Logo">
         </div>
         <h2 class="landing-title">Desainia Studio</h2>
         <p class="landing-subtitle">Auto Flow Batcher</p>
