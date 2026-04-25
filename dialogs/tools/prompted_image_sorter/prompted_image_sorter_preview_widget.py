@@ -47,9 +47,9 @@ class PromptedImageSorterPreviewWidget(QWidget):
         self.duration_label.setStyleSheet("font-size: 10px;")
         meta_layout.addWidget(self.duration_label)
 
-        self.status_label = QLabel("Status: —")
-        self.status_label.setStyleSheet("font-size: 10px;")
-        meta_layout.addWidget(self.status_label)
+        self.output_label = QLabel("Output: —")
+        self.output_label.setStyleSheet("font-size: 10px;")
+        meta_layout.addWidget(self.output_label)
 
         layout.addLayout(meta_layout)
 
@@ -59,7 +59,6 @@ class PromptedImageSorterPreviewWidget(QWidget):
         self._current_file = None
         self.image_label.setText("No Image")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Style the "No Image" text with theme color
         self.image_label.setStyleSheet(
             f"color: {theme.get_color('gray')}; font-size: 12px; font-style: italic;"
         )
@@ -68,9 +67,9 @@ class PromptedImageSorterPreviewWidget(QWidget):
         self.size_label.setText("Size: —")
         self.dimensions_label.setText("Dimensions: —")
         self.duration_label.setText("Duration: —")
-        self.status_label.setText("Status: —")
+        self.output_label.setText("Output: —")
 
-    def load_image(self, file_path, duration_ms=0):
+    def load_image(self, file_path, output_folder="—", duration_ms=0):
         """Load an image from file path and display its metadata."""
         if not file_path or not os.path.exists(file_path):
             self._show_no_image()
@@ -81,18 +80,16 @@ class PromptedImageSorterPreviewWidget(QWidget):
 
         if pixmap.isNull():
             self._show_no_image()
-            self.status_label.setText("Status: Failed to load")
+            self.output_label.setText(f"Output: {output_folder}")
             return
 
         self._original_pixmap = pixmap
 
-        # Update image display - clear custom stylesheet, show image
         self.image_label.setText("")
-        self.image_label.setStyleSheet("")  # Remove custom stylesheet
+        self.image_label.setStyleSheet("")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._scale_pixmap()
 
-        # Filename (truncate to avoid GUI expansion)
         filename = os.path.basename(file_path)
         max_len = 20
         if len(filename) > max_len:
@@ -101,7 +98,6 @@ class PromptedImageSorterPreviewWidget(QWidget):
             display_name = filename
         self.filename_label.setText(f"Filename: {display_name}")
 
-        # File size
         try:
             size_bytes = os.path.getsize(file_path)
             if size_bytes < 1024:
@@ -114,17 +110,14 @@ class PromptedImageSorterPreviewWidget(QWidget):
         except Exception:
             self.size_label.setText("Size: —")
 
-        # Dimensions
         self.dimensions_label.setText(f"Dimensions: {pixmap.width()} × {pixmap.height()}")
 
-        # Duration
         if duration_ms > 0:
             self.duration_label.setText(f"Duration: {duration_ms} ms")
         else:
             self.duration_label.setText("Duration: —")
 
-        # Status
-        self.status_label.setText("Status: Processed")
+        self.output_label.setText(f"Output: {output_folder}")
 
     def _scale_pixmap(self):
         """Scale pixmap to fit image label while maintaining aspect ratio."""

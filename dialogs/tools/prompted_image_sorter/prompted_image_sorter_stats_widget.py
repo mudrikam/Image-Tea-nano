@@ -16,7 +16,7 @@ class PromptedImageSorterStatsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        # Row 1: Source count and Target count
+        # Row 1: Source count, Target count, Batch size, Retry
         row1 = QHBoxLayout()
         row1.setSpacing(12)
         self.source_label = QLabel("Source: —")
@@ -25,6 +25,9 @@ class PromptedImageSorterStatsWidget(QWidget):
         self.target_label = QLabel("Target: —")
         self.target_label.setStyleSheet("font-size: 11px;")
         row1.addWidget(self.target_label)
+        self.batch_label = QLabel("Batch: —")
+        self.batch_label.setStyleSheet("font-size: 11px; color: #10b981;")
+        row1.addWidget(self.batch_label)
         self.retry_label = QLabel("Retry: —")
         self.retry_label.setStyleSheet("font-size: 11px; color: gray;")
         row1.addWidget(self.retry_label)
@@ -56,10 +59,12 @@ class PromptedImageSorterStatsWidget(QWidget):
         self.progress_bar.setMinimumHeight(16)
         layout.addWidget(self.progress_bar)
 
-    def set_stats(self, source_count=0, target_count=0, elapsed="—", remaining_time="—", remaining_files="—"):
+    def set_stats(self, source_count=0, target_count=0, elapsed="—", remaining_time="—", remaining_files="—", batch_size=None):
         """Update stats display."""
         self.source_label.setText(f"Source: {source_count:,} files" if source_count else "Source: 0 files")
         self.target_label.setText(f"Target: {target_count}")
+        if batch_size is not None:
+            self.batch_label.setText(f"Batch: {batch_size}")
         self.elapsed_label.setText(f"Elapsed: {elapsed}")
         self.remaining_time_label.setText(f"ETA: {remaining_time}")
         self.remaining_files_label.setText(f"Files left: {remaining_files}")
@@ -74,6 +79,16 @@ class PromptedImageSorterStatsWidget(QWidget):
             self.retry_label.setText("Retry: —")
             self.retry_label.setStyleSheet("font-size: 11px; color: gray;")
             self._last_retry = 0
+
+    def set_current_batch(self, current, total):
+        """Update batch display during sorting."""
+        self.batch_label.setText(f"Batch: {current}/{total} concurrent")
+        self.batch_label.setStyleSheet("font-size: 11px; color: #3b82f6; font-weight: bold;")
+
+    def reset_batch(self):
+        """Reset batch display after sorting."""
+        self.batch_label.setText("Batch: —")
+        self.batch_label.setStyleSheet("font-size: 11px; color: #10b981;")
 
     def set_last_retry(self, value):
         """Store the last retry value to persist it."""

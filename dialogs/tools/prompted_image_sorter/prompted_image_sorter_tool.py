@@ -187,7 +187,8 @@ class PromptedImageSorterTool(QDialog):
         self.batch_spinner.setMinimum(1)
         self.batch_spinner.setMaximum(20)
         self.batch_spinner.setValue(3)
-        self.batch_spinner.setToolTip("Number of images to send to AI at once")
+        self.batch_spinner.setToolTip("Number of concurrent AI requests")
+        self.batch_spinner.valueChanged.connect(self._on_settings_changed)
         table_controls.addWidget(self.batch_spinner)
 
         # Max retries spinner
@@ -390,7 +391,7 @@ class PromptedImageSorterTool(QDialog):
         return os.path.expanduser('~')
 
     def _load_all(self):
-        """Load source/output paths and folder list from single JSON config file."""
+        """Load source/output paths, batch size, retries, and folder list from single JSON config file."""
         try:
             if os.path.exists(self.SETTINGS_FILE):
                 with open(self.SETTINGS_FILE, 'r', encoding='utf-8') as f:
@@ -400,6 +401,11 @@ class PromptedImageSorterTool(QDialog):
                     dst = data.get('output_path', '')
                     self.source_path_input.setText(src)
                     self.output_path_input.setText(dst)
+                    # Load batch size and max retries
+                    batch_size = data.get('batch_size', 3)
+                    max_retries = data.get('max_retries', 3)
+                    self.batch_spinner.setValue(batch_size)
+                    self.max_retries_spinner.setValue(max_retries)
                     # Load folder list
                     folders = data.get('folders', [])
                     if isinstance(folders, list):
@@ -415,10 +421,12 @@ class PromptedImageSorterTool(QDialog):
             self._update_stats()
 
     def _save_all(self):
-        """Save source/output paths and folder list to single JSON config file."""
+        """Save source/output paths, batch size, retries, and folder list to single JSON config file."""
         try:
             src = self._sanitize_path_text(self.source_path_input.text())
             dst = self._sanitize_path_text(self.output_path_input.text())
+            batch_size = self.batch_spinner.value()
+            max_retries = self.max_retries_spinner.value()
             # Collect folder list from table
             rows = self.table.rowCount()
             folders = []
@@ -432,6 +440,8 @@ class PromptedImageSorterTool(QDialog):
             data = {
                 'source_path': src,
                 'output_path': dst,
+                'batch_size': batch_size,
+                'max_retries': max_retries,
                 'folders': folders
             }
             with open(self.SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -457,18 +467,29 @@ class PromptedImageSorterTool(QDialog):
 
         # Count target folders (from table)
         target_folders = self.table.rowCount()
+        
+        # Get current batch size
+        batch_size = self.batch_spinner.value()
 
         # Only reset elapsed/ETA when not actively sorting (let _on_sort_progress handle them during sort)
         if not self._is_sorting:
-            self.stats_widget.set_stats(source_count, target_folders, "—", "—", "—")
+            self.stats_widget.set_stats(source_count, target_folders, "—", "—", "—", batch_size=batch_size)
         else:
             # Preserve elapsed/ETA if sorting is in progress
-            self.stats_widget.set_stats(source_count, target_folders, "—", "—", "—")
+            self.stats_widget.set_stats(source_count, target_folders, "—", "—", "—", batch_size=batch_size)
 
     def _on_path_changed(self):
         """Handle any path change: save and update stats."""
         self._save_all()
-        self._update_stats()
+        if not self._is_sorting:
+            self._update_stats()
+
+    def _on_settings_changed(self):
+        """Handle settings change (batch size, retries): save and update stats."""
+        self._save_all()
+        # Update stats to show current batch size
+        if not self._is_sorting:
+            self._update_stats()
 
     def _on_folders_changed(self, *args):
         """Folder table changed – save and refresh stats."""
@@ -652,6 +673,8 @@ class PromptedImageSorterTool(QDialog):
             max_retries=max_retries, mode=mode, db=self.db,
             table=self.table
         )
+        # Initialize batch display
+        self.stats_widget.set_current_batch(0, batch_size)
         self._worker.progress_updated.connect(self._on_sort_progress)
         self._worker.retry_updated.connect(self._on_retry_updated)
         self._worker.retry_cleared.connect(self._on_retry_cleared)
@@ -683,7 +706,7 @@ class PromptedImageSorterTool(QDialog):
         self._update_pause_button_style()
 
     def _on_sort_progress(self, current, total, elapsed, remaining, retry_current=0, retry_max=0, last_retry=0):
-        """Update stats during sorting."""
+        """Update stats during sorting. last_retry param is used to show concurrent processing count."""
         self.stats_widget.set_progress_value(current)
         remaining_files = total - current
         self.stats_widget.set_stats(
@@ -693,6 +716,8 @@ class PromptedImageSorterTool(QDialog):
             remaining_time=remaining,
             remaining_files=str(remaining_files)
         )
+        # Show concurrent batch count in batch_label
+        self.stats_widget.set_current_batch(last_retry, self._worker.batch_size)
 
     def _on_retry_updated(self, current, maximum):
         """Called when a retry occurs during sorting."""
@@ -713,8 +738,8 @@ class PromptedImageSorterTool(QDialog):
                 highlight_color.setAlpha(int(0.3 * 255))  # 30% opacity
                 self.table.highlight_row(idx, highlight_color, duration_ms=3000)
                 break
-        # Update preview with compressed image
-        self.preview_widget.load_image(compressed_path, duration_ms)
+        # Update preview with compressed image and output folder
+        self.preview_widget.load_image(compressed_path, target_folder, duration_ms)
 
     def _on_sort_finished(self):
         """Called when sorting is complete (or stopped)."""
@@ -733,6 +758,8 @@ class PromptedImageSorterTool(QDialog):
             QMessageBox.information(self, "Stopped", "Sorting process was stopped.")
 
         self._stopped_early = False
+        # Reset concurrent batch display, then update stats to show static config
+        self.stats_widget.reset_batch()
         self._update_stats()
         self._finish_handling = False
 
@@ -817,12 +844,17 @@ class PromptedImageSorterWorker(QThread):
         import time
         import json
         import re
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
         from helpers.image_compression_helper import compress_and_save_image
         from config import BASE_PATH
 
         self._elapsed_start = time.time()
         total = len(self.image_files)
         processed = 0
+        processed_lock = threading.Lock()
+        # No shared _current_retry — each task uses its own local retry count
+        self._current_retry = 0  # just for stats reset fallback
 
         # --- Helper: load system prompt from config JSON ---
         def load_system_prompt():
@@ -843,117 +875,138 @@ class PromptedImageSorterWorker(QThread):
                     '{"folder": "name"}'
                 )
 
-        # Process in batches
-        for i in range(0, len(self.image_files), self.batch_size):
+        # Reload config JSON and folder data
+        system_instructions, folder_instructions, response_format = load_system_prompt()
+        current_folders = self.table.get_folder_data() if hasattr(self, 'table') else self.folders
+
+        # Build folder list for AI with clearer descriptions
+        folder_list_lines = []
+        for idx, f in enumerate(current_folders, 1):
+            folder_list_lines.append(f"{idx}. {f['folder_name']}")
+            folder_list_lines.append(f"   → {f['prompt']}")
+        folder_list_text = "\n".join(folder_list_lines)
+
+        # Build full system prompt
+        system_prompt = (
+            f"{system_instructions}\n\n"
+            f"{folder_instructions}\n\n"
+            f"AVAILABLE FOLDERS:\n{folder_list_text}\n\n"
+            f"{response_format}"
+        )
+
+        # Track currently processing count for batch display
+        currently_processing = 0
+        batch_lock = threading.Lock()
+
+        def process_single_image(file_path):
+            nonlocal processed, currently_processing
             if self._stop_flag['stop']:
-                break
-            batch = self.image_files[i:i + self.batch_size]
+                return None
 
-            # Reload config JSON and folder data at the start of each batch
-            # This ensures folder add/remove during sorting takes effect
-            system_instructions, folder_instructions, response_format = load_system_prompt()
-            current_folders = self.table.get_folder_data() if hasattr(self, 'table') else self.folders
+            # Pause handling
+            while self._pause_flag.get('pause', False) and not self._stop_flag['stop']:
+                time.sleep(0.1)
+            if self._stop_flag['stop']:
+                return None
 
-            # Build folder list for AI with clearer descriptions
-            folder_list_lines = []
-            for idx, f in enumerate(current_folders, 1):
-                folder_list_lines.append(f"{idx}. {f['folder_name']}")
-                folder_list_lines.append(f"   → {f['prompt']}")
-            folder_list_text = "\n".join(folder_list_lines)
+            start_time = time.time()
+            target_folder = None
+            compressed_path = None
+            last_retry_value = 0
 
-            # Build full system prompt
-            system_prompt = (
-                f"{system_instructions}\n\n"
-                f"{folder_instructions}\n\n"
-                f"AVAILABLE FOLDERS:\n{folder_list_text}\n\n"
-                f"{response_format}"
-            )
+            # Update "currently processing" count
+            with batch_lock:
+                currently_processing += 1
+                self.progress_updated.emit(processed, total, "—", "—", 0, self.max_retries, currently_processing)
 
-            for file_path in batch:
-                if self._stop_flag['stop']:
-                    break
+            # Compress image
+            try:
+                compressed_path = compress_and_save_image(file_path)
+            except Exception as e:
+                print(f"[SortWorker] Compression failed: {e}")
 
-                # Pause handling: wait while paused
-                while self._pause_flag.get('pause', False) and not self._stop_flag['stop']:
-                    time.sleep(0.1)
-
-                start_time = time.time()
-                target_folder = None
-                compressed_path = None
-
-                # Compress image first
+            # Classify with retries
+            retry_count = 0
+            success = False
+            while retry_count < self.max_retries and not success and not self._stop_flag['stop']:
                 try:
-                    compressed_path = compress_and_save_image(file_path)
-                except Exception as e:
-                    print(f"[SortWorker] Compression failed: {e}")
-
-                # Call AI to classify the image (with retries on failure)
-                retry_count = 0
-                success = False
-                while retry_count < self.max_retries and not success and not self._stop_flag['stop']:
-                    try:
-                        result = classify_image(
-                            image_path=compressed_path or file_path,
-                            api_key=self.api_key,
-                            service=self.service,
-                            model=self.model,
-                            system_prompt=system_prompt,
-                            valid_folders=current_folders,
-                            db=self.db
-                        )
-                        if result:
-                            target_folder = result
-                            success = True
-                        else:
-                            # No result returned - count as failure to trigger retry
-                            retry_count += 1
-                            self._current_retry = retry_count
-                            print(f"[SortWorker] Emitting retry_updated: {retry_count}/{self.max_retries}")
-                            self.retry_updated.emit(retry_count, self.max_retries)
-                            if retry_count < self.max_retries:
-                                print(f"[SortWorker] AI returned empty (attempt {retry_count}/{self.max_retries})")
-                                time.sleep(1)
-                            else:
-                                print(f"[SortWorker] AI returned empty after {self.max_retries} retries")
-                    except Exception as e:
-                        retry_count += 1  # Only increment on actual failure
-                        self._current_retry = retry_count
+                    result = classify_image(
+                        image_path=compressed_path or file_path,
+                        api_key=self.api_key,
+                        service=self.service,
+                        model=self.model,
+                        system_prompt=system_prompt,
+                        valid_folders=current_folders,
+                        db=self.db
+                    )
+                    if result:
+                        target_folder = result
+                        success = True
+                    else:
+                        retry_count += 1
                         self.retry_updated.emit(retry_count, self.max_retries)
                         if retry_count < self.max_retries:
-                            print(f"[SortWorker] AI call failed (attempt {retry_count}/{self.max_retries}): {e}")
                             time.sleep(1)
-                        else:
-                            print(f"[SortWorker] AI call failed after {self.max_retries} retries: {e}")
+                except Exception as e:
+                    retry_count += 1
+                    self.retry_updated.emit(retry_count, self.max_retries)
+                    if retry_count < self.max_retries:
+                        time.sleep(1)
 
-                # Calculate stats BEFORE resetting retry counter
-                duration_ms = int((time.time() - start_time) * 1000)
-                elapsed_s = int(time.time() - self._elapsed_start)
-                remaining_s = int((elapsed_s / processed) * (total - processed)) if processed > 0 else 0
-                elapsed_str = f"{elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
-                remaining_str = f"{remaining_s // 60:02d}:{remaining_s % 60:02d}"
-                
-                # Store the retry value before reset so UI can show it
-                last_retry_value = self._current_retry
-                
-                # Emit progress BEFORE resetting retry counter so UI shows correct value
-                self.progress_updated.emit(processed, total, elapsed_str, remaining_str, self._current_retry, self.max_retries, last_retry_value)
-                
-                # Reset retry counter after emitting
-                self._current_retry = 0
+            last_retry_value = retry_count
 
-                # Only move/copy if AI successfully returned a folder
-                if target_folder:
-                    move_result = self._move_or_copy_file(file_path, target_folder)
-                    # Emit processed: original path, compressed path (for preview), folder, duration
-                    self.image_processed.emit(file_path, compressed_path or file_path, target_folder, duration_ms)
-                else:
-                    # AI failed after all retries - skip this file, don't move it
-                    print(f"[SortWorker] Skipped (AI failed): {os.path.basename(file_path)}")
+            # Move/copy if successful
+            if target_folder:
+                self._move_or_copy_file(file_path, target_folder)
 
-                # Clear retry display after file is done
-                self.retry_cleared.emit()
-
+            # Increment processed counter FIRST, then emit with correct count
+            with processed_lock:
                 processed += 1
+                processed_local = processed
+
+            # Calculate elapsed/remaining based on actual processed count
+            elapsed_s = int(time.time() - self._elapsed_start)
+            remaining_s = int((elapsed_s / processed_local) * (total - processed_local)) if processed_local > 0 else 0
+            elapsed_str = f"{elapsed_s // 60:02d}:{elapsed_s % 60:02d}"
+            remaining_str = f"{remaining_s // 60:02d}:{remaining_s % 60:02d}"
+
+            # Emit progress with correct processed count and current batch size (before decrement)
+            self.progress_updated.emit(processed_local, total, elapsed_str, remaining_str, 0, self.max_retries, currently_processing)
+
+            # Decrement currently processing
+            with batch_lock:
+                currently_processing -= 1
+                self.progress_updated.emit(processed_local, total, elapsed_str, remaining_str, 0, self.max_retries, currently_processing)
+
+            # Cleanup retry display
+            self.retry_cleared.emit()
+
+            return (file_path, compressed_path, target_folder, int((time.time() - start_time) * 1000))
+
+        # Process all images with concurrent batch size
+        with ThreadPoolExecutor(max_workers=self.batch_size) as executor:
+            futures = {executor.submit(process_single_image, fp): fp for fp in self.image_files}
+            pending = set(futures.keys())
+            
+            # Poll for completed futures with timeout to check stop flag frequently
+            while pending and not self._stop_flag['stop']:
+                done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+                for future in done:
+                    try:
+                        result = future.result()
+                        if result:
+                            file_path, compressed_path, target_folder, duration_ms = result
+                            if target_folder:
+                                self.image_processed.emit(file_path, compressed_path or file_path, target_folder, duration_ms)
+                    except Exception as e:
+                        # Only log if not stopped (to avoid spam during shutdown)
+                        if not self._stop_flag['stop']:
+                            print(f"[SortWorker] Task exception: {e}")
+            
+            # If stop was requested, cancel any remaining pending futures (won't stop already-running threads)
+            if self._stop_flag['stop']:
+                for future in pending:
+                    future.cancel()
 
         self.finished.emit()
 
