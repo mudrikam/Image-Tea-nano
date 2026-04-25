@@ -2,37 +2,8 @@ import os
 import json
 import base64
 import re
-import io
 from typing import Optional, Tuple, Dict, Any
 from config import BASE_PATH
-
-MAX_DIM = 500
-COMPRESS_QUALITY = 80
-
-
-def _prepare_image(image_path: str) -> Optional[bytes]:
-    """
-    Resize image so largest dimension is MAX_DIM, then compress to COMPRESS_QUALITY%.
-    Returns JPEG bytes ready for base64 encoding.
-    """
-    try:
-        from PIL import Image
-        with Image.open(image_path) as img:
-            # Convert to RGB if needed
-            if img.mode not in ('RGB', 'L'):
-                img = img.convert('RGB')
-            # Resize maintaining aspect ratio
-            w, h = img.size
-            if max(w, h) > MAX_DIM:
-                ratio = MAX_DIM / max(w, h)
-                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-            # Compress to JPEG
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=COMPRESS_QUALITY, optimize=True)
-            return buf.getvalue()
-    except Exception as e:
-        print(f"[ImageSorterHelper] Image prepare error: {e}")
-        return None
 
 
 def classify_image(
@@ -44,23 +15,10 @@ def classify_image(
     valid_folders: list = None,
     provider_endpoint: Optional[str] = None,
     db=None
-) -> Optional[str]:
+) -> Tuple[Optional[str], str]:
     """
     Classify a single image using the specified AI service.
-    Returns the folder name determined by AI, or None on failure.
-
-    Args:
-        image_path: Path to compressed image
-        api_key: API key for the service
-        service: Service name (openai, gemini, groq, blackbox, maia, openrouter, custom)
-        model: Model name
-        system_prompt: Full system prompt to send
-        valid_folders: List of folder dicts for validation
-        provider_endpoint: Custom endpoint URL (if stored in DB)
-        db: Database instance for looking up provider_endpoint if not provided
-
-    Returns:
-        Folder name string or None
+    Returns (folder_name, reason) tuple. Folder is None on failure; reason may be empty string.
     """
     try:
         # Resolve provider_endpoint from DB if not provided
@@ -120,21 +78,22 @@ def classify_image(
 
         else:
             print(f"[ImageSorterHelper] Unknown service: {service}")
-            return None
+            return None, None
 
     except Exception as e:
         print(f"[ImageSorterHelper] Classification error: {e}")
-        return None
+        return None, None
 
 
-def _call_openai(client, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Optional[str]:
-    """Call OpenAI/OpenRouter API with resized+compressed image."""
+def _call_openai(client, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Tuple[Optional[str], str]:
+    """Call OpenAI/OpenRouter API with original image (no compression)."""
     try:
-        image_bytes = _prepare_image(image_path)
-        if not image_bytes:
-            return None
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
         image_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = 'image/jpeg' if ext in ['.jpg', '.jpeg'] else 'image/png' if ext == '.png' else 'image/jpeg'
+        image_data_url = f"data:{mime_type};base64,{image_b64}"
 
         user_content = [
             {"type": "text", "text": "Analyze this image and classify it into one of the folders based on the criteria provided in the system instructions."},
@@ -154,26 +113,28 @@ def _call_openai(client, model: str, image_path: str, system_prompt: str, valid_
         return _parse_response(text, valid_folders)
     except Exception as e:
         print(f"[ImageSorterHelper] OpenAI call error: {e}")
-        return None
+        return None, None
 
 
-def _call_gemini(api_key: str, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Optional[str]:
-    """Call Gemini API with resized+compressed image."""
+def _call_gemini(api_key: str, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Tuple[Optional[str], str]:
+    """Call Gemini API with original image (no compression)."""
     try:
         import google.genai as genai
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
 
-        image_bytes = _prepare_image(image_path)
-        if not image_bytes:
-            return None
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
+
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = 'image/jpeg' if ext in ['.jpg', '.jpeg'] else 'image/png' if ext == '.png' else 'image/jpeg'
 
         contents = [
             types.Content(
                 role="user",
                 parts=[
-                    types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'),
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     types.Part(text=system_prompt)
                 ]
             )
@@ -201,17 +162,18 @@ def _call_gemini(api_key: str, model: str, image_path: str, system_prompt: str, 
         return _parse_response(text, valid_folders)
     except Exception as e:
         print(f"[ImageSorterHelper] Gemini call error: {e}")
-        return None
+        return None, None
 
 
-def _call_openai_compatible(client, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Optional[str]:
-    """Call OpenAI-compatible API (Groq, Blackbox, Maia) with resized+compressed image."""
+def _call_openai_compatible(client, model: str, image_path: str, system_prompt: str, valid_folders: list) -> Tuple[Optional[str], str]:
+    """Call OpenAI-compatible API (Groq, Blackbox, Maia) with original image (no compression)."""
     try:
-        image_bytes = _prepare_image(image_path)
-        if not image_bytes:
-            return None
+        with open(image_path, 'rb') as f:
+            image_bytes = f.read()
         image_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = 'image/jpeg' if ext in ['.jpg', '.jpeg'] else 'image/png' if ext == '.png' else 'image/jpeg'
+        image_data_url = f"data:{mime_type};base64,{image_b64}"
 
         user_content = [
             {"type": "text", "text": "Analyze this image and classify it into one of the folders based on the criteria provided in the system instructions."},
@@ -239,18 +201,19 @@ def _call_openai_compatible(client, model: str, image_path: str, system_prompt: 
         return _parse_response(text, valid_folders)
     except Exception as e:
         print(f"[ImageSorterHelper] API call error: {e}")
-        return None
+        return None, None
 
 
-def _parse_response(response_text: str, valid_folders: list = None) -> Optional[str]:
+def _parse_response(response_text: str, valid_folders: list = None) -> Optional[Tuple[str, str]]:
     """
-    Parse AI response to extract folder name.
+    Parse AI response to extract folder name and reason.
     Tries JSON first, then regex fallback. Validates against valid_folders if provided.
     Uses fuzzy matching for folder names (case-insensitive, trimmed).
+    Returns tuple of (folder_name, reason) or (None, None) on failure.
     """
     if not response_text:
         print("[ImageSorterHelper] _parse_response: empty response")
-        return None
+        return None, None
     text = response_text.strip()
     
     print(f"[ImageSorterHelper] Raw response: {text[:200]}...")  # Debug
@@ -262,25 +225,34 @@ def _parse_response(response_text: str, valid_folders: list = None) -> Optional[
     text = text.strip()
     
     extracted_folder = None
+    extracted_reason = None
     
     try:
         data = json.loads(text)
         folder = data.get('folder', '')
-        print(f"[ImageSorterHelper] JSON parsed, folder: '{folder}'")
+        reason = data.get('reason', '')
+        print(f"[ImageSorterHelper] JSON parsed, folder: '{folder}', reason: '{reason}'")
         extracted_folder = folder
+        extracted_reason = reason
     except json.JSONDecodeError:
-        # Regex fallback
-        patterns = [
+        # Regex fallback for folder
+        folder_patterns = [
             r'"folder"\s*:\s*"([^"]+)"',
             r'folder["\']?\s*[:=]\s*["\']([^"\']+)["\']',
             r'"folder"\s*:\s*([a-zA-Z0-9_\s\-/\\]+)',
         ]
-        for pattern in patterns:
+        for pattern in folder_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 extracted_folder = match.group(1).strip()
-                print(f"[ImageSorterHelper] Regex matched, folder: '{extracted_folder}'")
+                print(f"[ImageSorterHelper] Regex matched folder: '{extracted_folder}'")
                 break
+        # Try to extract reason as well
+        reason_match = re.search(r'"reason"\s*:\s*"([^"]+)"', text)
+        if reason_match:
+            extracted_reason = reason_match.group(1).strip()
+        else:
+            extracted_reason = None
     
     # Validate against valid_folders with fuzzy matching
     if extracted_folder and valid_folders:
@@ -290,15 +262,15 @@ def _parse_response(response_text: str, valid_folders: list = None) -> Optional[
             # Exact match
             if folder_lower == valid_lower:
                 print(f"[ImageSorterHelper] Exact match found: '{f['folder_name']}'")
-                return f['folder_name']
+                return f['folder_name'], extracted_reason or ""
             # Partial match (folder name is contained in response or vice versa)
             if folder_lower in valid_lower or valid_lower in folder_lower:
                 print(f"[ImageSorterHelper] Partial match found: '{f['folder_name']}'")
-                return f['folder_name']
+                return f['folder_name'], extracted_reason or ""
         print(f"[ImageSorterHelper] No valid folder match for: '{extracted_folder}'")
-        return None
+        return None, None
     elif extracted_folder:
-        return extracted_folder
+        return extracted_folder, extracted_reason or ""
     
     print("[ImageSorterHelper] No folder extracted from response")
-    return None
+    return None, None

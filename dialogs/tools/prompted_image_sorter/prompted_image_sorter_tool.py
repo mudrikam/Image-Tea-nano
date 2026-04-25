@@ -1,11 +1,13 @@
 import os
 import json
 import shutil
+import re
 from datetime import datetime
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QApplication, QSplitter,
-    QSpinBox, QComboBox, QProgressBar, QMessageBox, QSizePolicy
+    QSpinBox, QComboBox, QProgressBar, QMessageBox, QSizePolicy,
+    QCheckBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QSize
 from PySide6.QtGui import QIcon, QColor
@@ -52,24 +54,6 @@ class PromptedImageSorterTool(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
-
-        # --- Temporary test mode bar ---
-        test_bar = QHBoxLayout()
-        test_bar.setSpacing(4)
-
-        test_label = QLabel("This is a temporary tool — Dev Mode")
-        test_label.setStyleSheet(f"color: {theme.get_color('warning')}; font-size: 11px; font-style: italic;")
-        test_bar.addWidget(test_label)
-
-        test_bar.addStretch()
-
-        self.relaunch_button = QPushButton(qta.icon('fa6s.rotate-right'), " Relaunch")
-        self.relaunch_button.setToolTip("Close and relaunch this dialog (for testing)")
-        self.relaunch_button.setMaximumWidth(100)
-        self.relaunch_button.clicked.connect(self.relaunch)
-        test_bar.addWidget(self.relaunch_button)
-
-        main_layout.addLayout(test_bar)
 
         # --- API Key Section (top) ---
         from database.db_operation import ImageTeaDB
@@ -212,6 +196,29 @@ class PromptedImageSorterTool(QDialog):
         self.mode_combo.addItems(["copy", "move"])
         self.mode_combo.setToolTip("File operation mode: copy (keep original) or move (delete original)")
         table_controls.addWidget(self.mode_combo)
+
+        # Rename checkbox (default true)
+        self.rename_checkbox = QCheckBox("Rename")
+        self.rename_checkbox.setChecked(True)
+
+        # Load max reason words from AI instructions config for tooltip
+        try:
+            config_path = os.path.join(BASE_PATH, 'configs', 'prompted_image_sorter_ai_instructions.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            folder_instructions = config.get('folder_instructions', '')
+            match = re.search(r'maximum (\d+) words', folder_instructions)
+            max_words = match.group(1) if match else None
+        except Exception:
+            max_words = None
+        self.max_reason_words = int(max_words) if max_words is not None else None
+
+        if self.max_reason_words is not None:
+            self.rename_checkbox.setToolTip(f"Rename files using AI reason ({max_words} words max) + timestamp")
+        else:
+            self.rename_checkbox.setToolTip("Rename files using AI reason + timestamp")
+        self.rename_checkbox.stateChanged.connect(self._on_settings_changed)
+        table_controls.addWidget(self.rename_checkbox)
 
         table_controls.addStretch()
         main_layout.addLayout(table_controls)
@@ -391,7 +398,7 @@ class PromptedImageSorterTool(QDialog):
         return os.path.expanduser('~')
 
     def _load_all(self):
-        """Load source/output paths, batch size, retries, and folder list from single JSON config file."""
+        """Load source/output paths, batch size, retries, folder list, and rename flag from single JSON config file."""
         try:
             if os.path.exists(self.SETTINGS_FILE):
                 with open(self.SETTINGS_FILE, 'r', encoding='utf-8') as f:
@@ -406,6 +413,9 @@ class PromptedImageSorterTool(QDialog):
                     max_retries = data.get('max_retries', 3)
                     self.batch_spinner.setValue(batch_size)
                     self.max_retries_spinner.setValue(max_retries)
+                    # Load rename flag
+                    rename = data.get('rename', True)
+                    self.rename_checkbox.setChecked(rename)
                     # Load folder list
                     folders = data.get('folders', [])
                     if isinstance(folders, list):
@@ -421,12 +431,13 @@ class PromptedImageSorterTool(QDialog):
             self._update_stats()
 
     def _save_all(self):
-        """Save source/output paths, batch size, retries, and folder list to single JSON config file."""
+        """Save source/output paths, batch size, retries, folder list, and rename flag to single JSON config file."""
         try:
             src = self._sanitize_path_text(self.source_path_input.text())
             dst = self._sanitize_path_text(self.output_path_input.text())
             batch_size = self.batch_spinner.value()
             max_retries = self.max_retries_spinner.value()
+            rename = self.rename_checkbox.isChecked()
             # Collect folder list from table
             rows = self.table.rowCount()
             folders = []
@@ -442,6 +453,7 @@ class PromptedImageSorterTool(QDialog):
                 'output_path': dst,
                 'batch_size': batch_size,
                 'max_retries': max_retries,
+                'rename': rename,
                 'folders': folders
             }
             with open(self.SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -653,6 +665,7 @@ class PromptedImageSorterTool(QDialog):
         batch_size = self.batch_spinner.value()
         max_retries = self.max_retries_spinner.value()
         mode = self.mode_combo.currentText()
+        rename = self.rename_checkbox.isChecked()
         folders = self.table.get_folder_data()
 
         # Set sorting state and update UI
@@ -671,7 +684,8 @@ class PromptedImageSorterTool(QDialog):
             image_files=image_files, output_path=dst,
             folders=folders, batch_size=batch_size,
             max_retries=max_retries, mode=mode, db=self.db,
-            table=self.table
+            table=self.table, rename=rename,
+            max_reason_words=self.max_reason_words
         )
         # Initialize batch display
         self.stats_widget.set_current_batch(0, batch_size)
@@ -728,7 +742,7 @@ class PromptedImageSorterTool(QDialog):
         """Called when file processing is done to clear retry display."""
         self.stats_widget.set_retry(0, self._worker.max_retries if hasattr(self, '_worker') and self._worker else 0)
 
-    def _on_image_processed(self, original_path, compressed_path, target_folder, duration_ms):
+    def _on_image_processed(self, original_path, compressed_path, target_folder, duration_ms, reason):
         """Called when an image has been processed."""
         # Highlight the target folder row in table with opacity (like prompt generator's 'copied' style)
         folders = self.table.get_folder_data()
@@ -793,12 +807,6 @@ class PromptedImageSorterTool(QDialog):
                 self._worker.wait(3000)
         event.accept()
 
-    def relaunch(self):
-        import subprocess
-        import sys
-        self.close()
-        subprocess.Popen([sys.executable, "run_prompted_image_sorter_test.py"])
-
 
 # =============================================================================
 # Worker thread for image sorting with AI
@@ -807,13 +815,14 @@ class PromptedImageSorterWorker(QThread):
     """Background worker that sorts images using AI."""
 
     progress_updated = Signal(int, int, str, str, int, int, int)  # current, total, elapsed, remaining, retry_current, retry_max, last_retry
-    image_processed = Signal(str, str, str, int)  # original_path, compressed_path, target_folder, duration_ms
+    image_processed = Signal(str, str, str, int, str)  # original_path, compressed_path, target_folder, duration_ms, reason
     retry_updated = Signal(int, int)  # current_retry, max_retries
     retry_cleared = Signal()  # signal to clear retry display
     finished = Signal()
 
     def __init__(self, api_key, service, model, image_files, output_path,
-                 folders, batch_size, max_retries, mode, db, table=None):
+                 folders, batch_size, max_retries, mode, db, max_reason_words,
+                 table=None, rename=False):
         super().__init__()
         self.api_key = api_key
         self.service = service
@@ -826,6 +835,8 @@ class PromptedImageSorterWorker(QThread):
         self.mode = mode
         self.db = db
         self.table = table  # reference to table for realtime folder data
+        self.rename = rename  # whether to rename files using AI reason
+        self.max_reason_words = max_reason_words
         self._stop_flag = {'stop': False}
         self._pause_flag = {'pause': False}
         self._elapsed_start = None
@@ -912,6 +923,7 @@ class PromptedImageSorterWorker(QThread):
             start_time = time.time()
             target_folder = None
             compressed_path = None
+            reason = ""
             last_retry_value = 0
 
             # Update "currently processing" count
@@ -930,7 +942,7 @@ class PromptedImageSorterWorker(QThread):
             success = False
             while retry_count < self.max_retries and not success and not self._stop_flag['stop']:
                 try:
-                    result = classify_image(
+                    folder, reason_str = classify_image(
                         image_path=compressed_path or file_path,
                         api_key=self.api_key,
                         service=self.service,
@@ -939,8 +951,9 @@ class PromptedImageSorterWorker(QThread):
                         valid_folders=current_folders,
                         db=self.db
                     )
-                    if result:
-                        target_folder = result
+                    if folder:
+                        target_folder = folder
+                        reason = reason_str or ""
                         success = True
                     else:
                         retry_count += 1
@@ -957,7 +970,7 @@ class PromptedImageSorterWorker(QThread):
 
             # Move/copy if successful
             if target_folder:
-                self._move_or_copy_file(file_path, target_folder)
+                self._move_or_copy_file(file_path, target_folder, reason)
 
             # Increment processed counter FIRST, then emit with correct count
             with processed_lock:
@@ -981,7 +994,7 @@ class PromptedImageSorterWorker(QThread):
             # Cleanup retry display
             self.retry_cleared.emit()
 
-            return (file_path, compressed_path, target_folder, int((time.time() - start_time) * 1000))
+            return (file_path, compressed_path, target_folder, int((time.time() - start_time) * 1000), reason)
 
         # Process all images with concurrent batch size
         with ThreadPoolExecutor(max_workers=self.batch_size) as executor:
@@ -995,9 +1008,9 @@ class PromptedImageSorterWorker(QThread):
                     try:
                         result = future.result()
                         if result:
-                            file_path, compressed_path, target_folder, duration_ms = result
+                            file_path, compressed_path, target_folder, duration_ms, reason = result
                             if target_folder:
-                                self.image_processed.emit(file_path, compressed_path or file_path, target_folder, duration_ms)
+                                self.image_processed.emit(file_path, compressed_path or file_path, target_folder, duration_ms, reason)
                     except Exception as e:
                         # Only log if not stopped (to avoid spam during shutdown)
                         if not self._stop_flag['stop']:
@@ -1015,27 +1028,44 @@ class PromptedImageSorterWorker(QThread):
             return self.folders[0]['folder_name']
         return None
 
-    def _move_or_copy_file(self, src_path, folder_name):
+    def _move_or_copy_file(self, src_path, folder_name, reason=""):
         """Move or copy the file to the target folder inside output path."""
         import os
         import shutil
+        import re
         # Handle subfolders with backslash
         target_dir = os.path.join(self.output_path, folder_name)
         os.makedirs(target_dir, exist_ok=True)
 
-        filename = os.path.basename(src_path)
-        dest_path = os.path.join(target_dir, filename)
+        original_filename = os.path.basename(src_path)
+        base, ext = os.path.splitext(original_filename)
+
+        # Determine destination filename
+        if self.rename and reason:
+            # Sanitize reason: limit to max_reason_words if set, remove commas and unsafe chars, spaces -> hyphens
+            words = reason.strip().split()
+            if self.max_reason_words is not None:
+                words = words[:self.max_reason_words]
+            short_reason = " ".join(words)
+            # Remove commas and other unsafe filename characters
+            safe_reason = re.sub(r'[<>:"/\\|?*]', '', short_reason).replace(',', '-').replace(' ', '-')
+            safe_reason = safe_reason.strip('-')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            new_filename = f"{safe_reason}-{timestamp}{ext}"
+            dest_path = os.path.join(target_dir, new_filename)
+        else:
+            dest_path = os.path.join(target_dir, original_filename)
 
         # Handle duplicate filename
         if os.path.exists(dest_path):
-            if self.mode == 'copy':
-                # Copy mode: skip if already exists (file was already sent)
+            if self.mode == 'copy' and not self.rename:
+                # Copy mode with rename disabled: skip if already exists
                 return 'skipped'
-            # Move mode: rename with counter
-            base, ext = os.path.splitext(filename)
+            # Otherwise (move mode or rename=True), add counter to avoid overwrite
+            base_dest, ext_dest = os.path.splitext(dest_path)
             counter = 1
             while os.path.exists(dest_path):
-                dest_path = os.path.join(target_dir, f"{base}_{counter}{ext}")
+                dest_path = f"{base_dest}_{counter}{ext_dest}"
                 counter += 1
 
         if self.mode == 'move':
