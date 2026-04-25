@@ -64,6 +64,8 @@ MENU_TOOLTIPS = {
     
     # Tools menu
     "prompt_generator": "Generate AI prompts for image/video creation",
+    "prompt_injector": "Inject prompts/clicks using points and clipboard",
+    "prompted_image_sorter": "Sort/rank images based on how well they match a prompt",
     "batch_audio_remover": "Remove audio from multiple video files in batch",
     "envato_elements_metadata": "Generate metadata for Envato Elements mockups",
     "action_sequencer": "Automate actions for Photoshop and Illustrator",
@@ -892,6 +894,19 @@ def setup_main_menu(window):
         window._prompt_injector_dialog.activateWindow()
     prompt_injector_action.triggered.connect(open_prompt_injector)
 
+    prompted_image_sorter_action = QAction(qta.icon('fa6s.sort'), "Prompted Image Sorter", window)
+    prompted_image_sorter_action.setToolTip(MENU_TOOLTIPS["prompted_image_sorter"])
+    prompted_image_sorter_action.setStatusTip(MENU_TOOLTIPS["prompted_image_sorter"])
+    def open_prompted_image_sorter():
+        from dialogs.tools.prompted_image_sorter.prompted_image_sorter_tool import PromptedImageSorterTool
+        if not hasattr(window, '_prompted_image_sorter_dialog') or not window._prompted_image_sorter_dialog:
+            window._prompted_image_sorter_dialog = PromptedImageSorterTool(None)
+            window._prompted_image_sorter_dialog.destroyed.connect(lambda: setattr(window, '_prompted_image_sorter_dialog', None))
+        window._prompted_image_sorter_dialog.show()
+        window._prompted_image_sorter_dialog.raise_()
+        window._prompted_image_sorter_dialog.activateWindow()
+    prompted_image_sorter_action.triggered.connect(open_prompted_image_sorter)
+
     batch_audio_remover_action = QAction(qta.icon('fa6s.volume-xmark'), "Batch Audio Remover", window)
     batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])
     batch_audio_remover_action.setStatusTip(MENU_TOOLTIPS["batch_audio_remover"])
@@ -1005,6 +1020,7 @@ def setup_main_menu(window):
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
+    tools_menu.addAction(prompted_image_sorter_action)
     tools_menu.addAction(video_upscaler_action)
     tools_menu.addAction(image_upscaler_action)
     tools_menu.addAction(vibe_video_generator_action)

@@ -114,13 +114,15 @@ class ImageTeaMainWindow(QMainWindow):
             self._vibe_video_generator_dialog.close()
         if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
             self._vibe_video_generator_dialog.close()
-        
+        if hasattr(self, '_prompted_image_sorter_dialog') and self._prompted_image_sorter_dialog:
+            self._prompted_image_sorter_dialog.close()
+
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:
                 os.remove(self.lock_file)
             except Exception:
                 pass
-        
+
         event.accept()
 
 if __name__ == '__main__':

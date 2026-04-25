@@ -4,10 +4,7 @@ import time
 import random
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from config import BASE_PATH
-from helpers.ai_helper.gemini_helper import generate_metadata_gemini
-from helpers.ai_helper.openai_helper import generate_metadata_openai
-from helpers.ai_helper.blackbox_ai_helper import generate_metadata_blackbox
-from helpers.ai_helper.maia_helper import generate_metadata_maia, create_maia_client
+from helpers.ai_helper.maia_helper import create_maia_client
 from helpers.image_compression_helper import compress_and_save_image
 
 def get_delay_interval():
