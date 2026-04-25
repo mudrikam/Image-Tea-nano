@@ -10,7 +10,7 @@ from ui.theme_system import theme
 
 
 class MembershipExpiredDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, tool_name=None):
         super().__init__(parent)
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         self.setWindowTitle('Membership Expired')
@@ -35,9 +35,18 @@ class MembershipExpiredDialog(QDialog):
         title_label.setAlignment(Qt.AlignHCenter)
         layout.addWidget(title_label)
 
-        msg_label = QLabel(
-            'Your membership has expired. Please renew your membership to continue using Vibe Video Generator.'
-        )
+        if tool_name:
+            msg_text = (
+                f'Your membership has expired. Please renew your membership '
+                f'to continue using {tool_name}.'
+            )
+        else:
+            msg_text = (
+                'Your membership has expired. Please renew your membership '
+                'to continue using this feature.'
+            )
+
+        msg_label = QLabel(msg_text)
         msg_label.setWordWrap(True)
         msg_label.setAlignment(Qt.AlignHCenter)
         layout.addWidget(msg_label)

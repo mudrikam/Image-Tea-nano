@@ -78,7 +78,7 @@ class VibeVideoGeneratorDialog(QDialog):
             self.close()
 
     def _show_membership_expired(self):
-        dlg = MembershipExpiredDialog(self)
+        dlg = MembershipExpiredDialog(self, tool_name="Vibe Video Generator")
         dlg.exec()
         self.close()
 

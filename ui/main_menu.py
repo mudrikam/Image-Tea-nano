@@ -898,6 +898,16 @@ def setup_main_menu(window):
     prompted_image_sorter_action.setToolTip(MENU_TOOLTIPS["prompted_image_sorter"])
     prompted_image_sorter_action.setStatusTip(MENU_TOOLTIPS["prompted_image_sorter"])
     def open_prompted_image_sorter():
+        from helpers.members_helper.members_helper import is_logged_in
+        if not is_logged_in():
+            from dialogs.member_required_dialog import MemberRequiredDialog
+            dlg = MemberRequiredDialog("Prompted Image Sorter is only accessible to logged-in members.", window)
+            if dlg.exec() == MemberRequiredDialog.Accepted:
+                open_login_member()
+                if not is_logged_in():
+                    return
+            else:
+                return
         from dialogs.tools.prompted_image_sorter.prompted_image_sorter_tool import PromptedImageSorterTool
         if not hasattr(window, '_prompted_image_sorter_dialog') or not window._prompted_image_sorter_dialog:
             window._prompted_image_sorter_dialog = PromptedImageSorterTool(None)

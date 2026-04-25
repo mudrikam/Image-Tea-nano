@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
     QSpinBox, QComboBox, QProgressBar, QMessageBox, QSizePolicy,
     QCheckBox
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSize
-from PySide6.QtGui import QIcon, QColor
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
+from PySide6.QtGui import QIcon, QColor, QShowEvent
 import qtawesome as qta
 from config import BASE_PATH
 from ui.api_key_section import ApiKeySectionWidget
@@ -20,6 +20,9 @@ from .prompted_image_sorter_preview_widget import PromptedImageSorterPreviewWidg
 from .prompted_image_sorter_stats_widget import PromptedImageSorterStatsWidget
 from .prompted_image_sorter_new_folder_dialog import PromptedImageSorterNewFolderDialog
 from helpers.tools.prompted_image_sorter_helper import classify_image
+from helpers.members_helper.members_helper import is_logged_in, is_membership_expired
+from dialogs.member_required_dialog import MemberRequiredDialog
+from dialogs.membership_expired_dialog import MembershipExpiredDialog
 
 
 class PromptedImageSorterTool(QDialog):
@@ -48,6 +51,30 @@ class PromptedImageSorterTool(QDialog):
             self.setWindowIcon(QIcon(icon_path))
 
         self._setup_ui()
+
+    def showEvent(self, event: QShowEvent):
+        super().showEvent(event)
+        if not is_logged_in():
+            QTimer.singleShot(0, self._show_member_required)
+        elif is_membership_expired():
+            QTimer.singleShot(0, self._show_membership_expired)
+
+    def _show_member_required(self):
+        dlg = MemberRequiredDialog(
+            "Prompted Image Sorter is only accessible to logged-in members.", self
+        )
+        if dlg.exec() == MemberRequiredDialog.Accepted:
+            from dialogs.members.member_login_dialog import MemberLoginDialog
+            login_dlg = MemberLoginDialog(self)
+            if login_dlg.exec() != MemberLoginDialog.Accepted:
+                self.close()
+        else:
+            self.close()
+
+    def _show_membership_expired(self):
+        dlg = MembershipExpiredDialog(self, tool_name="Prompted Image Sorter")
+        dlg.exec()
+        self.close()
 
     def _setup_ui(self):
         """Set up the UI with API key section, source, and output."""
