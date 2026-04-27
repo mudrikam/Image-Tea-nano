@@ -12,6 +12,7 @@ from config import BASE_PATH
 TOOLS_NODEJS = os.path.join(BASE_PATH, "tools", "nodejs")
 TOOLS_REMOTION = os.path.join(BASE_PATH, "tools", "remotion")
 PROJECT_TEMP_DIR = os.path.join(BASE_PATH, "temp")
+EXIFTOOL_PATH = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
 
 REMOTION_TEMP_DIR_NAME = "remotion_temp"
 REMOTION_PREVIEW_DIR_NAME = "remotion_preview"
@@ -901,6 +902,28 @@ def _cleanup_temp_dir(temp_dir: Optional[str]):
         print(f"[WARN] Failed to cleanup temp directory: {e}")
 
 
+def _strip_video_metadata(file_path: str) -> None:
+    """Remove all metadata from video file using exiftool."""
+    exiftool_path = EXIFTOOL_PATH
+    if not os.path.isfile(exiftool_path):
+        print(f'[Remotion] exiftool not found at {exiftool_path}, skipping metadata cleanup')
+        return
+    try:
+        result = subprocess.run(
+            [exiftool_path, '-all=', '-overwrite_original', file_path],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+        )
+        if result.returncode == 0:
+            print(f'[Remotion] Metadata stripped from {file_path}')
+        else:
+            print(f'[Remotion] exiftool warning: {result.stderr.strip()}')
+    except Exception as e:
+        print(f'[Remotion] Error stripping metadata: {e}')
+
+
 def render_video(
     script_content: str,
     output_path: str,
@@ -1067,6 +1090,11 @@ def render_video(
         if proc.returncode == 0:
             if os.path.exists(output_path):
                 file_size = os.path.getsize(output_path)
+                # Strip metadata
+                try:
+                    _strip_video_metadata(output_path)
+                except Exception as e:
+                    print(f'[Remotion] Warning: Could not strip metadata: {e}')
                 if progress_callback:
                     progress_callback(100, "Render complete!")
                 return True, f"Render completed successfully!\nOutput: {output_path}\nSize: {file_size / 1024 / 1024:.1f} MB"

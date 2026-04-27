@@ -20,13 +20,49 @@ class CustomEndpointHelper:
     def _image_path_to_data_url(path: str) -> str:
         if not path or not os.path.exists(path):
             raise ValueError("Image path not found for data URL conversion")
-        mime, _ = mimetypes.guess_type(path)
-        if not mime:
-            mime = "application/octet-stream"
-        with open(path, "rb") as f:
-            b = f.read()
-        b64 = base64.b64encode(b).decode("ascii")
-        return f"data:{mime};base64,{b64}"
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(path)
+            # Convert to RGB (required for JPEG)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                bg = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                bg.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = bg
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            # Resize large images to reduce token count (max dimension 1024px)
+            max_dim = 1024
+            w, h = img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / max(w, h)
+                new_size = (int(w * scale), int(h * scale))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+            # Encode as JPEG with good compression
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=85, optimize=True)
+            b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+            return f"data:image/jpeg;base64,{b64}"
+        except ImportError:
+            # Pillow not available, fall back to original (uncompressed)
+            mime, _ = mimetypes.guess_type(path)
+            if not mime:
+                mime = "application/octet-stream"
+            with open(path, "rb") as f:
+                b = f.read()
+            b64 = base64.b64encode(b).decode("ascii")
+            return f"data:{mime};base64,{b64}"
+        except Exception as e:
+            print(f"[CustomEndpointHelper] Image processing failed, using original: {e}")
+            mime, _ = mimetypes.guess_type(path)
+            if not mime:
+                mime = "application/octet-stream"
+            with open(path, "rb") as f:
+                b = f.read()
+            b64 = base64.b64encode(b).decode("ascii")
+            return f"data:{mime};base64,{b64}"
 
     @staticmethod
     def _extract_text_from_response(resp_json: dict) -> str:
@@ -165,6 +201,7 @@ class CustomEndpointHelper:
         payload = None
         prov = (provider or "").lower()
 
+        data_url = None
         if image_path:
             data_url = CustomEndpointHelper._image_path_to_data_url(image_path)
 
@@ -219,52 +256,24 @@ class CustomEndpointHelper:
                 messages[0]["content"].append({"type": "image_url", "image_url": {"url": data_url}})
             payload = {"model": model or "", "messages": messages}
         else:
-            payloads_to_try = []
-
-            if frame_paths:
-                multi_content = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
-                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": multi_content}]}
-            elif image_path:
-                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+            # For unknown providers (including "custom"), determine format from endpoint URL.
+            # Default to chat completions (messages) for modern OpenAI-compatible APIs.
+            ep_low = (endpoint or "").lower().rstrip('/')
+            is_chat_endpoint = ep_low.endswith('/chat/completions') or ep_low.endswith('/v1/chat/completions')
+            if is_chat_endpoint:
+                if frame_paths:
+                    content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
+                    messages = [{"role": "user", "content": content_items}]
+                elif image_path:
+                    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]
+                else:
+                    messages = [{"role": "user", "content": prompt}]
+                payload = {"model": model or "", "messages": messages}
             else:
-                chat_payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
-            payloads_to_try.append(("chat", chat_payload))
-
-            if frame_paths:
-                responses_payload = {"model": model or "", "messages": [{"role": "user", "content": CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)}]}
-            elif image_path:
-                responses_payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
-            else:
-                responses_payload = {"model": model or "", "input": prompt}
-            payloads_to_try.append(("responses", responses_payload))
-
-            completion_payload = {"model": model or "", "prompt": prompt}
-            payloads_to_try.append(("completion", completion_payload))
-
-            last_error = None
-            for format_name, try_payload in payloads_to_try:
-                try:
-                    resp = requests.post(endpoint, headers=headers, json=try_payload, timeout=timeout)
-                    if resp.status_code < 400:
-                        try:
-                            j = resp.json()
-                            return CustomEndpointHelper._extract_text_from_response(j)
-                        except Exception:
-                            return resp.text or ""
-                    else:
-                        body = resp.text or ""
-                        if "unsupported" in body.lower() or "missing" in body.lower():
-                            last_error = f"Format {format_name} failed: {body}"
-                            continue
-                        else:
-                            raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
-                except RuntimeError:
-                    raise
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-
-            raise RuntimeError(f"All payload formats failed. Last error: {last_error}")
+                # Legacy completions-style endpoint (uses 'prompt' or 'input')
+                if frame_paths or image_path:
+                    raise ValueError("Image uploads not supported for completions-style endpoints")
+                payload = {"model": model or "", "prompt": prompt}
 
         try:
             resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
@@ -282,14 +291,18 @@ class CustomEndpointHelper:
             return resp.text or ""
 
     @staticmethod
-    def test_connectivity(api_key: str, endpoint: str, provider: str | None = None, model: str | None = None, timeout: int = 8) -> tuple[bool, str]:
+    def test_connectivity(api_key: str, endpoint: str, provider: str | None = None, model: str | None = None, timeout: int = 30) -> tuple[bool, str]:
         """Simple connectivity + sanity test. Returns (ok, message_or_response)."""
         try:
             CustomEndpointHelper.validate_url(endpoint)
         except Exception as e:
             return False, str(e)
         try:
-            txt = CustomEndpointHelper.call_endpoint(api_key, endpoint, provider, model or "", "Just say OK.", None, timeout=timeout)
+            # Use longer timeout for localhost endpoints
+            ep_low = endpoint.lower()
+            is_local = '127.0.0.1' in ep_low or 'localhost' in ep_low or ep_low.startswith('http://localhost')
+            local_timeout = 120 if is_local else timeout
+            txt = CustomEndpointHelper.call_endpoint(api_key, endpoint, provider, model or "", "Just say OK.", None, timeout=local_timeout)
             ok = bool(txt and ("ok" in txt.lower() or len(txt.strip()) > 0))
             return ok, txt
         except Exception as e:
