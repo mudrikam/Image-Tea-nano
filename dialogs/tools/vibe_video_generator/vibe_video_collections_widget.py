@@ -557,6 +557,10 @@ class CollectionsWidget(QWidget):
         if dlg.exec():
             pass  # _on_script_edited will be called
 
+    def _on_script_edited(self):
+        self.load_collections()
+        self.collection_updated.emit()
+
     def _on_delete(self):
         selected = self.collections_tree.selectedItems()
         if not selected:

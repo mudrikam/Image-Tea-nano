@@ -396,6 +396,7 @@ class EditScriptDialog(QDialog):
             self.name_edit.setText(script_data.get('name', ''))
             self.desc_edit.setText(script_data.get('description') or '')
             self.script_edit.setPlainText(script_data.get('script_content', ''))
+            self.setWindowTitle(f'Edit Script - {script_data.get("name", "")}')
 
     def _on_generate(self):
         prompt_text = self.prompt_edit.toPlainText().strip()
