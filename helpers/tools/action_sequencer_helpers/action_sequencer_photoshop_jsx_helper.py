@@ -570,13 +570,16 @@ class PhotoshopJSXGenerator:
         """Generate export code for Photoshop
         
         Handles multiple exports by ensuring proper document state reset between exports.
+        Flattening is skipped for layer-preserving formats like PSD/PSB.
         """
         code_lines = []
         
         # Add reset/flatten for document before export to handle multiple exports
-        code_lines.append(f"{indent}// Reset document state before export")
-        code_lines.append(f"{indent}app.activeDocument.flatten();")
-        code_lines.append("")
+        # But skip flatten for formats that preserve layers (PSD, PSB, TIFF, PDF, EPS)
+        if export_format not in ['PSD', 'PSB', 'TIFF', 'PDF', 'EPS']:
+            code_lines.append(f"{indent}// Reset document state before export")
+            code_lines.append(f"{indent}app.activeDocument.flatten();")
+            code_lines.append("")
         
         if export_format == 'PNG':
             code_lines.append(f"{indent}var pngOptions = new ExportOptionsSaveForWeb();")
