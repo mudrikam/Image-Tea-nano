@@ -40,15 +40,18 @@ class ActionSequencerFileWatcher:
             return []
         
         start_time = time.time()
-        
-        if existing_files is None:
-            existing_files = set(self._get_all_files())
-        
+
+        # Log initial watch info
         msg = f"Watching for {len(expected_filenames)} files in: {self.output_path}"
         print(msg)
         self._log(msg)
         self._log(f"DEBUG: Expected filenames list: {expected_filenames}")
-        
+
+        # Ensure existing_files is a set
+        if existing_files is None:
+            existing_files = set()
+
+        # Build all expected variants
         all_expected_variants = {}
         for expected in expected_filenames:
             if isinstance(expected, (list, tuple, set)):
@@ -59,106 +62,69 @@ class ActionSequencerFileWatcher:
             msg = f"Expected variants for '{expected}': {variants}"
             print(msg)
             self._log(msg)
-        
-        detected_files = {}
-        
-        def _norm(s):
-            return re.sub(r"[^0-9a-z]+", '', s.lower())
-        
-        # Debug: log new files yang muncul untuk troubleshooting
-        logged_new_files = set()
-        
-        while time.time() - start_time < self.timeout:
-            current_files = set(self._get_all_files())
-            new_files = current_files - existing_files
-            
-            # Debug: log new files yang belum pernah di-log
-            for new_file in new_files:
-                if new_file not in logged_new_files:
-                    name = Path(new_file).name
-                    self._log(f"DEBUG: New file detected: {name}")
-                    logged_new_files.add(new_file)
-            
-            # Track which files are still waiting
-            still_waiting = []
-            
-            for expected, variants in all_expected_variants.items():
-                if expected in detected_files:
-                    continue
-                
-                still_waiting.append(expected)
-                
-                expected_set = set(variants)
-                normalized_expected = {_norm(v) for v in variants}
-                
-                # Check both new files AND existing files (for files created before snapshot)
-                files_to_check = new_files.union(current_files)
-                
-                for file_path in files_to_check:
-                    name = Path(file_path).name
-                    norm_name = _norm(name)
-                    
-                    # Skip if already detected
-                    if file_path in detected_files.values():
-                        continue
 
-                    # If file is not newly created (not in new_files), accept only if its mtime is recent
-                    if file_path not in new_files:
+        detected = {}
+        already_logged = set()
+
+        while time.time() - start_time < self.timeout:
+            # Check for stop request
+            if stop_check and callable(stop_check) and stop_check():
+                msg = "Watch aborted by stop request"
+                print(msg)
+                self._log(msg)
+                return list(detected.values())
+
+            for expected, variants in all_expected_variants.items():
+                if expected in detected:
+                    continue
+                for variant in variants:
+                    file_path = os.path.join(self.output_path, variant)
+                    if not os.path.isfile(file_path):
+                        continue
+                    # Determine if file is new or modified after start
+                    is_new = False
+                    if file_path in existing_files:
                         try:
                             mtime = os.path.getmtime(file_path)
-                            # If file modification time is older than when watch started, skip it
-                            if mtime < start_time - 0.5:
-                                # old file, not result of this run
-                                self._log(f"Skipping existing old file (not new): {name}")
-                                continue
-                        except Exception as e:
-                            self._log(f"Error checking mtime for {file_path}: {e}")
-                            continue
-                    
-                    # Check if matches any variant
-                    matched = False
-                    if name in expected_set:
-                        matched = True
-                    elif name.lower() in expected_set:
-                        matched = True
-                    elif norm_name in normalized_expected:
-                        matched = True
-                    
-                    if matched:
-                        if self._is_file_stable(file_path, stop_check=stop_check):
-                            detected_files[expected] = file_path
-                            msg = f"Detected file {len(detected_files)}/{len(expected_filenames)}: {name}"
-                            print(msg)
-                            self._log(msg)
-                            break
-            
-            # Log what we're still waiting for
-            if still_waiting and len(detected_files) < len(expected_filenames):
-                elapsed = time.time() - start_time
-                self._log(f"Still waiting for {len(still_waiting)} file(s) [{elapsed:.1f}s]: {still_waiting}")
-            
-            if len(detected_files) == len(expected_filenames):
+                            if mtime >= start_time - 0.5:
+                                is_new = True
+                        except Exception:
+                            is_new = False
+                    else:
+                        is_new = True
+                    if not is_new:
+                        continue
+                    # Log new file once
+                    if file_path not in already_logged:
+                        name = os.path.basename(file_path)
+                        self._log(f"DEBUG: New file detected: {name}")
+                        already_logged.add(file_path)
+                    # Check stability
+                    if self._is_file_stable(file_path, stop_check=stop_check):
+                        detected[expected] = file_path
+                        msg = f"Detected file {len(detected)}/{len(expected_filenames)}: {variant}"
+                        print(msg)
+                        self._log(msg)
+                        break  # move to next expected
+
+            if len(detected) == len(expected_filenames):
                 msg = f"All {len(expected_filenames)} files detected successfully"
                 print(msg)
                 self._log(msg)
-                return list(detected_files.values())
-            
-            try:
-                if stop_check and callable(stop_check) and stop_check():
-                    msg = "Watch aborted by stop request"
-                    print(msg)
-                    self._log(msg)
-                    return list(detected_files.values())
-            except Exception as e:
-                self._log(f"stop_check callable raised: {e}")
-            
+                return list(detected.values())
+
+            # Log still waiting
+            elapsed = time.time() - start_time
+            still_waiting = [exp for exp in expected_filenames if exp not in detected]
+            self._log(f"Still waiting for {len(still_waiting)} file(s) [{elapsed:.1f}s]: {still_waiting}")
+
             time.sleep(self.poll_interval)
-        
+
         elapsed = time.time() - start_time
-        msg = f"Watch timeout after {elapsed:.1f}s. Found {len(detected_files)}/{len(expected_filenames)} files"
+        msg = f"Watch timeout after {elapsed:.1f}s. Found {len(detected)}/{len(expected_filenames)} files"
         print(msg)
         self._log(msg)
-        return list(detected_files.values())
+        return list(detected.values())
     
     def _is_file_stable(self, file_path, stable_duration=None, stop_check=None):
         """Check if file size is stable (not being written)
@@ -198,30 +164,31 @@ class ActionSequencerFileWatcher:
             print(msg)
             self._log(msg)
             return False
-    
+
     def _get_all_files(self):
-        """Get all supported files in output directory"""
+        """Get all supported files in output directory (optimized non-recursive)"""
         files = []
         try:
-            for root, dirs, filenames in os.walk(self.output_path):
-                for filename in filenames:
-                    ext = os.path.splitext(filename)[1].lower()
+            if not os.path.isdir(self.output_path):
+                return files
+            for entry in os.scandir(self.output_path):
+                if entry.is_file():
+                    ext = os.path.splitext(entry.name)[1].lower()
                     if ext in self.supported_extensions:
-                        files.append(os.path.join(root, filename))
+                        files.append(entry.path)
         except Exception as e:
             msg = f"Error scanning output directory: {e}"
             print(msg)
             self._log(msg)
-        
         self._log(f"_get_all_files returning {len(files)} files")
         return files
-    
+
     def get_existing_files_snapshot(self):
         """Get snapshot of existing files before running actions"""
         files = set(self._get_all_files())
         self._log(f"Existing files snapshot: {len(files)} entries")
         return files
-    
+
     def build_expected_filename(self, source_filename, export_format=None):
         """Build expected output filename based on config
         
@@ -304,7 +271,7 @@ class ActionSequencerFileWatcher:
 
         self._log(f"Generated filename variants (smart collision): {uniques}")
         return uniques
-    
+        
     def _get_smart_collision_variants(self, base_names, extension):
         """Smart collision detection: check existing files and predict next numbering
         
@@ -396,7 +363,7 @@ class ActionSequencerFileWatcher:
                 variants.append(f"{name_part}_001{extension}")
         
         return variants
-    
+
     @staticmethod
     def cleanup_jsx_files(*jsx_directories):
         """Clean up temporary JSX files after batch processing.

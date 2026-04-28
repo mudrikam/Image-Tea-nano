@@ -116,13 +116,14 @@ class BatchWorkerThread(QThread):
                 
             else:
                 # Photoshop batch processing
+                existing_files = watcher.get_existing_files_snapshot()
                 for idx, file_path in enumerate(self.files):
                     if self.should_stop:
                         break
                     
                     self.status_updated.emit(f"Processing {idx + 1} / {total_files}")
                     
-                    existing_files = watcher.get_existing_files_snapshot()
+
                     
                     if self.platform_name == 'Photoshop':
                         generator = PhotoshopJSXGenerator()
@@ -160,6 +161,7 @@ class BatchWorkerThread(QThread):
                         else:
                             print(f"Only {len(output_files)}/{len(expected_files)} output(s) detected")
                             watcher._log(f"Incomplete outputs: got {len(output_files)}, expected {len(expected_files)}")
+                        existing_files.update(output_files)
                     
                     self.progress_updated.emit(self.processed_count)
                     time.sleep(0.5)
@@ -258,12 +260,14 @@ class BatchWorkerThread(QThread):
                     delay_seconds = delay_ms / 1000.0
                     print(f"Waiting {delay_seconds}s before next segment...")
 
-                    remaining = delay_seconds
-                    while remaining > 0 and not self.should_stop:
-                        self.delay_countdown.emit(f"{remaining:.1f}s")
-                        sleep_interval = min(0.1, remaining)
-                        time.sleep(sleep_interval)
-                        remaining -= sleep_interval
+                    # Use integer millisecond countdown to avoid floating-point accumulation errors
+                    remaining_ms = delay_ms
+                    while remaining_ms > 0 and not self.should_stop:
+                        self.delay_countdown.emit(f"{remaining_ms / 1000.0:.1f}s")
+                        # Sleep in 100ms chunks, or the remaining time if less
+                        sleep_ms = min(100, remaining_ms)
+                        time.sleep(sleep_ms / 1000.0)
+                        remaining_ms -= sleep_ms
 
                     self.delay_countdown.emit("-")
 
@@ -925,12 +929,14 @@ class ActionSequencerDialog(QDialog):
                     delay_seconds = delay_ms / 1000.0
                     print(f"Waiting {delay_seconds}s before next segment...")
 
-                    remaining = delay_seconds
-                    while remaining > 0:
-                        self.single_delay_countdown.emit(f"{remaining:.1f}s")
-                        sleep_interval = min(0.1, remaining)
-                        time.sleep(sleep_interval)
-                        remaining -= sleep_interval
+                    # Use integer millisecond countdown to avoid floating-point accumulation errors
+                    remaining_ms = delay_ms
+                    while remaining_ms > 0:
+                        self.single_delay_countdown.emit(f"{remaining_ms / 1000.0:.1f}s")
+                        # Sleep in 100ms chunks, or the remaining time if less
+                        sleep_ms = min(100, remaining_ms)
+                        time.sleep(sleep_ms / 1000.0)
+                        remaining_ms -= sleep_ms
 
                     self.single_delay_countdown.emit("-")
 
