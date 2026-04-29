@@ -16,21 +16,98 @@ from PySide6.QtWebEngineCore import QWebEngineSettings
 import qtawesome as qta
 from ui.theme_system import theme
 
+import shutil
+from typing import Optional, Tuple
+
 TOOLS_NODEJS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'tools', 'nodejs')
+TOOLS_REMOTION = os.path.join(os.path.dirname(TOOLS_NODEJS), 'remotion')
 PROJECT_TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'temp')
 
+# Node.js detection cache
+_system_node_cache = None
+_bundled_node_cache = None
 
-def _find_npx_cmd() -> list[str] | None:
-    import shutil
-    if platform.system() == 'Windows':
-        for root, dirs, files in os.walk(TOOLS_NODEJS):
-            if 'npx.cmd' in files:
-                return [os.path.join(root, 'npx.cmd')]
+
+def _find_system_node() -> Optional[str]:
+    """Find node.js in system PATH."""
+    node = shutil.which('node')
+    return node if node else None
+
+
+def _find_bundled_node() -> Optional[str]:
+    """Find node.js in bundled tools directory."""
+    global _bundled_node_cache
+    if _bundled_node_cache is not None:
+        return _bundled_node_cache
     for root, dirs, files in os.walk(TOOLS_NODEJS):
-        if 'npx' in files:
-            return [os.path.join(root, 'npx')]
-    found = shutil.which('npx')
-    return [found] if found else None
+        for name in ['node.exe', 'node']:
+            if name in files:
+                path = os.path.join(root, name)
+                if os.path.isfile(path):
+                    _bundled_node_cache = path
+                    return path
+    _bundled_node_cache = None
+    return None
+
+
+def _get_node_version(node_path: str) -> Optional[Tuple[int, int, int]]:
+    """Return (major, minor, patch) tuple or None if version cannot be determined."""
+    try:
+        result = subprocess.run([node_path, '--version'], capture_output=True, text=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0)
+        ver_str = result.stdout.strip()
+        if ver_str.startswith('v'):
+            ver_str = ver_str[1:]
+        parts = ver_str.split('.')
+        if len(parts) >= 3:
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except Exception:
+        pass
+    return None
+
+
+def _select_node_executable() -> Optional[str]:
+    """
+    Select the best available Node.js executable.
+    Preferred order: system Node (if >=18) else bundled Node (if >=18) else None.
+    Caches result after first call.
+    """
+    global _system_node_cache
+    if _system_node_cache is not None:
+        return _system_node_cache
+
+    # Try system Node first
+    system_node = _find_system_node()
+    if system_node:
+        ver = _get_node_version(system_node)
+        if ver and ver[0] >= 18:  # Remotion 4 requires Node 18+
+            _system_node_cache = system_node
+            return system_node
+
+    # Fallback to bundled Node
+    bundled = _find_bundled_node()
+    if bundled:
+        ver = _get_node_version(bundled)
+        if ver and ver[0] >= 18:
+            _system_node_cache = bundled
+            return bundled
+        else:
+            print(f'[Remotion] WARNING: Bundled Node version {ver} is too old (<18). Remotion may not work.')
+
+    _system_node_cache = None
+    return None
+
+
+def _find_remotion_cli() -> Optional[str]:
+    """Find the Remotion CLI entry point (actual JS entry, not wrapper)."""
+    # Check common locations for the real Remotion CLI JS file
+    candidates = [
+        os.path.join(TOOLS_REMOTION, 'node_modules', '@remotion', 'cli', 'remotion-cli.js'),
+        os.path.join(TOOLS_REMOTION, 'node_modules', '.bin', 'remotion'),  # fallback to bin wrapper
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -75,7 +152,7 @@ def _kill_process_on_port(port: int) -> bool:
         return False
 
 
-def _wait_for_port_release(host: str, port: int, timeout: float = 2.0, interval: float = 0.1) -> bool:
+def _wait_for_port_release(host: str, port: int, timeout: float = 1.0, interval: float = 0.1) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         if not _is_port_open(host, port, timeout=interval):
@@ -122,9 +199,21 @@ class RemotionStudioWorker(QThread):
         else:
             self.status_update.emit(f'Port {self._port} is free')
 
-        npx_cmd = _find_npx_cmd()
-        if not npx_cmd:
-            self.server_failed.emit('npx not found')
+        # Select Node.js executable (prefer system Node >=18, fallback to bundled)
+        node_path = _select_node_executable()
+        if not node_path:
+            self.server_failed.emit('Node.js not found')
+            return
+
+        # Determine source (system vs bundled) for logging
+        system_node = _find_system_node()
+        node_source = 'system' if node_path == system_node else 'bundled'
+        print(f'[Remotion] Using Node.js: {node_path} (source: {node_source})')
+
+        # Find Remotion CLI entry point (bundled)
+        remotion_cli = _find_remotion_cli()
+        if not remotion_cli:
+            self.server_failed.emit('Remotion CLI not found')
             return
 
         # Validate project directory
@@ -145,20 +234,14 @@ class RemotionStudioWorker(QThread):
             self.server_failed.emit(f'Port {self._port} is still in use after cleanup')
             return
 
+        # Prepare environment
         env = os.environ.copy()
-        node_bin = None
-        for root, dirs, files in os.walk(TOOLS_NODEJS):
-            for name in ['node.exe', 'node']:
-                if name in files:
-                    node_bin = root
-                    break
-            if node_bin:
-                break
-        if node_bin:
-            env['PATH'] = node_bin + os.pathsep + env.get('PATH', '')
+        node_dir = os.path.dirname(node_path)
+        env['PATH'] = node_dir + os.pathsep + env.get('PATH', '')
         env['NODE_ENV'] = 'development'
 
-        cmd = npx_cmd + ['remotion', 'studio', entry_file, '--port', str(self._port), '--host', '127.0.0.1', '--no-open']
+        # Direct CLI invocation: node <remotion-cli.js> studio <entry_file> --port ...
+        cmd = [node_path, remotion_cli, 'studio', entry_file, '--port', str(self._port), '--host', '127.0.0.1', '--no-open']
         print(f'[Remotion Studio] Starting with command: {" ".join(cmd)}')
         print(f'[Remotion Studio] Working directory: {self._preview_dir}')
 
@@ -209,11 +292,11 @@ class RemotionStudioWorker(QThread):
             if server_started:
                 self.status_update.emit(f'Waiting for server on port {self._port}...')
                 print(f'[Remotion Studio] Waiting for server to be accessible on port {self._port}...')
-                if _wait_for_server('127.0.0.1', self._port, timeout=30.0):
+                if _wait_for_server('127.0.0.1', self._port, timeout=20.0):
                     self.server_ready.emit(self._port)
                 else:
                     self._cleanup_proc()
-                    self.server_failed.emit(f'Server did not become ready within 30s')
+                    self.server_failed.emit(f'Server did not become ready within 20s')
                     return
             else:
                 # Process did not print a "listening" line but is still running
