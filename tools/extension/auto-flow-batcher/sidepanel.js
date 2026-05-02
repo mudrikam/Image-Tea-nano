@@ -95,11 +95,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Filter download quality options based on selected media type
+  function updateDownloadQualityOptions(type) {
+    const allQualityInputs = document.querySelectorAll('input[name="downloadQuality"]');
+    allQualityInputs.forEach(input => {
+      const pill = input.closest('.radio-pill');
+      const validFor = input.getAttribute('data-valid-for');
+      if (!validFor) return;
+
+      const validTypes = validFor.split(',');
+      const isValid = validTypes.includes(type);
+      pill.classList.toggle('disabled', !isValid);
+      input.disabled = !isValid;
+    });
+
+    const selected = document.querySelector('input[name="downloadQuality"]:checked');
+    if (selected && selected.disabled) {
+      selected.checked = false;
+      const fallback = Array.from(allQualityInputs).find(input => !input.disabled && input.value === 'default') ||
+                       Array.from(allQualityInputs).find(input => !input.disabled);
+      if (fallback) fallback.checked = true;
+    }
+  }
+
   // Update models on media type change
   typeGroup.addEventListener('change', (e) => {
     if (e.target.name === 'type') {
       const selectedType = document.querySelector('input[name="type"]:checked').value;
       updateRatioOptions(selectedType);
+      updateDownloadQualityOptions(selectedType);
     }
   });
 
@@ -396,7 +420,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return {
       type: document.querySelector('input[name="type"]:checked').value,
       ratio: document.querySelector('input[name="ratio"]:checked').value,
-      batch: document.querySelector('input[name="batch"]:checked').value
+      batch: document.querySelector('input[name="batch"]:checked').value,
+      downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default'
     };
   }
 
@@ -736,6 +761,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initView();
   const initialType = document.querySelector('input[name="type"]:checked').value;
   updateRatioOptions(initialType);
+  updateDownloadQualityOptions(initialType);
 
   // Re-check when extension window gains focus
   window.addEventListener('focus', () => {

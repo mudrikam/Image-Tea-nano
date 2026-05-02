@@ -15,12 +15,26 @@ if (window.top !== window.self) {
 
     let isRunning = true;
 
-     function log(msg) {
-       try {
-         chrome.runtime.sendMessage({ action: "LOG_FROM_CONTENT", message: msg }).catch(() => {});
-       } catch (e) {}
-       console.log('[AFB]', msg);
-     }
+      function hasExtensionRuntime() {
+        return typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function';
+      }
+
+      function hasExtensionMessageListener() {
+        return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage && typeof chrome.runtime.onMessage.addListener === 'function';
+      }
+
+      function safeRuntimeSendMessage(message) {
+        if (!hasExtensionRuntime()) return;
+        try {
+          const result = chrome.runtime.sendMessage(message);
+          if (result && typeof result.catch === 'function') result.catch(() => {});
+        } catch (e) {}
+      }
+
+      function log(msg) {
+        safeRuntimeSendMessage({ action: "LOG_FROM_CONTENT", message: msg });
+        console.log('[AFB]', msg);
+      }
 
     function findEditor() {
       return document.querySelector('[data-slate-editor="true"]') ||
@@ -51,6 +65,61 @@ if (window.top !== window.self) {
         
         // Text node only? Return editor itself
         return editor;
+      }
+
+      function isVisibleElement(element) {
+        if (!element || !(element instanceof HTMLElement)) return false;
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 &&
+               style.display !== 'none' &&
+               style.visibility !== 'hidden' &&
+               style.opacity !== '0' &&
+               style.pointerEvents !== 'none';
+      }
+
+      function getElementCenter(element) {
+        const rect = element.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          rect
+        };
+      }
+
+      function distanceBetweenElements(a, b) {
+        const ca = getElementCenter(a);
+        const cb = getElementCenter(b);
+        return Math.hypot(ca.x - cb.x, ca.y - cb.y);
+      }
+
+      function dispatchMouseSequence(element, label = 'element') {
+        const rect = element.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        element.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerType: 'mouse' }));
+        element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+        element.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+        element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
+        element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+        element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+        log(`DEBUG: Dispatched mouse sequence on ${label}`);
+      }
+
+      function hoverElement(element, label = 'element') {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        const rect = element.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        element.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerType: 'mouse' }));
+        element.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false, cancelable: true, clientX: cx, clientY: cy, pointerType: 'mouse' }));
+        element.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerType: 'mouse' }));
+        element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+        element.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, cancelable: true, clientX: cx, clientY: cy }));
+        element.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+        log(`>>> Hover triggered on ${label} at ${Math.round(cx)},${Math.round(cy)}`);
       }
 
 // Click the variant settings button (opens popup menu) — robust selector
@@ -783,10 +852,10 @@ if (window.top !== window.self) {
         const foundTiles = []; // array of {tileId, url, element}
 
         const sendCountdown = (remaining) => {
-          chrome.runtime.sendMessage({
+          safeRuntimeSendMessage({
             action: 'MONITOR_COUNTDOWN',
             remaining: remaining
-          }).catch(() => {});
+          });
         };
 
         const tryAddTile = (tileId) => {
@@ -810,7 +879,7 @@ if (window.top !== window.self) {
         while (Date.now() - startTime < maxWaitMs) {
           if (!isRunning) {
             log('>>> ABORT: Monitoring stopped by user');
-            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+            safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
             break;
           }
 
@@ -850,14 +919,14 @@ if (window.top !== window.self) {
           // Success condition: we have at least expectedCount new tiles
           if (seenCount >= expectedCount) {
             log(`>>> SUCCESS: All ${expectedCount} tiles appeared`);
-            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+            safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
             return { status: 'complete', found: seenCount, failed: failures.length, foundTiles };
           }
 
           // Smart early exit: some images + no new + failures → partial
           if (seenCount > 0 && consecutiveNoChange >= MAX_CONSECUTIVE_NO_CHANGE && failures.length > 0) {
             log(`>>> PARTIAL: ${seenCount} tiles found, ${failures.length} failures, no new after ${MAX_CONSECUTIVE_NO_CHANGE} polls`);
-            chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+            safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
             return { status: 'partial', found: seenCount, failed: failures.length, foundTiles };
           }
 
@@ -865,11 +934,11 @@ if (window.top !== window.self) {
           if (Date.now() - startTime >= maxWaitMs) {
             if (seenCount > 0) {
               log(`>>> TIMEOUT: Found ${seenCount}/${expectedCount} (${failures.length} failures)`);
-              chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+              safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
               return { status: 'partial', found: seenCount, failed: failures.length, foundTiles };
             } else {
               log('>>> TIMEOUT: No new tiles detected');
-              chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+              safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
               return { status: 'failed', found: 0, failed: failures.length, foundTiles: [] };
             }
           }
@@ -877,8 +946,220 @@ if (window.top !== window.self) {
           await new Promise(r => setTimeout(r, POLL_INTERVAL));
         }
 
-        chrome.runtime.sendMessage({ action: 'BATCH_COMPLETE' }).catch(() => {});
+        safeRuntimeSendMessage({ action: 'BATCH_COMPLETE' });
         return { status: 'timeout', found: seenTileIds.size, failed: 0, foundTiles };
+      }
+
+      function normalizeDownloadQuality(settings) {
+        const quality = (settings.downloadQuality || 'default').toString().trim();
+        if (!quality || quality.toLowerCase() === 'default') return 'default';
+        return quality;
+      }
+
+      function isDefaultDownloadQuality(settings) {
+        const quality = normalizeDownloadQuality(settings);
+        if (quality === 'default') return true;
+        if (settings.type === 'image' && quality === '1K') return true;
+        if (settings.type === 'video' && quality === '720p') return true;
+        return false;
+      }
+
+      function findMenuItemByText(text, root = document) {
+        const target = text.toLowerCase();
+        const items = root.querySelectorAll('button[role="menuitem"], div[role="menuitem"]');
+        for (let item of items) {
+          if (!isVisibleElement(item)) continue;
+          const itemText = (item.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          if (itemText.includes(target)) return item;
+        }
+        return null;
+      }
+
+      function getTileInteractionRoots(tile) {
+        const roots = [];
+        let current = tile;
+        for (let depth = 0; current && depth < 12; depth++) {
+          if (current instanceof HTMLElement) roots.push(current);
+          current = current.parentElement;
+        }
+        return roots;
+      }
+
+      function getTileHoverTargets(tileInfo, tile) {
+        const targets = [];
+        const media = tileInfo.element || tile.querySelector('img, video');
+        if (media) targets.push({ element: media, label: 'generated media element' });
+        targets.push({ element: tile, label: `generated tile ${tile.getAttribute('data-tile-id') || ''}`.trim() });
+
+        const draggable = tile.closest('[role="button"][aria-roledescription="draggable"]');
+        if (draggable) targets.push({ element: draggable, label: 'draggable tile wrapper' });
+
+        const roots = getTileInteractionRoots(tile);
+        roots.slice(1, 5).forEach((root, index) => {
+          targets.push({ element: root, label: `tile ancestor ${index + 1}` });
+        });
+
+        return targets.filter((target, index, arr) =>
+          target.element && arr.findIndex(other => other.element === target.element) === index
+        );
+      }
+
+      function isTileMoreButton(button) {
+        const text = (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const html = button.innerHTML || '';
+        if (!(text.includes('more') || html.includes('more_vert'))) return false;
+        if (text.includes('more options')) return false;
+        if (button.closest('nav')) return false;
+        const toolbar = button.closest('[role="toolbar"][aria-orientation="horizontal"]');
+        if (toolbar) return true;
+        return button.getAttribute('aria-haspopup') === 'menu' && html.includes('more_vert');
+      }
+
+      function findMoreButtonForTile(tile) {
+        const roots = getTileInteractionRoots(tile);
+        const tileRect = tile.getBoundingClientRect();
+        const tileCenterX = tileRect.left + tileRect.width / 2;
+        const tileCenterY = tileRect.top + tileRect.height / 2;
+        const candidates = [];
+
+        for (let root of roots) {
+          const buttons = Array.from(root.querySelectorAll('button'));
+          for (let btn of buttons) {
+            if (!isVisibleElement(btn) || !isTileMoreButton(btn)) continue;
+            const rect = btn.getBoundingClientRect();
+            const insideExpandedTileArea = rect.left >= tileRect.left - 48 &&
+                                           rect.right <= tileRect.right + 48 &&
+                                           rect.top >= tileRect.top - 48 &&
+                                           rect.bottom <= tileRect.bottom + 48;
+            if (!insideExpandedTileArea && !btn.closest('[role="toolbar"]')) continue;
+            candidates.push({ button: btn, distance: distanceBetweenElements(tile, btn), root });
+          }
+        }
+
+        const documentButtons = Array.from(document.querySelectorAll('button'));
+        for (let btn of documentButtons) {
+          if (!isVisibleElement(btn) || !isTileMoreButton(btn)) continue;
+          const rect = btn.getBoundingClientRect();
+          const nearTile = rect.left >= tileRect.left - 80 &&
+                           rect.right <= tileRect.right + 80 &&
+                           rect.top >= tileRect.top - 80 &&
+                           rect.bottom <= tileRect.bottom + 80;
+          if (nearTile) candidates.push({ button: btn, distance: Math.hypot((rect.left + rect.width / 2) - tileCenterX, (rect.top + rect.height / 2) - tileCenterY), root: document });
+        }
+
+        candidates.sort((a, b) => a.distance - b.distance);
+        const best = candidates[0];
+        if (best) {
+          const text = (best.button.textContent || '').replace(/\s+/g, ' ').trim();
+          const rootLabel = best.root === document ? 'document-near-tile' : `${best.root.tagName.toLowerCase()}${best.root.getAttribute('data-tile-id') ? '[data-tile-id]' : ''}`;
+          log(`>>> More button found in ${rootLabel}, distance=${Math.round(best.distance)}, text="${text}"`);
+          return best.button;
+        }
+
+        log('DEBUG: Tile More candidate count=0');
+        return null;
+      }
+
+      async function revealTileToolbar(tileInfo, tile) {
+        const targets = getTileHoverTargets(tileInfo, tile);
+        log(`>>> Revealing tile toolbar via ${targets.length} hover target(s)`);
+        for (let target of targets) {
+          hoverElement(target.element, target.label);
+          await new Promise(r => setTimeout(r, 350));
+          const moreButton = findMoreButtonForTile(tile);
+          if (moreButton) return moreButton;
+        }
+        await new Promise(r => setTimeout(r, 800));
+        return findMoreButtonForTile(tile);
+      }
+
+      async function waitForOpenMenuCount(minCount, timeoutMs, label) {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+          const menus = Array.from(document.querySelectorAll('div[role="menu"][data-state="open"]')).filter(isVisibleElement);
+          log(`DEBUG: ${label}: open visible menus=${menus.length}`);
+          if (menus.length >= minCount) return menus;
+          await new Promise(r => setTimeout(r, 200));
+        }
+        return Array.from(document.querySelectorAll('div[role="menu"][data-state="open"]')).filter(isVisibleElement);
+      }
+
+      async function clickDownloadFromTileMenu(tileInfo, settings) {
+        const quality = normalizeDownloadQuality(settings);
+        if (isDefaultDownloadQuality(settings)) {
+          return false;
+        }
+
+        const tile = tileInfo.tile || tileInfo.element?.closest('[data-tile-id]');
+        if (!tile) {
+          log('WARN: Cannot use Flow download menu; tile element not found');
+          return false;
+        }
+
+        log(`>>> Using Flow download menu for ${settings.type} quality ${quality}`);
+        const moreButton = await revealTileToolbar(tileInfo, tile);
+        if (!moreButton) {
+          log('ERROR: More button not found after hover; not downloading default URL for non-default quality');
+          return false;
+        }
+
+        log('>>> Clicking tile More button');
+        dispatchMouseSequence(moreButton, 'tile More button');
+        await waitForOpenMenuCount(1, 2500, 'after More click');
+
+        const openMenus = () => Array.from(document.querySelectorAll('div[role="menu"][data-state="open"]')).filter(isVisibleElement);
+        let downloadItem = null;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const menus = openMenus();
+          log(`DEBUG: Looking for Download menu item (attempt ${attempt + 1}), open menus=${menus.length}`);
+          for (let menu of menus) {
+            downloadItem = findMenuItemByText('download', menu);
+            if (downloadItem) break;
+          }
+          if (downloadItem) break;
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (!downloadItem) {
+          log('ERROR: Download menu item not found after clicking More; not downloading default URL for non-default quality');
+          await closePopupMenu();
+          return false;
+        }
+
+        log('>>> Hovering Download menu item to open quality submenu');
+        hoverElement(downloadItem, 'Download menu item');
+        await waitForOpenMenuCount(2, 2500, 'after Download hover');
+
+        let qualityItem = null;
+        for (let attempt = 0; attempt < 12; attempt++) {
+          const menus = openMenus();
+          log(`DEBUG: Looking for quality "${quality}" (attempt ${attempt + 1}), open menus=${menus.length}`);
+          for (let menu of menus) {
+            qualityItem = findMenuItemByText(quality, menu);
+            if (qualityItem) break;
+          }
+          if (qualityItem) break;
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (!qualityItem) {
+          log(`ERROR: Download quality "${quality}" not found; not downloading default URL for non-default quality`);
+          await closePopupMenu();
+          return false;
+        }
+
+        const disabled = qualityItem.getAttribute('aria-disabled') === 'true' || qualityItem.disabled;
+        if (disabled) {
+          log(`ERROR: Download quality "${quality}" is disabled; not downloading default URL for non-default quality`);
+          await closePopupMenu();
+          return false;
+        }
+
+        log(`>>> Clicking Download quality ${quality}`);
+        dispatchMouseSequence(qualityItem, `Download quality ${quality}`);
+        await new Promise(r => setTimeout(r, 1000));
+        log(`>>> Flow download menu click completed for quality ${quality}`);
+        return true;
       }
 
       // Download a single image via background script (chrome.downloads)
@@ -889,7 +1170,7 @@ if (window.top !== window.self) {
         // Generate prompt words for filename (first 5 words, sanitized)
         const promptWords = ''; // Could enhance if we have access to current prompt text
 
-        chrome.runtime.sendMessage({
+        safeRuntimeSendMessage({
           type: 'DOWNLOAD_CONTENT',
           url: url,
           promptIndex: promptIndex,
@@ -897,8 +1178,6 @@ if (window.top !== window.self) {
           prefix: prefix,
           promptWords: promptWords,
           batchIndex: batchIndex
-        }).catch(err => {
-          log(`ERROR: Failed to send download message: ${err.message}`);
         });
       }
 
@@ -926,8 +1205,16 @@ if (window.top !== window.self) {
         for (let i = 0; i < maxToTake && isRunning; i++) {
           const tileInfo = foundTiles[i];
           log(`>>> Downloading media ${i + 1}/${maxToTake}: ${tileInfo.url.substring(0, 60)}`);
-          downloadImage(tileInfo.url, promptIndex, i, settings);
-          downloaded++;
+          const usedFlowMenu = await clickDownloadFromTileMenu(tileInfo, settings);
+          if (usedFlowMenu) {
+            downloaded++;
+          } else if (isDefaultDownloadQuality(settings)) {
+            log('>>> Default quality selected; downloading captured media URL');
+            downloadImage(tileInfo.url, promptIndex, i, settings);
+            downloaded++;
+          } else {
+            log(`ERROR: Failed to download requested quality "${normalizeDownloadQuality(settings)}"; skipped default URL fallback`);
+          }
           // Small delay between downloads
           await new Promise(r => setTimeout(r, 500));
         }
@@ -1152,30 +1439,34 @@ if (window.top !== window.self) {
         }
       }
 
-     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-       if (msg.action === 'PING') {
-         sendResponse({ status: 'ok' });
-         return true;
-       }
-       if (msg.action === 'STOP') {
-         isRunning = false;
-         log('>>> STOP received — aborting');
-         sendResponse({ status: 'stopped' });
-         return true;
-       }
-       if (msg.action === 'PROCESS_PROMPT') {
-         // Check isRunning before starting
-         if (!isRunning) {
-           sendResponse({ status: 'stopped', message: 'Process stopped by user' });
-           return true;
-         }
-         processPrompt(msg.payload.prompt, msg.payload.settings)
-           .then(r => sendResponse(r))
-           .catch(e => sendResponse({ status: 'failed', message: e.message }));
-         return true;
-       }
-     });
+      if (hasExtensionMessageListener()) {
+        chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+          if (msg.action === 'PING') {
+            sendResponse({ status: 'ok' });
+            return true;
+          }
+          if (msg.action === 'STOP') {
+            isRunning = false;
+            log('>>> STOP received — aborting');
+            sendResponse({ status: 'stopped' });
+            return true;
+          }
+          if (msg.action === 'PROCESS_PROMPT') {
+            // Check isRunning before starting
+            if (!isRunning) {
+              sendResponse({ status: 'stopped', message: 'Process stopped by user' });
+              return true;
+            }
+            processPrompt(msg.payload.prompt, msg.payload.settings)
+              .then(r => sendResponse(r))
+              .catch(e => sendResponse({ status: 'failed', message: e.message }));
+            return true;
+          }
+        });
+      } else {
+        console.warn('[AFB] chrome.runtime.onMessage unavailable; content script loaded outside extension context.');
+      }
 
-    log('Content script loaded and ready');
+     log('Content script loaded and ready');
   })();
 }
