@@ -459,6 +459,83 @@ document.addEventListener('DOMContentLoaded', async () => {
     appendLog('Extension reset to default state.', 'info');
   }
 
+  function isFlowLandingUrl(url) {
+    return /labs\.google(\.com)?\/fx\/(?:[^/]+\/)?tools\/flow\/?(?:[?#].*)?$/i.test(url || '');
+  }
+
+  function waitForTabProjectLoad(tabId, timeoutMs = 45000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('Timed out waiting for Flow project page to load'));
+      }, timeoutMs);
+
+      const listener = (updatedTabId, changeInfo, tab) => {
+        if (updatedTabId !== tabId) return;
+        const url = changeInfo.url || tab.url || '';
+        if (/labs\.google(\.com)?\/fx\/(?:[^/]+\/)?tools\/flow\/project\//i.test(url) && changeInfo.status === 'complete') {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve(tab);
+        }
+      };
+
+      chrome.tabs.onUpdated.addListener(listener);
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError) return;
+        const url = tab?.url || '';
+        if (/labs\.google(\.com)?\/fx\/(?:[^/]+\/)?tools\/flow\/project\//i.test(url) && tab.status === 'complete') {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve(tab);
+        }
+      });
+    });
+  }
+
+  async function ensureContentScript(tabId) {
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, { action: "PING" }, (res) => {
+          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+          else resolve(res);
+        });
+      });
+    } catch (e) {
+      appendLog('Content script missing. Auto-injecting into page...', 'warn');
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js']
+      });
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  async function prepareFlowProjectIfNeeded(tab) {
+    if (!isFlowLandingUrl(tab.url)) return tab;
+
+    appendLog('Flow landing page detected. Creating project before applying sidepanel settings...', 'act');
+    await ensureContentScript(tab.id);
+
+    const createResponse = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { action: "CREATE_PROJECT" }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve({ status: 'failed', message: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { status: 'failed', message: 'Empty response from content script.' });
+        }
+      });
+    });
+
+    if (createResponse.status !== 'success') {
+      throw new Error(createResponse.message || 'Failed to create Flow project');
+    }
+
+    const projectTab = await waitForTabProjectLoad(tab.id);
+    await ensureContentScript(tab.id);
+    return projectTab;
+  }
+
   // Start button handler
   btnStart.addEventListener('click', async () => {
     if (isPaused) {
@@ -517,27 +594,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     targetTabId = targetTab.id;
 
-    // Auto-inject content script if missing
     try {
-      await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(targetTab.id, { action: "PING" }, (res) => {
-          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-          else resolve(res);
-        });
-      });
-    } catch (e) {
-      appendLog('Content script missing. Auto-injecting into page...', 'warn');
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: targetTab.id },
-          files: ['content.js']
-        });
-        await new Promise(r => setTimeout(r, 500));
-      } catch (err) {
-        appendLog('CRITICAL: Cannot inject script. Please REFRESH the page (F5) explicitly.', 'error');
-        stopProcess();
-        return;
-      }
+      await prepareFlowProjectIfNeeded(targetTab);
+      await ensureContentScript(targetTab.id);
+    } catch (err) {
+      appendLog(`CRITICAL: ${err.message}. Please refresh the Flow page (F5) explicitly.`, 'error');
+      stopProcess();
+      return;
     }
 
     processQueue(settings);

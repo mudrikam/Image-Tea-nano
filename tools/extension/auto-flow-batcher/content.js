@@ -4,12 +4,12 @@
 if (window.top !== window.self) {
 } else {
   (function () {
-     // Guard: only run on Flow editor pages, not the project list/home
+     // Guard: only run on Flow pages. Project creation is handled when started from the Flow landing page.
      // Supports any locale prefix (e.g., /id/, /my/, /en/, or none) before /tools/flow/
-     const isEditorPage = location.href.includes('/labs.google/fx/') &&
-                          location.href.includes('/tools/flow/project/');
-     if (!isEditorPage) {
-       console.log('[AFB] Not on Flow editor page, skipping content script');
+     const isFlowPage = location.href.includes('/labs.google/fx/') &&
+                        location.href.includes('/tools/flow');
+     if (!isFlowPage) {
+       console.log('[AFB] Not on Flow page, skipping content script');
        return;
      }
 
@@ -42,6 +42,62 @@ if (window.top !== window.self) {
              document.querySelector('.sc-522e4d41-5.gihCJr');
     }
 
+    function isFlowProjectPage() {
+      return location.href.includes('/tools/flow/project/');
+    }
+
+    function findNewProjectButton() {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      return buttons.find(button => {
+        const text = (button.textContent || '').replace(/\s+/g, ' ').trim();
+        return isVisibleElement(button) && !button.disabled &&
+               text.includes('New project') && text.includes('add_2');
+      }) || buttons.find(button => {
+        const text = (button.textContent || '').replace(/\s+/g, ' ').trim();
+        return isVisibleElement(button) && !button.disabled && text === 'New project';
+      });
+    }
+
+    async function clickNewProjectFromLanding() {
+      log('Flow landing page detected; creating a new project with current page settings');
+      for (let attempt = 1; attempt <= 40 && isRunning; attempt++) {
+        const button = findNewProjectButton();
+        if (button) {
+          button.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+          await new Promise(r => setTimeout(r, 100));
+          dispatchMouseSequence(button, 'New project button');
+          return true;
+        }
+        await new Promise(r => setTimeout(r, 250));
+      }
+      return false;
+    }
+
+    async function ensureFlowProjectReady() {
+      if (isFlowProjectPage() && findEditor()) return;
+
+      if (!isFlowProjectPage()) {
+        const clicked = await clickNewProjectFromLanding();
+        if (!clicked) throw new Error('New project button not found');
+      }
+
+      const startTime = Date.now();
+      while (Date.now() - startTime < 30000 && isRunning) {
+        if (isFlowProjectPage()) {
+          const editor = findEditor();
+          if (editor && isVisibleElement(editor)) {
+            log(`Flow project ready: ${location.href}`);
+            await new Promise(r => setTimeout(r, 1500));
+            return;
+          }
+        }
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      if (!isRunning) throw new Error('Stopped while waiting for Flow project');
+      throw new Error('Timed out waiting for Flow project editor');
+    }
+ 
 // Get any editable content element in the editor
       function getParagraph(editor) {
         // Try standard Slate paragraphs first
@@ -1236,7 +1292,10 @@ if (window.top !== window.self) {
             return { status: 'stopped', message: 'Stopped by user' };
           }
 
+          await ensureFlowProjectReady();
+
           log(`>>> START: "${prompt}"`);
+          log(`>>> Settings: type=${settings.type}, ratio=${settings.ratio}, batch=x${settings.batch}, downloadQuality=${settings.downloadQuality || 'default'}`);
 
           let editor = null;
           for (let i = 0; i < 20; i++) {
@@ -1449,6 +1508,22 @@ if (window.top !== window.self) {
             isRunning = false;
             log('>>> STOP received — aborting');
             sendResponse({ status: 'stopped' });
+            return true;
+          }
+          if (msg.action === 'CREATE_PROJECT') {
+            if (!isRunning) {
+              sendResponse({ status: 'stopped', message: 'Process stopped by user' });
+              return true;
+            }
+            if (isFlowProjectPage()) {
+              sendResponse({ status: 'success', message: 'Already on Flow project page' });
+              return true;
+            }
+            clickNewProjectFromLanding()
+              .then(clicked => sendResponse(clicked
+                ? { status: 'success', message: 'New project clicked' }
+                : { status: 'failed', message: 'New project button not found' }))
+              .catch(e => sendResponse({ status: 'failed', message: e.message }));
             return true;
           }
           if (msg.action === 'PROCESS_PROMPT') {
