@@ -155,8 +155,18 @@
       min-width: 70px;
     }
     .btn-primary:hover { background-color: var(--accent-hover); }
-    .btn-primary.btn-stop { background-color: var(--error); }
-    .btn-primary.btn-stop:hover { background-color: #dc2626; }
+     .btn-primary.btn-stop { background-color: #ef4444; }
+     .btn-primary.btn-stop:hover { background-color: #dc2626; box-shadow: 0 0 12px rgba(239, 68, 68, 0.6), inset 0 0 8px rgba(239, 68, 68, 0.3); animation: stop-glow 2s ease-in-out infinite; }
+     @keyframes stop-glow {
+       0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.6), inset 0 0 8px rgba(239, 68, 68, 0.3); }
+       50% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.8), inset 0 0 12px rgba(239, 68, 68, 0.5); }
+     }
+     .btn-primary { transition: background-color 0.2s, box-shadow 0.2s; }
+     .btn-primary.btn-start-glow { box-shadow: 0 0 12px rgba(242, 125, 38, 0.6), inset 0 0 8px rgba(242, 125, 38, 0.3); animation: start-glow 2s ease-in-out infinite; }
+     @keyframes start-glow {
+       0%, 100% { box-shadow: 0 0 12px rgba(242, 125, 38, 0.6), inset 0 0 8px rgba(242, 125, 38, 0.3); }
+       50% { box-shadow: 0 0 18px rgba(242, 125, 38, 0.8), inset 0 0 12px rgba(242, 125, 38, 0.5); }
+     }
     .btn-primary.btn-pause { background-color: var(--warning); color: #000; }
     .btn-primary.btn-pause:hover { background-color: #e6c235; }
     .btn-primary.btn-reset { background-color: var(--bg-hover); }
@@ -235,14 +245,24 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background-color 0.2s;
+      transition: background-color 0.2s, box-shadow 0.2s;
       font-size: 10px;
       font-weight: 600;
       gap: 4px;
       height: 26px;
       white-space: nowrap;
     }
-    .btn-upload:hover { background-color: var(--bg-hover); }
+    .btn-upload:hover {
+      background-color: var(--accent);
+      color: #000;
+      box-shadow: 0 0 12px rgba(242, 125, 38, 0.6), inset 0 0 8px rgba(242, 125, 38, 0.3);
+    }
+    .btn-upload.btn-clear { background-color: #ef4444; }
+    .btn-upload.btn-clear:hover { background-color: #dc2626; box-shadow: 0 0 12px rgba(239, 68, 68, 0.6), inset 0 0 8px rgba(239, 68, 68, 0.3); animation: clear-glow 2s ease-in-out infinite; }
+    @keyframes clear-glow {
+      0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.6), inset 0 0 8px rgba(239, 68, 68, 0.3); }
+      50% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.8), inset 0 0 12px rgba(239, 68, 68, 0.5); }
+    }
 
     /* Prompt Display Container (highlight individual prompts during automation) */
     .prompt-display-container {
@@ -369,6 +389,7 @@
     .radio-pill label:hover { background-color: var(--bg-hover); }
     .radio-pill input:checked + label {
       background-color: var(--accent); color: #000; font-weight: bold;
+      box-shadow: 0 0 12px rgba(242, 125, 38, 0.6), inset 0 0 8px rgba(242, 125, 38, 0.3);
     }
     .radio-pill.disabled label {
       opacity: 0.4; cursor: not-allowed; pointer-events: none;
@@ -644,7 +665,7 @@
      <div id="mainInterface" class="content">
       <!-- Controls Bar - Top -->
       <section class="controls-bar">
-         <button class="btn-primary" id="btnStart" title="Start processing">
+          <button class="btn-primary btn-start-glow" id="btnStart" title="Start processing">
            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
              <path d="M8 5v14l11-7z"/>
            </svg>
@@ -738,7 +759,7 @@
             </svg>
             Paste
           </button>
-          <button class="btn-upload" id="btnClearInput" title="Clear all prompts" style="background-color: var(--error);">
+           <button class="btn-upload btn-clear" id="btnClearInput" title="Clear all prompts">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
