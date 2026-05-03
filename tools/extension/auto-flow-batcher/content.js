@@ -305,7 +305,13 @@ if (window.top !== window.self) {
         return false;
       }
 
-       async function selectModeTab(mode, ratio = null, batch = '1') {
+        function isBatchTab(text, batch) {
+          const normalized = text.toLowerCase().replace(/\s/g, '');
+          const batchStr = String(batch);
+          return normalized === batchStr + 'x' || normalized === 'x' + batchStr;
+        }
+
+        async function selectModeTab(mode, ratio = null, batch = '1') {
         const MAX_RETRIES = 10;
         const RETRY_DELAY = 150;
 
@@ -493,7 +499,7 @@ if (window.top !== window.self) {
                 const batchKey = `x${batch}`;
                 for (let tab of batchTabs) {
                   const txt = (tab.textContent || '').trim();
-                  if (txt.toLowerCase() === batchKey.toLowerCase()) {
+                   if (isBatchTab(txt, batch)) {
                     batchTab = tab;
                     log(`DEBUG: Found video batch tab "${batchKey}": "${txt}"`);
                     break;
@@ -605,7 +611,7 @@ if (window.top !== window.self) {
                 const batchKey = `x${batch}`;
                 for (let tab of batchTabs) {
                   const txt = (tab.textContent || '').trim();
-                  if (txt.toLowerCase() === batchKey.toLowerCase()) {
+                   if (isBatchTab(txt, batch)) {
                     batchTab = tab;
                     log(`DEBUG: Found batch tab "${batchKey}": "${txt}"`);
                     break;
