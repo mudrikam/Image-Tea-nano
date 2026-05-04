@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    const typeGroup = document.getElementById('typeGroup');
    const queueTableBody = document.getElementById('queueTableBody');
    const globalDelaySecondsInput = document.getElementById('globalDelaySeconds');
+   const refreshAfterPromptsInput = document.getElementById('refreshAfterPrompts');
 
   // UI Stats Elements
   const valQueue = document.getElementById('valQueue');
@@ -71,6 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let targetTabId = null;
   let countdownInterval = null;
   let remainingCountdown = 0;
+  let lastRefreshSuccessCount = 0;
 
   // Filter ratio options based on selected media type
   function updateRatioOptions(type) {
@@ -425,6 +427,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     return Math.round(safeDelaySeconds * 1000);
   }
 
+  function getRefreshAfterPrompts() {
+    const refreshAfterPrompts = Number.parseInt(refreshAfterPromptsInput?.value, 10);
+    return Number.isFinite(refreshAfterPrompts) && refreshAfterPrompts > 0 ? refreshAfterPrompts : 0;
+  }
+
   // Get settings from UI
   function getSettings() {
     const globalDelayMs = getGlobalDelayMs();
@@ -434,7 +441,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       batch: document.querySelector('input[name="batch"]:checked').value,
       downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default',
       globalDelayMs,
-      globalDelaySeconds: globalDelayMs / 1000
+      globalDelaySeconds: globalDelayMs / 1000,
+      refreshAfterPrompts: getRefreshAfterPrompts()
     };
   }
 
@@ -469,6 +477,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearInterval(countdownInterval);
     countdownInterval = null;
     remainingCountdown = 0;
+    lastRefreshSuccessCount = 0;
     valCountdown.innerText = '--';
     if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
     countdownRow.classList.add('hidden');
@@ -526,6 +535,58 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     });
+  }
+
+  function waitForTabReload(tabId, timeoutMs = 60000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('Timed out waiting for Flow page refresh'));
+      }, timeoutMs);
+
+      const listener = (updatedTabId, changeInfo, tab) => {
+        if (updatedTabId !== tabId) return;
+        if (changeInfo.status === 'complete') {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve(tab);
+        }
+      };
+
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+  }
+
+  async function refreshTargetTabSafely(completedPrompts) {
+    if (!targetTabId) {
+      appendLog('Refresh skipped: target tab is no longer available.', 'warn');
+      return;
+    }
+
+    appendLog(`Refreshing Flow page after ${completedPrompts} completed prompts...`, 'act');
+    await new Promise((resolve, reject) => {
+      chrome.tabs.reload(targetTabId, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve();
+        }
+      });
+    });
+    await waitForTabReload(targetTabId);
+    await ensureContentScript(targetTabId);
+    lastRefreshSuccessCount = completedPrompts;
+    appendLog('Flow page refreshed. Continuing from saved queue progress.', 'success');
+  }
+
+  async function refreshAfterCompletedPromptIfNeeded(settings) {
+    const refreshEvery = settings.refreshAfterPrompts || 0;
+    if (refreshEvery <= 0) return;
+    if (successCount <= 0 || currentIndex >= prompts.length) return;
+    if (successCount === lastRefreshSuccessCount) return;
+    if (successCount % refreshEvery !== 0) return;
+
+    await refreshTargetTabSafely(successCount);
   }
 
   async function ensureContentScript(tabId) {
@@ -703,7 +764,15 @@ document.addEventListener('DOMContentLoaded', async () => {
        updateStats();
        renderQueueTable();
        renderPromptDisplay();
-     }
+
+       if (isRunning) {
+         try {
+           await refreshAfterCompletedPromptIfNeeded(settings);
+         } catch (err) {
+           appendLog(`Refresh failed: ${err.message}. Continuing without refresh.`, 'warn');
+         }
+       }
+      }
 
     if (currentIndex >= prompts.length && isRunning) {
       appendLog('All prompts completed successfully!', 'success');

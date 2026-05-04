@@ -819,10 +819,16 @@
         </div>
 
         <div style="margin-top: 12px;">
-          <label class="section-title" for="globalDelaySeconds">Global Cooldown Delay</label>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="number" id="globalDelaySeconds" min="0" step="0.5" value="5" style="width: 80px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-input); color: var(--text-main); font-size: 12px;">
-            <span style="font-size: 11px; color: var(--text-muted);">seconds between each prompt and each download</span>
+          <label class="section-title">Cooldown and Refresh</label>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="number" id="globalDelaySeconds" min="0" step="0.5" value="5" style="width: 80px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-input); color: var(--text-main); font-size: 12px;">
+              <span style="font-size: 11px; color: var(--text-muted);">seconds between each prompt and each download</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="number" id="refreshAfterPrompts" min="0" step="1" value="0" style="width: 80px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-input); color: var(--text-main); font-size: 12px;">
+              <span style="font-size: 11px; color: var(--text-muted);">refresh page after every N completed prompts (0 = off)</span>
+            </div>
           </div>
         </div>
       </section>
