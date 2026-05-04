@@ -729,7 +729,7 @@
       padding: 10px 0;
       border-radius: 6px;
       background: #25D366;
-      color: #fff;
+      color: #000;
       font-size: 12px;
       font-weight: 600;
       text-decoration: none;
@@ -739,6 +739,142 @@
     .footer-btn:hover {
       opacity: 0.85;
     }
+
+    /* Update Banner */
+    .update-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      background: rgba(74, 222, 128, 0.1);
+      border: 1px solid rgba(74, 222, 128, 0.3);
+      animation: update-pulse 2s ease-in-out infinite;
+    }
+    @keyframes update-pulse {
+      0%, 100% { border-color: rgba(74, 222, 128, 0.3); }
+      50% { border-color: rgba(74, 222, 128, 0.6); }
+    }
+    .update-banner-icon {
+      flex: 0 0 20px;
+      width: 20px;
+      height: 20px;
+      color: var(--success);
+    }
+    .update-banner-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .update-banner-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--success);
+    }
+    .update-banner-version {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .update-btn-download {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      background: var(--success);
+      color: #000;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: opacity 0.2s;
+    }
+    .update-btn-download:hover { opacity: 0.85; }
+    .update-btn-dismiss {
+      padding: 4px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+    .update-btn-dismiss:hover { color: var(--error); }
+
+    /* Update Guide Modal */
+    .update-guide-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 16px;
+    }
+    .update-guide-modal {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      max-width: 360px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .update-guide-modal h3 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: var(--success);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .update-guide-modal h4 {
+      margin: 16px 0 8px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+    }
+    .update-guide-modal ol {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 12px;
+      line-height: 1.8;
+      color: var(--text-main);
+    }
+    .update-guide-modal ol li {
+      margin-bottom: 4px;
+    }
+    .update-guide-modal code {
+      background: var(--bg-input);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .update-guide-close {
+      display: block;
+      width: 100%;
+      margin-top: 16px;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      background: var(--border-color);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .update-guide-close:hover { background: var(--bg-hover); }
   </style>
 </head>
 <body>
@@ -989,6 +1125,28 @@
 
     <!-- Sticky Footer -->
     <footer class="footer">
+      <!-- Update Banner (hidden by default, shown when update available) -->
+      <div id="updateBanner" class="update-banner hidden">
+        <svg class="update-banner-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        <div class="update-banner-text">
+          <div class="update-banner-title">Update Available!</div>
+          <div class="update-banner-version">New version: <span id="updateVersionLabel">--</span></div>
+        </div>
+        <button id="updateBtnDownload" class="update-btn-download" title="Download latest version">
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Update
+        </button>
+        <button id="updateBtnDismiss" class="update-btn-dismiss" title="Dismiss">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
       <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" rel="noopener noreferrer"
          class="footer-btn"
          title="Join our WhatsApp community for help & updates">
@@ -998,6 +1156,44 @@
         Help & Updates
       </a>
     </footer>
+
+    <!-- Update Guide Modal (hidden by default) -->
+    <div id="updateGuideModal" class="update-guide-overlay hidden">
+      <div class="update-guide-modal">
+        <h3>
+          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          How to Update / Cara Update
+        </h3>
+
+        <h4>English</h4>
+        <ol>
+          <li>The ZIP file is downloading now (full repository).</li>
+          <li>Extract the ZIP file to any folder.</li>
+          <li>Navigate to: <code>Image-Tea-nano-main/tools/extension/auto-flow-batcher/</code></li>
+          <li>Copy the entire file inside the <code>auto-flow-batcher</code> folder.</li>
+          <li>Replace your old extension folder with this new one.</li>
+          <li>Open <code>chrome://extensions</code> in your browser.</li>
+          <li>Find "Auto Flow Batcher" and click the <strong>reload</strong> button (circular arrow icon).</li>
+          <li>Done! The extension is now updated.</li>
+        </ol>
+
+        <h4>Bahasa Indonesia</h4>
+        <ol>
+          <li>File ZIP sedang didownload (berisi seluruh repository).</li>
+          <li>Extract file ZIP ke folder mana saja.</li>
+          <li>Buka folder: <code>Image-Tea-nano-main/tools/extension/auto-flow-batcher/</code></li>
+          <li>Copy seluruh file di dalam folder <code>auto-flow-batcher</code>.</li>
+          <li>Timpa (replace) folder ekstensi lama kamu dengan yang baru ini.</li>
+          <li>Buka <code>chrome://extensions</code> di browser.</li>
+          <li>Cari "Auto Flow Batcher" lalu klik tombol <strong>reload</strong> (ikon panah melingkar).</li>
+          <li>Selesai! Ekstensi sudah terupdate.</li>
+        </ol>
+
+        <button id="updateGuideClose" class="update-guide-close">Got it / Mengerti</button>
+      </div>
+    </div>
 
     <script src="sidepanel.js"></script>
 </body>

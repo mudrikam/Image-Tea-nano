@@ -2,6 +2,82 @@
 // Opens the side panel when the extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => console.error(error));
 
+// ─── Auto-Update Checker ───────────────────────────────────────────────────────
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every 1 hour
+const REMOTE_MANIFEST_URL = 'https://raw.githubusercontent.com/mudrikam/Image-Tea-nano/main/tools/extension/auto-flow-batcher/manifest.json';
+const DOWNLOAD_ZIP_URL = 'https://github.com/mudrikam/Image-Tea-nano/archive/refs/heads/main.zip';
+
+async function checkForExtensionUpdate() {
+  try {
+    const response = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
+    if (!response.ok) return;
+    const remoteManifest = await response.json();
+    const remoteVersion = remoteManifest.version;
+    const localVersion = chrome.runtime.getManifest().version;
+
+    if (!remoteVersion || !localVersion) return;
+
+    if (compareVersions(remoteVersion, localVersion) > 0) {
+      // Notify sidepanel about available update
+      chrome.runtime.sendMessage({
+        action: 'UPDATE_AVAILABLE',
+        remoteVersion: remoteVersion,
+        localVersion: localVersion,
+        downloadUrl: DOWNLOAD_ZIP_URL
+      }).catch(() => {});
+
+      // Store update info so sidepanel can check on load
+      chrome.storage.local.set({
+        updateAvailable: true,
+        remoteVersion: remoteVersion,
+        localVersion: localVersion,
+        downloadUrl: DOWNLOAD_ZIP_URL
+      });
+
+      console.log(`[AFB] Update available: ${localVersion} → ${remoteVersion}`);
+    } else {
+      chrome.storage.local.set({ updateAvailable: false });
+    }
+  } catch (err) {
+    console.warn('[AFB] Update check failed:', err.message);
+  }
+}
+
+// Compare semantic versions: returns >0 if a > b, 0 if equal, <0 if a < b
+function compareVersions(a, b) {
+  const partsA = a.split('.').map(Number);
+  const partsB = b.split('.').map(Number);
+  const len = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < len; i++) {
+    const numA = partsA[i] || 0;
+    const numB = partsB[i] || 0;
+    if (numA > numB) return 1;
+    if (numA < numB) return -1;
+  }
+  return 0;
+}
+
+// Check on install/update
+chrome.runtime.onInstalled.addListener(() => {
+  checkForExtensionUpdate();
+});
+
+// Check on startup
+chrome.runtime.onStartup.addListener(() => {
+  checkForExtensionUpdate();
+});
+
+// Periodic check
+setInterval(checkForExtensionUpdate, UPDATE_CHECK_INTERVAL_MS);
+
+// Also check when sidepanel requests it
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'CHECK_FOR_UPDATE') {
+    checkForExtensionUpdate().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true; // async response
+  }
+});
+
 // Handle download requests from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'DOWNLOAD_CONTENT') {

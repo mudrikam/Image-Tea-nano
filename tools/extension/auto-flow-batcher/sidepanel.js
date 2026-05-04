@@ -993,4 +993,78 @@ document.addEventListener('DOMContentLoaded', async () => {
 
    // Initial view check when sidepanel loads
    initView();
+
+  // ─── Auto-Update Checker UI ──────────────────────────────────────────────────
+  const updateBanner = document.getElementById('updateBanner');
+  const updateBtnDownload = document.getElementById('updateBtnDownload');
+  const updateBtnDismiss = document.getElementById('updateBtnDismiss');
+  const updateVersionLabel = document.getElementById('updateVersionLabel');
+  const updateGuideModal = document.getElementById('updateGuideModal');
+  const updateGuideClose = document.getElementById('updateGuideClose');
+
+  function showUpdateBanner(remoteVersion, downloadUrl) {
+    if (!updateBanner) return;
+    if (updateVersionLabel) updateVersionLabel.textContent = `v${remoteVersion}`;
+    updateBanner.classList.remove('hidden');
+    updateBanner.dataset.downloadUrl = downloadUrl;
+  }
+
+  function hideUpdateBanner() {
+    if (updateBanner) updateBanner.classList.add('hidden');
+  }
+
+  // Check stored update info on load
+  chrome.storage.local.get(['updateAvailable', 'remoteVersion', 'localVersion', 'downloadUrl'], (data) => {
+    if (data.updateAvailable && data.remoteVersion && data.downloadUrl) {
+      const localVer = chrome.runtime.getManifest().version;
+      // Only show if remote is still newer than current
+      if (data.remoteVersion !== localVer) {
+        showUpdateBanner(data.remoteVersion, data.downloadUrl);
+      }
+    }
+  });
+
+  // Listen for real-time update notification from background
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === 'UPDATE_AVAILABLE') {
+      showUpdateBanner(msg.remoteVersion, msg.downloadUrl);
+    }
+  });
+
+  // Download button — show guide modal then trigger download
+  if (updateBtnDownload) {
+    updateBtnDownload.addEventListener('click', () => {
+      if (updateGuideModal) updateGuideModal.classList.remove('hidden');
+      const url = updateBanner?.dataset?.downloadUrl;
+      if (url) {
+        chrome.downloads.download({ url: url, saveAs: true });
+      }
+    });
+  }
+
+  // Dismiss button
+  if (updateBtnDismiss) {
+    updateBtnDismiss.addEventListener('click', () => {
+      hideUpdateBanner();
+    });
+  }
+
+  // Close guide modal
+  if (updateGuideClose) {
+    updateGuideClose.addEventListener('click', () => {
+      if (updateGuideModal) updateGuideModal.classList.add('hidden');
+    });
+  }
+
+  // Close modal on backdrop click
+  if (updateGuideModal) {
+    updateGuideModal.addEventListener('click', (e) => {
+      if (e.target === updateGuideModal) {
+        updateGuideModal.classList.add('hidden');
+      }
+    });
+  }
+
+  // Trigger update check on sidepanel load
+  chrome.runtime.sendMessage({ type: 'CHECK_FOR_UPDATE' }).catch(() => {});
  });
