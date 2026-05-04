@@ -131,12 +131,10 @@
     .controls-bar {
       display: flex;
       gap: 8px;
-      flex-wrap: wrap;
       padding-bottom: 8px;
       border-bottom: 1px solid var(--border-color);
     }
     .btn-primary {
-      flex: 1;
       padding: 10px 12px;
       background-color: var(--accent);
       color: #000;
@@ -152,7 +150,6 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      min-width: 70px;
     }
     .btn-primary:hover { background-color: var(--accent-hover); }
      .btn-primary.btn-stop { background-color: #ef4444; }
@@ -169,8 +166,8 @@
      }
     .btn-primary.btn-pause { background-color: var(--warning); color: #000; }
     .btn-primary.btn-pause:hover { background-color: #e6c235; }
-    .btn-primary.btn-reset { background-color: var(--bg-hover); }
-    .btn-primary.btn-reset:hover { background-color: var(--border-color); }
+    .btn-primary.btn-reset { background-color: var(--bg-hover); color: var(--text-main); }
+    .btn-primary.btn-reset:hover { background-color: #ef4444; color: #fff; }
     .btn-secondary {
       padding: 10px 12px;
       background-color: var(--border-color);
@@ -187,10 +184,11 @@
     .btn-secondary:hover { background-color: var(--bg-hover); }
     .btn-secondary svg { width: 16px; height: 16px; }
     .btn-icon-only {
-      width: 32px;
-      height: 32px;
+      flex: 0 0 36px !important;
+      width: 36px;
+      height: 36px;
       padding: 0;
-      min-width: 32px;
+      min-width: 36px;
     }
     .hidden { display: none !important; }
 
@@ -500,10 +498,7 @@
 
     /* Log Area with Clear Button */
     .log-container {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 150px;
+      display: block;
       position: relative;
     }
     .log-header {
@@ -521,16 +516,20 @@
       border-radius: 3px;
     }
     .log-area {
-      flex: 1;
       background-color: rgba(0, 0, 0, 0.4);
       border: 1px solid var(--border-color);
       border-radius: 8px;
-      overflow-y: auto;
+      overflow: auto;
       padding: 12px;
       font-family: monospace;
       font-size: 10px;
       color: var(--text-muted);
       line-height: 1.5;
+      height: 150px;
+      min-height: 80px;
+      max-height: 600px;
+      resize: vertical;
+      box-sizing: border-box;
     }
     .log-line { margin-bottom: 6px; word-break: break-all; }
     .log-time { color: #4b5563; margin-right: 6px; }
@@ -544,6 +543,7 @@
     .log-area::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 3px; }
     .log-area::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
     .log-area::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    .log-area::-webkit-resizer { background-color: var(--border-color); border-radius: 2px; }
 
     /* Tracker/Stats */
     .tracker-box {
@@ -712,6 +712,33 @@
       align-items: center;
       justify-content: center;
     }
+
+    /* Sticky Footer */
+    .footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-panel);
+      flex-shrink: 0;
+    }
+    .footer-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 0;
+      border-radius: 6px;
+      background: #25D366;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.2s;
+      box-sizing: border-box;
+    }
+    .footer-btn:hover {
+      opacity: 0.85;
+    }
   </style>
 </head>
 <body>
@@ -751,29 +778,28 @@
      <div id="mainInterface" class="content">
       <!-- Controls Bar - Top -->
       <section class="controls-bar">
-          <button class="btn-primary btn-start-glow" id="btnStart" title="Start processing">
+          <button class="btn-primary btn-start-glow" id="btnStart" title="Start processing" style="flex: 1;">
            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
              <path d="M8 5v14l11-7z"/>
            </svg>
            <span class="btn-label">Start</span>
          </button>
-        <button class="btn-primary btn-pause hidden" id="btnPause" title="Pause processing">
+        <button class="btn-primary btn-pause hidden" id="btnPause" title="Pause processing" style="flex: 1;">
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
           </svg>
           Pause
         </button>
-        <button class="btn-primary btn-stop hidden" id="btnStop" title="Stop processing">
+        <button class="btn-primary btn-stop hidden" id="btnStop" title="Stop processing" style="flex: 1;">
           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
             <path d="M6 6h12v12H6z"/>
           </svg>
           Stop
         </button>
-        <button class="btn-primary btn-reset" id="btnReset" title="Reset all to default">
+        <button class="btn-primary btn-reset btn-icon-only" id="btnReset" title="Reset all to default">
           <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
-          Reset
         </button>
       </section>
 
@@ -959,19 +985,19 @@
         <div class="log-area" id="logArea"></div>
       </section>
 
-      <!-- WhatsApp Community -->
-      <section style="padding: 12px 0 4px 0; text-align: center;">
-        <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" rel="noopener noreferrer"
-           style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; background: #25D366; color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; transition: opacity .2s;"
-           onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
-           title="Join our WhatsApp community for help & updates">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-          </svg>
-          Help & Updates
-        </a>
-      </section>
     </div>
+
+    <!-- Sticky Footer -->
+    <footer class="footer">
+      <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" rel="noopener noreferrer"
+         class="footer-btn"
+         title="Join our WhatsApp community for help & updates">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+        Help & Updates
+      </a>
+    </footer>
 
     <script src="sidepanel.js"></script>
 </body>
