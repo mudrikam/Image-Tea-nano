@@ -276,6 +276,9 @@ class ActionSequencerDialog(QDialog):
     single_delay_countdown = Signal(str)
     single_completed = Signal()
     
+    # Supported file extensions for batch processing (Photoshop/Illustrator)
+    SUPPORTED_EXTENSIONS = {'.ai', '.psd', '.png', '.eps', '.jpg', '.jpeg', '.svg', '.pdf', '.tif', '.tiff'}
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Action Sequencer")
@@ -302,6 +305,21 @@ class ActionSequencerDialog(QDialog):
         self.load_output_path()
         self.load_source_path()
         self.resize(700, 600)
+
+    @staticmethod
+    def _is_supported_file(filepath):
+        """Check if file extension is supported for action sequencer processing."""
+        ext = os.path.splitext(filepath)[1].lower()
+        return ext in ActionSequencerDialog.SUPPORTED_EXTENSIONS
+
+    def _load_files_from_folder(self, folder_path):
+        """Recursively load supported files from folder into self.loaded_files."""
+        self.loaded_files = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                filepath = os.path.join(root, file)
+                if self._is_supported_file(filepath):
+                    self.loaded_files.append(filepath)
     
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -578,12 +596,7 @@ class ActionSequencerDialog(QDialog):
         )
         
         if folder:
-            self.loaded_files = []
-            for root, dirs, files in os.walk(folder):
-                for file in files:
-                    filepath = os.path.join(root, file)
-                    self.loaded_files.append(filepath)
-            
+            self._load_files_from_folder(folder)
             self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
             # update ActionBar display so user sees selected source folder
             self.action_bar_widget.set_source_path(folder)
@@ -620,10 +633,7 @@ class ActionSequencerDialog(QDialog):
 
         if os.path.exists(path):
             if os.path.isdir(path):
-                self.loaded_files = []
-                for root, dirs, files in os.walk(path):
-                    for file in files:
-                        self.loaded_files.append(os.path.join(root, file))
+                self._load_files_from_folder(path)
                 self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
                 self.action_bar_widget.set_source_path(path)
                 self.config.set('source_path', path)
@@ -729,11 +739,7 @@ class ActionSequencerDialog(QDialog):
                         # Load files from source path
                         if os.path.isdir(source_path):
                             print(f"Auto-loading files from source path: {source_path}")
-                            self.loaded_files = []
-                            for root, dirs, files in os.walk(source_path):
-                                for file in files:
-                                    filepath = os.path.join(root, file)
-                                    self.loaded_files.append(filepath)
+                            self._load_files_from_folder(source_path)
                             self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
                         else:
                             # Single file path
@@ -1083,11 +1089,7 @@ class ActionSequencerDialog(QDialog):
         if source_path and os.path.exists(source_path):
             if os.path.isdir(source_path):
                 print(f"Reloading files from source path: {source_path}")
-                self.loaded_files = []
-                for root, dirs, files in os.walk(source_path):
-                    for file in files:
-                        filepath = os.path.join(root, file)
-                        self.loaded_files.append(filepath)
+                self._load_files_from_folder(source_path)
                 self.status_bar_widget.update_files_count(len(self.loaded_files), 'manual')
                 try:
                     self.action_bar_widget.set_source_path(source_path)
