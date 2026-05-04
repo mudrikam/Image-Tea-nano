@@ -497,6 +497,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     manualInput.value = '';
     manualInput.classList.remove('processing');
     manualInput.readOnly = false;
+
+    // Reset Generation Type to Image
+    const typeImage = document.getElementById('typeImage');
+    if (typeImage) typeImage.checked = true;
+
+    // Reset Aspect Ratio to 16:9
+    const r169 = document.getElementById('r169');
+    if (r169) r169.checked = true;
+
+    // Reset Batch Count to x4
+    const b4 = document.getElementById('b4');
+    if (b4) b4.checked = true;
+
+    // Reset Download Quality to Default
+    const dqDefault = document.getElementById('dqDefault');
+    if (dqDefault) dqDefault.checked = true;
+
+    // Reset Cooldown and Refresh inputs to defaults
+    if (globalDelaySecondsInput) globalDelaySecondsInput.value = '5';
+    if (refreshAfterPromptsInput) refreshAfterPromptsInput.value = '5';
+
+    // Re-apply ratio/quality filtering for Image type
+    updateRatioOptions('image');
+    updateDownloadQualityOptions('image');
+
     updateQueue();
     updateStats();
     logArea.innerHTML = '';
