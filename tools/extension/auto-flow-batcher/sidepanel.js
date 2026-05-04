@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    const fileLabel = document.getElementById('fileLabel');
    const typeGroup = document.getElementById('typeGroup');
    const queueTableBody = document.getElementById('queueTableBody');
+   const globalDelaySecondsInput = document.getElementById('globalDelaySeconds');
 
   // UI Stats Elements
   const valQueue = document.getElementById('valQueue');
@@ -50,6 +51,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const valDownloaded = document.getElementById('valDownloaded');
   const countdownRow = document.getElementById('countdownRow');
   const valCountdown = document.getElementById('valCountdown');
+  const cooldownLabel = document.getElementById('cooldownLabel');
+  const cooldownHint = document.getElementById('cooldownHint');
+  const cooldownProgressFill = document.getElementById('cooldownProgressFill');
 
   // Clear logs on every sidepanel open
   logArea.innerHTML = '';
@@ -415,14 +419,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  function getGlobalDelayMs() {
+    const delaySeconds = Number.parseFloat(globalDelaySecondsInput?.value);
+    const safeDelaySeconds = Number.isFinite(delaySeconds) && delaySeconds >= 0 ? delaySeconds : 5;
+    return Math.round(safeDelaySeconds * 1000);
+  }
+
   // Get settings from UI
   function getSettings() {
+    const globalDelayMs = getGlobalDelayMs();
     return {
       type: document.querySelector('input[name="type"]:checked').value,
       ratio: document.querySelector('input[name="ratio"]:checked').value,
       batch: document.querySelector('input[name="batch"]:checked').value,
-      downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default'
+      downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default',
+      globalDelayMs,
+      globalDelaySeconds: globalDelayMs / 1000
     };
+  }
+
+  function waitForCooldown(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+  }
+
+  async function runPromptCooldownIfNeeded(delayMs) {
+    if (delayMs <= 0 || currentIndex === 0) return;
+
+    const delaySeconds = Math.ceil(delayMs / 1000);
+    appendLog(`Cooldown ${delaySeconds}s before next prompt...`, 'info');
+    countdownRow.classList.remove('hidden');
+    startCountdown(delaySeconds, 'Prompt cooldown', `Waiting ${delaySeconds}s before sending the next prompt...`);
+    await waitForCooldown(delayMs);
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+    valCountdown.innerText = '--';
+    if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
+    countdownRow.classList.add('hidden');
+
   }
 
   // Reset process state (but keep prompts)
@@ -437,10 +470,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     countdownInterval = null;
     remainingCountdown = 0;
     valCountdown.innerText = '--';
+    if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
     countdownRow.classList.add('hidden');
   }
 
   // Full reset (including prompts and UI)
+
   function fullReset() {
     stopProcess();
     resetProcessState();
@@ -615,8 +650,11 @@ document.addEventListener('DOMContentLoaded', async () => {
        renderPromptDisplay(); // show active highlight immediately
 
        updateStats();
-       manualInput.classList.add('processing');
-       appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
+        manualInput.classList.add('processing');
+        await runPromptCooldownIfNeeded(settings.globalDelayMs || 0);
+        if (!isRunning) break;
+        appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
+
 
       try {
         // Use stored targetTabId
@@ -721,6 +759,7 @@ document.addEventListener('DOMContentLoaded', async () => {
      manualInput.style.display = '';
      promptDisplay.classList.remove('visible');
      valCountdown.innerText = '--';
+     if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
      countdownRow.classList.add('hidden');
 
      // Reset any processing rows
@@ -732,20 +771,32 @@ document.addEventListener('DOMContentLoaded', async () => {
      renderQueueTable();
    }
 
-  // Start countdown timer
-  function startCountdown(seconds) {
+  // Start visual countdown timer
+  function startCountdown(seconds, label = 'Cooldown active', hint = 'Waiting safely before continuing...') {
     remainingCountdown = seconds;
+    const totalSeconds = Math.max(1, seconds);
     clearInterval(countdownInterval);
+    countdownRow.classList.remove('hidden');
+    if (cooldownLabel) cooldownLabel.innerText = label;
+    if (cooldownHint) cooldownHint.innerText = hint;
+    if (cooldownProgressFill) cooldownProgressFill.style.width = '100%';
+    valCountdown.innerText = remainingCountdown;
+
     countdownInterval = setInterval(() => {
       if (!isRunning || isPaused) {
         return; // Don't decrement if paused or stopped
       }
       remainingCountdown--;
-      valCountdown.innerText = remainingCountdown;
+      valCountdown.innerText = Math.max(remainingCountdown, 0);
+      if (cooldownProgressFill) {
+        const progressPct = Math.max(0, (remainingCountdown / totalSeconds) * 100);
+        cooldownProgressFill.style.width = `${progressPct}%`;
+      }
       if (remainingCountdown <= 0) {
         clearInterval(countdownInterval);
         countdownInterval = null;
         countdownRow.classList.add('hidden');
+        if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
       }
     }, 1000);
   }
@@ -805,9 +856,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
           countdownRow.classList.add('hidden');
           clearInterval(countdownInterval);
-          countdownInterval = null;
+      countdownInterval = null;
+      if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
+
         }
       }
+    }
+
+    if (msg.action === "DOWNLOAD_COOLDOWN_START") {
+      const seconds = Math.max(1, Math.ceil(Number(msg.seconds) || 0));
+      if (isRunning && !isPaused) {
+        startCountdown(seconds, 'Download cooldown', `Waiting ${seconds}s before next download...`);
+      }
+    }
+
+    if (msg.action === "DOWNLOAD_COOLDOWN_END") {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+      valCountdown.innerText = '--';
+      if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
+      countdownRow.classList.add('hidden');
     }
 
     // Batch completion
@@ -815,6 +883,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       countdownRow.classList.add('hidden');
       clearInterval(countdownInterval);
       countdownInterval = null;
+      if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
     }
   });
 

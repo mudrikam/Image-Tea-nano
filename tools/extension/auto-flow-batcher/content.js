@@ -1243,6 +1243,27 @@ if (window.top !== window.self) {
         });
       }
 
+      function getGlobalDelayMs(settings) {
+        const delayMs = Number(settings?.globalDelayMs);
+        if (Number.isFinite(delayMs) && delayMs >= 0) return Math.round(delayMs);
+
+        const delaySeconds = Number(settings?.globalDelaySeconds);
+        if (Number.isFinite(delaySeconds) && delaySeconds >= 0) return Math.round(delaySeconds * 1000);
+
+        return 5000;
+      }
+
+      async function applyDownloadCooldown(settings, currentNumber, totalNumber) {
+        const delayMs = getGlobalDelayMs(settings);
+        if (delayMs <= 0 || currentNumber >= totalNumber || !isRunning) return;
+
+        const seconds = Math.ceil(delayMs / 1000);
+        log(`>>> Cooldown ${seconds}s before next download`);
+        safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_START', seconds });
+        await new Promise(r => setTimeout(r, delayMs));
+        safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_END' });
+      }
+
       // Process batch: monitor, detect, download
       async function processBatch(promptIndex, batchCount, beforeTileIds, settings) {
         log(`>>> Starting batch processing: expect ${batchCount} media items for prompt ${promptIndex + 1}`);
@@ -1277,8 +1298,8 @@ if (window.top !== window.self) {
           } else {
             log(`ERROR: Failed to download requested quality "${normalizeDownloadQuality(settings)}"; skipped default URL fallback`);
           }
-          // Small delay between downloads
-          await new Promise(r => setTimeout(r, 500));
+          // Configurable cooldown between downloads
+          await applyDownloadCooldown(settings, i + 1, maxToTake);
         }
 
         return {
@@ -1301,7 +1322,7 @@ if (window.top !== window.self) {
           await ensureFlowProjectReady();
 
           log(`>>> START: "${prompt}"`);
-          log(`>>> Settings: type=${settings.type}, ratio=${settings.ratio}, batch=x${settings.batch}, downloadQuality=${settings.downloadQuality || 'default'}`);
+          log(`>>> Settings: type=${settings.type}, ratio=${settings.ratio}, batch=x${settings.batch}, downloadQuality=${settings.downloadQuality || 'default'}, cooldown=${getGlobalDelayMs(settings) / 1000}s`);
 
           let editor = null;
           for (let i = 0; i < 20; i++) {
