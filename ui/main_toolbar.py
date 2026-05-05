@@ -227,21 +227,33 @@ def setup_main_toolbar(window: QWidget):
 
     add_vertical_separator(toolbar)
 
+    def _toolbar_write_images():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["exiftool"], parent=window):
+            return
+        write_metadata_to_images(window.db, window)
+
     write_metadata_images_action = create_toolbar_button_with_label(
         make_icon('fa6s.image', icon_color),
         make_icon('fa6s.image', icon_color_hover),
         "Write",
         "Write metadata to image files in the table \nThis will modify the actual image files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome image formats may not support certain metadata fields.",
-        lambda: write_metadata_to_images(window.db, window),
+        _toolbar_write_images,
         window, icon_size, obj_name='toolbar_write_images')
     toolbar.addAction(write_metadata_images_action)
+
+    def _toolbar_write_videos():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["exiftool"], parent=window):
+            return
+        write_metadata_to_videos(window.db, window)
 
     write_metadata_videos_action = create_toolbar_button_with_label(
         make_icon('fa6s.film', icon_color),
         make_icon('fa6s.film', icon_color_hover),
         "Write",
         "Write metadata to video files in the table \nThis will modify the actual video files on disk. \nIf you proceed, the changes will be permanent (no rollback). \nUSE WITH CAUTION. \n\nSome video formats may not support certain metadata fields.",
-        lambda: write_metadata_to_videos(window.db, window),
+        _toolbar_write_videos,
         window, icon_size, obj_name='toolbar_write_videos')
     toolbar.addAction(write_metadata_videos_action)
 

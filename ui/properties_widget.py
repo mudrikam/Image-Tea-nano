@@ -840,7 +840,7 @@ class PropertiesWidget(QWidget):
                 try:
                     from helpers.image_compression_helper import (
                         ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg,
-                        get_compression_quality, _resize_if_needed
+                        get_compression_quality, _resize_if_needed, MissingToolError
                     )
                     temp_folder = ensure_temp_folder()
                     quality = get_compression_quality()
@@ -873,6 +873,13 @@ class PropertiesWidget(QWidget):
                     else:
                         self._preview_cache[filepath] = None
                         self.preview_widget.clear()
+                except MissingToolError as e:
+                    print(f"Vector preview: {e}")
+                    self._preview_cache[filepath] = None
+                    self.preview_widget.clear()
+                    # Smart: open Tools Manager for missing tool
+                    from helpers.tools_dependency_helper import check_tools_available
+                    check_tools_available([e.tool_name], parent=self)
                 except Exception as e:
                     print(f"Vector preview error: {e}")
                     self._preview_cache[filepath] = None

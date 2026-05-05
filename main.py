@@ -116,6 +116,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._vibe_video_generator_dialog.close()
         if hasattr(self, '_prompted_image_sorter_dialog') and self._prompted_image_sorter_dialog:
             self._prompted_image_sorter_dialog.close()
+        if hasattr(self, '_tools_manager_dialog') and self._tools_manager_dialog:
+            self._tools_manager_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:
@@ -291,7 +293,12 @@ if __name__ == '__main__':
 
                 _emit("Verifying tools...")
                 print("[Background Init] Preparing tools...")
-                ensure_tools_ready(reporter=lambda msg: print(f"[Tools] {msg}"), progress_reporter=lambda p: None, unit_callback=lambda: None)
+                ensure_tools_ready(reporter=lambda msg: print(f"[Tools] {msg}"), progress_reporter=lambda p: None, unit_callback=lambda: None, auto_install=False)
+
+                _emit("Installing default tools...")
+                print("[Background Init] Installing default tools if missing...")
+                from tools.tools_checker import install_default_tools
+                install_default_tools(reporter=lambda msg: print(f"[Tools] {msg}"), progress_reporter=lambda p: None, unit_callback=lambda: None)
 
                 _emit("Running health check...")
                 print("[Background Init] Running health check...")

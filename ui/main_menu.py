@@ -63,6 +63,7 @@ MENU_TOOLTIPS = {
     "add_api_key": "Add or manage API keys for AI services",
     
     # Tools menu
+    "tools_manager": "Install and manage application tools",
     "prompt_generator": "Generate AI prompts for image/video creation",
     "prompt_injector": "Inject prompts/clicks using points and clipboard",
     "prompted_image_sorter": "Sort/rank images based on how well they match a prompt",
@@ -520,6 +521,9 @@ def setup_main_menu(window):
     write_metadata_images_action.setToolTip(MENU_TOOLTIPS["write_images"])
     write_metadata_images_action.setStatusTip(MENU_TOOLTIPS["write_images"])
     def do_write_metadata_images():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["exiftool"], parent=window):
+            return
         write_metadata_to_images(window.db, window)
     write_metadata_images_action.triggered.connect(do_write_metadata_images)
     metadata_menu.addAction(write_metadata_images_action)
@@ -528,6 +532,9 @@ def setup_main_menu(window):
     write_metadata_videos_action.setToolTip(MENU_TOOLTIPS["write_videos"])
     write_metadata_videos_action.setStatusTip(MENU_TOOLTIPS["write_videos"])
     def do_write_metadata_videos():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["exiftool"], parent=window):
+            return
         write_metadata_to_videos(window.db, window)
     write_metadata_videos_action.triggered.connect(do_write_metadata_videos)
     metadata_menu.addAction(write_metadata_videos_action)
@@ -868,6 +875,22 @@ def setup_main_menu(window):
     tools_menu = QMenu("Tools", menubar)
     tools_menu.setToolTipsVisible(True)
 
+    # Tools Manager - first item
+    tools_manager_action = QAction(qta.icon('fa6s.screwdriver-wrench'), "Tools Manager", window)
+    tools_manager_action.setToolTip("Install and manage application tools")
+    tools_manager_action.setStatusTip("Install and manage application tools")
+    def open_tools_manager():
+        from dialogs.tools.tools_manager.tools_manager_dialog import ToolsManagerDialog
+        if not hasattr(window, '_tools_manager_dialog') or not window._tools_manager_dialog:
+            window._tools_manager_dialog = ToolsManagerDialog(window)
+            window._tools_manager_dialog.destroyed.connect(lambda: setattr(window, '_tools_manager_dialog', None))
+        window._tools_manager_dialog.show()
+        window._tools_manager_dialog.raise_()
+        window._tools_manager_dialog.activateWindow()
+    tools_manager_action.triggered.connect(open_tools_manager)
+    tools_menu.addAction(tools_manager_action)
+    tools_menu.addSeparator()
+
     prompt_generator_action = QAction(qta.icon('fa6s.wand-magic-sparkles'), "Prompt Generator", window)
     prompt_generator_action.setToolTip(MENU_TOOLTIPS["prompt_generator"])
     prompt_generator_action.setStatusTip(MENU_TOOLTIPS["prompt_generator"])
@@ -921,6 +944,9 @@ def setup_main_menu(window):
     batch_audio_remover_action.setToolTip(MENU_TOOLTIPS["batch_audio_remover"])
     batch_audio_remover_action.setStatusTip(MENU_TOOLTIPS["batch_audio_remover"])
     def open_batch_audio_remover():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["ffmpeg"], parent=window):
+            return
         from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
         dlg = BatchAudioRemoverDialog(window)
         dlg.exec()
@@ -956,6 +982,9 @@ def setup_main_menu(window):
     video_upscaler_action.setToolTip(MENU_TOOLTIPS["video_upscaler"])
     video_upscaler_action.setStatusTip(MENU_TOOLTIPS["video_upscaler"])
     def open_video_upscaler():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["ffmpeg", "realesrgan"], parent=window):
+            return
         from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
         if not hasattr(window, '_video_upscaler_dialog') or not window._video_upscaler_dialog:
             window._video_upscaler_dialog = VideoUpscalerDialog(None)
@@ -969,6 +998,9 @@ def setup_main_menu(window):
     image_upscaler_action.setToolTip(MENU_TOOLTIPS["image_upscaler"])
     image_upscaler_action.setStatusTip(MENU_TOOLTIPS["image_upscaler"])
     def open_image_upscaler():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["realesrgan"], parent=window):
+            return
         from dialogs.tools.image_upscaler_tool import ImageUpscalerDialog
         if not hasattr(window, '_image_upscaler_dialog') or not window._image_upscaler_dialog:
             window._image_upscaler_dialog = ImageUpscalerDialog(None)
@@ -982,6 +1014,9 @@ def setup_main_menu(window):
     vibe_video_generator_action.setToolTip(MENU_TOOLTIPS["vibe_video_generator"])
     vibe_video_generator_action.setStatusTip(MENU_TOOLTIPS["vibe_video_generator"])
     def open_vibe_video_generator():
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["nodejs", "remotion"], parent=window):
+            return
         from helpers.members_helper.members_helper import is_logged_in
         if not is_logged_in():
             from dialogs.member_required_dialog import MemberRequiredDialog

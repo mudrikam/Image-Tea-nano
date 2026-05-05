@@ -108,7 +108,7 @@ def _load_image_qimage(filepath, ext, target_size):
                 return None
         elif ext in {'.svg', '.eps', '.pdf', '.ai'}:
             try:
-                from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality
+                from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality, MissingToolError
                 temp_folder = ensure_temp_folder()
                 quality = get_compression_quality()
                 filename = os.path.splitext(os.path.basename(filepath))[0] + "_preview.jpg"
@@ -127,6 +127,9 @@ def _load_image_qimage(filepath, ext, target_size):
                         img = img.convert("RGBA")
                         data = img.tobytes("raw", "RGBA")
                         return QImage(data, img.width, img.height, img.width * 4, QImage.Format_RGBA8888).copy()
+            except MissingToolError:
+                # Tool not installed — skip thumbnail silently (user will be prompted from UI layer)
+                return None
             except Exception as e:
                 print(f"[Thumbnail] Vector decode error {filepath}: {e}")
                 return None
@@ -3183,7 +3186,7 @@ class ImageTableWidget(QWidget):
                     print(f"Video preview error: {e}")
             elif ext in {'.svg', '.eps', '.pdf', '.ai'}:
                 try:
-                    from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality
+                    from helpers.image_compression_helper import ensure_temp_folder, convert_eps_pdf_to_jpg, convert_svg_to_jpg, get_compression_quality, MissingToolError
                     temp_folder = ensure_temp_folder()
                     quality = get_compression_quality()
                     filename = os.path.splitext(os.path.basename(filepath))[0] + "_preview.jpg"
@@ -3201,6 +3204,10 @@ class ImageTableWidget(QWidget):
                             pixmap = pixmap.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             self._preview_cache[filepath] = pixmap
                             return pixmap
+                except MissingToolError as e:
+                    # Smart: open Tools Manager for missing tool
+                    from helpers.tools_dependency_helper import check_tools_available
+                    check_tools_available([e.tool_name], parent=self)
                 except Exception as e:
                     print(f"Vector preview error: {e}")
             elif ext in PILLOW_FORMATS:

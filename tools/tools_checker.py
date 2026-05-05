@@ -1854,15 +1854,17 @@ def install_requirements(python_exe: str | None = None) -> bool:
         return False
 
 
-def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53', reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '0.9.53', reporter=None, progress_reporter=None, unit_callback=None, auto_install: bool = True) -> bool:
     """Perform the standard tool checks and ensure PyAutoGUI is available.
 
     Returns True if basic tooling appears ready (folders present and PyAutoGUI importable).
+    If auto_install=False, skip tool downloading (only check pyautogui/requirements).
     """
-    check_folders(reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
-    exe_ok = ensure_executables_for_tools(reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
-    if not exe_ok:
-        return False
+    if auto_install:
+        check_folders(reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        exe_ok = ensure_executables_for_tools(reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not exe_ok:
+            return False
     ok = ensure_pyautogui(python_exe, pyautogui_version)
     if not ok:
         return False
@@ -1872,6 +1874,152 @@ def ensure_tools_ready(python_exe: str | None = None, pyautogui_version: str = '
         return False
     
     return True
+
+
+# ─── Tools Manager API ───────────────────────────────────────────────────────
+
+_TOOL_ICON_MAP = {
+    "ffmpeg": "fa6s.video",
+    "realesrgan": "fa6s.wand-magic-sparkles",
+    "waifu2x": "fa6s.image",
+    "rife": "fa6s.image",
+    "nodejs": "fa6s.file-code",
+    "remotion": "fa6s.film",
+    "exiftool": "fa6s.camera",
+    "ghostscript": "fa6s.file-pdf",
+    "cairo": "fa6s.palette",
+}
+
+
+def get_icon_for_tool(tool_name: str) -> str:
+    """Return a FontAwesome 6 icon name for the given tool."""
+    return _TOOL_ICON_MAP.get(tool_name, "fa6s.gear")
+
+
+def load_default_tools_list() -> list:
+    """Read configs/tools_default.json and return the default_tools list."""
+    config_path = os.path.join(BASE_PATH, "configs", "tools_default.json")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get("default_tools", [])
+    except Exception:
+        return []
+
+
+def load_tool_descriptions() -> dict:
+    """Read configs/tools_default.json and return the tool_descriptions dict."""
+    config_path = os.path.join(BASE_PATH, "configs", "tools_default.json")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get("tool_descriptions", {})
+    except Exception:
+        return {}
+
+
+def get_tool_status(tool_name: str) -> dict:
+    """Return status dict for a single tool: installed, path, is_default."""
+    folder = os.path.join(BASE_PATH, 'tools', tool_name)
+    installed = is_executable_available(tool_name, folder) if os.path.isdir(folder) else False
+    # Also check system PATH for non-Windows
+    if not installed and platform.system() != "Windows":
+        installed = bool(check_system_tool(tool_name))
+    default_tools = load_default_tools_list()
+    return {
+        'installed': installed,
+        'path': folder,
+        'is_default': tool_name in default_tools
+    }
+
+
+def get_available_tools() -> list:
+    """Return list of all known tools with metadata."""
+    default_tools = load_default_tools_list()
+    descriptions = load_tool_descriptions()
+    tools = []
+    for tool_name in expected:
+        tools.append({
+            'name': tool_name,
+            'display_name': tool_name.replace('_', ' ').title(),
+            'description': descriptions.get(tool_name, ''),
+            'icon': get_icon_for_tool(tool_name),
+            'is_default': tool_name in default_tools
+        })
+    return tools
+
+
+def install_tool(tool_name: str, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    """Install a single tool by name. Returns True on success."""
+    folder = os.path.join(BASE_PATH, 'tools', tool_name)
+    os.makedirs(folder, exist_ok=True)
+
+    dispatch = {
+        "ffmpeg": download_and_extract_ffmpeg,
+        "realesrgan": download_and_extract_realesrgan,
+        "waifu2x": download_and_extract_waifu2x,
+        "rife": download_and_extract_rife,
+        "nodejs": download_and_extract_nodejs,
+        "remotion": download_and_install_remotion,
+        "exiftool": download_and_extract_exiftool,
+        "ghostscript": download_and_extract_ghostscript,
+        "cairo": download_and_extract_cairo,
+    }
+
+    handler = dispatch.get(tool_name)
+    if handler is None:
+        _emit(reporter, f"No install handler for tool: {tool_name}")
+        return False
+
+    _emit(reporter, f"Installing {tool_name}...")
+    ok = handler(folder, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+    if ok:
+        _emit(reporter, f"{tool_name} installed successfully.")
+    else:
+        _emit(reporter, f"Failed to install {tool_name}.")
+    return bool(ok)
+
+
+def install_default_tools(reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    """Install only default tools that are currently missing.
+    
+    Default tools are auto-installed on startup if not present.
+    Returns True if all default tools are installed (or were already installed).
+    """
+    default_tools = load_default_tools_list()
+    if not default_tools:
+        return True
+
+    missing = []
+    for tool_name in default_tools:
+        status = get_tool_status(tool_name)
+        if not status.get('installed', False):
+            missing.append(tool_name)
+
+    if not missing:
+        _emit(reporter, "All default tools are already installed.")
+        return True
+
+    _emit(reporter, f"Installing {len(missing)} missing default tool(s): {', '.join(missing)}")
+    all_ok = True
+    for tool_name in missing:
+        ok = install_tool(tool_name, reporter=reporter, progress_reporter=progress_reporter, unit_callback=unit_callback)
+        if not ok:
+            all_ok = False
+    return all_ok
+
+
+def remove_tool(tool_name: str) -> bool:
+    """Remove a tool by deleting its folder. Returns True on success."""
+    folder = os.path.join(BASE_PATH, 'tools', tool_name)
+    if os.path.isdir(folder):
+        try:
+            shutil.rmtree(folder)
+            return True
+        except Exception as e:
+            print(f"Error removing {tool_name}: {e}")
+            return False
+    return False
 
 
 if __name__ == "__main__":

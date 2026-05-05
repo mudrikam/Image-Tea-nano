@@ -12,19 +12,81 @@ import shutil
 
 BASE_PATH = config.BASE_PATH
 
+
+class MissingToolError(Exception):
+    """Raised when a required tool (cairo, ghostscript) is not installed."""
+    def __init__(self, tool_name, message=None):
+        self.tool_name = tool_name
+        if message is None:
+            message = f"Required tool '{tool_name}' is not installed. Install it via Tools > Tools Manager."
+        super().__init__(message)
+
+
+def check_image_tools_available(file_paths, parent=None) -> bool:
+    """
+    Check if required image processing tools are available for the given file paths.
+    If any tools are missing, opens Tools Manager and returns False.
+    
+    Call this from UI layer BEFORE processing images that need Cairo or Ghostscript.
+    
+    Args:
+        file_paths: Single path (str) or list of file paths to check
+        parent: Parent widget for the Tools Manager dialog
+        
+    Returns:
+        True if all required tools are available, False if any are missing.
+    """
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
+    
+    required_tools = set()
+    for path in file_paths:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".svg":
+            required_tools.add("cairo")
+        elif ext in (".eps", ".pdf", ".ai"):
+            required_tools.add("ghostscript")
+    
+    if not required_tools:
+        return True
+    
+    from helpers.tools_dependency_helper import check_tools_available
+    return check_tools_available(list(required_tools), parent=parent)
+
+
+def is_ghostscript_available() -> bool:
+    """Check if Ghostscript is installed and accessible."""
+    # Quick check: if we already found the path at module load
+    if GHOSTSCRIPT_PATH is not None:
+        return True
+    # Recheck via tools_checker
+    from tools.tools_checker import get_tool_status
+    status = get_tool_status("ghostscript")
+    if status['installed']:
+        return True
+    # Also check if gs is in PATH (non-Windows)
+    if platform.system() != "Windows":
+        return shutil.which("gs") is not None
+    return False
+
+
+def is_cairo_available() -> bool:
+    """Check if Cairo is installed and accessible."""
+    from tools.tools_checker import get_tool_status
+    status = get_tool_status("cairo")
+    return status['installed']
+
 _NO_WINDOW = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
 
 CAIRO_DLL_DIR = os.path.join(BASE_PATH, "tools", "cairo", "cairo-windows-1.17.2", "lib", "x64")
-from tools.tools_checker import download_and_extract_cairo
+_CAIRO_AVAILABLE = True  # Will be set to False if Cairo not found at module load
 
 if os.name == "nt":
     if not os.path.exists(CAIRO_DLL_DIR):
+        # Search for Cairo DLLs in the tools/cairo folder (may have been extracted differently)
         tools_folder = os.path.join(BASE_PATH, "tools", "cairo")
-        print(f"Cairo DLL dir not found at {CAIRO_DLL_DIR}; attempting to ensure tools folder: {tools_folder}")
-        ok = download_and_extract_cairo(tools_folder)
-        if ok:
-            print("Cairo package downloaded/extracted; searching for DLLs...")
-            found_dir = None
+        found_dir = None
+        if os.path.isdir(tools_folder):
             for root, dirs, files in os.walk(tools_folder):
                 for f in files:
                     name = f.lower()
@@ -33,21 +95,19 @@ if os.name == "nt":
                         break
                 if found_dir:
                     break
-            if found_dir:
-                CAIRO_DLL_DIR = found_dir
-                print(f"Found Cairo DLL directory: {CAIRO_DLL_DIR}")
-            else:
-                print(f"Cairo DLLs not found after extraction in {tools_folder}")
+        if found_dir:
+            CAIRO_DLL_DIR = found_dir
         else:
-            print(f"Cairo not available in {tools_folder}; download/extract did not succeed")
+            _CAIRO_AVAILABLE = False
 
-    if CAIRO_DLL_DIR not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = CAIRO_DLL_DIR + ";" + os.environ.get("PATH", "")
-    try:
-        if hasattr(os, "add_dll_directory"):
-            os.add_dll_directory(CAIRO_DLL_DIR)
-    except Exception as e:
-        print(f"Error setting Cairo DLL directory: {e}")
+    if os.path.isdir(CAIRO_DLL_DIR):
+        if CAIRO_DLL_DIR not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = CAIRO_DLL_DIR + ";" + os.environ.get("PATH", "")
+        try:
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(CAIRO_DLL_DIR)
+        except Exception as e:
+            print(f"Error setting Cairo DLL directory: {e}")
 
 PILLOW_FORMATS = set()
 for ext, fmt in Image.registered_extensions().items():
@@ -59,8 +119,8 @@ def get_ghostscript_path():
         path = os.path.join(BASE_PATH, "tools", "ghostscript", "gswin64c.exe")
         if os.path.exists(path) and os.access(path, os.X_OK):
             return path
-        print(f"Ghostscript: bundled Windows executable not found at {path}, will try PATH")
-        return "gs"
+        # Not found — will be caught by is_ghostscript_available() check
+        return None
 
     gs = shutil.which("gs")
     if gs:
@@ -74,16 +134,14 @@ def get_ghostscript_path():
     ]
     for p in candidates:
         if os.path.exists(p) and os.access(p, os.X_OK):
-            print(f"Ghostscript found at {p}")
             return p
 
     bundled_path = os.path.join(BASE_PATH, "tools", "ghostscript", "gs")
     if os.path.exists(bundled_path) and os.access(bundled_path, os.X_OK):
-        print(f"Using bundled Ghostscript at {bundled_path}")
         return bundled_path
 
-    print("Ghostscript executable not found in standard locations. Falling back to 'gs' (must be in PATH) — consider installing Ghostscript (e.g., 'brew install ghostscript').")
-    return "gs"
+    # Not found — will be caught by is_ghostscript_available() check
+    return None
 
 GHOSTSCRIPT_PATH = get_ghostscript_path()
 
@@ -326,6 +384,13 @@ def cleanup_temp_folder():
             print(f"Error cleaning temp file {file_path}: {e}")
 
 def _gs_render_png(input_path, png_path, width_px=None, height_px=None, dpi=300, tx=None, ty=None, extra_flags=None):
+    global GHOSTSCRIPT_PATH
+    # Re-resolve path if it was None (tool may have been installed during session)
+    if GHOSTSCRIPT_PATH is None:
+        GHOSTSCRIPT_PATH = get_ghostscript_path()
+    if GHOSTSCRIPT_PATH is None:
+        raise MissingToolError("ghostscript",
+            "Ghostscript is required but not installed. Install it via Tools > Tools Manager.")
     args = [
         GHOSTSCRIPT_PATH,
         "-dBATCH",
@@ -402,6 +467,13 @@ def _parse_bbox_from_file(input_path):
 
 
 def convert_eps_pdf_to_jpg(input_path, output_path, quality):
+    global GHOSTSCRIPT_PATH
+    if not is_ghostscript_available():
+        raise MissingToolError("ghostscript", 
+            "Ghostscript is required to process EPS/PDF/AI files. Install it via Tools > Tools Manager.")
+    # Re-resolve path in case tool was installed during session
+    if GHOSTSCRIPT_PATH is None:
+        GHOSTSCRIPT_PATH = get_ghostscript_path()
     try:
         png_path = output_path.replace(".jpg", ".png")
         ext = os.path.splitext(input_path)[1].lower()
@@ -577,11 +649,46 @@ def image_has_transparency(path):
 
 
 def convert_svg_to_jpg(input_path, output_path, quality):
+    global _CAIRO_AVAILABLE, CAIRO_DLL_DIR
+    # Check Cairo availability (Windows uses DLL, macOS/Linux uses system lib)
+    if os.name == "nt" and not _CAIRO_AVAILABLE:
+        # Re-check in case Cairo was installed during session
+        if is_cairo_available():
+            # Reload Cairo DLL path
+            tools_folder = os.path.join(BASE_PATH, "tools", "cairo")
+            found_dir = None
+            if os.path.isdir(tools_folder):
+                for root, dirs, files in os.walk(tools_folder):
+                    for f in files:
+                        name = f.lower()
+                        if name.endswith('.dll') and ('cairo' in name or 'libcairo' in name):
+                            found_dir = root
+                            break
+                    if found_dir:
+                        break
+            if found_dir:
+                CAIRO_DLL_DIR = found_dir
+                if CAIRO_DLL_DIR not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = CAIRO_DLL_DIR + ";" + os.environ.get("PATH", "")
+                try:
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(CAIRO_DLL_DIR)
+                except Exception:
+                    pass
+                _CAIRO_AVAILABLE = True
+            else:
+                raise MissingToolError("cairo",
+                    "Cairo is required to process SVG files. Install it via Tools > Tools Manager.")
+        else:
+            raise MissingToolError("cairo",
+                "Cairo is required to process SVG files. Install it via Tools > Tools Manager.")
+    
     dlopen_original_flags = None
     if sys.platform == "darwin":  # noqa: E501
         if not _ensure_cairo_loaded():
-            print("Cannot render SVG: cairo native library not available on macOS.")
-            return None
+            raise MissingToolError("cairo",
+                "Cairo native library is not available on macOS. Install it via 'brew install cairo' or Tools > Tools Manager.")
+
         if hasattr(sys, 'getdlopenflags') and hasattr(sys, 'setdlopenflags'):
             try:
                 dlopen_original_flags = sys.getdlopenflags()
@@ -609,21 +716,24 @@ def convert_svg_to_jpg(input_path, output_path, quality):
                             sys.setdlopenflags(dlopen_original_flags)
                         except Exception as e3:
                             print(f"Warning: failed to restore dlopen flags: {e3}")
-                    return None
+                    raise MissingToolError("cairo",
+                        "Cairo/CairoSVG failed to load. Install Cairo via Tools > Tools Manager.") from e2
             else:
                 if dlopen_original_flags is not None:
                     try:
                         sys.setdlopenflags(dlopen_original_flags)
                     except Exception as e3:
                         print(f"Warning: failed to restore dlopen flags: {e3}")
-                return None
+                raise MissingToolError("cairo",
+                    "Cairo native library not available. Install Cairo via Tools > Tools Manager.") from e
         else:
             if dlopen_original_flags is not None:
                 try:
                     sys.setdlopenflags(dlopen_original_flags)
                 except Exception as e3:
                     print(f"Warning: failed to restore dlopen flags: {e3}")
-            return None
+            raise MissingToolError("cairo",
+                "CairoSVG/Cairo is not available. Install Cairo via Tools > Tools Manager.") from e
 
     if sys.platform == "darwin" and dlopen_original_flags is not None:
         try:

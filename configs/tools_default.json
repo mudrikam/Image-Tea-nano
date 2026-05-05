@@ -1,0 +1,19 @@
+{
+  "default_tools": [
+    "ffmpeg",
+    "cairo",
+    "exiftool",
+    "ghostscript"
+  ],
+  "tool_descriptions": {
+    "ffmpeg": "FFmpeg - Video/audio processing, essential for video upscaler and other tools",
+    "realesrgan": "RealESRGAN - AI image upscaling (x2,x3,x4)",
+    "waifu2x": "Waifu2x - AI image upscaling with anime-style optimization",
+    "rife": "RIFE - AI video frame interpolation",
+    "nodejs": "Node.js - JavaScript runtime required for Remotion video generation",
+    "remotion": "Remotion - Video generation from code",
+    "exiftool": "ExifTool - Metadata reading/writing for images",
+    "ghostscript": "Ghostscript - PDF and PostScript processing for Cairo",
+    "cairo": "Cairo - 2D graphics library for metadata rendering"
+  }
+}
