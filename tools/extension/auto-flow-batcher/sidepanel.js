@@ -346,9 +346,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Open Flow in new tab
+  // Open Flow in new tab (detect locale from current tab if available)
   btnOpenFlow.addEventListener('click', async () => {
-    await chrome.tabs.create({ url: 'https://labs.google/fx/tools/flow' });
+    let flowUrl = 'https://labs.google/fx/tools/flow';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url) {
+        // Extract locale from current Flow URL if present (e.g., /fx/id/tools/... → "id")
+        const localeMatch = tab.url.match(/labs\.google(?:\.com)?\/fx\/([a-z]{2}(?:-[a-z]{2})?)\//i);
+        if (localeMatch && localeMatch[1]) {
+          const locale = localeMatch[1].toLowerCase();
+          // Don't treat path segments that look like tool names as locales
+          if (!['tools', 'flow', 'project'].includes(locale)) {
+            flowUrl = `https://labs.google/fx/${locale}/tools/flow`;
+          }
+        }
+      }
+    } catch (e) {
+      // Fallback to default URL
+    }
+    await chrome.tabs.create({ url: flowUrl });
   });
 
   // Initialize main interface logic

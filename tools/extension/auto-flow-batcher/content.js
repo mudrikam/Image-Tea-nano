@@ -4,6 +4,15 @@
 if (window.top !== window.self) {
 } else {
   (function () {
+     // Prevent double-injection: if content script was already loaded (e.g., by manifest
+     // content_scripts AND ensureContentScript), skip the second execution to avoid
+     // duplicate message listeners that cause prompts to run twice simultaneously.
+     if (window.__AFB_CONTENT_LOADED__) {
+       console.log('[AFB] Content script already loaded, skipping duplicate injection');
+       return;
+     }
+     window.__AFB_CONTENT_LOADED__ = true;
+
      // Guard: only run on Flow pages. Project creation is handled when started from the Flow landing page.
      // Supports any locale prefix (e.g., /id/, /my/, /en/, or none) before /tools/flow/
      const isFlowPage = location.href.includes('/labs.google/fx/') &&
@@ -48,11 +57,32 @@ if (window.top !== window.self) {
 
     function findNewProjectButton() {
       const buttons = Array.from(document.querySelectorAll('button'));
-      return buttons.find(button => {
+      // Strategy 1: Button with add_2 icon + known English text
+      const byEnglishText = buttons.find(button => {
         const text = (button.textContent || '').replace(/\s+/g, ' ').trim();
         return isVisibleElement(button) && !button.disabled &&
                text.includes('New project') && text.includes('add_2');
-      }) || buttons.find(button => {
+      });
+      if (byEnglishText) return byEnglishText;
+
+      // Strategy 2: Button with add_2 icon that is NOT a reference/upload button
+      // The "New project" button uses add_2 icon and is typically on the Flow landing page
+      // It does NOT have aria-haspopup="dialog" (which is the reference upload button)
+      const byAdd2Icon = buttons.find(button => {
+        if (!isVisibleElement(button) || button.disabled) return false;
+        if (button.getAttribute('aria-haspopup') === 'dialog') return false;
+        const html = button.innerHTML || '';
+        // Must have add_2 icon, must NOT be inside a toolbar (those are tile action buttons)
+        if (!html.includes('add_2')) return false;
+        if (button.closest('[role="toolbar"]')) return false;
+        // Exclude buttons that are clearly for other purposes (Create, arrow_forward)
+        if (html.includes('arrow_forward')) return false;
+        return true;
+      });
+      if (byAdd2Icon) return byAdd2Icon;
+
+      // Strategy 3: Exact English text match (fallback)
+      return buttons.find(button => {
         const text = (button.textContent || '').replace(/\s+/g, ' ').trim();
         return isVisibleElement(button) && !button.disabled && text === 'New project';
       });
