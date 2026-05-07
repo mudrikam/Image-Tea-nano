@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    const queueTableBody = document.getElementById('queueTableBody');
    const globalDelaySecondsInput = document.getElementById('globalDelaySeconds');
    const refreshAfterPromptsInput = document.getElementById('refreshAfterPrompts');
+   const repeatPerPromptInput = document.getElementById('repeatPerPrompt');
 
   // UI Stats Elements
   const valQueue = document.getElementById('valQueue');
@@ -221,7 +222,8 @@ document.addEventListener('DOMContentLoaded', async () => {
        } else if (item.status === 'partial') {
          statusClass = 'prompt-completed'; // treat partial as completed
        }
-       html += `<div class="prompt-line ${statusClass}">${escapeHtml(item.prompt)}</div>`;
+       const repeatLabel = item.repeatTotal > 1 ? `<span style="opacity:0.5;font-size:10px;">[${item.repeatIndex + 1}/${item.repeatTotal}]</span> ` : '';
+       html += `<div class="prompt-line ${statusClass}">${repeatLabel}${escapeHtml(item.prompt)}</div>`;
      });
      promptDisplay.innerHTML = html;
 
@@ -270,6 +272,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const text = manualInput.value;
     currentPrompts = parsePrompts(text);
     updateQueue();
+  });
+
+  // Repeat per prompt change handler - rebuild queue when repeat changes
+  repeatPerPromptInput.addEventListener('input', () => {
+    if (!isRunning) {
+      updateQueue();
+    }
   });
 
   // Copy logs button
@@ -394,16 +403,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
    // Update queue data array and refresh table
+   // Each prompt is expanded by repeatPerPrompt count (e.g., 3 prompts × 2 repeat = 6 queue entries)
    function updateQueue() {
      prompts = currentPrompts;
+     const repeat = getRepeatPerPrompt();
 
-     // Rebuild queueData with fresh pending status
-     queueData = prompts.map((prompt, idx) => ({
-       prompt: prompt,
-       status: 'pending',
-       generatedCount: 0,
-       index: idx
-     }));
+     // Rebuild queueData: expand each prompt by repeat count
+     queueData = [];
+     prompts.forEach((prompt, promptIdx) => {
+       for (let r = 0; r < repeat; r++) {
+         queueData.push({
+           prompt: prompt,
+           status: 'pending',
+           generatedCount: 0,
+           promptIndex: promptIdx,   // original prompt index
+           repeatIndex: r,           // which repeat (0-based)
+           repeatTotal: repeat       // total repeats for display
+         });
+       }
+     });
 
      updateQueueProgressLabel();
      renderQueueTable();
@@ -411,7 +429,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
    // Update queue progress label: "X/Y" format + remaining
    function updateQueueProgressLabel() {
-     const total = prompts.length;
+     const total = queueData.length;
      const completed = currentIndex;
      const remaining = Math.max(0, total - completed);
      if (total > 0) {
@@ -442,8 +460,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       else if (item.status === 'failed') statusText = 'Failed';
       else if (item.status === 'partial') statusText = 'Partial';
 
+      // Show index as "#P.R" when repeat > 1, otherwise just "#N"
+      const indexLabel = item.repeatTotal > 1
+        ? `#${item.promptIndex + 1}.${item.repeatIndex + 1}`
+        : `#${idx + 1}`;
+
       row.innerHTML = `
-        <td><span style="color: var(--text-muted); font-size: 10px;">#${idx + 1}</span></td>
+        <td><span style="color: var(--text-muted); font-size: 10px;">${indexLabel}</span></td>
         <td><div class="queue-prompt-text" title="${item.prompt.replace(/"/g, '&quot;')}">${item.prompt}</div></td>
         <td><span class="queue-status status-${item.status}">${statusText}</span></td>
         <td style="font-family: monospace;">${item.generatedCount}</td>
@@ -469,6 +492,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     return Number.isFinite(refreshAfterPrompts) && refreshAfterPrompts > 0 ? refreshAfterPrompts : 0;
   }
 
+  function getRepeatPerPrompt() {
+    const repeat = Number.parseInt(repeatPerPromptInput?.value, 10);
+    return Number.isFinite(repeat) && repeat >= 1 ? repeat : 1;
+  }
+
   // Get settings from UI
   function getSettings() {
     const globalDelayMs = getGlobalDelayMs();
@@ -479,7 +507,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default',
       globalDelayMs,
       globalDelaySeconds: globalDelayMs / 1000,
-      refreshAfterPrompts: getRefreshAfterPrompts()
+      refreshAfterPrompts: getRefreshAfterPrompts(),
+      repeatPerPrompt: getRepeatPerPrompt()
     };
   }
 
@@ -557,9 +586,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dqDefault = document.getElementById('dqDefault');
     if (dqDefault) dqDefault.checked = true;
 
-    // Reset Cooldown and Refresh inputs to defaults
+    // Reset User Controls inputs to defaults
     if (globalDelaySecondsInput) globalDelaySecondsInput.value = '5';
     if (refreshAfterPromptsInput) refreshAfterPromptsInput.value = '5';
+    if (repeatPerPromptInput) repeatPerPromptInput.value = '1';
 
     // Re-apply ratio/quality filtering for Image type
     updateRatioOptions('image');
@@ -650,7 +680,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function refreshAfterCompletedPromptIfNeeded(settings) {
     const refreshEvery = settings.refreshAfterPrompts || 0;
     if (refreshEvery <= 0) return;
-    if (successCount <= 0 || currentIndex >= prompts.length) return;
+    if (successCount <= 0 || currentIndex >= queueData.length) return;
     if (successCount === lastRefreshSuccessCount) return;
     if (successCount % refreshEvery !== 0) return;
 
@@ -713,7 +743,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       manualInput.readOnly = true;
       manualInput.style.display = 'none';
       promptDisplay.classList.add('visible');
-      appendLog(`Process resumed from prompt ${currentIndex + 1}/${prompts.length}.`, 'act');
+      appendLog(`Process resumed from prompt ${currentIndex + 1}/${queueData.length}.`, 'act');
 
       if (remainingCountdown > 0) {
         startCountdown(remainingCountdown);
@@ -759,7 +789,8 @@ document.addEventListener('DOMContentLoaded', async () => {
      promptDisplay.classList.add('visible');
      renderPromptDisplay();
 
-     appendLog(`Starting Automation for ${prompts.length} prompts... (${settings.batch}x per prompt)`, 'act');
+     const repeatInfo = settings.repeatPerPrompt > 1 ? `, ${settings.repeatPerPrompt}x repeat` : '';
+     appendLog(`Starting Automation for ${queueData.length} tasks (${prompts.length} prompts${repeatInfo}, ${settings.batch}x batch per prompt)`, 'act');
 
     // Check active tab
     const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -787,8 +818,9 @@ document.addEventListener('DOMContentLoaded', async () => {
    async function processQueue(settings) {
      const MAX_CONSECUTIVE_FAILURES = 3; // Auto-stop after 3 consecutive failures
      let consecutiveFailures = 0;
+     const totalQueue = queueData.length;
 
-     while (isRunning && !isPaused && currentIndex < prompts.length) {
+     while (isRunning && !isPaused && currentIndex < totalQueue) {
        const promptData = queueData[currentIndex];
        promptData.status = 'processing';
        renderQueueTable();
@@ -804,7 +836,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderPromptDisplay();
           break;
         }
-        appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
+        // Show repeat info in log if repeating
+        const repeatInfo = promptData.repeatTotal > 1 ? ` (repeat ${promptData.repeatIndex + 1}/${promptData.repeatTotal})` : '';
+        appendLog(`[${currentIndex + 1}/${totalQueue}] Processing: "${promptData.prompt}"${repeatInfo}`, 'act');
 
 
       try {
@@ -887,7 +921,7 @@ document.addEventListener('DOMContentLoaded', async () => {
        }
       }
 
-    if (currentIndex >= prompts.length && isRunning) {
+    if (currentIndex >= totalQueue && isRunning) {
       appendLog('All prompts completed successfully!', 'success');
     }
 
@@ -996,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
    // Update stats display
    function updateStats() {
-     const total = prompts.length;
+     const total = queueData.length;
      valQueue.innerText = total > 0 ? `${currentIndex} / ${total}` : '0 / 0';
      valSuccess.innerText = successCount;
      valFailed.innerText = failedCount;
