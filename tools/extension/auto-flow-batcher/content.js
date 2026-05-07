@@ -803,95 +803,195 @@ if (window.top !== window.self) {
          return false;
        }
 
+      function isButtonDisabled(button) {
+        return !button || button.disabled ||
+               button.getAttribute('aria-disabled') === 'true' ||
+               button.getAttribute('data-disabled') === 'true';
+      }
+
+      function getButtonText(button) {
+        return (button?.textContent || '').replace(/\s+/g, ' ').trim();
+      }
+
+      function findCreateButton() {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const candidates = [];
+
+        for (let btn of buttons) {
+          const txt = getButtonText(btn);
+          const lowerText = txt.toLowerCase();
+          const html = btn.innerHTML || '';
+          const iconTexts = Array.from(btn.querySelectorAll('i, .google-symbols'))
+            .map(icon => (icon.textContent || icon.innerHTML || '').trim())
+            .join(' ');
+          const accessibleText = [
+            txt,
+            btn.getAttribute('aria-label') || '',
+            btn.getAttribute('title') || '',
+            iconTexts
+          ].join(' ').toLowerCase();
+
+          const hasArrow = html.includes('arrow_forward') ||
+                           iconTexts.includes('arrow_forward') ||
+                           accessibleText.includes('arrow_forward');
+          const hasCreate = lowerText.includes('create') ||
+                            accessibleText.includes('create') ||
+                            btn.querySelector('span')?.textContent?.trim().toLowerCase() === 'create';
+          const hasAdd2 = html.includes('add_2') || iconTexts.includes('add_2');
+          const isDialog = btn.getAttribute('aria-haspopup') === 'dialog';
+          const isMenuButton = btn.getAttribute('aria-haspopup') === 'menu';
+
+          if (!hasArrow || hasAdd2 || isDialog || isMenuButton) continue;
+          if (!hasCreate && !lowerText.includes('arrow_forward')) continue;
+          if (!isVisibleElement(btn) || isButtonDisabled(btn)) continue;
+
+          const rect = btn.getBoundingClientRect();
+          candidates.push({ btn, score: (hasCreate ? 10 : 0) + rect.width + rect.height });
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates[0]?.btn || null;
+      }
+
+      function hasGenerationStarted(beforeTileIds, createBtn, editor) {
+        const currentTileIds = getCurrentTileIds();
+        const newTileCount = [...currentTileIds].filter(id => !beforeTileIds.has(id)).length;
+        if (newTileCount > 0) return true;
+        if (createBtn && !document.body.contains(createBtn)) return true;
+        if (createBtn && isButtonDisabled(createBtn)) return true;
+        if (editor && !getButtonText(editor).trim()) return true;
+        const busy = document.querySelector('[aria-busy="true"], [role="progressbar"], [data-testid*="progress"], [class*="progress"], [class*="loading"]');
+        return Boolean(busy && isVisibleElement(busy));
+      }
+
+      // Send a CDP native click via background.js → chrome.debugger
+      // This produces a trusted (isTrusted:true) mouse event that React handles
+      async function cdpClick(x, y) {
+        if (!hasExtensionRuntime()) return false;
+        try {
+          const response = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({ type: 'CDP_CLICK', x, y }, (res) => {
+              if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+              else resolve(res || { ok: false, error: 'empty response' });
+            });
+          });
+          return response && response.ok;
+        } catch (e) {
+          log(`DEBUG: CDP click error: ${e.message}`);
+          return false;
+        }
+      }
+
+      async function clickCreateTarget(element, label) {
+        if (!element) return;
+        element.scrollIntoView?.({ behavior: 'instant', block: 'center', inline: 'center' });
+        await new Promise(r => setTimeout(r, 40));
+
+        const rect = element.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const eventInit = { bubbles: true, cancelable: true, composed: true, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+        const pointerInit = { ...eventInit, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+
+        element.focus?.();
+        element.dispatchEvent(new PointerEvent('pointerover', pointerInit));
+        element.dispatchEvent(new PointerEvent('pointerenter', { ...pointerInit, bubbles: false }));
+        element.dispatchEvent(new MouseEvent('mouseover', eventInit));
+        element.dispatchEvent(new MouseEvent('mouseenter', { ...eventInit, bubbles: false }));
+        element.dispatchEvent(new PointerEvent('pointermove', pointerInit));
+        element.dispatchEvent(new MouseEvent('mousemove', eventInit));
+        element.dispatchEvent(new PointerEvent('pointerdown', pointerInit));
+        element.dispatchEvent(new MouseEvent('mousedown', eventInit));
+        await new Promise(r => setTimeout(r, 80));
+        element.dispatchEvent(new PointerEvent('pointerup', { ...pointerInit, buttons: 0 }));
+        element.dispatchEvent(new MouseEvent('mouseup', { ...eventInit, buttons: 0 }));
+        element.dispatchEvent(new MouseEvent('click', { ...eventInit, buttons: 0, detail: 1 }));
+        element.click?.();
+        log(`DEBUG: Synthetic click sent to ${label}`);
+      }
+
       // Click the "Create" button to send the prompt (after popup closed)
-      async function clickCreateButton() {
-        const MAX_RETRIES = 15;
-        const RETRY_DELAY = 200;
+      // Hard timeout of 15 seconds to prevent infinite loops
+      async function clickCreateButton(beforeTileIds = getCurrentTileIds(), editor = findEditor()) {
+        const TIMEOUT_MS = 15000;
+        const startTime = Date.now();
+        let attempt = 0;
 
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        const elapsed = () => Date.now() - startTime;
+        const timedOut = () => elapsed() >= TIMEOUT_MS;
+
+        while (!timedOut() && isRunning) {
+          attempt++;
           try {
-            // Find Create button: MUST have arrow_forward icon, NOT add_2 (which is for reference upload)
-            // Also exclude buttons with aria-haspopup="dialog"
-            const buttons = document.querySelectorAll('button');
-            let createBtn = null;
-
-            // First pass: look for arrow_forward icon specifically
-            for (let btn of buttons) {
-              const txt = (btn.textContent || '').trim();
-              const hasArrow = btn.innerHTML.includes('arrow_forward') ||
-                               btn.querySelector('i[font-size="1.25rem"]')?.innerHTML?.includes('arrow_forward') ||
-                               (btn.querySelector('.google-symbols') && btn.textContent.trim() === '');
-              const hasAdd2 = btn.innerHTML.includes('add_2') ||
-                              btn.querySelector('i[font-size="1.35rem"]')?.innerHTML?.includes('add_2');
-              const isDialog = btn.getAttribute('aria-haspopup') === 'dialog';
-
-              // Skip reference upload button (add_2 + aria-haspopup="dialog")
-              if (hasAdd2 || isDialog) {
-                continue;
-              }
-
-              if ((txt.includes('Create') || txt === '') && hasArrow) {
-                createBtn = btn;
-                log(`DEBUG: Found Create button by arrow_forward icon (attempt ${attempt})`);
-                break;
-              }
-            }
-
-            // Fallback: try known class pattern for Create button (NOT dialog)
-            if (!createBtn) {
-              // The Create button typically has: sc-e8425ea6-0 gLXNUV ... ewQKQI eaSocK jaSpBd
-              // The dialog upload button has: ... AyIIS hxYNKs
-              const allButtons = document.querySelectorAll('button.ewQKQI:not(.AyIIS)');
-              for (let btn of allButtons) {
-                const hasArrow = btn.innerHTML.includes('arrow_forward');
-                const hasAdd2 = btn.innerHTML.includes('add_2');
-                if (hasArrow && !hasAdd2) {
-                  createBtn = btn;
-                  log(`DEBUG: Found Create button by class+arrow pattern (attempt ${attempt})`);
-                  break;
-                }
-              }
-            }
+            const createBtn = findCreateButton();
 
             if (!createBtn) {
-              await new Promise(r => setTimeout(r, RETRY_DELAY));
+              log(`DEBUG: Create button not found (attempt ${attempt}, ${Math.round(elapsed()/1000)}s)`);
+              await new Promise(r => setTimeout(r, 300));
               continue;
             }
 
-            const style = window.getComputedStyle(createBtn);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0' || createBtn.disabled) {
-              await new Promise(r => setTimeout(r, RETRY_DELAY));
-              continue;
-            }
+            createBtn.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+            await new Promise(r => setTimeout(r, 150));
 
             const rect = createBtn.getBoundingClientRect();
             const cx = rect.left + rect.width / 2;
             const cy = rect.top + rect.height / 2;
 
-            // Dispatch pointer events
-            createBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
-            await new Promise(r => setTimeout(r, 50));
-            createBtn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, pointerType: 'mouse' }));
-            await new Promise(r => setTimeout(r, 50));
-            createBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0 }));
+            log(`DEBUG: Create button found (attempt ${attempt}, ${Math.round(elapsed()/1000)}s) at (${Math.round(cx)}, ${Math.round(cy)})`);
 
-            log(`>>> Create button clicked (attempt ${attempt})`);
-            await new Promise(r => setTimeout(r, 500));
-
-            // Verify: button still visible but don't require state change
-            const stillExists = document.body.contains(createBtn);
-            if (stillExists) {
-              log(`DEBUG: Create button still exists after click`);
+            // === Strategy 1: CDP native click (trusted isTrusted:true event) ===
+            log(`DEBUG: Trying CDP click at (${Math.round(cx)}, ${Math.round(cy)})...`);
+            const cdpOk = await cdpClick(cx, cy);
+            if (cdpOk) {
+              log(`DEBUG: CDP click dispatched OK`);
+              await new Promise(r => setTimeout(r, 800));
+              if (!isRunning) break;
+              if (hasGenerationStarted(beforeTileIds, createBtn, editor)) {
+                log(`>>> Create VERIFIED via CDP click (attempt ${attempt}, ${Math.round(elapsed()/1000)}s)`);
+                return true;
+              }
+            } else {
+              log(`DEBUG: CDP click failed, using synthetic fallback`);
             }
 
-            return true;
+            if (timedOut() || !isRunning) break;
+
+            // === Strategy 2: Synthetic click on button ===
+            await clickCreateTarget(createBtn, 'Create button');
+            await new Promise(r => setTimeout(r, 600));
+            if (!isRunning) break;
+            if (hasGenerationStarted(beforeTileIds, createBtn, editor)) {
+              log(`>>> Create VERIFIED via synthetic click (attempt ${attempt}, ${Math.round(elapsed()/1000)}s)`);
+              return true;
+            }
+
+            if (timedOut() || !isRunning) break;
+
+            // === Strategy 3: Click child elements (icon, overlay) ===
+            const icon = createBtn.querySelector('i, .google-symbols');
+            if (icon && !timedOut() && isRunning) {
+              await clickCreateTarget(icon, 'Create icon');
+              await new Promise(r => setTimeout(r, 400));
+              if (!isRunning) break;
+              if (hasGenerationStarted(beforeTileIds, createBtn, editor)) {
+                log(`>>> Create VERIFIED via icon click (attempt ${attempt})`);
+                return true;
+              }
+            }
+
+            await new Promise(r => setTimeout(r, 200));
           } catch (e) {
-            log(`DEBUG: Error clicking Create button (attempt ${attempt}): ${e.message}`);
-            await new Promise(r => setTimeout(r, RETRY_DELAY));
+            log(`DEBUG: Error clicking Create (attempt ${attempt}): ${e.message}`);
+            await new Promise(r => setTimeout(r, 300));
           }
         }
 
-        log('WARN: Create button not found/clicked after retries');
+        if (!isRunning) {
+          log('>>> Create aborted: stopped by user');
+        } else {
+          log(`ERROR: Create button click FAILED after ${attempt} attempts (${Math.round(elapsed()/1000)}s timeout)`);
+        }
         return false;
       }
 
@@ -1407,7 +1507,7 @@ if (window.top !== window.self) {
                  await selectModeTab(settings.type, settings.ratio, settings.batch);
                  await closePopupMenu();
                  const beforeTileIds = getCurrentTileIds();
-                 const createClicked = await clickCreateButton();
+                 const createClicked = await clickCreateButton(beforeTileIds, editor);
                  if (createClicked && isRunning) {
                    const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
                    log(`>>> Batch result: ${batchResult.message}`);
@@ -1487,7 +1587,7 @@ if (window.top !== window.self) {
                   await selectModeTab(settings.type, settings.ratio, settings.batch);
                   await closePopupMenu();
                   const beforeTileIds = getCurrentTileIds();
-                  const createClicked = await clickCreateButton();
+                  const createClicked = await clickCreateButton(beforeTileIds, editor);
                   if (createClicked && isRunning) {
                     const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
                     log(`>>> Batch result: ${batchResult.message}`);
@@ -1531,7 +1631,7 @@ if (window.top !== window.self) {
                 const beforeTileIds = getCurrentTileIds();
 
                 // Click Create button to send prompt and then monitor/download
-                const createClicked = await clickCreateButton();
+                const createClicked = await clickCreateButton(beforeTileIds, editor);
                 if (createClicked && isRunning) {
                   const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
                   log(`>>> Batch result: ${batchResult.message}`);

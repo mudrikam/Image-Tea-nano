@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnLoadTXT = document.getElementById('btnLoadTXT');
   const btnLoadCSV = document.getElementById('btnLoadCSV');
    const btnClearLogs = document.getElementById('btnClearLogs');
+   const btnCopyLogs = document.getElementById('btnCopyLogs');
    const btnPaste = document.getElementById('btnPaste');
    const btnClearInput = document.getElementById('btnClearInput');
    const promptDisplay = document.getElementById('promptDisplay');
@@ -271,6 +272,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateQueue();
   });
 
+  // Copy logs button
+  btnCopyLogs.addEventListener('click', async () => {
+    const logText = logArea.innerText || logArea.textContent || '';
+    if (!logText.trim()) {
+      appendLog('No logs to copy.', 'warn');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(logText);
+      // Brief visual feedback on the button
+      const origTitle = btnCopyLogs.title;
+      btnCopyLogs.title = 'Copied!';
+      btnCopyLogs.style.color = 'var(--success)';
+      setTimeout(() => { btnCopyLogs.title = origTitle; btnCopyLogs.style.color = ''; }, 1500);
+    } catch (err) {
+      appendLog('Failed to copy logs: ' + err.message, 'error');
+    }
+  });
+
   // Clear logs button
   btnClearLogs.addEventListener('click', () => {
     logArea.innerHTML = '';
@@ -474,13 +494,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     appendLog(`Cooldown ${delaySeconds}s before next prompt...`, 'info');
     countdownRow.classList.remove('hidden');
     startCountdown(delaySeconds, 'Prompt cooldown', `Waiting ${delaySeconds}s before sending the next prompt...`);
-    await waitForCooldown(delayMs);
+
+    // Wait in small increments so we can break out early if paused/stopped
+    const startTime = Date.now();
+    while (Date.now() - startTime < delayMs) {
+      if (!isRunning || isPaused) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+
     clearInterval(countdownInterval);
     countdownInterval = null;
     valCountdown.innerText = '--';
     if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
     countdownRow.classList.add('hidden');
-
   }
 
   // Reset process state (but keep prompts)
@@ -685,10 +711,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnStop.classList.remove('hidden');
       manualInput.classList.add('processing');
       manualInput.readOnly = true;
-      appendLog('Process resumed.', 'act');
+      manualInput.style.display = 'none';
+      promptDisplay.classList.add('visible');
+      appendLog(`Process resumed from prompt ${currentIndex + 1}/${prompts.length}.`, 'act');
 
       if (remainingCountdown > 0) {
         startCountdown(remainingCountdown);
+      }
+
+      // Re-acquire target tab (user may have switched tabs)
+      const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (targetTab) {
+        targetTabId = targetTab.id;
+        try {
+          await ensureContentScript(targetTab.id);
+        } catch (err) {
+          appendLog(`Warning: Could not verify content script: ${err.message}`, 'warn');
+        }
       }
 
       processQueue(getSettings());
@@ -746,16 +785,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Main processing loop
    async function processQueue(settings) {
-     while (isRunning && currentIndex < prompts.length) {
+     const MAX_CONSECUTIVE_FAILURES = 3; // Auto-stop after 3 consecutive failures
+     let consecutiveFailures = 0;
+
+     while (isRunning && !isPaused && currentIndex < prompts.length) {
        const promptData = queueData[currentIndex];
        promptData.status = 'processing';
        renderQueueTable();
        renderPromptDisplay(); // show active highlight immediately
 
-       updateStats();
+        updateStats();
         manualInput.classList.add('processing');
         await runPromptCooldownIfNeeded(settings.globalDelayMs || 0);
-        if (!isRunning) break;
+        if (!isRunning || isPaused) {
+          // Revert status since we haven't actually started this prompt
+          promptData.status = 'pending';
+          renderQueueTable();
+          renderPromptDisplay();
+          break;
+        }
         appendLog(`[${currentIndex + 1}/${prompts.length}] Processing: "${promptData.prompt}"`, 'act');
 
 
@@ -783,6 +831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (response.status === 'success' || response.status === 'partial') {
           successCount++;
+          consecutiveFailures = 0; // Reset on success
           const downloaded = response.downloaded || 0;
           downloadedCount += downloaded;
           promptData.generatedCount += downloaded;
@@ -791,21 +840,43 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? `[${currentIndex + 1}] ${response.message}`
             : `[${currentIndex + 1}] OK: ${response.ids ? response.ids.length : 1} variations saved.`;
           appendLog(msg, 'success');
+        } else if (response.status === 'stopped') {
+          appendLog(`[${currentIndex + 1}] Stopped by user.`, 'warn');
+          break;
         } else {
           failedCount++;
+          consecutiveFailures++;
           promptData.status = 'failed';
           appendLog(`[${currentIndex + 1}] Failed: ${response.message}`, 'error');
+
+          // Auto-stop after too many consecutive failures
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            appendLog(`AUTO-STOP: ${MAX_CONSECUTIVE_FAILURES} consecutive failures. The Create button may not be working. Please check the Flow page and try again.`, 'error');
+            break;
+          }
         }
       } catch (err) {
         failedCount++;
+        consecutiveFailures++;
         promptData.status = 'failed';
         appendLog(`[${currentIndex + 1}] Execution Error: ${err.message}`, 'error');
+
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          appendLog(`AUTO-STOP: ${MAX_CONSECUTIVE_FAILURES} consecutive failures. Please check the Flow page.`, 'error');
+          break;
+        }
       }
 
        currentIndex++;
        updateStats();
        renderQueueTable();
        renderPromptDisplay();
+
+       // Check if user pressed Pause while the prompt was running.
+       // If paused, stop the loop gracefully AFTER the current prompt completed.
+       if (isPaused) {
+         break;
+       }
 
        if (isRunning) {
          try {
@@ -818,23 +889,33 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (currentIndex >= prompts.length && isRunning) {
       appendLog('All prompts completed successfully!', 'success');
-      stopProcess();
     }
+
+    // If paused, don't call stopProcess — just exit the loop gracefully.
+    // The user will resume later via the Start/Continue button.
+    if (isPaused) {
+      isRunning = false;
+      return;
+    }
+
+    stopProcess();
   }
 
   // Pause button handler
+  // Pause does NOT immediately stop the current prompt — it lets the current prompt
+  // finish (generate + download), then pauses before the next prompt starts.
   btnPause.addEventListener('click', () => {
-    if (isRunning) {
+    if (isRunning && !isPaused) {
       isPaused = true;
-      isRunning = false;
+      // NOTE: We do NOT set isRunning = false here!
+      // The processQueue loop will check isPaused after the current prompt completes.
       btnPause.classList.add('hidden');
       btnStart.classList.remove('hidden');
       btnStart.querySelector('.btn-label').textContent = 'Continue';
       btnStop.classList.remove('hidden');
-      manualInput.classList.remove('processing');
-      appendLog('Process paused.', 'warn');
+      appendLog('Process paused. Current prompt will finish, then queue will pause.', 'warn');
 
-      // Stop countdown
+      // Stop countdown display (visual only)
       clearInterval(countdownInterval);
       countdownInterval = null;
     }
@@ -873,13 +954,14 @@ document.addEventListener('DOMContentLoaded', async () => {
      if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
      countdownRow.classList.add('hidden');
 
-     // Reset any processing rows
+     // Mark any still-processing rows as failed (real stop, not pause)
      queueData.forEach(item => {
        if (item.status === 'processing') {
          item.status = 'failed';
        }
      });
      renderQueueTable();
+     renderPromptDisplay();
    }
 
   // Start visual countdown timer

@@ -78,6 +78,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Handle CDP native click requests from content script
+// Uses Chrome DevTools Protocol to dispatch trusted mouse events
+// that React's event system will properly handle (isTrusted: true)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'CDP_CLICK') {
+    const tabId = message.tabId || sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: 'No tab ID' });
+      return true;
+    }
+    const { x, y } = message;
+    const debuggee = { tabId };
+
+    (async () => {
+      try {
+        await chrome.debugger.attach(debuggee, '1.3');
+        await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed', x, y, button: 'left', clickCount: 1
+        });
+        await new Promise(r => setTimeout(r, 50));
+        await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x, y, button: 'left', clickCount: 1
+        });
+        await new Promise(r => setTimeout(r, 50));
+        await chrome.debugger.detach(debuggee);
+        sendResponse({ ok: true });
+      } catch (err) {
+        try { await chrome.debugger.detach(debuggee); } catch (_) {}
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+});
+
 // Handle download requests from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'DOWNLOAD_CONTENT') {
