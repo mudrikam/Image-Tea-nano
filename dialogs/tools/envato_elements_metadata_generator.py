@@ -26,13 +26,14 @@ class ImageProcessor(QThread):
     error_occurred = Signal(str)
     retry_status = Signal(str, int)
     
-    def __init__(self, image_data, api_key, model, limits, service=None, max_retries=5):
+    def __init__(self, image_data, api_key, model, limits, service=None, endpoint=None, max_retries=5):
         super().__init__()
         self.image_data = image_data
         self.api_key = api_key
         self.model = model
         self.limits = limits
         self.service = service
+        self.endpoint = endpoint
         self.max_retries = max_retries
     
     def run(self):
@@ -41,7 +42,8 @@ class ImageProcessor(QThread):
             self.api_key, 
             self.model, 
             self.limits,
-            service=self.service
+            service=self.service,
+            endpoint=self.endpoint
         )
         
         if result:
@@ -298,8 +300,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         current_api_key = self.api_combo.currentData()
         if current_api_key and current_api_key in self.api_map:
             api_info = self.api_map[current_api_key]
-            return current_api_key, api_info['service'], api_info['model']
-        return None, None, None
+            return current_api_key, api_info['service'], api_info['model'], api_info.get('endpoint')
+        return None, None, None, None
     
     def toggle_always_on_top(self, checked):
         self.config['always_on_top'] = checked
@@ -734,7 +736,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         if not self.image_data:
             return
         
-        api_key, service, model = self.get_current_api_credentials()
+        api_key, service, model, endpoint = self.get_current_api_credentials()
         if not api_key:
             self.status_label.setText("API key required")
             QTimer.singleShot(3000, lambda: self.status_label.setText("Ready"))
@@ -752,6 +754,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             model,
             limits=self.config['limits'],
             service=service,
+            endpoint=endpoint,
             max_retries=5
         )
         self.processor_thread.result_ready.connect(self.on_result_ready)
@@ -763,7 +766,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             QMessageBox.warning(self, "Warning", "Please load an image first.")
             return
         
-        api_key, service, model = self.get_current_api_credentials()
+        api_key, service, model, endpoint = self.get_current_api_credentials()
         if not api_key:
             QMessageBox.warning(self, "Warning", "Please select an API key.")
             return
@@ -780,6 +783,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             model,
             limits=self.config['limits'],
             service=service,
+            endpoint=endpoint,
             max_retries=5
         )
         self.processor_thread.result_ready.connect(self.on_result_ready)
