@@ -1380,7 +1380,7 @@ if (window.top !== window.self) {
         const delaySeconds = Number(settings?.globalDelaySeconds);
         if (Number.isFinite(delaySeconds) && delaySeconds >= 0) return Math.round(delaySeconds * 1000);
 
-        return 5000;
+        return 30000;
       }
 
       async function applyDownloadCooldown(settings, currentNumber, totalNumber) {

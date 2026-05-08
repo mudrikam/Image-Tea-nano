@@ -483,7 +483,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function getGlobalDelayMs() {
     const delaySeconds = Number.parseFloat(globalDelaySecondsInput?.value);
-    const safeDelaySeconds = Number.isFinite(delaySeconds) && delaySeconds >= 0 ? delaySeconds : 5;
+    const safeDelaySeconds = Number.isFinite(delaySeconds) && delaySeconds >= 0 ? delaySeconds : 30;
     return Math.round(safeDelaySeconds * 1000);
   }
 
