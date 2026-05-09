@@ -196,8 +196,11 @@ if (window.top !== window.self) {
         for (let i = 0; i < text.length && isRunning; i++) {
           const char = text[i];
 
-          // Random delay to simulate human typing variation
-          const delay = Math.random() * (maxDelay - minDelay) + minDelay;
+          // Random delay to simulate human typing variation, doubled for spaces
+          let delay = Math.random() * (maxDelay - minDelay) + minDelay;
+          if (char === ' ') {
+            delay = delay * 2;
+          }
           await new Promise(r => setTimeout(r, delay));
 
           if (!isRunning) break;
@@ -1476,16 +1479,19 @@ if (window.top !== window.self) {
         return 30000;
       }
 
-      async function applyDownloadCooldown(settings, currentNumber, totalNumber) {
-        const delayMs = getGlobalDelayMs(settings);
-        if (delayMs <= 0 || currentNumber >= totalNumber || !isRunning) return;
+       async function applyDownloadCooldown(settings, currentNumber, totalNumber) {
+         const delayMs = getGlobalDelayMs(settings);
+         if (delayMs <= 0 || currentNumber >= totalNumber || !isRunning) return;
 
-        const seconds = Math.ceil(delayMs / 1000);
-        log(`>>> Cooldown ${seconds}s before next download`);
-        safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_START', seconds });
-        await new Promise(r => setTimeout(r, delayMs));
-        safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_END' });
-      }
+         // Always add random variation of 0-20 seconds to configured delay
+         const actualDelayMs = delayMs + Math.random() * 20000;
+
+         const seconds = Math.ceil(actualDelayMs / 1000);
+         log(`>>> Cooldown ${seconds}s before next download`);
+         safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_START', seconds });
+         await new Promise(r => setTimeout(r, actualDelayMs));
+         safeRuntimeSendMessage({ action: 'DOWNLOAD_COOLDOWN_END' });
+       }
 
       // Process batch: monitor, detect, download
       async function processBatch(promptIndex, batchCount, beforeTileIds, settings) {

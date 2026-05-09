@@ -516,27 +516,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
   }
 
-  async function runPromptCooldownIfNeeded(delayMs) {
-    if (delayMs <= 0 || currentIndex === 0) return;
+   async function runPromptCooldownIfNeeded(delayMs) {
+     if (delayMs <= 0 || currentIndex === 0) return;
 
-    const delaySeconds = Math.ceil(delayMs / 1000);
-    appendLog(`Cooldown ${delaySeconds}s before next prompt...`, 'info');
-    countdownRow.classList.remove('hidden');
-    startCountdown(delaySeconds, 'Prompt cooldown', `Waiting ${delaySeconds}s before sending the next prompt...`);
+     // Always add random variation of 0-20 seconds to configured delay
+     const actualDelayMs = delayMs + Math.random() * 20000;
 
-    // Wait in small increments so we can break out early if paused/stopped
-    const startTime = Date.now();
-    while (Date.now() - startTime < delayMs) {
-      if (!isRunning || isPaused) break;
-      await new Promise(r => setTimeout(r, 200));
-    }
+     const delaySeconds = Math.ceil(actualDelayMs / 1000);
+     appendLog(`Cooldown ${delaySeconds}s before next prompt...`, 'info');
+     countdownRow.classList.remove('hidden');
+     startCountdown(delaySeconds, 'Prompt cooldown', `Waiting ${delaySeconds}s before sending the next prompt...`);
 
-    clearInterval(countdownInterval);
-    countdownInterval = null;
-    valCountdown.innerText = '--';
-    if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
-    countdownRow.classList.add('hidden');
-  }
+     // Wait in small increments so we can break out early if paused/stopped
+     const startTime = Date.now();
+     while (Date.now() - startTime < actualDelayMs) {
+       if (!isRunning || isPaused) break;
+       await new Promise(r => setTimeout(r, 200));
+     }
+
+     clearInterval(countdownInterval);
+     countdownInterval = null;
+     valCountdown.innerText = '--';
+     if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
+     countdownRow.classList.add('hidden');
+   }
 
   // Reset process state (but keep prompts)
   function resetProcessState() {
