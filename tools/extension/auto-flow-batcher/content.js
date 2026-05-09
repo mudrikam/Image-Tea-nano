@@ -164,6 +164,99 @@ if (window.top !== window.self) {
                style.pointerEvents !== 'none';
       }
 
+      // Simulate human typing: type text character by character with random delays
+      async function typeText(element, text) {
+        if (!text) return;
+
+        const minDelay = 10;  // Minimum delay between keystrokes (ms)
+        const maxDelay = 40; // Maximum delay between keystrokes (ms)
+        const selection = window.getSelection();
+        let range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+        // Ensure we have a valid range/cursor position
+        if (!range || !range.commonAncestorContainer.parentElement?.contains(element)) {
+          // No valid selection inside element, place cursor at end of element
+          range = document.createRange();
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+          let lastNode = null;
+          while (walker.nextNode()) {
+            lastNode = walker.currentNode;
+          }
+          if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.setEndAfter(lastNode);
+          } else {
+            range.setStart(element, 0);
+            range.setEnd(element, 0);
+          }
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+
+        for (let i = 0; i < text.length && isRunning; i++) {
+          const char = text[i];
+
+          // Random delay to simulate human typing variation
+          const delay = Math.random() * (maxDelay - minDelay) + minDelay;
+          await new Promise(r => setTimeout(r, delay));
+
+          if (!isRunning) break;
+
+          // Dispatch keyboard events for this character
+          const key = char === ' ' ? ' ' : char;
+          const code = 'Key' + key.toUpperCase();
+          const keyCode = key.charCodeAt(0);
+
+          // keydown
+          const keyDownEvent = new KeyboardEvent('keydown', {
+            key: key,
+            code: code,
+            keyCode: keyCode,
+            which: keyCode,
+            bubbles: true,
+            cancelable: true
+          });
+          element.dispatchEvent(keyDownEvent);
+
+          // beforeinput (insertText)
+          const beforeInput = new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: char,
+            bubbles: true,
+            cancelable: true,
+            isComposing: false
+          });
+          const canceled = !element.dispatchEvent(beforeInput);
+
+          if (!canceled) {
+            // input event (the actual text insertion)
+            const inputEvent = new InputEvent('input', {
+              inputType: 'insertText',
+              data: char,
+              bubbles: true,
+              cancelable: false,
+              isComposing: false
+            });
+            element.dispatchEvent(inputEvent);
+          }
+
+          // keyup
+          const keyUpEvent = new KeyboardEvent('keyup', {
+            key: key,
+            code: code,
+            keyCode: keyCode,
+            which: keyCode,
+            bubbles: true,
+            cancelable: false
+          });
+          element.dispatchEvent(keyUpEvent);
+        }
+
+        // Dispatch a final change/input event to signal completion
+        const finalInput = new Event('input', { bubbles: true });
+        element.dispatchEvent(finalInput);
+      }
+
       function getElementCenter(element) {
         const rect = element.getBoundingClientRect();
         return {
@@ -1485,15 +1578,8 @@ if (window.top !== window.self) {
                sel.removeAllRanges();
                sel.addRange(range);
 
-               const beforeInput = new InputEvent('beforeinput', {
-                 inputType: 'insertText',
-                 data: prompt,
-                 bubbles: true,
-                 cancelable: true,
-                 isComposing: false
-               });
-               editor.dispatchEvent(beforeInput);
-               await new Promise(r => setTimeout(r, 800));
+                // Use human-like typing simulation
+                await typeText(editor, prompt);
 
                // Verify direct typing succeeded
                if (!editor.textContent || !editor.textContent.trim().includes(prompt.trim())) {
@@ -1555,20 +1641,8 @@ if (window.top !== window.self) {
           sel.addRange(freshRange);
           await new Promise(r => setTimeout(r, 50));
 
-          // Dispatch beforeinput
-          const beforeInput = new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: prompt,
-            bubbles: true,
-            cancelable: true,
-            isComposing: false
-          });
-
-          const canceled = !freshP.dispatchEvent(beforeInput);
-          log(`beforeinput: canceled=${canceled}, proceeding regardless`);
-
-          // Wait for React render
-          await new Promise(r => setTimeout(r, 800));
+          // Use human-like typing simulation
+          await typeText(freshP, prompt);
 
           // Verification with retry
           let verifyP = getParagraph(editor);
