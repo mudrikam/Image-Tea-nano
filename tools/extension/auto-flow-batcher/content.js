@@ -196,10 +196,10 @@ if (window.top !== window.self) {
         for (let i = 0; i < text.length && isRunning; i++) {
           const char = text[i];
 
-          // Random delay to simulate human typing variation, doubled for spaces
+          // Random delay to simulate human typing variation, 4x for spaces
           let delay = Math.random() * (maxDelay - minDelay) + minDelay;
           if (char === ' ') {
-            delay = delay * 2;
+            delay = delay * 4;
           }
           await new Promise(r => setTimeout(r, delay));
 
