@@ -12,6 +12,7 @@
   let detailLevel = 'medium';
   let strictColor = true;
   let autoSubmit = false;
+  let isGenerating = false;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -499,18 +500,23 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     if (!s.imageData && !s.title) return appendLog('Upload an image or enter a title first.', 'error');
     const btn = $('btnGenerate');
     if (btn) { btn.disabled = true; btn.classList.add('loading'); btn.textContent = 'Generating...'; }
-    appendLog('Calling API...', 'act');
+    isGenerating = true;
+    document.querySelector('[data-tab="prompts"]')?.click();
+    renderPrompts();
+    appendLog('Generating prompts...', 'act');
     try {
       const raw = s.provider === 'gemini' ? await callGemini(s) : await callOpenAI(s);
       const data = parseResponse(raw);
       prompts = data.prompts || [];
       analysis = data.analysis || '';
       statuses = {};
+      isGenerating = false;
       renderPrompts();
       await saveSettings();
       appendLog(`Generated ${prompts.length} prompts successfully.`, 'success');
-      document.querySelector('[data-tab="prompts"]')?.click();
     } catch (e) {
+      isGenerating = false;
+      renderPrompts();
       appendLog('Generate failed: ' + e.message, 'error');
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove('loading'); btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Prompts'; }
@@ -530,6 +536,10 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
   function renderPrompts() {
     const list = $('promptList');
     if (!list) return;
+    if (isGenerating) {
+      list.innerHTML = '<div class="prompt-empty"><div class="spinner"></div><p>Generating prompts...</p></div>';
+      return;
+    }
     if (!prompts.length) {
       list.innerHTML = '<div class="prompt-empty"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><p>Generate prompts first</p></div>';
       return;
@@ -549,8 +559,8 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
           <span class="prompt-item-num">#${String(i+1).padStart(2,'0')}</span>
           <div class="prompt-item-actions">
             <button class="prompt-item-btn" data-copy="${i}">Copy</button>
-            <button class="prompt-item-btn btn-insert ${st === 'monitoring' ? 'inserted' : ''}" data-insert="${i}" ${st === 'inserting' ? 'disabled' : ''}>
-              ${st === 'inserting' ? 'Inserting...' : st === 'monitoring' ? 'Monitoring' : 'Insert'}
+            <button class="prompt-item-btn btn-insert ${st === 'monitoring' ? 'inserted' : ''} ${st === 'monitoring' ? 'stop-monitor' : ''}" data-insert="${i}" ${st === 'inserting' ? 'disabled' : ''}>
+              ${st === 'inserting' ? 'Inserting...' : st === 'monitoring' ? 'Stop' : 'Insert'}
             </button>
           </div>
         </div>
@@ -562,7 +572,33 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     const clearBtn = $('btnClearPrompts');
     if (clearBtn) clearBtn.addEventListener('click', clearPrompts);
     document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(prompts[+b.dataset.copy])));
-    document.querySelectorAll('[data-insert]').forEach(b => b.addEventListener('click', () => insertPrompt(+b.dataset.insert)));
+    document.querySelectorAll('[data-insert]').forEach(b => {
+      b.addEventListener('click', () => {
+        const idx = +b.dataset.insert;
+        if (b.classList.contains('stop-monitor') && statuses[idx] === 'monitoring') {
+          stopMonitoring(idx);
+        } else {
+          insertPrompt(idx);
+        }
+      });
+    });
+  }
+
+  async function stopMonitoring(i) {
+    const tab = await getCurrentFlowTab();
+    if (tab) {
+      chrome.tabs.sendMessage(tab.id, { action: 'STOP' });
+    }
+    statuses[i] = 'failed';
+    renderPrompts();
+    appendLog(`Prompt #${i+1} monitoring stopped.`, 'info');
+  }
+
+  async function getCurrentFlowTab() {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (isFlowTab(activeTab)) return activeTab;
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+    return allTabs.find(t => isFlowTab(t));
   }
 
   // ── Ensure Flow tab is open and ready ────────────────────────────────────
