@@ -337,6 +337,14 @@ bindTabs();
     document.querySelectorAll('input[name="ratio"],input[name="quality"],input[name="batch"]').forEach(el => el.addEventListener('change', saveSettings));
     const fs = $('paramFontStyle'); if (fs) fs.addEventListener('change', saveSettings);
     const vs = $('paramVisualStyle'); if (vs) vs.addEventListener('change', saveSettings);
+    const countInput = $('paramCount');
+    if (countInput) {
+      countInput.addEventListener('input', () => {
+        const val = $('paramCountVal');
+        if (val) val.textContent = countInput.value;
+        saveSettings();
+      });
+    }
   }
 
   // ── Settings persistence ──────────────────────────────────────────────────
@@ -438,6 +446,7 @@ bindTabs();
       ? `Mandatory 60-30-10 Rule: Use this palette: ${colorStr}. Distribute as Primary (60%), Secondary (30%), and Accent (10%).`
       : `Creative Color Liberty: Use the colors ${colorStr} as a base, but you can distribute them freely and introduce harmonious shades or gradients for more dynamic results.`;
     const styleStr = s.selectedStyle === 'Custom' ? (s.customStyle || 'Follow Reference DNA') : (s.selectedStyle || s.style || 'Follow Reference DNA');
+    const ratioStr = s.ratio || '16:9';
 
     return `[ROLE]
 Name: Design Sense Extractor & Prompt Engineer
@@ -475,6 +484,7 @@ Role: You are a high-end design consultant and AI prompt architect. Your special
   ${fontRule}
 - COLOR LOGIC:
   ${colorRule}
+- ASPECT RATIO: Design must fit within a ${ratioStr} frame. Adapt composition to this ratio while preserving the visual DNA.
 - VISUAL STYLE / PIVOT: "${styleStr}"
 - PROHIBITED: No physical mockups, no real-world photography of products, no real props, no paper textures, no real surfaces, no hands/people/rooms. This is a pure design artwork file.
 
@@ -500,12 +510,14 @@ Return ONLY a valid JSON object. No markdown.
     const lengthDesc = { short: 'concise (1-1.5 sentences)', medium: 'descriptive (2-3 sentences)', long: 'elaborate and detailed (4-5 sentences)' }[s.length] || 'descriptive (2-3 sentences)';
     const styleStr = s.selectedStyle === 'Custom' ? (s.customStyle || 'Follow Reference DNA') : (s.selectedStyle || s.style || 'Follow Reference DNA');
     const colorStr = `${s.color60}, ${s.color30}, ${s.color10}`;
+    const ratioStr = s.ratio || '16:9';
     return `MANDATORY USER PARAMETERS:
 - Main Title: "${s.title || 'MANDATORY: Extract from image context'}" — this is literal visible text that will appear in the design; wrap it in double quotes in your prompt exactly as given.
 - Sub-text (Details): "${s.subtext || 'MANDATORY: Extract from image context'}" — this is literal visible text that will appear in the design; wrap it in double quotes in your prompt exactly as given.
 - User Intent (Additional Context): "${s.additionalContext || 'MANDATORY: Follow Reference DNA exactly'}"
 - Visual Style / Pivot: "${styleStr}"
 - Color Constraints: "${colorStr}"
+- Aspect Ratio: ${ratioStr}
 - Number of Variations: ${s.count}
 - Description Detail: ${lengthDesc}
 
