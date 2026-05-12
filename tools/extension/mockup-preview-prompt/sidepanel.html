@@ -76,23 +76,24 @@
       </div>
     </div>
 
-    <!-- Visual Style -->
+<!-- Visual Style -->
     <div class="form-group">
       <label>Visual Style</label>
-      <div class="style-grid" id="styleGrid">
-        <button class="style-btn" data-style="Elegant">Elegant</button>
-        <button class="style-btn" data-style="Minimalist">Minimalist</button>
-        <button class="style-btn" data-style="Playful">Playful</button>
-        <button class="style-btn" data-style="Feminine">Feminine</button>
-        <button class="style-btn" data-style="Bold">Bold</button>
-        <button class="style-btn" data-style="Vintage">Vintage</button>
-        <button class="style-btn" data-style="Natural">Natural</button>
-        <button class="style-btn" data-style="Custom">Custom</button>
-      </div>
+      <select id="paramVisualStyle">
+        <option value="">Select style...</option>
+        <option value="Elegant">Elegant</option>
+        <option value="Minimalist">Minimalist</option>
+        <option value="Playful">Playful</option>
+        <option value="Feminine">Feminine</option>
+        <option value="Bold">Bold</option>
+        <option value="Vintage">Vintage</option>
+        <option value="Natural">Natural</option>
+        <option value="Custom">Custom</option>
+      </select>
       <input type="text" id="paramCustomStyle" class="hidden" placeholder="Type custom style...">
     </div>
 
-    <!-- Typography -->
+<!-- Typography -->
     <div class="form-group">
       <label>Typography</label>
       <select id="paramFontStyle">
@@ -104,13 +105,17 @@
         <option value="Display / Bold">Display / Bold</option>
         <option value="Script / Elegant">Script / Elegant</option>
         <option value="Handwritten">Handwritten</option>
+        <option value="Brush / Paint">Brush / Paint</option>
+        <option value="Symbol / Iconic">Symbol / Iconic</option>
+        <option value="Retro / Vintage">Retro / Vintage</option>
+        <option value="Graffiti / Street">Graffiti / Street</option>
       </select>
       <input type="text" id="paramCustomFont" class="hidden" placeholder="Describe font style...">
       <div class="font-upload-area" id="fontUploadArea">
         <div class="font-upload-header">
           <span class="placeholder">Font / Typography Reference</span>
           <button class="drop-paste-btn" id="btnPasteFontImage" title="Paste from clipboard">
-            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 012-2h2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
             Paste
           </button>
         </div>
@@ -195,29 +200,54 @@
       </div>
     </div>
 
-    <!-- API Settings -->
-    <div class="settings-section">
-      <span class="section-title">API Settings</span>
-      <div class="form-group" style="margin-top:8px;">
-        <label>Provider</label>
-        <select id="apiProvider">
-          <option value="gemini">Gemini</option>
-          <option value="openai-compatible">OpenAI Compatible</option>
-        </select>
-      </div>
-      <div class="form-group" style="margin-top:6px;">
-        <label>API Key</label>
-        <input type="password" id="apiKey" placeholder="Enter your API key...">
-      </div>
-      <div class="form-group" style="margin-top:6px;">
-        <label>Endpoint URL</label>
-        <input type="url" id="apiEndpoint" placeholder="https://generativelanguage.googleapis.com/v1beta">
-      </div>
-      <div class="form-group" style="margin-top:6px;">
-        <label>Model</label>
-        <input type="text" id="apiModel" placeholder="gemini-2.0-flash">
-      </div>
-    </div>
+<!-- API Settings Button -->
+     <div class="settings-section">
+       <button class="btn-api-settings" id="btnApiSettings" style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border-color);background:var(--bg-input);color:var(--text-main);font-size:12px;font-weight:600;text-transform:uppercase;cursor:pointer;transition:all 0.2s;">
+         API Settings
+       </button>
+     </div>
+
+     <!-- Hidden API fields for persistence -->
+     <div class="hidden">
+       <input type="text" id="apiProvider">
+       <input type="password" id="apiKey">
+       <input type="url" id="apiEndpoint">
+       <input type="text" id="apiModel">
+     </div>
+
+     <!-- API Settings Modal -->
+     <div class="modal hidden" id="apiSettingsModal">
+       <div class="modal-content">
+         <div class="modal-header">
+           <span class="modal-title">API Settings</span>
+           <button class="modal-close" id="modalClose">&times;</button>
+         </div>
+         <div class="modal-body">
+           <div class="form-group">
+             <label>Provider</label>
+             <select id="apiProviderModal">
+               <option value="gemini">Gemini</option>
+               <option value="openai-compatible">OpenAI Compatible</option>
+             </select>
+           </div>
+           <div class="form-group" style="margin-top:8px;">
+             <label>API Key</label>
+             <input type="password" id="apiKeyModal" placeholder="Enter your API key...">
+           </div>
+           <div class="form-group" style="margin-top:8px;">
+             <label>Endpoint URL</label>
+             <input type="url" id="apiEndpointModal" placeholder="https://generativelanguage.googleapis.com/v1beta">
+           </div>
+           <div class="form-group" style="margin-top:8px;">
+             <label>Model</label>
+             <input type="text" id="apiModelModal" placeholder="gemini-2.0-flash">
+           </div>
+         </div>
+         <div class="modal-footer">
+           <button class="btn-modal-save" id="btnSaveApi">Save</button>
+         </div>
+       </div>
+     </div>
 
     <!-- Generate Button -->
     <button class="btn-generate" id="btnGenerate">

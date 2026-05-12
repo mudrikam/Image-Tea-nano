@@ -27,16 +27,17 @@
       }
     } catch (e) { console.warn('Could not load manifest version:', e); }
 
-    bindTabs();
-    bindImageDrop();
-    bindStyleButtons();
-    bindDetailButtons();
-    bindColorInputs();
-    bindFontInputs();
-    bindGenerateButton();
-    bindLogButtons();
-    bindAutoSubmitToggle();
-    bindPersistenceInputs();
+bindTabs();
+     bindImageDrop();
+     bindStyleSelect();
+     bindDetailButtons();
+     bindColorInputs();
+     bindFontInputs();
+     bindGenerateButton();
+     bindLogButtons();
+     bindAutoSubmitToggle();
+     bindApiModal();
+     bindPersistenceInputs();
     loadSettings();
     chrome.runtime.onMessage.addListener(onRuntimeMessage);
     appendLog('Extension loaded.', 'info');
@@ -163,18 +164,22 @@
     }
   }
 
-  // ── Style Buttons ─────────────────────────────────────────────────────────
-  function bindStyleButtons() {
-    document.querySelectorAll('.style-btn').forEach(b => {
-      b.addEventListener('click', () => {
-        selectedStyle = selectedStyle === b.dataset.style ? '' : b.dataset.style;
-        updateStyleUI();
+// ── Style Select ───────────────────────────────────────────────────────────
+  function bindStyleSelect() {
+    const sel = $('paramVisualStyle');
+    if (sel) {
+      sel.addEventListener('change', () => {
+        selectedStyle = sel.value;
+        const cs = $('paramCustomStyle');
+        if (cs) cs.classList.toggle('hidden', selectedStyle !== 'Custom');
         saveSettings();
       });
-    });
+    }
   }
-  function updateStyleUI() {
-    document.querySelectorAll('.style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === selectedStyle));
+
+  function updateStyleSelectUI() {
+    const sel = $('paramVisualStyle');
+    if (sel) sel.value = selectedStyle;
     const cs = $('paramCustomStyle');
     if (cs) cs.classList.toggle('hidden', selectedStyle !== 'Custom');
   }
@@ -187,6 +192,48 @@
   }
   function updateDetailUI() {
     document.querySelectorAll('.detail-btn').forEach(b => b.classList.toggle('active', b.dataset.level === detailLevel));
+  }
+
+  // ── API Settings Modal ───────────────────────────────────────────────────
+  function bindApiModal() {
+    const btn = $('btnApiSettings');
+    const modal = $('apiSettingsModal');
+    const close = $('modalClose');
+    const save = $('btnSaveApi');
+
+    const openModal = () => {
+      $('apiProviderModal').value = $('apiProvider')?.value || 'gemini';
+      $('apiKeyModal').value = $('apiKey')?.value || '';
+      $('apiEndpointModal').value = $('apiEndpoint')?.value || '';
+      $('apiModelModal').value = $('apiModel')?.value || '';
+      modal.classList.remove('hidden');
+    };
+
+    const closeModal = () => modal.classList.add('hidden');
+
+    if (btn) btn.addEventListener('click', openModal);
+    if (close) close.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    if (save) save.addEventListener('click', () => {
+      if ($('apiProvider')) $('apiProvider').value = $('apiProviderModal').value;
+      if ($('apiKey')) $('apiKey').value = $('apiKeyModal').value;
+      if ($('apiEndpoint')) $('apiEndpoint').value = $('apiEndpointModal').value;
+      if ($('apiModel')) $('apiModel').value = $('apiModelModal').value;
+      saveSettings();
+      closeModal();
+      appendLog('API settings saved.', 'success');
+    });
+
+    ['apiProviderModal','apiKeyModal','apiEndpointModal','apiModelModal'].forEach(id => {
+      const el = $(id);
+      if (el) el.addEventListener('input', () => {
+        if ($('apiProvider') && id === 'apiProviderModal') $('apiProvider').value = el.value;
+        if ($('apiKey') && id === 'apiKeyModal') $('apiKey').value = el.value;
+        if ($('apiEndpoint') && id === 'apiEndpointModal') $('apiEndpoint').value = el.value;
+        if ($('apiModel') && id === 'apiModelModal') $('apiModel').value = el.value;
+      });
+    });
   }
 
   // ── Color Inputs ──────────────────────────────────────────────────────────
@@ -249,13 +296,14 @@
     });
   }
 
-  // ── Persistence inputs ────────────────────────────────────────────────────
+// ── Persistence inputs ────────────────────────────────────────────────────
   function bindPersistenceInputs() {
     ['paramTitle','paramSubtitle','paramContext','paramCustomStyle','paramCustomFont','apiProvider','apiKey','apiEndpoint','apiModel'].forEach(id => {
       const el = $(id); if (el) el.addEventListener('input', saveSettings);
     });
     document.querySelectorAll('input[name="ratio"],input[name="quality"],input[name="batch"]').forEach(el => el.addEventListener('change', saveSettings));
     const fs = $('paramFontStyle'); if (fs) fs.addEventListener('change', saveSettings);
+    const vs = $('paramVisualStyle'); if (vs) vs.addEventListener('change', saveSettings);
   }
 
   // ── Settings persistence ──────────────────────────────────────────────────
@@ -305,6 +353,8 @@
       if ($('paramCount')) { $('paramCount').value = s.count || 3; if ($('paramCountVal')) $('paramCountVal').textContent = s.count || 3; }
       selectedStyle = s.selectedStyle || '';
       if ($('paramCustomStyle')) $('paramCustomStyle').value = s.customStyle || '';
+      const vs = $('paramVisualStyle');
+      if (vs) vs.value = s.selectedStyle || '';
       const fs = $('paramFontStyle');
       if (fs) fs.value = s.fontStyle?.startsWith('Custom:') ? 'Custom Description' : (s.fontStyle || 'Auto/Mimic Reference');
       if ($('paramCustomFont')) $('paramCustomFont').value = s.customFont || '';
@@ -325,9 +375,9 @@
       checkRadio('ratio', s.ratio || '16:9');
       checkRadio('quality', s.downloadQuality || 'default');
       checkRadio('batch', s.batch || '4');
-      syncAllColors();
-      updateStyleUI();
-      updateDetailUI();
+syncAllColors();
+       updateStyleSelectUI();
+       updateDetailUI();
       const toggle = $('toggleStrictColor');
       if (toggle) toggle.classList.toggle('active', strictColor);
       const toggleAS = $('toggleAutoSubmit');
