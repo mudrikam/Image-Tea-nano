@@ -240,7 +240,19 @@ bindTabs();
   function bindColorInputs() {
     ['color60','color30','color10'].forEach(id => {
       const el = $(id);
-      if (el) el.addEventListener('input', () => { syncColorVal(id); saveSettings(); });
+      const swatch = $('swatch' + id.replace('color', ''));
+      if (el) {
+        el.addEventListener('input', () => {
+          syncColorVal(id);
+          updateSwatch(id, el.value);
+          saveSettings();
+        });
+      }
+      if (swatch) {
+        swatch.addEventListener('click', () => {
+          el?.click();
+        });
+      }
     });
     const toggle = $('toggleStrictColor');
     if (toggle) toggle.addEventListener('click', () => {
@@ -252,10 +264,31 @@ bindTabs();
     if (rand) rand.addEventListener('click', () => {
       ['color60','color30','color10'].forEach(id => {
         const el = $(id);
-        if (el) { el.value = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); syncColorVal(id); }
+        if (el) {
+          el.value = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0');
+          syncColorVal(id);
+          updateSwatch(id, el.value);
+        }
       });
       saveSettings();
     });
+  }
+  function updateSwatch(id, color) {
+    const swatch = $('swatch' + id.replace('color', ''));
+    if (swatch) {
+      swatch.style.background = color;
+      const isLightBg = getContrastYIQ(color) === 'light';
+      swatch.classList.toggle('light-text', !isLightBg);
+      swatch.classList.toggle('dark-text', isLightBg);
+    }
+  }
+  function getContrastYIQ(hexcolor) {
+    hexcolor = hexcolor.replace('#', '');
+    const r = parseInt(hexcolor.substr(0,2), 16);
+    const g = parseInt(hexcolor.substr(2,2), 16);
+    const b = parseInt(hexcolor.substr(4,2), 16);
+    const yiq = (r*299 + g*587 + b*114) / 1000;
+    return (yiq >= 128) ? 'light' : 'dark';
   }
   function syncColorVal(id) {
     const el = $(id), val = $(id + 'Val');
@@ -361,9 +394,9 @@ bindTabs();
       detailLevel = s.length || 'medium';
       strictColor = s.strictColor !== false;
       autoSubmit = s.autoSubmit === true;
-      if ($('color60')) $('color60').value = s.color60 || '#3b82f6';
-      if ($('color30')) $('color30').value = s.color30 || '#ffffff';
-      if ($('color10')) $('color10').value = s.color10 || '#fbbf24';
+      if ($('color60')) { $('color60').value = s.color60 || '#3b82f6'; updateSwatch('color60', s.color60 || '#3b82f6'); }
+      if ($('color30')) { $('color30').value = s.color30 || '#ffffff'; updateSwatch('color30', s.color30 || '#ffffff'); }
+      if ($('color10')) { $('color10').value = s.color10 || '#fbbf24'; updateSwatch('color10', s.color10 || '#fbbf24'); }
       if ($('apiProvider')) $('apiProvider').value = s.provider || 'gemini';
       if ($('apiKey')) $('apiKey').value = s.apiKey || '';
       if ($('apiEndpoint')) $('apiEndpoint').value = s.endpoint || 'https://generativelanguage.googleapis.com/v1beta';
@@ -374,10 +407,9 @@ bindTabs();
       analysis = s.analysis || '';
       checkRadio('ratio', s.ratio || '16:9');
       checkRadio('quality', s.downloadQuality || 'default');
-      checkRadio('batch', s.batch || '4');
-syncAllColors();
-       updateStyleSelectUI();
-       updateDetailUI();
+      syncAllColors();
+      updateStyleSelectUI();
+      updateDetailUI();
       const toggle = $('toggleStrictColor');
       if (toggle) toggle.classList.toggle('active', strictColor);
       const toggleAS = $('toggleAutoSubmit');

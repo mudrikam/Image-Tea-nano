@@ -239,35 +239,46 @@ body {
   gap: 6px;
   margin-top: 4px;
 }
-.color-item {
+.color-swatch {
   flex: 1;
+  aspect-ratio: 2 / 1;
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  padding: 6px 4px;
-  background: var(--bg-input);
-  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
   border: 1px solid var(--border-color);
 }
-.color-item input[type="color"] {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  background: transparent;
-  padding: 2px;
+.color-swatch:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
-.color-hex {
+.color-swatch .color-hex {
   font-size: 10px;
-  color: var(--text-main);
   font-family: monospace;
 }
-.color-pct {
+.color-swatch .color-pct {
   font-size: 9px;
-  color: var(--text-muted);
   text-transform: uppercase;
+}
+.color-swatch.light-text .color-hex,
+.color-swatch.light-text .color-pct {
+  color: #fff;
+}
+.color-swatch.dark-text .color-hex,
+.color-swatch.dark-text .color-pct {
+  color: #111;
+}
+.color-input-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
 }
 
 .toggle-row {
@@ -311,19 +322,49 @@ body {
 }
 .detail-btn.active { background: var(--bg-hover); color: #fff; }
 
-.btn-generate {
-  width: 100%; padding: 12px; border: none; border-radius: 8px;
-  background: var(--accent); color: #fff; font-size: 12px;
-  font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
-  cursor: pointer; transition: all 0.2s;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+.bottom-action-bar {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  flex-shrink: 0;
 }
-.btn-generate:hover { background: var(--accent-hover); box-shadow: 0 0 16px var(--accent-glow); }
-.btn-generate:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-generate.loading { animation: pulse-glow 1.5s ease-in-out infinite; }
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 10px var(--accent-glow); }
-  50% { box-shadow: 0 0 20px var(--accent-glow); }
+.btn-generate {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-api-settings {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.btn-api-settings:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .prompt-list { display: flex; flex-direction: column; gap: 10px; }
@@ -462,12 +503,6 @@ body {
 }
 .font-upload-area {
   flex-direction: column; align-items: flex-start; padding: 8px 10px;
-}
-
-.btn-api-settings:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .modal {
