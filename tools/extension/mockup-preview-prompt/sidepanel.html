@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mockup Preview Prompt</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+   <!-- Header -->
+   <header class="header">
+     <div class="header-left">
+       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+       </svg>
+       <div class="title-group">
+         <span class="header-title">Mockup Preview Prompt</span>
+         <span class="header-version" id="extensionVersion"></span>
+       </div>
+     </div>
+     <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" class="badge-link">
+       <span class="badge">Desainia Studio</span>
+     </a>
+   </header>
+
+  <!-- Image Drop Zone -->
+  <div class="image-drop-zone" id="imageDropZone">
+    <svg class="drop-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+    <span class="drop-text">Drop or paste reference image here</span>
+    <div class="drop-actions">
+      <button class="drop-paste-btn" id="btnPasteMainImage" title="Paste from clipboard">
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Paste
+      </button>
+    </div>
+    <input type="file" id="imageFileInput" accept="image/*">
+  </div>
+
+   <!-- Tabs -->
+   <nav class="tabs">
+     <button class="tab-btn active" data-tab="parameter">
+       <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+       Parameter
+     </button>
+     <button class="tab-btn" data-tab="prompts">
+       <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+       Prompts
+     </button>
+     <button class="tab-btn" data-tab="logs">
+       <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 14h12a2 2 0 012 2v2a2 2 0 01-2 2H4v-4a2 2 0 012-2z"/></svg>
+       Logs
+     </button>
+   </nav>
+
+  <!-- Tab: Parameter -->
+  <div class="tab-content active" id="tab-parameter">
+    <div class="form-group">
+      <label>Main Title / Context</label>
+      <input type="text" id="paramTitle" placeholder="E.g: Modern Coffee, Minimalist slogan...">
+    </div>
+    <div class="form-group">
+      <label>Sub-Title / Slogan</label>
+      <input type="text" id="paramSubtitle" placeholder="E.g: Premium Taste, Short poetic line...">
+    </div>
+    <div class="form-group">
+      <label>Additional Context / Brief</label>
+      <textarea id="paramContext" rows="2" placeholder="E.g: Make it futuristic, Add stars..."></textarea>
+    </div>
+
+    <!-- Quantity -->
+    <div class="form-group">
+      <label>Prompt Quantity</label>
+      <div class="range-row">
+        <input type="range" id="paramCount" min="1" max="10" value="3">
+        <span class="range-val" id="paramCountVal">3</span>
+      </div>
+    </div>
+
+    <!-- Visual Style -->
+    <div class="form-group">
+      <label>Visual Style</label>
+      <div class="style-grid" id="styleGrid">
+        <button class="style-btn" data-style="Elegant">Elegant</button>
+        <button class="style-btn" data-style="Minimalist">Minimalist</button>
+        <button class="style-btn" data-style="Playful">Playful</button>
+        <button class="style-btn" data-style="Feminine">Feminine</button>
+        <button class="style-btn" data-style="Bold">Bold</button>
+        <button class="style-btn" data-style="Vintage">Vintage</button>
+        <button class="style-btn" data-style="Natural">Natural</button>
+        <button class="style-btn" data-style="Custom">Custom</button>
+      </div>
+      <input type="text" id="paramCustomStyle" class="hidden" placeholder="Type custom style...">
+    </div>
+
+    <!-- Typography -->
+    <div class="form-group">
+      <label>Typography</label>
+      <select id="paramFontStyle">
+        <option value="Auto/Mimic Reference">Auto/Mimic Reference</option>
+        <option value="Custom Description">Custom Description</option>
+        <option value="Serif / Classic">Serif / Classic</option>
+        <option value="Sans-Serif / Modern">Sans-Serif / Modern</option>
+        <option value="Monospace / Tech">Monospace / Tech</option>
+        <option value="Display / Bold">Display / Bold</option>
+        <option value="Script / Elegant">Script / Elegant</option>
+        <option value="Handwritten">Handwritten</option>
+      </select>
+      <input type="text" id="paramCustomFont" class="hidden" placeholder="Describe font style...">
+      <div class="font-upload-area" id="fontUploadArea">
+        <div class="font-upload-header">
+          <span class="placeholder">Font / Typography Reference</span>
+          <button class="drop-paste-btn" id="btnPasteFontImage" title="Paste from clipboard">
+            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            Paste
+          </button>
+        </div>
+        <input type="file" id="fontFileInput" accept="image/*">
+      </div>
+    </div>
+
+    <!-- Color Palette -->
+    <div class="form-group">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <label style="margin:0;">Color Palette (60-30-10)</label>
+        <button class="btn-randomize" id="btnRandomColors" title="Randomize">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+      </div>
+      <div class="color-row">
+        <input type="color" id="color60" value="#3b82f6">
+        <div class="color-info"><span class="color-label">Primary 60%</span><span class="color-value" id="color60Val">#3b82f6</span></div>
+      </div>
+      <div class="color-row" style="margin-top:4px;">
+        <input type="color" id="color30" value="#ffffff">
+        <div class="color-info"><span class="color-label">Secondary 30%</span><span class="color-value" id="color30Val">#ffffff</span></div>
+      </div>
+      <div class="color-row" style="margin-top:4px;">
+        <input type="color" id="color10" value="#fbbf24">
+        <div class="color-info"><span class="color-label">Accent 10%</span><span class="color-value" id="color10Val">#fbbf24</span></div>
+      </div>
+      <div class="toggle-row active" id="toggleStrictColor" style="margin-top:6px;">
+        <span class="toggle-label">Strict 60-30-10 Rule</span>
+        <div class="toggle-switch"></div>
+      </div>
+    </div>
+
+    <!-- Detail Level -->
+    <div class="form-group">
+      <label>Detail Level</label>
+      <div class="detail-level">
+        <button class="detail-btn" data-level="short">Short</button>
+        <button class="detail-btn active" data-level="medium">Medium</button>
+        <button class="detail-btn" data-level="long">Long</button>
+      </div>
+    </div>
+
+    <!-- Flow Settings -->
+    <div class="settings-section">
+      <span class="section-title">Flow Settings</span>
+      <div class="form-group" style="margin-top:8px;">
+        <label>Aspect Ratio</label>
+        <div class="radio-group" id="ratioGroup">
+          <div class="radio-pill"><input type="radio" name="ratio" id="r169" value="16:9" checked><label for="r169">16:9</label></div>
+          <div class="radio-pill"><input type="radio" name="ratio" id="r43" value="4:3"><label for="r43">4:3</label></div>
+          <div class="radio-pill"><input type="radio" name="ratio" id="r11" value="1:1"><label for="r11">1:1</label></div>
+          <div class="radio-pill"><input type="radio" name="ratio" id="r34" value="3:4"><label for="r34">3:4</label></div>
+          <div class="radio-pill"><input type="radio" name="ratio" id="r916" value="9:16"><label for="r916">9:16</label></div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label>Download Quality</label>
+        <div class="radio-group">
+          <div class="radio-pill"><input type="radio" name="quality" id="qDefault" value="default" checked><label for="qDefault">Default</label></div>
+          <div class="radio-pill"><input type="radio" name="quality" id="q2k" value="2K"><label for="q2k">2K</label></div>
+          <div class="radio-pill"><input type="radio" name="quality" id="q4k" value="4K"><label for="q4k">4K</label></div>
+        </div>
+      </div>
+       <div class="form-group" style="margin-top:8px;">
+         <label>Batch Count</label>
+         <div class="radio-group">
+           <div class="radio-pill"><input type="radio" name="batch" id="b1" value="1" checked><label for="b1">x1</label></div>
+           <div class="radio-pill"><input type="radio" name="batch" id="b2" value="2"><label for="b2">x2</label></div>
+           <div class="radio-pill"><input type="radio" name="batch" id="b3" value="3"><label for="b3">x3</label></div>
+           <div class="radio-pill"><input type="radio" name="batch" id="b4" value="4"><label for="b4">x4</label></div>
+         </div>
+       </div>
+      <div class="toggle-row" id="toggleAutoSubmit" style="margin-top:8px;">
+        <span class="toggle-label">Auto Submit</span>
+        <div class="toggle-switch"></div>
+      </div>
+    </div>
+
+    <!-- API Settings -->
+    <div class="settings-section">
+      <span class="section-title">API Settings</span>
+      <div class="form-group" style="margin-top:8px;">
+        <label>Provider</label>
+        <select id="apiProvider">
+          <option value="gemini">Gemini</option>
+          <option value="openai-compatible">OpenAI Compatible</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-top:6px;">
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="Enter your API key...">
+      </div>
+      <div class="form-group" style="margin-top:6px;">
+        <label>Endpoint URL</label>
+        <input type="url" id="apiEndpoint" placeholder="https://generativelanguage.googleapis.com/v1beta">
+      </div>
+      <div class="form-group" style="margin-top:6px;">
+        <label>Model</label>
+        <input type="text" id="apiModel" placeholder="gemini-2.0-flash">
+      </div>
+    </div>
+
+    <!-- Generate Button -->
+    <button class="btn-generate" id="btnGenerate">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      Generate Prompts
+    </button>
+  </div>
+
+  <!-- Tab: Prompts -->
+  <div class="tab-content" id="tab-prompts">
+    <div class="prompt-list" id="promptList">
+      <div class="prompt-empty">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <p>Generate prompts first</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Logs -->
+  <div class="tab-content" id="tab-logs">
+    <div class="log-header">
+      <span class="section-title" style="margin:0;">System Log</span>
+      <div class="log-actions">
+        <button class="log-btn" id="btnCopyLogs" title="Copy Logs">
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+        <button class="log-btn" id="btnClearLogs" title="Clear Logs">
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="log-area" id="logArea"></div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
