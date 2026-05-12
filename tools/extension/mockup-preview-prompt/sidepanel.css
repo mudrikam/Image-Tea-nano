@@ -247,18 +247,41 @@ body {
   color: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
 }
 
-.color-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; background: var(--bg-input);
-  border-radius: 6px; border: 1px solid var(--border-color);
+.color-palette-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
 }
-.color-row input[type="color"] {
-  width: 28px; height: 28px; border: none; border-radius: 6px;
-  cursor: pointer; background: transparent;
+.color-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
 }
-.color-row .color-info { flex: 1; }
-.color-row .color-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; }
-.color-row .color-value { font-size: 10px; color: var(--text-main); font-family: monospace; }
+.color-item input[type="color"] {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  padding: 2px;
+}
+.color-hex {
+  font-size: 10px;
+  color: var(--text-main);
+  font-family: monospace;
+}
+.color-pct {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
 
 .toggle-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -336,6 +359,7 @@ body {
   font-weight: 600; text-transform: uppercase; cursor: pointer; transition: all 0.2s;
 }
 .prompt-item-btn:hover { border-color: var(--accent); color: var(--accent); }
+.prompt-item-btn.copied { background: var(--success); color: #000; border-color: var(--success); }
 .prompt-item-btn.btn-insert { border-color: var(--accent); color: var(--accent); }
 .prompt-item-btn.btn-insert:hover { background: var(--accent); color: #fff; }
 .prompt-item-btn.inserted { background: var(--success); color: #000; border-color: var(--success); }
@@ -359,6 +383,7 @@ body {
   padding: 4px 0 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border-color);
 }
 .prompt-list-count { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.prompt-list-actions { display: flex; gap: 4px; }
 .prompt-clear-btn {
   padding: 3px 8px; border: 1px solid var(--error); border-radius: 4px;
   background: transparent; color: var(--error); font-size: 9px;

@@ -542,11 +542,14 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     }
     if (!prompts.length) {
       list.innerHTML = '<div class="prompt-empty"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><p>Generate prompts first</p></div>';
-      return;
+return;
     }
     let html = `<div class="prompt-list-header">
       <span class="prompt-list-count">${prompts.length} prompt${prompts.length !== 1 ? 's' : ''}</span>
-      <button class="prompt-clear-btn" id="btnClearPrompts">Clear All</button>
+      <div class="prompt-list-actions">
+        <button class="prompt-item-btn" id="btnCopyAll" style="padding: 2px 6px; font-size: 8px;">Copy All</button>
+        <button class="prompt-clear-btn" id="btnClearPrompts">Clear All</button>
+      </div>
     </div>`;
     if (analysis) {
       html += `<div class="prompt-item"><div class="prompt-item-text"><strong>Analysis:</strong> ${escapeHtml(analysis)}</div></div>`;
@@ -571,7 +574,33 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     list.innerHTML = html;
     const clearBtn = $('btnClearPrompts');
     if (clearBtn) clearBtn.addEventListener('click', clearPrompts);
-    document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(prompts[+b.dataset.copy])));
+    document.querySelectorAll('[data-copy]').forEach(b => {
+      b.addEventListener('click', () => {
+        const idx = +b.dataset.copy;
+        navigator.clipboard.writeText(prompts[idx]);
+        const originalText = b.textContent;
+        b.textContent = 'Copied!';
+        b.classList.add('copied');
+        setTimeout(() => {
+          b.textContent = originalText;
+          b.classList.remove('copied');
+        }, 1500);
+      });
+    });
+    const copyAllBtn = $('btnCopyAll');
+    if (copyAllBtn) {
+      copyAllBtn.addEventListener('click', () => {
+        const allText = prompts.map((p, i) => `${i + 1}. ${p}\n`).join('\n');
+        navigator.clipboard.writeText(allText);
+        const originalText = copyAllBtn.textContent;
+        copyAllBtn.textContent = 'Copied!';
+        copyAllBtn.classList.add('copied');
+        setTimeout(() => {
+          copyAllBtn.textContent = originalText;
+          copyAllBtn.classList.remove('copied');
+        }, 1500);
+      });
+    }
     document.querySelectorAll('[data-insert]').forEach(b => {
       b.addEventListener('click', () => {
         const idx = +b.dataset.insert;
