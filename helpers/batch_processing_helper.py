@@ -22,7 +22,7 @@ from helpers.ai_helper.maia_helper import generate_metadata_maia, track_maia_gen
 from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
 from helpers.video_proxy_helper import batch_process_videos_with_dialog, batch_extract_frames_with_dialog, VIDEO_EXTENSIONS, get_video_proxy_setting, get_prefer_frame_analysis, extract_video_frames, cleanup_video_temp_folder, BatchFrameExtractionWorker, BatchVideoProxyWorker
 from helpers.image_compression_helper import cleanup_temp_folder
-from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid, is_membership_expired
 
 from ui.theme_system import theme
 
@@ -635,6 +635,12 @@ def batch_generate_metadata(window):
 
     # Member session takes priority over local API keys
     if is_logged_in():
+        if is_membership_expired():
+            print("[BATCH] Member is logged in but membership has expired.")
+            from dialogs.membership_expired_dialog import MembershipExpiredDialog
+            dlg = MembershipExpiredDialog(window, tool_name="Metadata Generator")
+            dlg.exec()
+            return
         if not is_member_secret_valid():
             print("[BATCH] Member is logged in but MEMBER_SECRET is invalid or missing.")
             dlg = MemberSecretManagerDialog(window)

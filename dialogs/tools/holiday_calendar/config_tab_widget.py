@@ -171,10 +171,10 @@ class ConfigTabWidget(QWidget):
         outer.addWidget(scroll)
 
     def _load_values(self):
-        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key
+        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key, is_membership_expired
         from database.db_operation import ImageTeaDB
 
-        if is_logged_in():
+        if is_logged_in() and not is_membership_expired():
             member_cal_key = get_calendarific_api_key()
             if member_cal_key:
                 self._member_key_banner.setText(
@@ -207,10 +207,10 @@ class ConfigTabWidget(QWidget):
         self._use_sqlite_check.setChecked(config_helper.get_use_sqlite())
 
     def _save(self):
-        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key
+        from helpers.members_helper.members_helper import is_logged_in, get_calendarific_api_key, is_membership_expired
         from database.db_operation import ImageTeaDB
 
-        if not (is_logged_in() and get_calendarific_api_key()):
+        if not (is_logged_in() and not is_membership_expired() and get_calendarific_api_key()):
             ImageTeaDB().calendarific_set_api_key(self._api_key_field.text().strip())
         config_helper.set_base_url(self._base_url_field.text().strip() or 'https://calendarific.com/api/v2')
         config_helper.set_default_country(self._default_country_field.text().strip().upper() or 'US')

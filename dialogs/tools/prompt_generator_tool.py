@@ -1494,7 +1494,7 @@ class PromptGeneratorDialog(QDialog):
 		print("Combo lists reloaded successfully")
 
 	def _check_member_mode(self):
-		from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid
+		from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid, is_membership_expired
 		if not is_logged_in():
 			if self._member_mode:
 				self._member_mode = False
@@ -1503,6 +1503,17 @@ class PromptGeneratorDialog(QDialog):
 				self.selected_service = self.api_key_section.get_current_service()
 				self.selected_model_name = self.api_key_section.get_current_model()
 				self._append_log("Member logged out, reverted to DB API keys.")
+			return
+		if is_membership_expired():
+			if self._member_mode:
+				self._member_mode = False
+				self.api_key_section.setVisible(True)
+				self.api_key = self.api_key_section.get_current_api_key()
+				self.selected_service = self.api_key_section.get_current_service()
+				self.selected_model_name = self.api_key_section.get_current_model()
+				self._append_log("Membership expired, reverted to DB API keys.")
+			else:
+				self._append_log("Membership expired. Please renew to use member mode.")
 			return
 		if not is_member_secret_valid():
 			if self._member_mode:
@@ -1823,6 +1834,7 @@ class PromptGeneratorDialog(QDialog):
 			if self._member_mode:
 				try:
 					from helpers.members_helper.members_helper import increment_member_usage, get_usage_info
+					from dialogs.member_limit_dialog import MemberLimitDialog
 					active_tab = self.left_tabs.currentIndex() if hasattr(self, 'left_tabs') else 0
 					if active_tab == 0:
 						use_folder = hasattr(self, 'ref_source_combo') and self.ref_source_combo.currentData() == 'folder'
@@ -1835,6 +1847,9 @@ class PromptGeneratorDialog(QDialog):
 					self._append_log(f"Member usage: {used}/{limit if limit > 0 else 'unlimited'} credits ({credits_used} request(s))")
 					if hasattr(self.parent(), 'statusbar') and hasattr(self.parent().statusbar, 'update_member_status'):
 						self.parent().statusbar.update_member_status()
+					if limit > 0 and used >= limit:
+						dlg = MemberLimitDialog(self)
+						dlg.exec()
 				except Exception as e:
 					print(f"Failed to track member usage for prompt generation: {e}")
 		else:
