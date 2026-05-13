@@ -1,0 +1,30 @@
+{
+  "presets": [
+    {
+      "name": "Default",
+      "delimiter_index": 0,
+      "quote_index": 0,
+      "quote_header": false,
+      "fields": [
+        {
+          "column_name": "Filename",
+          "source_field": "filename",
+          "transform": "None",
+          "quote": "Auto"
+        },
+        {
+          "column_name": "Title",
+          "source_field": "title",
+          "transform": "None",
+          "quote": "Auto"
+        },
+        {
+          "column_name": "Tags",
+          "source_field": "tags",
+          "transform": "None",
+          "quote": "Auto"
+        }
+      ]
+    }
+  ]
+}
