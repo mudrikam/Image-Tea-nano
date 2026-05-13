@@ -44,12 +44,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const extension = message.extension || 'jpg';
     const prefix = message.prefix || 'Mockup_Preview';
     const batchIndex = message.batchIndex || 0;
+    const promptWords = (message.promptWords || '').replace(/[<>:"/\\|?*]/g, '_');
 
     const date = new Date();
     const dateStr = date.toISOString().replace(/[:.]/g, '-').split('T')[0];
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-');
 
-    let filename = `${prefix}_prompt${promptIndex + 1}_batch${batchIndex + 1}_${dateStr}_${timeStr}.${extension}`;
+    let filename = `${prefix}_prompt${promptIndex + 1}_batch${batchIndex + 1}_${dateStr}_${timeStr}${promptWords ? '_' + promptWords : ''}.${extension}`;
     filename = filename.replace(/[<>:"/\\|?*]/g, '_');
 
     chrome.downloads.download({
@@ -58,6 +59,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       saveAs: false
     }).then((downloadId) => {
       console.log('[MPP] Download started:', downloadId, '→', filename);
+      const response = {
+        ok: true,
+        downloadId: downloadId,
+        filename: filename,
+        promptIndex: promptIndex,
+        batchIndex: batchIndex
+      };
+      sendResponse(response);
       // Notify sidepanel about download
       chrome.runtime.sendMessage({
         action: 'DOWNLOAD_STARTED',
@@ -68,12 +77,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }).catch(() => {});
     }).catch((err) => {
       console.error('[MPP] Download failed:', err);
+      const response = {
+        ok: false,
+        error: err.message || String(err),
+        url: url,
+        promptIndex: promptIndex,
+        batchIndex: batchIndex
+      };
+      sendResponse(response);
       chrome.runtime.sendMessage({
         action: 'DOWNLOAD_FAILED',
-        error: err.message,
+        error: response.error,
         promptIndex: promptIndex,
         batchIndex: batchIndex
       }).catch(() => {});
     });
+    return true;
   }
 });

@@ -13,6 +13,16 @@
   let strictColor = true;
   let autoSubmit = false;
   let isGenerating = false;
+  let automationMode = 'flow';
+  let injectorPoints = [
+    { id: 1, type: 'paste', enabled: true, selector: '', delay: 1.0 },
+    { id: 2, type: 'click', enabled: true, selector: '', delay: 1.0 }
+  ];
+  let injectorRunning = false;
+  let injectorPaused = false;
+  let injectorSessionId = null;
+  let injectorDb = null;
+  let currentInjectorUrlKey = 'site:default';
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -35,9 +45,14 @@ bindTabs();
      bindFontInputs();
      bindGenerateButton();
      bindLogButtons();
-     bindAutoSubmitToggle();
-     bindApiModal();
-     bindPersistenceInputs();
+      bindAutoSubmitToggle();
+      bindModeTabs();
+      bindInjectorControls();
+      bindInjectorPageAutoRefresh();
+      bindApiModal();
+      bindPersistenceInputs();
+     await initInjectorDB();
+     await updateInjectorPageSettings();
     loadSettings();
     chrome.runtime.onMessage.addListener(onRuntimeMessage);
     appendLog('Extension loaded.', 'info');
@@ -329,7 +344,277 @@ bindTabs();
     });
   }
 
-// ── Persistence inputs ────────────────────────────────────────────────────
+  // ── Automation Mode / Universal Injector ──────────────────────────────────
+  function getUrlKey(urlString) {
+    try {
+      const url = new URL(urlString);
+      return `site:${url.hostname}`;
+    } catch (_) {
+      return 'site:default';
+    }
+  }
+
+  async function initInjectorDB() {
+    return new Promise(resolve => {
+      const req = indexedDB.open('MockupPreviewPromptDB', 1);
+      req.onerror = () => resolve();
+      req.onsuccess = e => { injectorDb = e.target.result; resolve(); };
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'id' });
+      };
+    });
+  }
+
+  async function saveInjectorToDB(key, value) {
+    if (!injectorDb) return;
+    return new Promise(resolve => {
+      const tx = injectorDb.transaction(['settings'], 'readwrite');
+      tx.objectStore('settings').put({ id: key, value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async function loadInjectorFromDB(key) {
+    if (!injectorDb) return null;
+    return new Promise(resolve => {
+      const tx = injectorDb.transaction(['settings'], 'readonly');
+      const req = tx.objectStore('settings').get(key);
+      req.onsuccess = () => resolve(req.result?.value || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async function getActiveUsableTab() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return null;
+    return tab;
+  }
+
+  async function updateInjectorPageSettings() {
+    const tab = await getActiveUsableTab();
+    const urlText = $('injector-current-url');
+    if (!tab) {
+      currentInjectorUrlKey = 'site:default';
+      if (urlText) {
+        urlText.textContent = 'No supported page detected';
+        urlText.title = '';
+      }
+      return;
+    }
+    const nextUrlKey = getUrlKey(tab.url);
+    const changed = nextUrlKey !== currentInjectorUrlKey;
+    currentInjectorUrlKey = nextUrlKey;
+    if (urlText) {
+      urlText.textContent = new URL(tab.url).hostname;
+      urlText.title = tab.url;
+    }
+    const saved = await loadInjectorFromDB(`injector:${currentInjectorUrlKey}`);
+    if (saved) applyInjectorConfig(saved);
+    else applyInjectorConfig({ points: normalizeFixedInjectorPoints([]), autoDownload: {} });
+    syncInjectorToUI();
+    if (changed && automationMode === 'injector') appendLog(`Loaded injector settings for: ${new URL(tab.url).hostname}`, 'info');
+  }
+
+  async function saveCurrentInjectorSettings() {
+    await updateInjectorUrlKeyOnly();
+    await saveInjectorToDB(`injector:${currentInjectorUrlKey}`, getInjectorConfig());
+  }
+
+  async function updateInjectorUrlKeyOnly() {
+    const tab = await getActiveUsableTab();
+    if (tab?.url) currentInjectorUrlKey = getUrlKey(tab.url);
+  }
+
+  function applyInjectorConfig(config) {
+    if (!config) return;
+    injectorPoints = normalizeFixedInjectorPoints(config.points);
+    const ad = config.autoDownload || {};
+    if ($('auto-download-enabled')) $('auto-download-enabled').checked = ad.enabled === true;
+    if ($('auto-download-count')) $('auto-download-count').value = ad.count || 2;
+    if ($('auto-download-delay')) $('auto-download-delay').value = ad.delay || 5;
+    if ($('auto-download-monitoring')) $('auto-download-monitoring').checked = ad.monitoring === true;
+    if ($('auto-download-pattern')) $('auto-download-pattern').value = ad.pattern || '';
+    if ($('auto-download-extension')) $('auto-download-extension').value = ad.extension || 'jpg';
+    if ($('auto-download-prefix')) $('auto-download-prefix').value = ad.prefix || 'Mockup_Preview';
+  }
+
+  function normalizeFixedInjectorPoints(points) {
+    const source = Array.isArray(points) ? points : [];
+    const p1 = source.find(p => p.id === 1) || {};
+    const p2 = source.find(p => p.id === 2) || {};
+    return [
+      { id: 1, type: 'paste', enabled: p1.enabled !== false, selector: p1.selector || '', delay: parseFloat(p1.delay ?? 1) || 0 },
+      { id: 2, type: 'click', enabled: p2.enabled !== false, selector: p2.selector || '', delay: parseFloat(p2.delay ?? 1) || 0 }
+    ];
+  }
+
+  function bindModeTabs() {
+    document.querySelectorAll('.mode-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        automationMode = btn.dataset.modeTab || 'flow';
+        updateModeUI();
+        if (automationMode === 'injector') updateInjectorPageSettings();
+        saveSettings();
+      });
+    });
+  }
+
+  function updateModeUI() {
+    document.querySelectorAll('.mode-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.modeTab === automationMode));
+    document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
+    $('mode-panel-' + automationMode)?.classList.add('active');
+  }
+
+  function bindInjectorControls() {
+    const refresh = $('btn-refresh-injector-page');
+    if (refresh) refresh.addEventListener('click', async () => { await updateInjectorPageSettings(); appendLog('Injector page settings refreshed.', 'info'); });
+    ['auto-download-enabled','auto-download-count','auto-download-delay','auto-download-monitoring','auto-download-pattern','auto-download-extension','auto-download-prefix','point1-enabled','point1-selector','point1-delay','point2-enabled','point2-selector','point2-delay'].forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      const persist = () => { syncInjectorFromUI(); saveCurrentInjectorSettings(); };
+      el.addEventListener('input', persist);
+      el.addEventListener('change', persist);
+    });
+    document.querySelectorAll('.picker-btn[data-point]').forEach(btn => btn.addEventListener('click', async () => {
+      await updateInjectorUrlKeyOnly();
+      pickElement(parseInt(btn.dataset.point || '1'));
+    }));
+  }
+
+  function addInjectorPoint(point) {
+    const nextId = point?.id || Math.max(1, ...injectorPoints.map(p => p.id)) + 1;
+    injectorPoints.push(point || { id: nextId, type: 'click', enabled: true, selector: '', delay: 1.0 });
+    renderInjectorPoints();
+  }
+
+  function renderInjectorPoints() {
+    const c = $('dynamic-points-container');
+    if (!c) return;
+    c.innerHTML = injectorPoints.filter(p => p.id !== 1).map(p => `
+      <div class="point-row" data-point-row="${p.id}">
+        <div class="point-header">
+          <input type="checkbox" class="dyn-point-enabled" data-point="${p.id}" ${p.enabled !== false ? 'checked' : ''}>
+          <span class="point-label">Point ${p.id}</span><span class="point-note">(click)</span>
+          <button class="prompt-clear-btn dyn-point-remove" data-point="${p.id}" style="margin-left:auto;">Remove</button>
+        </div>
+        <div class="point-controls">
+          <input type="text" class="selector-input dyn-point-selector" data-point="${p.id}" value="${escapeHtml(p.selector || '')}" placeholder="CSS selector...">
+          <button class="picker-btn dyn-picker" data-point="${p.id}" title="Pick element from page">Pick</button>
+        </div>
+        <div class="delay-row"><label>Delay:</label><input type="number" class="delay-input dyn-point-delay" data-point="${p.id}" value="${p.delay ?? 1}" min="0" step="0.1"><span class="unit">s</span></div>
+      </div>`).join('');
+    c.querySelectorAll('.dyn-picker').forEach(b => b.addEventListener('click', () => pickElement(parseInt(b.dataset.point))));
+    c.querySelectorAll('.dyn-point-remove').forEach(b => b.addEventListener('click', () => { injectorPoints = injectorPoints.filter(p => p.id !== parseInt(b.dataset.point)); renderInjectorPoints(); saveSettings(); }));
+    c.querySelectorAll('.dyn-point-enabled,.dyn-point-selector,.dyn-point-delay').forEach(el => {
+      el.addEventListener('input', () => { syncInjectorFromUI(); saveSettings(); });
+      el.addEventListener('change', () => { syncInjectorFromUI(); saveSettings(); });
+    });
+    syncInjectorToUI();
+  }
+
+  function syncInjectorToUI() {
+    injectorPoints = normalizeFixedInjectorPoints(injectorPoints);
+    const p1 = injectorPoints.find(p => p.id === 1);
+    const p2 = injectorPoints.find(p => p.id === 2);
+    if (p1) {
+      if ($('point1-enabled')) $('point1-enabled').checked = p1.enabled !== false;
+      if ($('point1-selector')) $('point1-selector').value = p1.selector || '';
+      if ($('point1-delay')) $('point1-delay').value = p1.delay ?? 1;
+    }
+    if (p2) {
+      if ($('point2-enabled')) $('point2-enabled').checked = p2.enabled !== false;
+      if ($('point2-selector')) $('point2-selector').value = p2.selector || '';
+      if ($('point2-delay')) $('point2-delay').value = p2.delay ?? 1;
+    }
+  }
+
+  function syncInjectorFromUI() {
+    injectorPoints = [
+      {
+        id: 1,
+        type: 'paste',
+        enabled: $('point1-enabled')?.checked !== false,
+        selector: $('point1-selector')?.value || '',
+        delay: parseFloat($('point1-delay')?.value || '1') || 0
+      },
+      {
+        id: 2,
+        type: 'click',
+        enabled: $('point2-enabled')?.checked !== false,
+        selector: $('point2-selector')?.value || '',
+        delay: parseFloat($('point2-delay')?.value || '1') || 0
+      }
+    ];
+  }
+
+  async function pickElement(pointIndex) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return appendLog('Cannot pick element on this page.', 'error');
+      await ensureContentScript(tab.id);
+      chrome.tabs.sendMessage(tab.id, { type: 'START_PICKER', pointIndex }, res => {
+        if (chrome.runtime.lastError) appendLog('Picker failed: ' + chrome.runtime.lastError.message, 'error');
+        else appendLog(`Picker started for Point ${pointIndex}. Click target element on page.`, 'act');
+      });
+    } catch (e) { appendLog('Picker error: ' + e.message, 'error'); }
+  }
+
+  function getInjectorConfig() {
+    syncInjectorFromUI();
+    return {
+      points: injectorPoints.map(p => ({ ...p })),
+      autoDownload: {
+        enabled: $('auto-download-enabled')?.checked === true,
+        count: parseInt($('auto-download-count')?.value || '2') || 2,
+        delay: parseInt($('auto-download-delay')?.value || '5') || 5,
+        monitoring: $('auto-download-monitoring')?.checked === true,
+        pattern: $('auto-download-pattern')?.value || '',
+        extension: $('auto-download-extension')?.value || 'jpg',
+        prefix: $('auto-download-prefix')?.value || 'Mockup_Preview'
+      }
+    };
+  }
+
+  async function runInjectorPrompt(i) {
+    if (!prompts[i]) return;
+    if (injectorRunning) return appendLog('Injector automation already running.', 'warn');
+    const tab = await getActiveUsableTab();
+    if (!tab?.id) return appendLog('No active target page found. Open/select the target generator page first.', 'error');
+    currentInjectorUrlKey = getUrlKey(tab.url);
+    const saved = await loadInjectorFromDB(`injector:${currentInjectorUrlKey}`);
+    if (saved) applyInjectorConfig(saved);
+    else syncInjectorFromUI();
+    syncInjectorToUI();
+    const config = getInjectorConfig();
+    config.promptOffset = i;
+    if (!config.points.some(p => p.enabled && p.selector)) return appendLog(`No injector points saved for ${new URL(tab.url).hostname}. Pick Entry Prompt and Submit Button first.`, 'error');
+    if (!config.points.find(p => p.id === 1)?.selector) return appendLog('Entry Prompt selector is required for this page.', 'error');
+    if (!config.points.find(p => p.id === 2)?.selector) return appendLog('Submit Button selector is required for this page.', 'error');
+    injectorRunning = true; injectorPaused = false; injectorSessionId = 'mpp-injector-' + Date.now();
+    statuses[i] = config.autoDownload.enabled ? 'monitoring' : 'inserting';
+    renderPrompts();
+    await ensureContentScript(tab.id);
+    chrome.tabs.sendMessage(tab.id, { type: 'START_AUTOMATION', config, prompts: [prompts[i]], sessionId: injectorSessionId }, res => {
+      if (chrome.runtime.lastError) { appendLog('Injector start failed: ' + chrome.runtime.lastError.message, 'error'); injectorRunning = false; statuses[i] = 'failed'; renderPrompts(); }
+      else appendLog(`Universal injector started for prompt #${i+1}.`, 'success');
+    });
+  }
+
+  async function stopInjectorAutomation() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'STOP_AUTOMATION', sessionId: injectorSessionId });
+    injectorRunning = false; injectorSessionId = null;
+    // Reset any monitoring/inserting status to failed
+    statuses.forEach((st, i) => {
+      if (st === 'monitoring' || st === 'inserting') statuses[i] = 'failed';
+    });
+    renderPrompts();
+    appendLog('Universal injector stopped.', 'info');
+  }
+
+
   function bindPersistenceInputs() {
     ['paramTitle','paramSubtitle','paramContext','paramCustomStyle','paramCustomFont','apiProvider','apiKey','apiEndpoint','apiModel'].forEach(id => {
       const el = $(id); if (el) el.addEventListener('input', saveSettings);
@@ -375,8 +660,8 @@ bindTabs();
       model: $('apiModel')?.value?.trim() || '',
       imageData,
       fontImageData,
-      prompts,
-      analysis
+      analysis,
+      automationMode
     };
   }
 
@@ -413,6 +698,7 @@ bindTabs();
       fontImageData = s.fontImageData || null;
       prompts = s.prompts || [];
       analysis = s.analysis || '';
+      automationMode = s.automationMode || 'flow';
       checkRadio('ratio', s.ratio || '16:9');
       checkRadio('quality', s.downloadQuality || 'default');
       syncAllColors();
@@ -426,6 +712,8 @@ bindTabs();
       if (cf && fs) cf.classList.toggle('hidden', fs.value !== 'Custom Description');
       renderMainImage();
       renderFontImage();
+      updateModeUI();
+      syncInjectorToUI();
       renderPrompts();
     } catch (e) { appendLog('Failed to load settings: ' + e.message, 'warn'); }
   }
@@ -540,14 +828,29 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     const base = s.endpoint.replace(/\/$/, '');
     const url = `${base}/models/${encodeURIComponent(s.model)}:generateContent?key=${encodeURIComponent(s.apiKey)}`;
     const body = {
-      contents: { parts },
+      contents: [{ parts }],
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
       systemInstruction: { parts: [{ text: buildSystemInstruction(s) }] }
     };
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      let errMsg = res.statusText;
+      try {
+        const json = await res.json();
+        errMsg = json.error?.message || JSON.stringify(json);
+      } catch (_) {}
+      throw new Error(errMsg);
+    }
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || res.statusText);
-    return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('Empty response from Gemini API');
+    return text;
+  }
+
+  function buildOpenAIChatUrl(endpoint) {
+    const base = String(endpoint || '').trim().replace(/\/+$/, '');
+    if (/\/chat\/completions$/i.test(base)) return base;
+    return `${base}/chat/completions`;
   }
 
   async function callOpenAI(s) {
@@ -561,8 +864,7 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
       userContent.push({ type: 'image_url', image_url: { url: s.fontImageData } });
     }
     userContent.push({ type: 'text', text: buildUserMessage(s) });
-    const base = s.endpoint.replace(/\/$/, '');
-    const url = `${base}/chat/completions`;
+    const url = buildOpenAIChatUrl(s.endpoint);
     const body = {
       model: s.model,
       messages: [
@@ -573,9 +875,18 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
       response_format: { type: 'json_object' }
     };
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.apiKey }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      let errMsg = res.statusText;
+      try {
+        const json = await res.json();
+        errMsg = json.error?.message || JSON.stringify(json);
+      } catch (_) {}
+      throw new Error(errMsg);
+    }
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || res.statusText);
-    return json.choices?.[0]?.message?.content || '';
+    const text = json.choices?.[0]?.message?.content;
+    if (!text) throw new Error('Empty response from OpenAI-compatible API');
+    return text;
   }
 
   function parseResponse(raw) {
@@ -611,7 +922,9 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     } catch (e) {
       isGenerating = false;
       renderPrompts();
-      appendLog('Generate failed: ' + e.message, 'error');
+      const message = e?.message || String(e) || 'Unknown error';
+      appendLog('Generate failed: ' + message, 'error');
+      console.error('Generate prompts failed:', e);
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove('loading'); btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Prompts'; }
     }
@@ -657,7 +970,7 @@ return;
           <div class="prompt-item-actions">
             <button class="prompt-item-btn" data-copy="${i}">Copy</button>
             <button class="prompt-item-btn btn-insert ${st === 'monitoring' ? 'inserted' : ''} ${st === 'monitoring' ? 'stop-monitor' : ''}" data-insert="${i}" ${st === 'inserting' ? 'disabled' : ''}>
-              ${st === 'inserting' ? 'Inserting...' : st === 'monitoring' ? 'Stop' : 'Insert'}
+              ${st === 'inserting' ? 'Running...' : st === 'monitoring' ? 'Stop' : 'Insert'}
             </button>
           </div>
         </div>
@@ -699,9 +1012,11 @@ return;
       b.addEventListener('click', () => {
         const idx = +b.dataset.insert;
         if (b.classList.contains('stop-monitor') && statuses[idx] === 'monitoring') {
-          stopMonitoring(idx);
+          if (automationMode === 'injector') stopInjectorAutomation();
+          else stopMonitoring(idx);
         } else {
-          insertPrompt(idx);
+          if (automationMode === 'injector') runInjectorPrompt(idx);
+          else insertPrompt(idx);
         }
       });
     });
@@ -854,6 +1169,23 @@ return;
 
   // ── Runtime messages from content script ──────────────────────────────────
   function onRuntimeMessage(msg) {
+    if (msg.type === 'ELEMENT_PICKED') {
+      const id = parseInt(msg.pointIndex || 1);
+      let p = injectorPoints.find(x => x.id === id);
+      if (!p) return;
+      p.selector = msg.selector || '';
+      syncInjectorToUI();
+      saveCurrentInjectorSettings();
+      appendLog(`Point ${id} selected: ${msg.selector}`, 'success');
+      return;
+    }
+    if (msg.type === 'AUTOMATION_STATUS') { appendLog('[Injector] ' + msg.text, 'info'); return; }
+    if (msg.type === 'DOWNLOAD_SCANNING') { appendLog(`[Injector] Scanning: found ${msg.found}/${msg.required}`, 'info'); return; }
+    if (msg.type === 'DOWNLOAD_COUNTDOWN') { if (msg.seconds % 10 === 0 || msg.seconds <= 5) appendLog(`[Injector] Waiting ${msg.seconds}s before scanning`, 'info'); return; }
+    if (msg.type === 'DOWNLOAD_DONE') { if (Number.isInteger(msg.promptIndex)) { statuses[msg.promptIndex] = 'downloaded'; renderPrompts(); } appendLog(`[Injector] Downloaded ${msg.count} item(s)`, 'success'); return; }
+    if (msg.type === 'AUTOMATION_PROGRESS') { appendLog(`[Injector] Progress: ${msg.done}/${msg.total}`, 'info'); return; }
+    if (msg.type === 'AUTOMATION_FINISHED') { injectorRunning = false; injectorSessionId = null; renderPrompts(); appendLog('[Injector] Automation finished.', 'success'); return; }
+    if (msg.type === 'AUTOMATION_ERROR') { if (Number.isInteger(msg.promptIndex)) { statuses[msg.promptIndex] = 'failed'; renderPrompts(); } appendLog('[Injector] ' + (msg.message || 'Automation error'), 'error'); return; }
     if (msg.action === 'LOG_FROM_CONTENT') appendLog('[Script] ' + msg.message, 'info');
     if (msg.action === 'PROMPT_STATUS') {
       statuses[msg.promptIndex] = msg.status;
@@ -882,6 +1214,10 @@ return;
     }
     if (msg.action === 'DOWNLOAD_STARTED') {
       appendLog(`Download started: ${msg.filename}`, 'success');
+    }
+    if (msg.action === 'DOWNLOAD_FAILED') {
+      if (Number.isInteger(msg.promptIndex)) { statuses[msg.promptIndex] = 'failed'; renderPrompts(); }
+      appendLog(`Download failed: ${msg.error || 'Unknown error'}`, 'error');
     }
   }
 

@@ -41,11 +41,11 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "*://labs.google/fx/tools/flow*",
-        "*://labs.google/fx/*/tools/flow*"
-      ],
-      "js": ["content.js"]
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ]
 }

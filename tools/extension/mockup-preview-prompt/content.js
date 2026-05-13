@@ -7,7 +7,6 @@ if (window.top !== window.self) {
     window.__MPP_CONTENT_LOADED__ = true;
 
     const isFlowPage = location.href.includes('labs.google') && location.href.includes('/tools/flow');
-    if (!isFlowPage) return;
 
     let isRunning = true;
 
@@ -470,24 +469,293 @@ if (window.top !== window.self) {
       throw new Error('Timed out waiting for Flow project editor');
     }
 
+    // -- Universal Prompt Injector helpers -----------------------------------
+    let pickerActive = false;
+    let pickerPointIndex = null;
+    let highlightedElement = null;
+    let highlightOverlay = null;
+    let highlightLabel = null;
+    let injectorRunning = false;
+    let injectorPaused = false;
+    let injectorSessionId = null;
+    const downloadedUrls = new Set();
+
+    function deepQuerySelectorAll(rootElement, selector) {
+      const results = [];
+      const traverse = (element) => {
+        if (!element) return;
+        try { if (element.matches && element.matches(selector)) results.push(element); } catch (_) {}
+        try { element.querySelectorAll(selector).forEach(child => results.push(child)); } catch (_) {}
+        if (element.shadowRoot) {
+          try { element.shadowRoot.querySelectorAll(selector).forEach(child => results.push(child)); } catch (_) {}
+          try { element.shadowRoot.querySelectorAll('*').forEach(el => { if (el.shadowRoot) traverse(el); }); } catch (_) {}
+        }
+        try { element.querySelectorAll('*').forEach(el => { if (el.shadowRoot) traverse(el); }); } catch (_) {}
+      };
+      traverse(rootElement);
+      return results;
+    }
+    function deepQuerySelector(rootElement, selector) { return deepQuerySelectorAll(rootElement, selector)[0] || null; }
+    function getAllMediaUrls() {
+      const allUrls = new Set();
+      deepQuerySelectorAll(document, 'img').forEach(img => {
+        const src = img.src || img.currentSrc || img.getAttribute('data-src');
+        if (!src || src.startsWith('data:image/svg') || src.includes('placeholder')) return;
+        if ((img.naturalWidth || 0) >= 500 || (img.naturalHeight || 0) >= 500) allUrls.add(src);
+      });
+      deepQuerySelectorAll(document, 'video').forEach(video => {
+        const src = video.src || video.currentSrc || video.querySelector('source')?.src;
+        if (src) allUrls.add(src);
+      });
+      deepQuerySelectorAll(document, 'canvas').forEach(canvas => {
+        if (canvas.width >= 500 || canvas.height >= 500) { try { allUrls.add(canvas.toDataURL('image/png')); } catch (_) {} }
+      });
+      deepQuerySelectorAll(document, '[style*="background"]').forEach(el => {
+        const bgImage = getComputedStyle(el).backgroundImage;
+        const m = bgImage && bgImage.match(/url\(["']?([^"')]+)["']?\)/);
+        if (m?.[1] && !m[1].startsWith('data:image/svg')) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width >= 500 || rect.height >= 500) allUrls.add(m[1]);
+        }
+      });
+      return allUrls;
+    }
+    function findNewMediaContent(count, urlPattern, excludeUrls = new Set()) {
+      const matchesPattern = url => !urlPattern || !urlPattern.trim() || url.startsWith(urlPattern.trim());
+      const newMedia = [];
+      deepQuerySelectorAll(document, 'img').forEach(img => {
+        const src = img.src || img.currentSrc || img.getAttribute('data-src');
+        if (!src || excludeUrls.has(src) || downloadedUrls.has(src) || src.startsWith('data:image/svg') || src.includes('placeholder') || !matchesPattern(src)) return;
+        const width = img.naturalWidth || 0, height = img.naturalHeight || 0;
+        if ((urlPattern && urlPattern.trim() && width > 0 && height > 0) || width >= 500 || height >= 500) newMedia.push({ url: src, type: 'image', width, height });
+      });
+      deepQuerySelectorAll(document, 'video').forEach(video => {
+        const src = video.src || video.currentSrc || video.querySelector('source')?.src;
+        if (!src || excludeUrls.has(src) || downloadedUrls.has(src) || !matchesPattern(src)) return;
+        const width = video.videoWidth || 0, height = video.videoHeight || 0;
+        if ((urlPattern && urlPattern.trim()) || width >= 500 || height >= 500) newMedia.push({ url: src, type: 'video', width, height });
+      });
+      deepQuerySelectorAll(document, 'canvas').forEach(canvas => {
+        if (canvas.width >= 500 || canvas.height >= 500) { try { const url = canvas.toDataURL('image/png'); if (!excludeUrls.has(url) && !downloadedUrls.has(url)) newMedia.push({ url, type: 'canvas', width: canvas.width, height: canvas.height }); } catch (_) {} }
+      });
+      deepQuerySelectorAll(document, '[style*="background"]').forEach(el => {
+        const bgImage = getComputedStyle(el).backgroundImage;
+        const m = bgImage && bgImage.match(/url\(["']?([^"')]+)["']?\)/);
+        const src = m?.[1];
+        if (!src || excludeUrls.has(src) || downloadedUrls.has(src) || src.startsWith('data:image/svg') || !matchesPattern(src)) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width >= 500 || rect.height >= 500) newMedia.push({ url: src, type: 'background', width: rect.width, height: rect.height });
+      });
+      newMedia.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+      const seen = new Set();
+      return newMedia.filter(m => !seen.has(m.url) && seen.add(m.url)).slice(0, count);
+    }
+    function generateSelector(element) {
+      if (!element || element === document.body || element === document.documentElement) return null;
+      const tag = element.tagName.toLowerCase();
+      if (element.id && !element.id.includes(':') && !element.id.includes(' ')) {
+        const sel = '#' + CSS.escape(element.id); try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (_) {}
+      }
+      for (const attr of ['data-testid','data-id','data-qa','aria-label','name','role','type','placeholder','title']) {
+        const val = element.getAttribute(attr);
+        if (val && val.length < 100) { const sel = `[${attr}="${CSS.escape(val)}"]`; try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (_) {} }
+      }
+      const classes = Array.from(element.classList || []).filter(c => c && !c.includes(':') && !c.includes('[') && c.length < 50).slice(0, 3);
+      if (classes.length) { const sel = '.' + classes.map(c => CSS.escape(c)).join('.'); try { if (document.querySelectorAll(sel).length === 1) return sel; } catch (_) {} }
+      const path = [];
+      let cur = element, depth = 0;
+      while (cur && cur !== document.body && cur !== document.documentElement && depth < 8) {
+        let sel = cur.tagName.toLowerCase();
+        const parent = cur.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(el => el.tagName === cur.tagName);
+          if (siblings.length > 1) sel += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
+        }
+        path.unshift(sel); cur = parent; depth++;
+      }
+      return path.join(' > ') || tag;
+    }
+    function createHighlightOverlay() {
+      if (highlightOverlay || !document.body) return;
+      highlightOverlay = document.createElement('div');
+      highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;border:3px solid #ff8800;background:rgba(255,136,0,.15);z-index:2147483647;display:none;box-shadow:0 0 0 9999px rgba(0,0,0,.3);';
+      document.body.appendChild(highlightOverlay);
+      highlightLabel = document.createElement('div');
+      highlightLabel.style.cssText = 'position:fixed;pointer-events:none;background:#ff8800;color:#000;font-size:11px;font-family:monospace;padding:2px 6px;border-radius:3px;z-index:2147483647;display:none;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      document.body.appendChild(highlightLabel);
+    }
+    function updateHighlight(element) {
+      if (!element || !highlightOverlay) return;
+      const rect = element.getBoundingClientRect();
+      Object.assign(highlightOverlay.style, { left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px', height: rect.height + 'px', display: 'block' });
+      if (highlightLabel) { highlightLabel.textContent = `${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}`; Object.assign(highlightLabel.style, { left: rect.left + 'px', top: Math.max(0, rect.top - 22) + 'px', display: 'block' }); }
+    }
+    function stopPicker() {
+      pickerActive = false; pickerPointIndex = null; highlightedElement = null;
+      document.removeEventListener('mousemove', onPickerMove, true); document.removeEventListener('click', onPickerClick, true); document.removeEventListener('keydown', onPickerKey, true);
+      try { document.body.style.cursor = ''; } catch (_) {}
+      highlightOverlay?.remove(); highlightLabel?.remove(); highlightOverlay = null; highlightLabel = null;
+    }
+    function onPickerMove(e) { if (!pickerActive) return; const el = document.elementFromPoint(e.clientX, e.clientY); if (el && el !== highlightedElement) { highlightedElement = el; updateHighlight(el); } }
+    function onPickerClick(e) { if (!pickerActive) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); const el = highlightedElement || document.elementFromPoint(e.clientX, e.clientY); const selector = generateSelector(el); if (selector) safeMsg({ type: 'ELEMENT_PICKED', pointIndex: pickerPointIndex, selector }); stopPicker(); return false; }
+    function onPickerKey(e) { if (pickerActive && e.key === 'Escape') { e.preventDefault(); stopPicker(); } }
+    function startPicker(pointIndex) { stopPicker(); pickerActive = true; pickerPointIndex = pointIndex; createHighlightOverlay(); document.addEventListener('mousemove', onPickerMove, true); document.addEventListener('click', onPickerClick, true); document.addEventListener('keydown', onPickerKey, true); document.body.style.cursor = 'crosshair'; }
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    async function waitWhileInjectorPaused() { while (injectorPaused && injectorRunning) await sleep(100); }
+    
+    // Typewriter effect for injector (consistent with Flow mode)
+    async function typeTextInjector(element, text) {
+      if (!text || !injectorRunning) return;
+      element.focus();
+      
+      // Clear existing content first
+      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+        element.select();
+        element.value = '';
+      } else if (element.isContentEditable) {
+        const r = document.createRange();
+        r.selectNodeContents(element);
+        const s = getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        document.execCommand('selectAll', false, null);
+        document.execCommand('delete', false, null);
+      }
+      
+      // Type character by character
+      for (let i = 0; i < text.length && injectorRunning; i++) {
+        await waitWhileInjectorPaused();
+        const char = text[i];
+        let delay = Math.random() * 10 + 3;
+        if (char === ' ') delay *= 2;
+        await sleep(delay);
+        if (!injectorRunning) break;
+        
+        const key = char === ' ' ? ' ' : char;
+        const code = 'Key' + key.toUpperCase();
+        const kc = key.charCodeAt(0);
+        
+        element.dispatchEvent(new KeyboardEvent('keydown', { key, code, keyCode: kc, which: kc, bubbles: true, cancelable: true }));
+        const bi = new InputEvent('beforeinput', { inputType: 'insertText', data: char, bubbles: true, cancelable: true });
+        const canceled = !element.dispatchEvent(bi);
+        if (!canceled) {
+          if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+            element.value += char;
+          } else {
+            document.execCommand('insertText', false, char);
+          }
+          element.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
+        }
+        element.dispatchEvent(new KeyboardEvent('keyup', { key, code, keyCode: kc, which: kc, bubbles: true }));
+      }
+      
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    
+    function simulateClick(element) { element.focus?.(); element.click?.(); element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); }
+    async function executeInjectorPoint(point, promptText) { if (!point.enabled || !point.selector) return true; let el; try { el = document.querySelector(point.selector) || deepQuerySelector(document, point.selector); } catch (_) {} if (!el) { safeMsg({ type: 'AUTOMATION_STATUS', text: 'Element not found: ' + point.selector, sessionId: injectorSessionId }); return true; } if (point.type === 'paste') await typeTextInjector(el, promptText); else simulateClick(el); return true; }
+    async function requestDownload(payload) {
+      try {
+        return await new Promise(resolve => {
+          chrome.runtime.sendMessage({ type: 'DOWNLOAD_CONTENT', ...payload }, response => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message || 'Download message failed' });
+              return;
+            }
+            resolve(response || { ok: false, error: 'No download response from background' });
+          });
+        });
+      } catch (err) {
+        return { ok: false, error: err.message || String(err) };
+      }
+    }
+
+    async function runUniversalAutomation(config, automationPrompts, sessionId) {
+      if (injectorRunning) return;
+      injectorRunning = true; injectorPaused = false; injectorSessionId = sessionId || null;
+      const enabledPoints = (config.points || []).filter(p => p.enabled && p.selector);
+      if (!enabledPoints.length) { safeMsg({ type: 'AUTOMATION_ERROR', message: 'No enabled points with selectors configured.', sessionId: injectorSessionId }); injectorRunning = false; return; }
+      for (let idx = 0; idx < automationPrompts.length && injectorRunning; idx++) {
+        await waitWhileInjectorPaused();
+        const prompt = automationPrompts[idx];
+        const before = getAllMediaUrls();
+        for (let p = 0; p < enabledPoints.length && injectorRunning; p++) {
+          await waitWhileInjectorPaused();
+           const delay = (enabledPoints[p].delay || 0) * 1000;
+          if (delay > 0) { safeMsg({ type: 'AUTOMATION_STATUS', text: `Point ${p+1}: Waiting ${Math.ceil(delay/1000)}s`, sessionId: injectorSessionId }); await sleep(delay); }
+          safeMsg({ type: 'AUTOMATION_STATUS', text: `Point ${p+1}: Executing ${enabledPoints[p].type}`, sessionId: injectorSessionId });
+          await executeInjectorPoint(enabledPoints[p], enabledPoints[p].type === 'paste' ? prompt : null);
+        }
+        let downloadSuccess = true;
+        if (config.autoDownload?.enabled && injectorRunning) {
+          downloadSuccess = false;
+          const req = config.autoDownload.count || 2, pattern = config.autoDownload.pattern || '', ext = config.autoDownload.extension || 'jpg', prefix = config.autoDownload.prefix || 'Mockup_Preview';
+          const timeout = (config.autoDownload.monitoring ? Math.max(ext === 'mp4' ? 900 : 600, config.autoDownload.delay || 5) : (config.autoDownload.delay || 5)) * 1000;
+          let media = [];
+          if (config.autoDownload.monitoring) {
+            const start = Date.now(); let scan = 0;
+            while (injectorRunning && Date.now() - start < timeout) {
+              scan++; media = findNewMediaContent(req, pattern, before);
+              safeMsg({ type: 'DOWNLOAD_SCANNING', found: media.length, required: req, sessionId: injectorSessionId });
+              if (media.length >= req) break;
+              await sleep(1500);
+            }
+          } else {
+            for (let rem = Math.ceil(timeout/1000); rem > 0 && injectorRunning; rem--) { safeMsg({ type: 'DOWNLOAD_COUNTDOWN', seconds: rem, sessionId: injectorSessionId }); await sleep(1000); }
+            media = findNewMediaContent(req, pattern, before);
+          }
+          if (media.length) {
+            const promptWords = prompt.split(/\s+/).slice(0, 5).join('_').replace(/[^a-zA-Z0-9_]/g, '');
+            let startedCount = 0;
+            for (let j = 0; j < media.length && injectorRunning; j++) {
+              const promptIndex = (config.promptOffset || 0) + idx;
+              const res = await requestDownload({ url: media[j].url, promptIndex, batchIndex: j, mediaType: media[j].type, extension: ext, prefix, promptWords });
+              if (res.ok) {
+                downloadedUrls.add(media[j].url);
+                startedCount++;
+                safeMsg({ type: 'AUTOMATION_STATUS', text: `Download started: ${res.filename || media[j].url}`, sessionId: injectorSessionId });
+              } else {
+                safeMsg({ type: 'AUTOMATION_ERROR', message: `Download failed: ${res.error || 'Unknown error'}`, promptIndex: (config.promptOffset || 0) + idx, sessionId: injectorSessionId });
+              }
+              await sleep(800);
+            }
+            downloadSuccess = startedCount > 0;
+            if (downloadSuccess) safeMsg({ type: 'DOWNLOAD_DONE', count: startedCount, promptIndex: (config.promptOffset || 0) + idx, sessionId: injectorSessionId });
+            else safeMsg({ type: 'AUTOMATION_ERROR', message: 'Detected media but no downloads could be started.', promptIndex: (config.promptOffset || 0) + idx, sessionId: injectorSessionId });
+          } else {
+            safeMsg({ type: 'AUTOMATION_ERROR', message: 'No new media matched the configured URL pattern.', promptIndex: (config.promptOffset || 0) + idx, sessionId: injectorSessionId });
+          }
+        }
+        safeMsg({ type: 'AUTOMATION_PROGRESS', done: idx + 1, total: automationPrompts.length, sessionId: injectorSessionId });
+      }
+      injectorRunning = false; safeMsg({ type: 'AUTOMATION_FINISHED', sessionId: injectorSessionId }); injectorSessionId = null;
+    }
+
     // -- Message listener ----------------------------------------------------
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-      if (msg.action === 'PING') {
-        sendResponse({ status: 'ok' });
+      if (msg.action === 'PING' || msg.type === 'PING') {
+        sendResponse({ status: 'ok', success: true, ready: true });
         return true;
       }
+      if (msg.type === 'START_PICKER') { startPicker(msg.pointIndex); sendResponse({ success: true, started: true }); return true; }
+      if (msg.type === 'START_AUTOMATION') { runUniversalAutomation(msg.config, msg.prompts || [], msg.sessionId); sendResponse({ success: true }); return true; }
+      if (msg.type === 'STOP_AUTOMATION') { injectorRunning = false; injectorPaused = false; sendResponse({ success: true }); return true; }
+      if (msg.type === 'TOGGLE_PAUSE') { injectorPaused = !!msg.paused; sendResponse({ success: true }); return true; }
       if (msg.action === 'STOP') {
         isRunning = false;
         sendResponse({ status: 'stopped' });
         return true;
       }
       if (msg.action === 'ENSURE_FLOW_READY') {
+        if (!isFlowPage) { sendResponse({ ok: false, error: 'Not a Flow page' }); return true; }
         ensureFlowProjectReady()
           .then(() => sendResponse({ ok: true }))
           .catch(e => sendResponse({ ok: false, error: e.message }));
         return true;
       }
       if (msg.action === 'INSERT_PROMPT') {
+        if (!isFlowPage) { sendResponse({ status: 'failed', message: 'Not a Flow page' }); return true; }
         if (!isRunning) { sendResponse({ status: 'failed', message: 'Content script stopped' }); return true; }
         const payload = msg.payload;
         insertPrompt(payload.prompt, payload.promptIndex, payload.settings).then(result => {

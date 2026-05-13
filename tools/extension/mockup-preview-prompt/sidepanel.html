@@ -164,39 +164,95 @@
       </div>
     </div>
 
-    <!-- Flow Settings -->
+    <!-- Automation Settings -->
     <div class="settings-section">
-      <span class="section-title">Flow Settings</span>
-      <div class="form-group" style="margin-top:8px;">
-        <label>Aspect Ratio</label>
-        <div class="radio-group" id="ratioGroup">
-          <div class="radio-pill"><input type="radio" name="ratio" id="r169" value="16:9" checked><label for="r169">16:9</label></div>
-          <div class="radio-pill"><input type="radio" name="ratio" id="r43" value="4:3"><label for="r43">4:3</label></div>
-          <div class="radio-pill"><input type="radio" name="ratio" id="r11" value="1:1"><label for="r11">1:1</label></div>
-          <div class="radio-pill"><input type="radio" name="ratio" id="r34" value="3:4"><label for="r34">3:4</label></div>
-          <div class="radio-pill"><input type="radio" name="ratio" id="r916" value="9:16"><label for="r916">9:16</label></div>
-        </div>
+      <span class="section-title">Automation Settings</span>
+      <div class="mode-tabs" style="margin-top:8px;">
+        <button class="mode-tab-btn active" data-mode-tab="flow">Flow</button>
+        <button class="mode-tab-btn" data-mode-tab="injector">Universal Prompt Injector</button>
       </div>
-      <div class="form-group" style="margin-top:8px;">
-        <label>Download Quality</label>
-        <div class="radio-group">
-          <div class="radio-pill"><input type="radio" name="quality" id="qDefault" value="default" checked><label for="qDefault">Default</label></div>
-          <div class="radio-pill"><input type="radio" name="quality" id="q2k" value="2K"><label for="q2k">2K</label></div>
-          <div class="radio-pill"><input type="radio" name="quality" id="q4k" value="4K"><label for="q4k">4K</label></div>
+
+      <div class="mode-panel active" id="mode-panel-flow">
+        <div class="form-group" style="margin-top:8px;">
+          <label>Aspect Ratio</label>
+          <div class="radio-group" id="ratioGroup">
+            <div class="radio-pill"><input type="radio" name="ratio" id="r169" value="16:9" checked><label for="r169">16:9</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r43" value="4:3"><label for="r43">4:3</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r11" value="1:1"><label for="r11">1:1</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r34" value="3:4"><label for="r34">3:4</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio" id="r916" value="9:16"><label for="r916">9:16</label></div>
+          </div>
         </div>
-      </div>
-       <div class="form-group" style="margin-top:8px;">
-         <label>Batch Count</label>
-         <div class="radio-group">
-           <div class="radio-pill"><input type="radio" name="batch" id="b1" value="1" checked><label for="b1">x1</label></div>
-           <div class="radio-pill"><input type="radio" name="batch" id="b2" value="2"><label for="b2">x2</label></div>
-           <div class="radio-pill"><input type="radio" name="batch" id="b3" value="3"><label for="b3">x3</label></div>
-           <div class="radio-pill"><input type="radio" name="batch" id="b4" value="4"><label for="b4">x4</label></div>
+        <div class="form-group" style="margin-top:8px;">
+          <label>Download Quality</label>
+          <div class="radio-group">
+            <div class="radio-pill"><input type="radio" name="quality" id="qDefault" value="default" checked><label for="qDefault">Default</label></div>
+            <div class="radio-pill"><input type="radio" name="quality" id="q2k" value="2K"><label for="q2k">2K</label></div>
+            <div class="radio-pill"><input type="radio" name="quality" id="q4k" value="4K"><label for="q4k">4K</label></div>
+          </div>
+        </div>
+         <div class="form-group" style="margin-top:8px;">
+           <label>Batch Count</label>
+           <div class="radio-group">
+             <div class="radio-pill"><input type="radio" name="batch" id="b1" value="1" checked><label for="b1">x1</label></div>
+             <div class="radio-pill"><input type="radio" name="batch" id="b2" value="2"><label for="b2">x2</label></div>
+             <div class="radio-pill"><input type="radio" name="batch" id="b3" value="3"><label for="b3">x3</label></div>
+             <div class="radio-pill"><input type="radio" name="batch" id="b4" value="4"><label for="b4">x4</label></div>
+           </div>
          </div>
-       </div>
-      <div class="toggle-row" id="toggleAutoSubmit" style="margin-top:8px;">
-        <span class="toggle-label">Auto Submit</span>
-        <div class="toggle-switch"></div>
+        <div class="toggle-row" id="toggleAutoSubmit" style="margin-top:8px;">
+          <span class="toggle-label">Auto Submit (Flow only)</span>
+          <div class="toggle-switch"></div>
+        </div>
+      </div>
+
+      <div class="mode-panel" id="mode-panel-injector">
+        <div class="injector-note">Universal injector uses 2 fixed points per page: Entry Prompt and Submit Button. Select them once for each website/page, then Prompt tab Insert will follow the saved settings for the current page.</div>
+        <div class="current-page-box">
+          <span class="page-label">Current page:</span>
+          <span class="page-url" id="injector-current-url">No page detected</span>
+          <button class="picker-btn" id="btn-refresh-injector-page" title="Refresh current page">Refresh</button>
+        </div>
+
+        <div class="point-row point-fixed">
+          <div class="point-header">
+            <input type="checkbox" id="point1-enabled" checked>
+            <span class="point-label point-1">Entry Prompt</span>
+            <span class="point-note">(paste prompt)</span>
+          </div>
+          <div class="point-controls">
+            <input type="text" id="point1-selector" class="selector-input" placeholder="CSS selector for prompt input...">
+            <button class="picker-btn" data-point="1" title="Pick prompt input from page">Pick</button>
+          </div>
+          <div class="delay-row"><label>Delay:</label><input type="number" id="point1-delay" class="delay-input" value="1.0" min="0" step="0.1"><span class="unit">s</span></div>
+        </div>
+
+        <div class="point-row point-fixed">
+          <div class="point-header">
+            <input type="checkbox" id="point2-enabled" checked>
+            <span class="point-label point-1">Submit Button</span>
+            <span class="point-note">(click submit/generate)</span>
+          </div>
+          <div class="point-controls">
+            <input type="text" id="point2-selector" class="selector-input" placeholder="CSS selector for submit button...">
+            <button class="picker-btn" data-point="2" title="Pick submit button from page">Pick</button>
+          </div>
+          <div class="delay-row"><label>Delay:</label><input type="number" id="point2-delay" class="delay-input" value="1.0" min="0" step="0.1"><span class="unit">s</span></div>
+        </div>
+
+        <div class="auto-download-section">
+          <div class="auto-download-header"><input type="checkbox" id="auto-download-enabled"><label for="auto-download-enabled">Auto Download Content</label></div>
+          <div class="auto-download-options">
+            <select id="auto-download-count" class="download-count-select"><option value="1">1 item</option><option value="2" selected>2 items</option><option value="3">3 items</option><option value="4">4 items</option></select>
+            <div class="download-delay-row"><label>Wait:</label><input type="number" id="auto-download-delay" class="delay-input" value="5" min="1" max="180" step="1"><span class="unit">s</span></div>
+          </div>
+          <div class="auto-monitoring-row"><input type="checkbox" id="auto-download-monitoring"><label for="auto-download-monitoring">Auto monitoring (scan every 1.5s)</label></div>
+          <div class="url-pattern-row"><label>URL pattern:</label><input type="text" id="auto-download-pattern" class="pattern-input" placeholder="e.g. https://lh3.googleusercontent.com/"></div>
+          <div class="extension-row"><label>File extension:</label><select id="auto-download-extension" class="extension-select"><option value="jpg" selected>JPG</option><option value="png">PNG</option><option value="webp">WEBP</option><option value="mp4">MP4</option></select></div>
+          <div class="prefix-row"><label>File prefix:</label><input type="text" id="auto-download-prefix" class="prefix-input" placeholder="Mockup_Preview"></div>
+          <span class="download-note" id="download-note">Matches images/videos starting with pattern</span>
+        </div>
+
       </div>
      </div>
 
