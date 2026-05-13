@@ -467,6 +467,23 @@ bindTabs();
     $('mode-panel-' + automationMode)?.classList.add('active');
   }
 
+  function bindInjectorPageAutoRefresh() {
+    chrome.tabs.onActivated.addListener(() => {
+      updateInjectorPageSettings().catch(e => appendLog('Injector page update failed: ' + e.message, 'warn'));
+    });
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+      if (changeInfo.status !== 'complete') return;
+      updateInjectorPageSettings().catch(e => appendLog('Injector page update failed: ' + e.message, 'warn'));
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      updateInjectorPageSettings().catch(e => appendLog('Injector page update failed: ' + e.message, 'warn'));
+    });
+    window.addEventListener('focus', () => {
+      updateInjectorPageSettings().catch(e => appendLog('Injector page update failed: ' + e.message, 'warn'));
+    });
+  }
+
   function bindInjectorControls() {
     const refresh = $('btn-refresh-injector-page');
     if (refresh) refresh.addEventListener('click', async () => { await updateInjectorPageSettings(); appendLog('Injector page settings refreshed.', 'info'); });
@@ -602,13 +619,16 @@ bindTabs();
     });
   }
 
-  async function stopInjectorAutomation() {
+  async function stopInjectorAutomation(promptIndex = null) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'STOP_AUTOMATION', sessionId: injectorSessionId });
-    injectorRunning = false; injectorSessionId = null;
-    // Reset any monitoring/inserting status to failed
-    statuses.forEach((st, i) => {
-      if (st === 'monitoring' || st === 'inserting') statuses[i] = 'failed';
+    injectorRunning = false; injectorPaused = false; injectorSessionId = null;
+    // statuses is an object, not an array. Force-clear active injector UI state immediately.
+    if (Number.isInteger(promptIndex)) {
+      if (statuses[promptIndex] === 'monitoring' || statuses[promptIndex] === 'inserting') statuses[promptIndex] = 'failed';
+    }
+    Object.keys(statuses).forEach(key => {
+      if (statuses[key] === 'monitoring' || statuses[key] === 'inserting') statuses[key] = 'failed';
     });
     renderPrompts();
     appendLog('Universal injector stopped.', 'info');
@@ -660,6 +680,8 @@ bindTabs();
       model: $('apiModel')?.value?.trim() || '',
       imageData,
       fontImageData,
+      prompts,
+      statuses,
       analysis,
       automationMode
     };
@@ -697,6 +719,7 @@ bindTabs();
       imageData = s.imageData || null;
       fontImageData = s.fontImageData || null;
       prompts = s.prompts || [];
+      statuses = s.statuses || {};
       analysis = s.analysis || '';
       automationMode = s.automationMode || 'flow';
       checkRadio('ratio', s.ratio || '16:9');
@@ -1011,8 +1034,8 @@ return;
     document.querySelectorAll('[data-insert]').forEach(b => {
       b.addEventListener('click', () => {
         const idx = +b.dataset.insert;
-        if (b.classList.contains('stop-monitor') && statuses[idx] === 'monitoring') {
-          if (automationMode === 'injector') stopInjectorAutomation();
+        if (statuses[idx] === 'monitoring' || statuses[idx] === 'inserting' || b.textContent.trim() === 'Stop') {
+          if (automationMode === 'injector') stopInjectorAutomation(idx);
           else stopMonitoring(idx);
         } else {
           if (automationMode === 'injector') runInjectorPrompt(idx);
