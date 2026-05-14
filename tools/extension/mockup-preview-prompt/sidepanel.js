@@ -708,11 +708,14 @@ bindTabs();
   }
 
 
-  function bindPersistenceInputs() {
+function bindPersistenceInputs() {
     ['paramTitle','paramSubtitle','paramContext','paramCustomStyle','paramCustomFont','apiProvider','apiKey','apiEndpoint','apiModel'].forEach(id => {
       const el = $(id); if (el) el.addEventListener('input', saveSettings);
     });
-    document.querySelectorAll('input[name="ratio"],input[name="quality"],input[name="batch"]').forEach(el => el.addEventListener('change', saveSettings));
+    document.querySelectorAll('input[name="ratio"],input[name="ratio-injector"],input[name="quality"],input[name="batch"]').forEach(el => {
+      el.addEventListener('input', () => { syncInjectorFromUI(); saveSettings(); });
+      el.addEventListener('change', () => { syncInjectorFromUI(); saveSettings(); });
+    });
     const fs = $('paramFontStyle'); if (fs) fs.addEventListener('change', saveSettings);
     const vs = $('paramVisualStyle'); if (vs) vs.addEventListener('change', saveSettings);
     const countInput = $('paramCount');
@@ -729,6 +732,8 @@ bindTabs();
   function getSettings() {
     const fs = $('paramFontStyle');
     const fontStyleVal = fs ? (fs.value === 'Custom Description' ? 'Custom: ' + ($('paramCustomFont')?.value || '') : fs.value) : 'Auto/Mimic Reference';
+    const flowRatio = document.querySelector('input[name="ratio"]:checked')?.value || '16:9';
+    const injectorRatio = document.querySelector('input[name="ratio-injector"]:checked')?.value || '16:9';
     return {
       title: $('paramTitle')?.value || '',
       subtext: $('paramSubtitle')?.value || '',
@@ -744,7 +749,8 @@ bindTabs();
       color10: $('color10')?.value || '#fbbf24',
       strictColor,
       autoSubmit,
-      ratio: document.querySelector('input[name="ratio"]:checked')?.value || '16:9',
+      ratio: flowRatio,
+      injectorRatio,
       downloadQuality: document.querySelector('input[name="quality"]:checked')?.value || 'default',
       batch: document.querySelector('input[name="batch"]:checked')?.value || '4',
       provider: $('apiProvider')?.value || 'gemini',
@@ -796,6 +802,7 @@ bindTabs();
       analysis = s.analysis || '';
       automationMode = s.automationMode || 'flow';
       checkRadio('ratio', s.ratio || '16:9');
+      checkRadio('ratio-injector', s.injectorRatio || s.ratio || '16:9');
       checkRadio('quality', s.downloadQuality || 'default');
       syncAllColors();
       updateStyleSelectUI();
@@ -863,12 +870,14 @@ Role: You are a high-end design consultant and AI prompt architect. Your special
   - Only if fields are explicitly empty should you synthesize contextually relevant labels based on user intent, style direction, and color scheme. Synthesized labels must also be quoted.
   - Main Title: "${s.title || ''}" — treat as literal visible text in the design; always quote it in the prompt.
   - Sub-text: "${s.subtext || ''}" — treat as literal visible text in the design; always quote it in the prompt.
-- TYPOGRAPHY:
-  ${fontRule}
-- COLOR LOGIC:
-  ${colorRule}
-- ASPECT RATIO: Design must fit within a ${ratioStr} frame. Adapt composition to this ratio while preserving the overall design language.
-- VISUAL STYLE / PIVOT: "${styleStr}"
+ - TYPOGRAPHY:
+   ${fontRule}
+ - COLOR LOGIC:
+   ${colorRule}
+ - ASPECT RATIO (MANDATORY):
+   * Target ratio: ${ratioStr}
+   * EVERY prompt MUST explicitly mention the aspect ratio and orientation in the composition description (e.g., "16:9 landscape layout", "9:16 vertical portrait", "1:1 square canvas", "4:3 portrait", "3:4 portrait"). Do not omit this.
+ - VISUAL STYLE / PIVOT: "${styleStr}"
 - PROHIBITED: No physical mockups, no real-world photography of products, no real props, no paper textures, no real surfaces, no hands/people/rooms. This is a pure design artwork file.
 
 [VARIATION REQUIREMENT FOR MULTIPLE PROMPTS]
@@ -1003,6 +1012,10 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
 
   async function generatePrompts() {
     const s = getSettings();
+    // Use appropriate aspect ratio based on current automation mode
+    if (s.automationMode === 'injector') {
+      s.ratio = s.injectorRatio || s.ratio;
+    }
     if (!s.apiKey) return appendLog('API key is required.', 'error');
     if (!s.endpoint) return appendLog('Endpoint URL is required.', 'error');
     if (!s.model) return appendLog('Model name is required.', 'error');

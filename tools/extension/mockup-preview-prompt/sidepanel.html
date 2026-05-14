@@ -242,7 +242,7 @@
           <div class="delay-row"><label>Delay:</label><input type="number" id="point2-delay" class="delay-input" value="1.0" min="0" step="0.1"><span class="unit">s</span></div>
         </div>
 
-        <div class="auto-download-section">
+         <div class="auto-download-section">
           <div class="auto-download-header"><input type="checkbox" id="auto-download-enabled"><label for="auto-download-enabled">Auto Download Content</label></div>
           <div class="auto-download-options">
             <select id="auto-download-count" class="download-count-select"><option value="1" selected>1 item</option><option value="2">2 items</option><option value="3">3 items</option><option value="4">4 items</option></select>
@@ -253,6 +253,17 @@
           <div class="extension-row"><label>File extension:</label><select id="auto-download-extension" class="extension-select"><option value="jpg" selected>JPG</option><option value="png">PNG</option><option value="webp">WEBP</option><option value="mp4">MP4</option></select></div>
           <div class="prefix-row"><label>File prefix:</label><input type="text" id="auto-download-prefix" class="prefix-input" placeholder="Mockup_Preview"></div>
           <span class="download-note" id="download-note">Matches images/videos starting with pattern</span>
+        </div>
+
+        <div class="form-group" style="margin-top:8px;">
+          <label>Aspect Ratio</label>
+          <div class="radio-group" id="ratioGroupInjector">
+            <div class="radio-pill"><input type="radio" name="ratio-injector" id="r169-inj" value="16:9" checked><label for="r169-inj">16:9</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio-injector" id="r43-inj" value="4:3"><label for="r43-inj">4:3</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio-injector" id="r11-inj" value="1:1"><label for="r11-inj">1:1</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio-injector" id="r34-inj" value="3:4"><label for="r34-inj">3:4</label></div>
+            <div class="radio-pill"><input type="radio" name="ratio-injector" id="r916-inj" value="9:16"><label for="r916-inj">9:16</label></div>
+          </div>
         </div>
 
       </div>
