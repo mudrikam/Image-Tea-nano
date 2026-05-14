@@ -601,6 +601,83 @@ if (window.top !== window.self) {
     function onPickerKey(e) { if (pickerActive && e.key === 'Escape') { e.preventDefault(); stopPicker(); } }
     function startPicker(pointIndex) { stopPicker(); pickerActive = true; pickerPointIndex = pointIndex; createHighlightOverlay(); document.addEventListener('mousemove', onPickerMove, true); document.addEventListener('click', onPickerClick, true); document.addEventListener('keydown', onPickerKey, true); document.body.style.cursor = 'crosshair'; }
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function extractUrlPattern(url) {
+      try {
+        if (url.startsWith('blob:')) {
+          const afterBlob = url.slice(5);
+          const match = afterBlob.match(/^(https?:\/\/[^\/]+)/);
+          if (match) {
+            return 'blob:' + match[1];
+          }
+          return 'blob:' + afterBlob.split('/')[0];
+        }
+        const u = new URL(url);
+        let path = u.pathname;
+        const segments = path.split('/').filter(s => s);
+        if (segments.length > 0 && segments[segments.length - 1].includes('.')) {
+          segments.pop();
+        }
+        const lastSeg = segments.length > 0 ? segments[segments.length - 1] : '';
+        if (lastSeg && (lastSeg.length > 30 || lastSeg.includes('_') || /^\d+$/.test(lastSeg))) {
+          segments.pop();
+        }
+        if (u.search) {
+          const params = new URLSearchParams(u.search);
+          params.delete('id');
+          params.delete('ts');
+          params.delete('cid');
+          params.delete('sig');
+          params.delete('p');
+          params.delete('v');
+          params.delete('name');
+          const cleanQuery = params.toString();
+          return u.origin + (segments.length ? '/' + segments.join('/') : '') + (cleanQuery ? '?' + cleanQuery : '');
+        }
+        return u.origin + (segments.length ? '/' + segments.join('/') : '');
+      } catch (e) {
+        return url;
+      }
+    }
+    let patternPickerActive = false;
+    let patternPickerResolve = null;
+    function stopPatternPicker() {
+      patternPickerActive = false;
+      document.removeEventListener('mousemove', onPatternPickerMove, true);
+      document.removeEventListener('click', onPatternPickerClick, true);
+      document.removeEventListener('keydown', onPatternPickerKey, true);
+      try { document.body.style.cursor = ''; } catch (_) {}
+      highlightOverlay?.remove(); highlightLabel?.remove(); highlightOverlay = null; highlightLabel = null;
+    }
+    function onPatternPickerMove(e) { if (!patternPickerActive) return; const el = document.elementFromPoint(e.clientX, e.clientY); if (el && el !== highlightedElement) { highlightedElement = el; updateHighlight(el); } }
+    function onPatternPickerClick(e) {
+      if (!patternPickerActive) return;
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      const el = highlightedElement || document.elementFromPoint(e.clientX, e.clientY);
+      const isImg = el && (el.tagName === 'IMG' || el.querySelector('img'));
+      const imgEl = isImg ? (el.tagName === 'IMG' ? el : el.querySelector('img')) : null;
+      if (imgEl && imgEl.src) {
+        const pattern = extractUrlPattern(imgEl.src);
+        const resolve = patternPickerResolve;
+        stopPatternPicker();
+        if (resolve) resolve(pattern);
+      } else {
+        stopPatternPicker();
+        if (patternPickerResolve) patternPickerResolve(null);
+      }
+      return false;
+    }
+    function onPatternPickerKey(e) { if (patternPickerActive && e.key === 'Escape') { e.preventDefault(); stopPatternPicker(); if (patternPickerResolve) patternPickerResolve(null); } }
+    function startPatternPicker() {
+      stopPatternPicker();
+      patternPickerActive = true;
+      createHighlightOverlay();
+      document.addEventListener('mousemove', onPatternPickerMove, true);
+      document.addEventListener('click', onPatternPickerClick, true);
+      document.addEventListener('keydown', onPatternPickerKey, true);
+      document.body.style.cursor = 'crosshair';
+      return new Promise(resolve => { patternPickerResolve = resolve; });
+    }
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     async function waitWhileInjectorPaused() { while (injectorPaused && injectorRunning) await sleep(100); }
     
     // Typewriter effect for injector (consistent with Flow mode)
@@ -741,6 +818,12 @@ if (window.top !== window.self) {
       if (msg.type === 'START_PICKER') { startPicker(msg.pointIndex); sendResponse({ success: true, started: true }); return true; }
       if (msg.type === 'START_AUTOMATION') { runUniversalAutomation(msg.config, msg.prompts || [], msg.sessionId); sendResponse({ success: true }); return true; }
       if (msg.type === 'STOP_AUTOMATION') { injectorRunning = false; injectorPaused = false; sendResponse({ success: true }); return true; }
+      if (msg.type === 'START_PATTERN_PICKER') {
+        startPatternPicker().then(pattern => {
+          sendResponse({ success: true, pattern });
+        });
+        return true;
+      }
       if (msg.type === 'TOGGLE_PAUSE') { injectorPaused = !!msg.paused; sendResponse({ success: true }); return true; }
       if (msg.action === 'STOP') {
         isRunning = false;

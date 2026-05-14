@@ -254,7 +254,8 @@ body {
 .delay-input { width: 60px; }
 .picker-btn, .html-btn, .btn-add-point { border: 1px solid var(--border-color); background: var(--bg-hover); color: var(--text-main); border-radius: 6px; padding: 7px 9px; cursor: pointer; font-size: 10px; font-weight: 700; }
 .picker-btn:hover, .btn-add-point:hover { border-color: var(--accent); color: var(--accent); }
-.delay-row, .download-delay-row, .delay-option, .url-pattern-row, .extension-row, .prefix-row, .auto-monitoring-row, .auto-continue-row { margin-top: 7px; font-size: 10px; color: var(--text-muted); }
+.delay-row, .download-delay-row, .delay-option, .extension-row, .prefix-row, .auto-monitoring-row, .auto-continue-row { margin-top: 7px; font-size: 10px; color: var(--text-muted); }
+.url-pattern-row { margin-top: 7px; font-size: 10px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
 .auto-download-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 .download-note { display: block; margin-top: 8px; font-size: 10px; color: var(--text-muted); }
 .unit { color: var(--text-muted); font-size: 10px; }

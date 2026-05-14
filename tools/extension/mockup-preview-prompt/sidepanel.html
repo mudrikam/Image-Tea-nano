@@ -207,7 +207,6 @@
       </div>
 
       <div class="mode-panel" id="mode-panel-injector">
-        <div class="injector-note">Universal injector uses 2 fixed points per page: Entry Prompt and Submit Button. Select them once for each website/page, then Prompt tab Insert will follow the saved settings for the current page.</div>
         <div class="current-page-box">
           <span class="page-label">Current page:</span>
           <span class="page-url" id="injector-current-url">No page detected</span>
@@ -247,7 +246,7 @@
             <div class="download-delay-row"><label>Wait:</label><input type="number" id="auto-download-delay" class="delay-input" value="5" min="1" max="180" step="1"><span class="unit">s</span></div>
           </div>
           <div class="auto-monitoring-row"><input type="checkbox" id="auto-download-monitoring"><label for="auto-download-monitoring">Auto monitoring (scan every 1.5s)</label></div>
-          <div class="url-pattern-row"><label>URL pattern:</label><input type="text" id="auto-download-pattern" class="pattern-input" placeholder="e.g. https://lh3.googleusercontent.com/"></div>
+          <div class="url-pattern-row"><label>URL pattern:</label><input type="text" id="auto-download-pattern" class="pattern-input" placeholder="e.g. https://lh3.googleusercontent.com/"><button class="picker-btn" id="btn-pick-pattern" title="Pick from image on page">Pick</button></div>
           <div class="extension-row"><label>File extension:</label><select id="auto-download-extension" class="extension-select"><option value="jpg" selected>JPG</option><option value="png">PNG</option><option value="webp">WEBP</option><option value="mp4">MP4</option></select></div>
           <div class="prefix-row"><label>File prefix:</label><input type="text" id="auto-download-prefix" class="prefix-input" placeholder="Mockup_Preview"></div>
           <span class="download-note" id="download-note">Matches images/videos starting with pattern</span>

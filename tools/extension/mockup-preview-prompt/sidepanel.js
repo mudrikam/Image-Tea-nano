@@ -487,6 +487,22 @@ bindTabs();
   function bindInjectorControls() {
     const refresh = $('btn-refresh-injector-page');
     if (refresh) refresh.addEventListener('click', async () => { await updateInjectorPageSettings(); appendLog('Injector page settings refreshed.', 'info'); });
+    const patternPicker = $('btn-pick-pattern');
+    if (patternPicker) patternPicker.addEventListener('click', async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) return appendLog('Cannot pick pattern on this page.', 'error');
+        await ensureContentScript(tab.id);
+        chrome.tabs.sendMessage(tab.id, { type: 'START_PATTERN_PICKER' }, res => {
+          if (chrome.runtime.lastError) appendLog('Pattern picker failed: ' + chrome.runtime.lastError.message, 'error');
+          else if (res?.pattern) {
+            $('auto-download-pattern').value = res.pattern;
+            appendLog('URL pattern extracted: ' + res.pattern, 'success');
+            saveCurrentInjectorSettings();
+          } else appendLog('No image selected or URL pattern not found.', 'warn');
+        });
+      } catch (e) { appendLog('Pattern picker error: ' + e.message, 'error'); }
+    });
     ['auto-download-enabled','auto-download-count','auto-download-delay','auto-download-monitoring','auto-download-pattern','auto-download-extension','auto-download-prefix','point1-enabled','point1-selector','point1-delay','point2-enabled','point2-selector','point2-delay'].forEach(id => {
       const el = $(id);
       if (!el) return;
@@ -576,6 +592,44 @@ bindTabs();
         else appendLog(`Picker started for Point ${pointIndex}. Click target element on page.`, 'act');
       });
     } catch (e) { appendLog('Picker error: ' + e.message, 'error'); }
+  }
+
+  function extractUrlPattern(url) {
+    try {
+      if (url.startsWith('blob:')) {
+        const afterBlob = url.slice(5);
+        const match = afterBlob.match(/^(https?:\/\/[^\/]+)/);
+        if (match) {
+          return 'blob:' + match[1];
+        }
+        return 'blob:' + afterBlob.split('/')[0];
+      }
+      const u = new URL(url);
+      let path = u.pathname;
+      const segments = path.split('/').filter(s => s);
+      if (segments.length > 0 && segments[segments.length - 1].includes('.')) {
+        segments.pop();
+      }
+      const lastSeg = segments.length > 0 ? segments[segments.length - 1] : '';
+      if (lastSeg && (lastSeg.length > 30 || lastSeg.includes('_') || /^\d+$/.test(lastSeg))) {
+        segments.pop();
+      }
+      if (u.search) {
+        const params = new URLSearchParams(u.search);
+        params.delete('id');
+        params.delete('ts');
+        params.delete('cid');
+        params.delete('sig');
+        params.delete('p');
+        params.delete('v');
+        params.delete('name');
+        const cleanQuery = params.toString();
+        return u.origin + (segments.length ? '/' + segments.join('/') : '') + (cleanQuery ? '?' + cleanQuery : '');
+      }
+      return u.origin + (segments.length ? '/' + segments.join('/') : '');
+    } catch (e) {
+      return url;
+    }
   }
 
   function getInjectorConfig() {
