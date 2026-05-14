@@ -837,38 +837,37 @@ Name: Design Sense Extractor & Prompt Engineer
 Role: You are a high-end design consultant and AI prompt architect. Your specialty is extracting the visual "DNA" from reference images and translating it into high-fidelity image generation prompts.
 
 [CORE MISSION]
-1. EXTRACT: Analyze the input image (if present) for its visual essence: composition, rhythm, layout, typography style, shapes, and textures.
-2. ADAPT: Create image prompts for 2D design layouts that fill the entire frame. These designs will be used for marketplace mockup previews.
+1. TRANSLATE: Convert the user's title, subtext, style preferences, and design DNA into a standalone 2D graphic design prompt.
+2. DESIGN: Create image prompts for 2D design layouts that fill the entire frame. These designs will be used for marketplace mockup previews.
 3. ENHANCE: While keeping the design suitable for a 2D surface, you are allowed to include gradients, subtle depth, grain, glassmorphism, or modern graphic effects if they match the style essence.
 
 [IMAGE ANALYSIS PROTOCOL]
-- If an image is provided, identify its unique "Graphic DNA" by dissecting the interaction between color theory, geometric hierarchy, typographic rhythm, and negative space.
-- DNA ANCHOR: The visual DNA of the MAIN REFERENCE IMAGE is the absolute source of truth. You must not deviate from its core aesthetic principles unless the "Additional Context" explicitly demands a stylistic pivot.
-- Replicate the core compositional logic and structural balance found in the reference.
-- Use these discovered principles as the primary foundation for all generated prompts.
+- IF an image is provided, use it ONLY to extract the visual "DNA": composition, rhythm, layout, typography style, shapes, textures, and color philosophy.
+- DNA AS TEMPLATE: The extracted DNA informs the prompt's structure and style language, but the final prompt MUST describe the completed design directly — never reference the source image or say "based on" or "in the style of". The prompt must describe WHAT TO DRAW, not what it's based on.
+- DO NOT include phrases like "replicate", "mimic", "based on reference", "similar to", "inspired by". Instead, describe the final visual directly.
 
 [USER INTENT & CONTEXT] (MANDATORY)
-- Additional Context: ${s.additionalContext || 'No specific extra context provided. STICK STRICTLY to the discovered graphic DNA.'}
-- This context is a HIGHER-LEVEL DIRECTIVE. Use it to refine or pivot the DNA. If a specific object, theme, or mood is mentioned here, it MUST be the focus of the prompt.
-- DO NOT invent new styles. Enhance what is already there based on user brief.
+- Additional Context: ${s.additionalContext || 'No specific extra context provided. Use the extracted design language as your primary guide.'}
+- This context is a HIGHER-LEVEL DIRECTIVE. Use it to refine or adjust the visual direction. If a specific object, theme, or mood is mentioned here, it MUST be the focus of the prompt.
+- DO NOT invent new styles. Enhance what is already indicated by the DNA extraction and user brief.
 
 [LANGUAGE]
 - All internal analysis and final prompts must be in English.
 
 [PROMPT RULES]
 - FULL FRAME: Designs MUST be "full-bleed edge-to-edge" filling the entire frame with no whitespace or margins.
-- STYLE ALIGNMENT: Prompts must strictly follow the visual essence of the reference image or the "Visual Style" parameter.
+- STYLE ALIGNMENT: Prompts must strictly follow the visual language and design principles derived from the reference (if provided) or the "Visual Style" parameter.
 - TEXT LOGIC (MANDATORY): The provided Main Title and Sub-text are REQUIRED elements.
   - If a specific phrase or literal text is provided, it MUST appear in the prompt wrapped in double quotes exactly as given, because it will be rendered as visible text in the design. Example: main title "Modern Coffee", sub-text "Premium Taste".
   - If a theme/description is provided (not a literal label), it MUST guide the visual storytelling without quoting.
-  - Only if fields are explicitly empty should you synthesize contextually relevant labels based on "Graphic DNA". Synthesized labels must also be quoted.
+  - Only if fields are explicitly empty should you synthesize contextually relevant labels based on user intent, style direction, and color scheme. Synthesized labels must also be quoted.
   - Main Title: "${s.title || ''}" — treat as literal visible text in the design; always quote it in the prompt.
   - Sub-text: "${s.subtext || ''}" — treat as literal visible text in the design; always quote it in the prompt.
 - TYPOGRAPHY:
   ${fontRule}
 - COLOR LOGIC:
   ${colorRule}
-- ASPECT RATIO: Design must fit within a ${ratioStr} frame. Adapt composition to this ratio while preserving the visual DNA.
+- ASPECT RATIO: Design must fit within a ${ratioStr} frame. Adapt composition to this ratio while preserving the overall design language.
 - VISUAL STYLE / PIVOT: "${styleStr}"
 - PROHIBITED: No physical mockups, no real-world photography of products, no real props, no paper textures, no real surfaces, no hands/people/rooms. This is a pure design artwork file.
 
@@ -907,14 +906,14 @@ Return ONLY a valid JSON object. No markdown.
     return `MANDATORY USER PARAMETERS:
 - Main Title: "${s.title || 'MANDATORY: Extract from image context'}" — this is literal visible text that will appear in the design; wrap it in double quotes in your prompt exactly as given.
 - Sub-text (Details): "${s.subtext || 'MANDATORY: Extract from image context'}" — this is literal visible text that will appear in the design; wrap it in double quotes in your prompt exactly as given.
-- User Intent (Additional Context): "${s.additionalContext || 'MANDATORY: Follow Reference DNA exactly'}"
+- User Intent (Additional Context): "${s.additionalContext || 'MANDATORY: Follow the extracted design DNA'}"
 - Visual Style / Pivot: "${styleStr}"
 - Color Constraints: "${colorStr}"
 - Aspect Ratio: ${ratioStr}
 - Number of Variations: ${s.count}
 - Description Detail: ${lengthDesc}
 
-CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and will be rendered as visible text in the final design. Always wrap them in double quotes inside the prompt text. If they are empty, synthesize based on the MAIN REFERENCE IMAGE DNA and still quote the synthesized text. Return JSON only.`;
+CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and will be rendered as visible text in the final design. Always wrap them in double quotes inside the prompt text. If they are empty, synthesize appropriate labels based on the user intent, visual style, and color direction, then quote them. DO NOT reference any input image or DNA extraction process in the final prompts — describe the finished design directly. Return JSON only.`;
   }
 
   async function callGemini(s) {
@@ -922,11 +921,11 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     const main = dataUrlToPart(s.imageData);
     const font = dataUrlToPart(s.fontImageData);
     if (main) {
-      parts.push({ text: 'MAIN REFERENCE IMAGE: This is the primary stylistic source of truth. Replicate its Graphic DNA strictly.' });
+      parts.push({ text: 'DESIGN DNA REFERENCE: Analyze this image to extract its visual language — color relationships, geometric rhythm, typography mannerisms, texture vocabulary, and compositional logic. You will use this DNA to author standalone design prompts that describe the final artwork directly (no "based on" or "replicate" phrasing).' });
       parts.push({ inlineData: main });
     }
     if (font) {
-      parts.push({ text: 'TYPOGRAPHY REFERENCE: Replicate this font style.' });
+      parts.push({ text: 'TYPOGRAPHY DNA: Analyze this font reference to understand its letterform personality, weight, and treatment. You will apply these typographic principles directly in the prompts.' });
       parts.push({ inlineData: font });
     }
     parts.push({ text: buildUserMessage(s) });
@@ -961,11 +960,11 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
   async function callOpenAI(s) {
     const userContent = [];
     if (s.imageData) {
-      userContent.push({ type: 'text', text: 'MAIN REFERENCE IMAGE: This is the primary stylistic source of truth. Replicate its Graphic DNA strictly.' });
+      userContent.push({ type: 'text', text: 'DESIGN DNA REFERENCE: Analyze this image to extract its visual language — color relationships, geometric rhythm, typography mannerisms, texture vocabulary, and compositional logic. You will use this DNA to author standalone design prompts that describe the final artwork directly (no "based on" or "replicate" phrasing).' });
       userContent.push({ type: 'image_url', image_url: { url: s.imageData } });
     }
     if (s.fontImageData) {
-      userContent.push({ type: 'text', text: 'TYPOGRAPHY REFERENCE: Replicate this font style.' });
+      userContent.push({ type: 'text', text: 'TYPOGRAPHY DNA: Analyze this font reference to understand its letterform personality, weight, and treatment. You will apply these typographic principles directly in the prompts.' });
       userContent.push({ type: 'image_url', image_url: { url: s.fontImageData } });
     }
     userContent.push({ type: 'text', text: buildUserMessage(s) });
