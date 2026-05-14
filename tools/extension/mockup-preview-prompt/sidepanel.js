@@ -47,10 +47,11 @@ bindTabs();
      bindLogButtons();
       bindAutoSubmitToggle();
       bindModeTabs();
-      bindInjectorControls();
-      bindInjectorPageAutoRefresh();
-      bindApiModal();
-      bindPersistenceInputs();
+       bindInjectorControls();
+       bindInjectorPageAutoRefresh();
+       bindApiModal();
+       bindHelpModal();
+       bindPersistenceInputs();
      await initInjectorDB();
      await updateInjectorPageSettings();
     loadSettings();
@@ -249,6 +250,24 @@ bindTabs();
         if ($('apiModel') && id === 'apiModelModal') $('apiModel').value = el.value;
       });
     });
+  }
+
+  // ── Help Modal ─────────────────────────────────────────────────────────────
+  function bindHelpModal() {
+    const btn = $('btnHelp');
+    const modal = $('helpModal');
+    const close = $('helpModalClose');
+    const gotIt = $('btnCloseHelp');
+
+    if (!btn || !modal) return;
+
+    const openModal = () => modal.classList.remove('hidden');
+    const closeModal = () => modal.classList.add('hidden');
+
+    btn.addEventListener('click', openModal);
+    if (close) close.addEventListener('click', closeModal);
+    if (gotIt) gotIt.addEventListener('click', closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
   }
 
   // ── Color Inputs ──────────────────────────────────────────────────────────
