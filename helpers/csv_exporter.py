@@ -119,15 +119,21 @@ def get_next_index(base_name, output_path):
             base = base[:-4]
         if not base.endswith('_'):
             base = base + '_'
-        idx = 1
-        while True:
-            name_lower = f"{base}{idx:03d}.csv"
-            path_lower = os.path.join(output_path, name_lower)
-            name_upper = f"{base}{idx:03d}.CSV"
-            path_upper = os.path.join(output_path, name_upper)
-            if not (os.path.exists(path_lower) or os.path.exists(path_upper)):
-                return idx
-            idx += 1
+        
+        # Scan all existing files matching the pattern to find max index
+        max_idx = 0
+        pattern = re.compile(rf"^{re.escape(base)}(\d{{3}})\.csv$", re.IGNORECASE)
+        
+        try:
+            for filename in os.listdir(output_path):
+                match = pattern.match(filename)
+                if match:
+                    idx = int(match.group(1))
+                    max_idx = max(max_idx, idx)
+        except Exception as e:
+            print(f"[csv_exporter] Error scanning directory: {e}")
+        
+        return max_idx + 1
     except Exception as e:
         print(f"[csv_exporter] get_next_index error: {e}")
         raise

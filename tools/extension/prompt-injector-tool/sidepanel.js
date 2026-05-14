@@ -296,8 +296,13 @@ class PromptInjector {
       this.elements.autoContinue.addEventListener('change', () => {
         this.updateAutoContinueState();
         this.debouncedSaveSettings();
-      });
+    });
+
+    const patternPickerBtn = document.getElementById('btn-pick-pattern');
+    if (patternPickerBtn) {
+      patternPickerBtn.addEventListener('click', () => this.pickPattern());
     }
+  }
 
     this.elements.dropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -811,6 +816,59 @@ class PromptInjector {
       }
       
       alert(message);
+    }
+  }
+
+  async pickPattern() {
+    let picker = document.getElementById('btn-pick-pattern');
+    if (!picker) return;
+
+    picker.classList.add('active');
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab || !tab.url) {
+        throw new Error('No active tab found');
+      }
+
+      if (tab.url.startsWith('chrome://') ||
+          tab.url.startsWith('chrome-extension://') ||
+          tab.url.startsWith('edge://') ||
+          tab.url.startsWith('about:')) {
+        throw new Error('Cannot run on browser internal pages');
+      }
+
+      if (tab.status !== 'complete') {
+        throw new Error('Page is still loading, please wait');
+      }
+
+      const injected = await this.ensureContentScriptInjected(tab.id);
+      if (!injected) {
+        throw new Error('Content script not responding after injection.\n\nSolution:\n1. Refresh the page (Ctrl+R or F5)\n2. If still failing, close and reopen the tab');
+      }
+
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'START_PATTERN_PICKER'
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('START_PATTERN_PICKER error:', chrome.runtime.lastError);
+          picker.classList.remove('active');
+          alert('Failed to start pattern picker.\n\nTry refreshing the page first.');
+          return;
+        }
+
+        if (response && response.pattern) {
+          this.elements.autoDownload.pattern.value = response.pattern;
+          this.debouncedSaveSettings();
+          picker.classList.remove('active');
+        } else {
+          picker.classList.remove('active');
+        }
+      });
+    } catch (err) {
+      console.error('Failed to start pattern picker:', err);
+      picker.classList.remove('active');
+      alert('Cannot start pattern picker.\n\n' + err.message);
     }
   }
 

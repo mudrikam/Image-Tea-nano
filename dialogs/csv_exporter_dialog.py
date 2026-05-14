@@ -1,16 +1,22 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QLabel, QGridLayout, QWidget, QPushButton, QHBoxLayout, QLineEdit, QFileDialog, QProgressDialog, QApplication, QSizePolicy, QScrollArea, QFrame, QGroupBox
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QCheckBox, QLabel, QGridLayout, QWidget, QPushButton, 
+                               QHBoxLayout, QLineEdit, QFileDialog, QProgressDialog, QApplication, QSizePolicy, 
+                               QScrollArea, QFrame, QGroupBox, QTabWidget, QTableWidget, QTableWidgetItem, 
+                               QHeaderView, QComboBox, QSpinBox, QMessageBox, QInputDialog)
 from PySide6.QtCore import Qt, QFileSystemWatcher
 import json
 import os
 import sys
 import datetime
+import csv
+import re
 from config import BASE_PATH
-from helpers.csv_exporter import export_csv_for_platforms, get_next_index
+from helpers.csv_exporter import export_csv_for_platforms, get_next_index, SHARED_FORMATS
 import qtawesome as qta
 from ui.theme_system import theme
 
 class CSVExporterDialog(QDialog):
     CONFIG_PATH = os.path.join(BASE_PATH, "configs", "csv_config.json")
+    PRESETS_PATH = os.path.join(BASE_PATH, "configs", "csv_exporter_presets.json")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,6 +29,9 @@ class CSVExporterDialog(QDialog):
         self.setLayout(main_layout)
 
         self.config = self.load_config()
+        
+        # Track current preset name for filename generation
+        self.current_preset_name = "Custom"
 
         self.fs_watcher = QFileSystemWatcher()
         try:
@@ -44,12 +53,28 @@ class CSVExporterDialog(QDialog):
             "Canva": "#007CCF", "MiriCanvas": "#00B2C6",
         }
 
-        # --- split layout: left checkboxes, right csv list ---
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs, 1)
+
+        self.default_tab = QWidget()
+        default_layout = QVBoxLayout(self.default_tab)
+        default_layout.setContentsMargins(8, 8, 8, 8)
+        default_layout.setSpacing(8)
+        self.tabs.addTab(self.default_tab, qta.icon('fa6s.list-check'), "Default")
+
+        self.custom_tab = QWidget()
+        self.custom_layout = QVBoxLayout(self.custom_tab)
+        self.custom_layout.setContentsMargins(8, 8, 8, 8)
+        self.custom_layout.setSpacing(8)
+        self.tabs.addTab(self.custom_tab, qta.icon('fa6s.table-columns'), "Custom Format")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
+        # --- Default tab: left checkboxes, right csv list ---
         split_layout = QHBoxLayout()
         split_layout.setSpacing(8)
         split_layout.setStretch(0, 0)
         split_layout.setStretch(1, 1)
-        main_layout.addLayout(split_layout, 1)
+        default_layout.addLayout(split_layout, 1)
 
         # LEFT: checkboxes in QGroupBox
         left_group = QGroupBox("Platforms")
@@ -73,6 +98,7 @@ class CSVExporterDialog(QDialog):
         cb_scroll.setWidgetResizable(True)
         cb_scroll.setFrameShape(QFrame.NoFrame)
         cb_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        cb_scroll.setStyleSheet("background-color: transparent;")
         cb_inner = QWidget()
         cb_inner_layout = QVBoxLayout(cb_inner)
         cb_inner_layout.setContentsMargins(4, 4, 4, 4)
@@ -106,6 +132,7 @@ class CSVExporterDialog(QDialog):
         csv_scroll.setWidgetResizable(True)
         csv_scroll.setFrameShape(QFrame.NoFrame)
         csv_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        csv_scroll.setStyleSheet("background-color: transparent;")
         self.rename_container = QWidget()
         self.rename_layout = QVBoxLayout(self.rename_container)
         self.rename_layout.setContentsMargins(4, 4, 4, 4)
@@ -151,6 +178,8 @@ class CSVExporterDialog(QDialog):
             row_widget.setVisible(bool(self.config.get(platform, False)))
         self.rename_layout.addStretch()
 
+        self.build_custom_format_tab()
+
         # output path row
         output_layout = QHBoxLayout()
         self.output_lineedit = QLineEdit()
@@ -177,7 +206,7 @@ class CSVExporterDialog(QDialog):
         bottom_row.addStretch()
         self.ok_btn = QPushButton(qta.icon('fa6s.file-csv', color=theme.get_color('success')), "Export All CSV")
         self.ok_btn.setToolTip("Export metadata to CSV")
-        self.ok_btn.clicked.connect(self.export_csv)
+        self.ok_btn.clicked.connect(self.export_current_tab)
         self.ok_btn.setFixedHeight(32)
         bottom_row.addWidget(self.ok_btn)
         main_layout.addLayout(bottom_row)
@@ -188,6 +217,843 @@ class CSVExporterDialog(QDialog):
         main_layout.addWidget(self.validation_label)
 
         self.output_lineedit.textChanged.connect(self.on_output_path_changed)
+        self.validate_output_and_buttons()
+        
+        # Load default preset after all UI elements are created
+        self.load_default_preset()
+
+    def build_custom_format_tab(self):
+        """Build the custom format tab with field mapping table"""
+        info_label = QLabel("Define custom CSV format by mapping database fields to output columns:")
+        info_label.setWordWrap(True)
+        self.custom_layout.addWidget(info_label)
+
+        # Control buttons
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(4)
+        
+        self.add_field_btn = QPushButton(qta.icon('fa6s.plus'), " Add Field")
+        self.add_field_btn.setToolTip("Add a new field mapping")
+        self.add_field_btn.clicked.connect(self.add_custom_field_row)
+        ctrl_row.addWidget(self.add_field_btn)
+        
+        self.remove_field_btn = QPushButton(qta.icon('fa6s.minus'), " Remove Selected")
+        self.remove_field_btn.setToolTip("Remove selected field mapping")
+        self.remove_field_btn.clicked.connect(self.remove_custom_field_row)
+        ctrl_row.addWidget(self.remove_field_btn)
+        
+        self.load_preset_btn = QPushButton(qta.icon('fa6s.download'), " Load Preset")
+        self.load_preset_btn.setToolTip("Load format from platforms or saved presets")
+        self.load_preset_btn.clicked.connect(self.load_preset_unified)
+        ctrl_row.addWidget(self.load_preset_btn)
+        
+        self.save_preset_btn = QPushButton(qta.icon('fa6s.floppy-disk'), " Save Preset")
+        self.save_preset_btn.setToolTip("Save current custom format to csv_exporter_presets.json")
+        self.save_preset_btn.clicked.connect(self.save_custom_preset)
+        ctrl_row.addWidget(self.save_preset_btn)
+        
+        self.delete_preset_btn = QPushButton(qta.icon('fa6s.trash-can'), " Delete Preset")
+        self.delete_preset_btn.setToolTip("Delete a saved user preset")
+        self.delete_preset_btn.clicked.connect(self.delete_custom_preset)
+        ctrl_row.addWidget(self.delete_preset_btn)
+        
+        self.clear_all_btn = QPushButton(qta.icon('fa6s.broom'), " Clear All")
+        self.clear_all_btn.setToolTip("Clear all field mappings")
+        self.clear_all_btn.clicked.connect(self.clear_custom_fields)
+        ctrl_row.addWidget(self.clear_all_btn)
+        
+        ctrl_row.addStretch()
+        self.custom_layout.addLayout(ctrl_row)
+
+        # Field mapping table
+        self.custom_table = QTableWidget()
+        self.custom_table.setColumnCount(5)
+        self.custom_table.setHorizontalHeaderLabels(["Column Name", "Source Field", "Transform", "Quote", "Preview"])
+        self.custom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.custom_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.custom_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.custom_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.custom_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.custom_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.custom_table.setAlternatingRowColors(True)
+        self.custom_layout.addWidget(self.custom_table, 1)
+
+        # CSV format settings
+        format_group = QGroupBox("CSV Format Settings")
+        format_layout = QGridLayout(format_group)
+        format_layout.setContentsMargins(8, 8, 8, 8)
+        format_layout.setSpacing(6)
+
+        format_layout.addWidget(QLabel("Delimiter:"), 0, 0)
+        self.delimiter_combo = QComboBox()
+        self.delimiter_combo.addItems(["Comma (,)", "Semicolon (;)", "Tab", "Pipe (|)"])
+        self.delimiter_combo.setCurrentIndex(0)
+        format_layout.addWidget(self.delimiter_combo, 0, 1)
+
+        format_layout.addWidget(QLabel("Global Quote:"), 0, 2)
+        self.quote_combo = QComboBox()
+        self.quote_combo.addItems(["Use Per Field", "All", "None", "Text Only"])
+        self.quote_combo.setCurrentIndex(0)
+        format_layout.addWidget(self.quote_combo, 0, 3)
+
+        self.quote_header_cb = QCheckBox("Quote Header Row")
+        self.quote_header_cb.setChecked(False)
+        format_layout.addWidget(self.quote_header_cb, 1, 0, 1, 2)
+
+        format_layout.addWidget(QLabel("Output Filename:"), 1, 2)
+        # Generate default filename with date pattern
+        today = datetime.datetime.now()
+        default_custom_filename = f"Custom_Image_Tea_Metadata_{today.year}_{today.strftime('%B')}_{today.day:02d}"
+        
+        # Create horizontal layout for filename entry + suffix label
+        filename_layout = QHBoxLayout()
+        filename_layout.setContentsMargins(0, 0, 0, 0)
+        filename_layout.setSpacing(2)
+        
+        self.custom_filename_edit = QLineEdit(default_custom_filename)
+        self.custom_filename_edit.textChanged.connect(self.update_suffixes)
+        filename_layout.addWidget(self.custom_filename_edit, 1)
+        
+        self.custom_suffix_label = QLabel("_001.CSV")
+        self.custom_suffix_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 10px;")
+        self.custom_suffix_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        filename_layout.addWidget(self.custom_suffix_label)
+        
+        format_layout.addLayout(filename_layout, 1, 3)
+
+        self.custom_layout.addWidget(format_group)
+
+        # Available source fields must match the actual Image Tea files table/get_all_files() row.
+        # files columns: id, filepath, filename, title, description, tags, status, original_filename
+        self.available_fields = [
+            "EMPTY", "id", "filepath", "filename", "title", "description", "tags", "status", "original_filename"
+        ]
+
+        # Transform options
+        self.transform_options = [
+            "None", "Uppercase", "Lowercase", "Title Case", "Sanitize", "Truncate"
+        ]
+
+    def add_custom_field_row(self):
+        """Add a new row to the custom field mapping table"""
+        row = self.custom_table.rowCount()
+        self.custom_table.insertRow(row)
+
+        # Column name
+        col_name_item = QTableWidgetItem("Column_" + str(row + 1))
+        self.custom_table.setItem(row, 0, col_name_item)
+
+        # Source field dropdown
+        source_combo = QComboBox()
+        source_combo.addItems(self.available_fields)
+        source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+        self.custom_table.setCellWidget(row, 1, source_combo)
+
+        # Transform dropdown
+        transform_combo = QComboBox()
+        transform_combo.addItems(self.transform_options)
+        transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+        self.custom_table.setCellWidget(row, 2, transform_combo)
+
+        # Per-field quote mode
+        quote_combo = QComboBox()
+        quote_combo.addItems(["Auto", "Yes", "No"])
+        quote_combo.setCurrentIndex(0)
+        self.custom_table.setCellWidget(row, 3, quote_combo)
+
+        # Preview
+        preview_item = QTableWidgetItem("")
+        preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
+        self.custom_table.setItem(row, 4, preview_item)
+
+        self.update_preview_row(row)
+        self.validate_output_and_buttons()
+
+    def remove_custom_field_row(self):
+        """Remove selected row from custom field mapping table"""
+        current_row = self.custom_table.currentRow()
+        if current_row >= 0:
+            self.custom_table.removeRow(current_row)
+            self.validate_output_and_buttons()
+
+    def clear_custom_fields(self):
+        """Clear all custom field mappings"""
+        reply = QMessageBox.question(
+            self, "Clear All Fields",
+            "Are you sure you want to clear all field mappings?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.custom_table.setRowCount(0)
+            self.validate_output_and_buttons()
+
+    def update_preview_row(self, row):
+        """Update preview for a specific row based on source field and transform"""
+        try:
+            source_combo = self.custom_table.cellWidget(row, 1)
+            transform_combo = self.custom_table.cellWidget(row, 2)
+            
+            if not source_combo or not transform_combo:
+                return
+            
+            source_field = source_combo.currentText()
+            transform = transform_combo.currentText()
+            
+            # Generate sample preview
+            sample_data = {
+                "id": "1",
+                "filepath": "D:/assets/sample_image.jpg",
+                "filename": "sample_image.jpg",
+                "title": "Sample Title",
+                "description": "Sample description text",
+                "tags": "keyword1, keyword2, keyword3",
+                "status": "success",
+                "original_filename": "IMG_0001.jpg"
+            }
+            
+            preview_value = "" if source_field == "EMPTY" else sample_data.get(source_field, f"<{source_field}>")
+            
+            # Apply transform
+            if transform == "Uppercase":
+                preview_value = str(preview_value).upper()
+            elif transform == "Lowercase":
+                preview_value = str(preview_value).lower()
+            elif transform == "Title Case":
+                preview_value = str(preview_value).title()
+            elif transform == "Sanitize":
+                preview_value = re.sub(r'[^a-zA-Z0-9\s]', '', str(preview_value))
+            elif transform == "Truncate":
+                preview_value = str(preview_value)[:50] + "..." if len(str(preview_value)) > 50 else str(preview_value)
+            
+            preview_item = self.custom_table.item(row, 4)
+            if preview_item:
+                preview_item.setText(str(preview_value))
+        except Exception as e:
+            print(f"[CSVExporterDialog] Error updating preview for row {row}: {e}")
+
+    def load_default_preset(self):
+        """Load the default preset from the presets JSON file"""
+        if not os.path.exists(self.PRESETS_PATH):
+            # Create default presets file if it doesn't exist
+            default_presets = {
+                "presets": [
+                    {
+                        "name": "Default",
+                        "delimiter_index": 0,
+                        "quote_index": 0,
+                        "quote_header": False,
+                        "fields": [
+                            {"column_name": "Filename", "source_field": "filename", "transform": "None", "quote": "Auto"},
+                            {"column_name": "Title", "source_field": "title", "transform": "None", "quote": "Auto"},
+                            {"column_name": "Tags", "source_field": "tags", "transform": "None", "quote": "Auto"}
+                        ]
+                    }
+                ]
+            }
+            try:
+                os.makedirs(os.path.dirname(self.PRESETS_PATH), exist_ok=True)
+                with open(self.PRESETS_PATH, "w", encoding="utf-8") as f:
+                    json.dump(default_presets, f, indent=2)
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error creating default presets file: {e}")
+                return
+        
+        try:
+            with open(self.PRESETS_PATH, "r", encoding="utf-8") as f:
+                presets_data = json.load(f)
+            
+            # Find and load the Default preset
+            presets = presets_data.get("presets", [])
+            default_preset = None
+            for preset in presets:
+                if preset.get("name") == "Default":
+                    default_preset = preset
+                    break
+            
+            if default_preset:
+                self._apply_custom_format_config(default_preset)
+            else:
+                print("[CSVExporterDialog] No Default preset found in presets file")
+        except Exception as e:
+            print(f"[CSVExporterDialog] Error loading default preset: {e}")
+
+    def load_preset_format(self):
+        """Load format from existing SHARED_FORMATS (Freepik, Adobe Stock, etc.)"""
+        platform_names = list(SHARED_FORMATS.keys())
+        platform_name, ok = QInputDialog.getItem(
+            self, "Load Platform Format",
+            "Select a platform format to load:",
+            platform_names, 0, False
+        )
+        if ok and platform_name:
+            fmt = SHARED_FORMATS[platform_name]
+            
+            # Clear existing fields
+            self.custom_table.setRowCount(0)
+            
+            # Set delimiter
+            delimiter = fmt.get("delimiter", ",")
+            delimiter_map = {",": 0, ";": 1, "\t": 2, "|": 3}
+            self.delimiter_combo.setCurrentIndex(delimiter_map.get(delimiter, 0))
+            
+            # Set quote mode
+            quote_fields = fmt.get("quote_fields", "all")
+            if quote_fields == "all":
+                self.quote_combo.setCurrentIndex(1)  # All
+            elif quote_fields == "none":
+                self.quote_combo.setCurrentIndex(2)  # None
+            else:
+                self.quote_combo.setCurrentIndex(0)  # Use Per Field
+            
+            # Set quote header
+            self.quote_header_cb.setChecked(fmt.get("quote_header", False))
+            
+            # Set filename
+            self.custom_filename_edit.setText(platform_name.lower().replace(" ", "_"))
+            
+            # Add fields
+            headers = fmt.get("header", [])
+            fields = fmt.get("fields", [])
+            quote_field_list = fmt.get("quote_fields", [])
+            
+            for i, (header, field) in enumerate(zip(headers, fields)):
+                # Map platform field names to database field names
+                field_mapping = {
+                    "keywords": "tags",
+                    "description": "description",
+                    "title": "title",
+                    "filename": "filename",
+                    "file name": "filename",
+                    "oldfilename": "filename",
+                    "originalfilename": "filename",
+                    "file_name": "filename"
+                }
+                
+                mapped_field = field_mapping.get(field.lower(), "EMPTY")
+                if mapped_field not in self.available_fields:
+                    mapped_field = "EMPTY"
+                
+                # Determine quote mode for this field
+                quote_mode = "Auto"
+                if isinstance(quote_field_list, list):
+                    if any(qf in field.lower() for qf in quote_field_list):
+                        quote_mode = "Yes"
+                    else:
+                        quote_mode = "No"
+                
+                # Add row
+                row = self.custom_table.rowCount()
+                self.custom_table.insertRow(row)
+                self.custom_table.setItem(row, 0, QTableWidgetItem(header))
+                
+                source_combo = QComboBox()
+                source_combo.addItems(self.available_fields)
+                source_combo.setCurrentText(mapped_field)
+                source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+                self.custom_table.setCellWidget(row, 1, source_combo)
+                
+                transform_combo = QComboBox()
+                transform_combo.addItems(self.transform_options)
+                transform_combo.setCurrentText("None")
+                transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+                self.custom_table.setCellWidget(row, 2, transform_combo)
+                
+                quote_combo = QComboBox()
+                quote_combo.addItems(["Auto", "Yes", "No"])
+                quote_combo.setCurrentText(quote_mode)
+                self.custom_table.setCellWidget(row, 3, quote_combo)
+                
+                preview_item = QTableWidgetItem("")
+                preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
+                self.custom_table.setItem(row, 4, preview_item)
+                
+                self.update_preview_row(row)
+
+    def load_preset_unified(self):
+        """Load preset from SHARED_FORMATS or user saved presets"""
+        # Build list of available presets
+        preset_items = []
+        
+        # Add separator and SHARED_FORMATS
+        preset_items.append("--- Platform Formats ---")
+        for platform_name in SHARED_FORMATS.keys():
+            preset_items.append(f"Platform: {platform_name}")
+        
+        # Add user presets if available
+        user_presets = []
+        if os.path.exists(self.PRESETS_PATH):
+            try:
+                with open(self.PRESETS_PATH, "r", encoding="utf-8") as f:
+                    presets_data = json.load(f)
+                user_presets = presets_data.get("presets", [])
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error loading user presets: {e}")
+        
+        if user_presets:
+            preset_items.append("--- User Presets ---")
+            for preset in user_presets:
+                preset_name = preset.get("name", "Unnamed")
+                preset_items.append(f"User: {preset_name}")
+        
+        if len(preset_items) == 1:  # Only separator
+            QMessageBox.information(self, "No Presets", "No presets available.")
+            return
+        
+        # Show selection dialog
+        selected, ok = QInputDialog.getItem(
+            self, "Load Preset",
+            "Select a preset to load:",
+            preset_items, 0, False
+        )
+        
+        if not ok or not selected:
+            return
+        
+        # Skip separators
+        if selected.startswith("---"):
+            return
+        
+        # Load selected preset
+        if selected.startswith("Platform: "):
+            platform_name = selected.replace("Platform: ", "")
+            self._load_from_shared_format(platform_name)
+        elif selected.startswith("User: "):
+            preset_name = selected.replace("User: ", "")
+            self._load_from_user_preset(preset_name, user_presets)
+    
+    def _load_from_shared_format(self, platform_name):
+        """Load format from SHARED_FORMATS"""
+        if platform_name not in SHARED_FORMATS:
+            return
+        
+        fmt = SHARED_FORMATS[platform_name]
+        
+        # Clear existing fields
+        self.custom_table.setRowCount(0)
+        
+        # Set delimiter
+        delimiter = fmt.get("delimiter", ",")
+        delimiter_map = {",": 0, ";": 1, "\t": 2, "|": 3}
+        self.delimiter_combo.setCurrentIndex(delimiter_map.get(delimiter, 0))
+        
+        # Set quote mode
+        quote_fields = fmt.get("quote_fields", "all")
+        if quote_fields == "all":
+            self.quote_combo.setCurrentIndex(1)  # All
+        elif quote_fields == "none":
+            self.quote_combo.setCurrentIndex(2)  # None
+        else:
+            self.quote_combo.setCurrentIndex(0)  # Use Per Field
+        
+        # Set quote header
+        self.quote_header_cb.setChecked(fmt.get("quote_header", False))
+        
+        # Set filename using default_base_name format
+        self.current_preset_name = platform_name
+        self.custom_filename_edit.setText(self.default_base_name(platform_name))
+        
+        # Add fields
+        headers = fmt.get("header", [])
+        fields = fmt.get("fields", [])
+        quote_field_list = fmt.get("quote_fields", [])
+        
+        for i, (header, field) in enumerate(zip(headers, fields)):
+            # Map platform field names to database field names
+            field_mapping = {
+                "keywords": "tags",
+                "description": "description",
+                "title": "title",
+                "filename": "filename",
+                "file name": "filename",
+                "oldfilename": "filename",
+                "originalfilename": "filename",
+                "file_name": "filename"
+            }
+            
+            mapped_field = field_mapping.get(field.lower(), "EMPTY")
+            if mapped_field not in self.available_fields:
+                mapped_field = "EMPTY"
+            
+            # Determine quote mode for this field
+            quote_mode = "Auto"
+            if isinstance(quote_field_list, list):
+                if any(qf in field.lower() for qf in quote_field_list):
+                    quote_mode = "Yes"
+                else:
+                    quote_mode = "No"
+            
+            # Add row
+            row = self.custom_table.rowCount()
+            self.custom_table.insertRow(row)
+            self.custom_table.setItem(row, 0, QTableWidgetItem(header))
+            
+            source_combo = QComboBox()
+            source_combo.addItems(self.available_fields)
+            source_combo.setCurrentText(mapped_field)
+            source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 1, source_combo)
+            
+            transform_combo = QComboBox()
+            transform_combo.addItems(self.transform_options)
+            transform_combo.setCurrentText("None")
+            transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 2, transform_combo)
+            
+            quote_combo = QComboBox()
+            quote_combo.addItems(["Auto", "Yes", "No"])
+            quote_combo.setCurrentText(quote_mode)
+            self.custom_table.setCellWidget(row, 3, quote_combo)
+            
+            preview_item = QTableWidgetItem("")
+            preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
+            self.custom_table.setItem(row, 4, preview_item)
+            
+            self.update_preview_row(row)
+    
+    def _load_from_user_preset(self, preset_name, user_presets):
+        """Load format from user preset"""
+        selected_preset = None
+        for preset in user_presets:
+            if preset.get("name") == preset_name:
+                selected_preset = preset
+                break
+        
+        if selected_preset:
+            self._apply_custom_format_config(selected_preset)
+
+    def _collect_custom_format_config(self):
+        fields = []
+        for row in range(self.custom_table.rowCount()):
+            col_name_item = self.custom_table.item(row, 0)
+            source_combo = self.custom_table.cellWidget(row, 1)
+            transform_combo = self.custom_table.cellWidget(row, 2)
+            quote_combo = self.custom_table.cellWidget(row, 3)
+            if col_name_item and source_combo and transform_combo and quote_combo:
+                fields.append({
+                    "column_name": col_name_item.text(),
+                    "source_field": source_combo.currentText(),
+                    "transform": transform_combo.currentText(),
+                    "quote": quote_combo.currentText()
+                })
+        return {
+            "delimiter_index": self.delimiter_combo.currentIndex(),
+            "quote_index": self.quote_combo.currentIndex(),
+            "quote_header": self.quote_header_cb.isChecked(),
+            "fields": fields
+        }
+
+    def _apply_custom_format_config(self, config):
+        # Store preset name for filename generation
+        preset_name = config.get("name", "Custom")
+        self.current_preset_name = preset_name
+        
+        self.custom_table.setRowCount(0)
+        self.delimiter_combo.setCurrentIndex(int(config.get("delimiter_index", 0)))
+        self.quote_combo.setCurrentIndex(int(config.get("quote_index", 0)))
+        self.quote_header_cb.setChecked(bool(config.get("quote_header", False)))
+        
+        # Generate filename based on preset name (always use preset name, ignore saved filename)
+        filename = self.default_base_name(preset_name)
+        self.custom_filename_edit.setText(filename)
+        for field_data in config.get("fields", []):
+            row = self.custom_table.rowCount()
+            self.custom_table.insertRow(row)
+            self.custom_table.setItem(row, 0, QTableWidgetItem(field_data.get("column_name", "")))
+
+            source_combo = QComboBox()
+            source_combo.addItems(self.available_fields)
+            saved_source = field_data.get("source_field", "EMPTY")
+            if saved_source == "keywords":
+                saved_source = "tags"
+            if saved_source not in self.available_fields:
+                saved_source = "EMPTY"
+            source_combo.setCurrentText(saved_source)
+            source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 1, source_combo)
+
+            transform_combo = QComboBox()
+            transform_combo.addItems(self.transform_options)
+            transform_combo.setCurrentText(field_data.get("transform", "None"))
+            transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 2, transform_combo)
+
+            quote_combo = QComboBox()
+            quote_combo.addItems(["Auto", "Yes", "No"])
+            quote_combo.setCurrentText(field_data.get("quote", "Auto"))
+            self.custom_table.setCellWidget(row, 3, quote_combo)
+
+            preview_item = QTableWidgetItem("")
+            preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
+            self.custom_table.setItem(row, 4, preview_item)
+            self.update_preview_row(row)
+        self.validate_output_and_buttons()
+
+    def save_custom_preset(self):
+        """Save current custom format as a preset to the shared JSON file"""
+        preset_name, ok = QInputDialog.getText(self, "Save Custom Preset", "Preset name:", text="My Preset")
+        if not ok or not preset_name.strip():
+            return
+        
+        # Load existing presets
+        presets_data = {"presets": []}
+        if os.path.exists(self.PRESETS_PATH):
+            try:
+                with open(self.PRESETS_PATH, "r", encoding="utf-8") as f:
+                    presets_data = json.load(f)
+            except Exception as e:
+                print(f"[CSVExporterDialog] Error loading presets file: {e}")
+        
+        # Check if preset name is protected
+        preset_name = preset_name.strip()
+        if preset_name == "Default":
+            QMessageBox.warning(self, "Protected Preset", "The Default preset is protected and cannot be overwritten.")
+            return
+        
+        # Update current preset name and filename
+        self.current_preset_name = preset_name
+        self.custom_filename_edit.setText(self.default_base_name(preset_name))
+        
+        # Check if preset name already exists
+        existing_names = [p.get("name", "") for p in presets_data.get("presets", [])]
+        if preset_name in existing_names:
+            reply = QMessageBox.question(
+                self, "Preset Exists",
+                f"Preset '{preset_name}' already exists. Overwrite?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            # Remove old preset
+            presets_data["presets"] = [p for p in presets_data["presets"] if p.get("name") != preset_name]
+        
+        # Add new preset
+        config = self._collect_custom_format_config()
+        config["name"] = preset_name
+        presets_data["presets"].append(config)
+        
+        # Save to file
+        try:
+            with open(self.PRESETS_PATH, "w", encoding="utf-8") as f:
+                json.dump(presets_data, f, indent=2)
+            QMessageBox.information(self, "Preset Saved", f"Preset '{preset_name}' saved!")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Could not save preset:\n{e}")
+            print(f"[CSVExporterDialog] Error saving preset: {e}")
+
+    def delete_custom_preset(self):
+        """Delete a user preset from the JSON file"""
+        if not os.path.exists(self.PRESETS_PATH):
+            QMessageBox.warning(self, "No Presets", "No presets file found.")
+            return
+        
+        try:
+            with open(self.PRESETS_PATH, "r", encoding="utf-8") as f:
+                presets_data = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Could not load presets file:\n{e}")
+            return
+        
+        presets = presets_data.get("presets", [])
+        user_presets = [p for p in presets if p.get("name") != "Default"]
+        if not user_presets:
+            QMessageBox.information(self, "No Presets", "No user presets available to delete.")
+            return
+        
+        # Show dialog to select preset to delete
+        preset_names = [p.get("name", f"Preset {i+1}") for i, p in enumerate(user_presets)]
+        preset_name, ok = QInputDialog.getItem(
+            self, "Delete Preset",
+            "Select a preset to delete:",
+            preset_names, 0, False
+        )
+        
+        if not ok or not preset_name:
+            return
+        
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            f"Are you sure you want to delete preset '{preset_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.No:
+            return
+        
+        # Remove preset
+        presets_data["presets"] = [p for p in presets if p.get("name") != preset_name]
+        
+        # Save to file
+        try:
+            with open(self.PRESETS_PATH, "w", encoding="utf-8") as f:
+                json.dump(presets_data, f, indent=2)
+            QMessageBox.information(self, "Preset Deleted", f"Preset '{preset_name}' deleted!")
+        except Exception as e:
+            QMessageBox.critical(self, "Delete Error", f"Could not delete preset:\n{e}")
+            print(f"[CSVExporterDialog] Error deleting preset: {e}")
+
+
+    def export_custom_csv(self):
+        """Export CSV using custom format"""
+        output_path = self._sanitize_path_text(self.output_lineedit.text())
+        if not output_path or not os.path.isdir(output_path):
+            QMessageBox.warning(self, "Invalid Output Path", "Please select a valid output folder first.")
+            return
+        
+        if self.custom_table.rowCount() == 0:
+            QMessageBox.warning(self, "No Fields Defined", "Please add at least one field mapping.")
+            return
+        
+        # Get delimiter
+        delim_map = [',', ';', '\t', '|']
+        delimiter = delim_map[self.delimiter_combo.currentIndex()]
+        
+        # Get quote settings
+        quote_mode = self.quote_combo.currentIndex()
+        quote_header = self.quote_header_cb.isChecked()
+        
+        # Build header and field mappings
+        headers = []
+        field_mappings = []
+        transforms = []
+        quote_modes = []
+        
+        for row in range(self.custom_table.rowCount()):
+            col_name_item = self.custom_table.item(row, 0)
+            source_combo = self.custom_table.cellWidget(row, 1)
+            transform_combo = self.custom_table.cellWidget(row, 2)
+            quote_combo = self.custom_table.cellWidget(row, 3)
+            
+            if col_name_item and source_combo and transform_combo and quote_combo:
+                headers.append(col_name_item.text())
+                field_mappings.append(source_combo.currentText())
+                transforms.append(transform_combo.currentText())
+                quote_modes.append(quote_combo.currentText())
+        
+        # Get files from database
+        from database.db_operation import ImageTeaDB
+        db = ImageTeaDB()
+        files = db.get_all_files()
+        
+        if not files:
+            QMessageBox.information(self, "No Data", "No files found in database to export.")
+            return
+        
+        # Progress dialog
+        progress = QProgressDialog(f"Exporting custom CSV...", "Cancel", 0, len(files), self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        
+        # Build rows
+        rows = []
+        for file_data in files:
+            if progress.wasCanceled():
+                break
+            
+            row = []
+            for field, transform in zip(field_mappings, transforms):
+                value = self._extract_field_value(file_data, field)
+                value = self._apply_transform(value, transform)
+                row.append(value)
+            
+            rows.append(row)
+            progress.setValue(progress.value() + 1)
+        
+        # Generate filename using current preset name
+        base_name = self.custom_filename_edit.text() or self.default_base_name(self.current_preset_name)
+        from helpers.csv_exporter import generate_export_filename
+        csv_filename = generate_export_filename(base_name, output_path)
+        csv_path = os.path.join(output_path, csv_filename)
+        
+        # Write CSV
+        try:
+            self._write_custom_csv(csv_path, headers, rows, delimiter, quote_mode, quote_header, quote_modes)
+            progress.setValue(len(files))
+            self.update_suffixes()
+            QMessageBox.information(self, "Export Complete", f"Custom CSV exported successfully to:\n{csv_path}")
+            
+            if self.open_folder_checkbox.isChecked():
+                self.open_folder_windows(output_path)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Error exporting custom CSV:\n{str(e)}")
+            print(f"[CSVExporterDialog] Error exporting custom CSV: {e}")
+
+    def _extract_field_value(self, file_data, field):
+        """Extract field value from the actual Image Tea files table row."""
+        file_dict = {
+            "id": file_data[0] if len(file_data) > 0 else "",
+            "filepath": file_data[1] if len(file_data) > 1 else "",
+            "filename": file_data[2] if len(file_data) > 2 else "",
+            "title": file_data[3] if len(file_data) > 3 and file_data[3] is not None else "",
+            "description": file_data[4] if len(file_data) > 4 and file_data[4] is not None else "",
+            "tags": file_data[5] if len(file_data) > 5 and file_data[5] is not None else "",
+            "status": file_data[6] if len(file_data) > 6 and file_data[6] is not None else "",
+            "original_filename": file_data[7] if len(file_data) > 7 and file_data[7] is not None else "",
+        }
+        if field == "EMPTY":
+            return ""
+        return str(file_dict.get(field, ""))
+
+    def _apply_transform(self, value, transform):
+        """Apply transformation to field value"""
+        if transform == "Uppercase":
+            return value.upper()
+        elif transform == "Lowercase":
+            return value.lower()
+        elif transform == "Title Case":
+            return value.title()
+        elif transform == "Sanitize":
+            return re.sub(r'[^a-zA-Z0-9\s]', '', value)
+        elif transform == "Truncate":
+            return value[:50] + "..." if len(value) > 50 else value
+        else:
+            return value
+
+    def _csv_escape(self, value, delimiter, should_quote):
+        value = "" if value is None else str(value)
+        value = value.replace('"', '""')
+        if should_quote:
+            return f'"{value}"'
+        return value
+
+    def _write_custom_csv(self, file_path, headers, rows, delimiter, quote_mode, quote_header, quote_modes):
+        """Write custom CSV file with global or per-field quoting."""
+        with open(file_path, "w", encoding="utf-8", newline='') as f:
+            header_line = delimiter.join([self._csv_escape(h, delimiter, quote_header) for h in headers])
+            f.write(header_line + '\n')
+            
+            for row in rows:
+                formatted = []
+                for i, v in enumerate(row):
+                    per_field = quote_modes[i] if i < len(quote_modes) else "Auto"
+                    if quote_mode == 1:  # All
+                        should_quote = True
+                    elif quote_mode == 2:  # None
+                        should_quote = False
+                    elif quote_mode == 3:  # Text Only
+                        should_quote = bool(v) and not str(v).replace('.', '').replace('-', '').isdigit()
+                    else:  # Use Per Field
+                        if per_field == "Yes":
+                            should_quote = True
+                        elif per_field == "No":
+                            should_quote = False
+                        else:
+                            should_quote = False
+                    formatted.append(self._csv_escape(v, delimiter, should_quote))
+                f.write(delimiter.join(formatted) + '\n')
+
+    def on_tab_changed(self, index):
+        if self.tabs.currentWidget() == self.custom_tab:
+            self.ok_btn.setText("Export Custom CSV")
+            self.ok_btn.setToolTip("Export metadata using the custom format")
+        else:
+            self.ok_btn.setText("Export All CSV")
+            self.ok_btn.setToolTip("Export metadata to CSV")
         self.validate_output_and_buttons()
 
     def paste_output_path(self):
@@ -271,10 +1137,10 @@ class CSVExporterDialog(QDialog):
         try:
             today = datetime.datetime.now()
             p = platform.replace(" ", "_")
-            return f"{p}_Image_Tea_Metadata_{today.year}_{today.strftime('%B')}_{today.day:02d}_"
+            return f"{p}_Image_Tea_Metadata_{today.year}_{today.strftime('%B')}_{today.day:02d}"
         except Exception as e:
             print(f"[CSVExporterDialog] Error building default base name for {platform}: {e}")
-            return platform.replace(" ", "_") + "_Image_Tea_Metadata_"
+            return platform.replace(" ", "_") + "_Image_Tea_Metadata"
 
     def on_platform_toggled(self, platform, checked):
         try:
@@ -363,6 +1229,11 @@ class CSVExporterDialog(QDialog):
         except Exception as e:
             print(f"[CSVExporterDialog] validate path error: {e}")
             valid = False
+        if self.tabs.currentWidget() == self.custom_tab:
+            enabled = valid and self.custom_table.rowCount() > 0
+            self.ok_btn.setEnabled(enabled)
+            self.validation_label.setVisible(False)
+            return
         any_selected = any(cb.isChecked() for cb in self.platform_checkboxes)
         names_ok, msg = self._name_validation()
         enabled = valid and any_selected and names_ok
@@ -376,6 +1247,12 @@ class CSVExporterDialog(QDialog):
     def open_folder_windows(self, folder_path):
         if sys.platform.startswith("win"):
             os.startfile(folder_path)
+
+    def export_current_tab(self):
+        if self.tabs.currentWidget() == self.custom_tab:
+            self.export_custom_csv()
+        else:
+            self.export_csv()
 
     def export_csv(self):
         selected = [p for p, cb in self.checkbox_map.items() if cb.isChecked()]
@@ -468,6 +1345,8 @@ class CSVExporterDialog(QDialog):
             for p, (w, e, s, _btn) in self.rename_rows.items():
                 if w.isVisible():
                     s.setText("_001.CSV")
+            if hasattr(self, 'custom_suffix_label'):
+                self.custom_suffix_label.setText("_001.CSV")
             return
         for p, (w, e, s, _btn) in self.rename_rows.items():
             if not w.isVisible():
@@ -478,3 +1357,16 @@ class CSVExporterDialog(QDialog):
                 s.setText(f"_{idx:03d}.CSV")
             except Exception as ex:
                 print(f"[CSVExporterDialog] Error computing next index for {p}: {ex}")
+        
+        # Update custom format suffix dynamically too
+        if hasattr(self, 'custom_suffix_label') and hasattr(self, 'custom_filename_edit'):
+            custom_base = self.custom_filename_edit.text().strip()
+            if custom_base:
+                try:
+                    idx = get_next_index(custom_base, path)
+                    self.custom_suffix_label.setText(f"_{idx:03d}.CSV")
+                except Exception as ex:
+                    print(f"[CSVExporterDialog] Error computing next custom index: {ex}")
+                    self.custom_suffix_label.setText("_001.CSV")
+            else:
+                self.custom_suffix_label.setText("_001.CSV")

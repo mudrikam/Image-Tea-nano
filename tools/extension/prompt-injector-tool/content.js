@@ -16,6 +16,8 @@
   let highlightedElement = null;
   let highlightOverlay = null;
   let highlightLabel = null;
+  let patternPickerActive = false;
+  let patternPickerResolve = null;
 
   let automationRunning = false;
   let automationPaused = false;
@@ -627,6 +629,130 @@
     removeHighlightOverlay();
 
     console.log('[Prompt Injector] Picker stopped');
+  }
+
+  // Pattern Picker for URL extraction
+  function stopPatternPicker() {
+    patternPickerActive = false;
+    document.removeEventListener('mousemove', onPatternPickerMove, true);
+    document.removeEventListener('click', onPatternPickerClick, true);
+    document.removeEventListener('keydown', onPatternPickerKey, true);
+    try { document.body.style.cursor = ''; } catch (e) {}
+    hideHighlight();
+    removeHighlightOverlay();
+  }
+
+  function onPatternPickerMove(e) {
+    if (!patternPickerActive) return;
+    let element = document.elementFromPoint(e.clientX, e.clientY);
+    if (!element) return;
+    if (element.id === 'prompt-injector-highlight' ||
+        element.id === 'prompt-injector-label' ||
+        element.closest('#prompt-injector-highlight') ||
+        element.closest('#prompt-injector-label')) {
+      element = document.elementFromPoint(e.clientX, e.clientY);
+    }
+    if (element && element !== highlightedElement &&
+        element.id !== 'prompt-injector-highlight' &&
+        element.id !== 'prompt-injector-label') {
+      highlightedElement = element;
+      updateHighlight(element);
+    }
+  }
+
+  function onPatternPickerClick(e) {
+    if (!patternPickerActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    let element = highlightedElement || document.elementFromPoint(e.clientX, e.clientY);
+
+    if (element &&
+        element.id !== 'prompt-injector-highlight' &&
+        element.id !== 'prompt-injector-label') {
+
+      const isImg = element && (element.tagName === 'IMG' || element.querySelector('img'));
+      const imgEl = isImg ? (element.tagName === 'IMG' ? element : element.querySelector('img')) : null;
+
+      if (imgEl && imgEl.src) {
+        const pattern = extractUrlPattern(imgEl.src);
+        const resolve = patternPickerResolve;
+        stopPatternPicker();
+        if (resolve) resolve(pattern);
+      } else {
+        stopPatternPicker();
+        if (patternPickerResolve) patternPickerResolve(null);
+      }
+    } else {
+      stopPatternPicker();
+      if (patternPickerResolve) patternPickerResolve(null);
+    }
+    return false;
+  }
+
+  function onPatternPickerKey(e) {
+    if (patternPickerActive && e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      stopPatternPicker();
+      if (patternPickerResolve) patternPickerResolve(null);
+    }
+  }
+
+  function startPatternPicker() {
+    stopPatternPicker();
+    if (pickerActive) {
+      stopPicker();
+    }
+    patternPickerActive = true;
+    highlightedElement = null;
+    createHighlightOverlay();
+    document.addEventListener('mousemove', onPatternPickerMove, true);
+    document.addEventListener('click', onPatternPickerClick, true);
+    document.addEventListener('keydown', onPatternPickerKey, true);
+    window.addEventListener('keydown', onPatternPickerKey, true);
+    document.body.style.cursor = 'crosshair';
+    return new Promise(resolve => { patternPickerResolve = resolve; });
+  }
+
+  function extractUrlPattern(url) {
+    try {
+      if (url.startsWith('blob:')) {
+        const afterBlob = url.slice(5);
+        const match = afterBlob.match(/^(https?:\/\/[^\/]+)/);
+        if (match) {
+          return 'blob:' + match[1];
+        }
+        return 'blob:' + afterBlob.split('/')[0];
+      }
+      const u = new URL(url);
+      let path = u.pathname;
+      const segments = path.split('/').filter(s => s);
+      if (segments.length > 0 && segments[segments.length - 1].includes('.')) {
+        segments.pop();
+      }
+      const lastSeg = segments.length > 0 ? segments[segments.length - 1] : '';
+      if (lastSeg && (lastSeg.length > 30 || lastSeg.includes('_') || /^\d+$/.test(lastSeg))) {
+        segments.pop();
+      }
+      if (u.search) {
+        const params = new URLSearchParams(u.search);
+        params.delete('id');
+        params.delete('ts');
+        params.delete('cid');
+        params.delete('sig');
+        params.delete('p');
+        params.delete('v');
+        params.delete('name');
+        const cleanQuery = params.toString();
+        return u.origin + (segments.length ? '/' + segments.join('/') : '') + (cleanQuery ? '?' + cleanQuery : '');
+      }
+      return u.origin + (segments.length ? '/' + segments.join('/') : '');
+    } catch (e) {
+      return url;
+    }
   }
 
   function sleep(ms) {
@@ -1250,6 +1376,12 @@
       case 'START_PICKER':
         startPicker(message.pointIndex);
         sendResponse({ success: true, started: true });
+        break;
+
+      case 'START_PATTERN_PICKER':
+        startPatternPicker().then(pattern => {
+          sendResponse({ success: true, pattern });
+        });
         break;
 
       case 'START_AUTOMATION':
