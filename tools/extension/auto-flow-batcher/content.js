@@ -1777,10 +1777,8 @@ if (window.top !== window.self) {
             return true;
           }
           if (msg.action === 'CREATE_PROJECT') {
-            if (!isRunning) {
-              sendResponse({ status: 'stopped', message: 'Process stopped by user' });
-              return true;
-            }
+            // Reset isRunning flag for new project creation
+            isRunning = true;
             if (isFlowProjectPage()) {
               sendResponse({ status: 'success', message: 'Already on Flow project page' });
               return true;
@@ -1793,11 +1791,8 @@ if (window.top !== window.self) {
             return true;
           }
           if (msg.action === 'PROCESS_PROMPT') {
-            // Check isRunning before starting
-            if (!isRunning) {
-              sendResponse({ status: 'stopped', message: 'Process stopped by user' });
-              return true;
-            }
+            // Reset isRunning flag for new prompt (allows retry after stop)
+            isRunning = true;
             processPrompt(msg.payload.prompt, msg.payload.settings)
               .then(r => sendResponse(r))
               .catch(e => sendResponse({ status: 'failed', message: e.message }));

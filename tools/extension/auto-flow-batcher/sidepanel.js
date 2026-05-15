@@ -985,6 +985,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await runOneStep(getSettings());
 
+    // After step completes, reset label so updateStepButton() doesn't re-enter "Running..." branch
+    btnStep.querySelector('.btn-step-label').textContent = '';
     // After step completes, update button for next step
     updateStepButton();
   });
@@ -1061,6 +1063,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await runOneStep(getSettings());
 
+    // After retry completes, reset label so updateStepButton() doesn't re-enter "Running..." branch
+    btnStep.querySelector('.btn-step-label').textContent = '';
     // After retry completes, update button
     updateStepButton();
   });
