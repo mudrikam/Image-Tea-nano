@@ -138,15 +138,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnStep.disabled = false;
       btnStep.classList.add('step-ready');
       btnStep.querySelector('.btn-step-label').textContent = `Step 1/${total}`;
+    } else if (remaining <= 0 && total > 0) {
+      // All done — allow restart from beginning
+      btnStep.disabled = false;
+      btnStep.classList.add('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = 'Restart (Step 1)';
     } else {
-      // All done or fallback: disable
+      // Fallback: no prompts or unknown state
       btnStep.disabled = true;
       btnStep.classList.remove('step-ready');
-      btnStep.querySelector('.btn-step-label').textContent = remaining <= 0 && total > 0 ? 'Done' : 'Generation Step';
+      btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
     }
 
-    // Show Retry if current or last step was stopped or failed (regardless of remaining)
-    if (isRunning) {
+    // Show Retry if current or last step was stopped or failed (regardless of isRunning)
+    {
       const currentStatus = queueData[currentIndex]?.status;
       const lastStatus = currentIndex > 0 ? queueData[currentIndex - 1]?.status : null;
       if (currentStatus === 'failed' || currentStatus === 'stopped' ||
@@ -971,10 +976,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Guard: all done?
+    // If all done, restart from beginning
     if (currentIndex >= queueData.length) {
-      appendLog('All prompts already completed.', 'info');
-      return;
+      currentIndex = 0;
+      queueData.forEach(item => { item.status = 'pending'; item.generatedCount = 0; });
+      successCount = 0;
+      failedCount = 0;
+      downloadedCount = 0;
+      updateStats();
+      renderQueueTable();
+      renderPromptDisplay();
+      appendLog('Restarting from step 1...', 'act');
     }
 
     // Disable step button while this step is running
@@ -1015,8 +1027,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Retry Step button — re-run the last failed/stopped step
   btnRetryStep.addEventListener('click', async () => {
     console.log('[Retry] Clicked. isStepMode:', isStepMode, 'isRunning:', isRunning);
-    if (!isStepMode || !isRunning) {
-      console.log('[Retry] Aborted: step mode or running check failed');
+    if (!isStepMode) {
+      console.log('[Retry] Aborted: not in step mode');
       return;
     }
 
@@ -1060,6 +1072,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnStep.classList.remove('step-ready');
     btnStep.querySelector('.btn-step-label').textContent = 'Running...';
     btnStopStep.classList.remove('hidden');
+
+    // Ensure isRunning is true (may be false if retry triggered after done/stop)
+    if (!isRunning) {
+      isRunning = true;
+      btnStart.classList.add('hidden');
+      btnPause.classList.remove('hidden');
+      btnStop.classList.remove('hidden');
+    }
 
     await runOneStep(getSettings());
 
