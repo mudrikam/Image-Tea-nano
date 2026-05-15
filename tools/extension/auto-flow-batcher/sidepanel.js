@@ -23,6 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnPause = document.getElementById('btnPause');
   const btnStop = document.getElementById('btnStop');
   const btnReset = document.getElementById('btnReset');
+  const btnToggleStepMode = document.getElementById('btnToggleStepMode');
+  const btnStep = document.getElementById('btnStep');
+  const stepModeBar = document.getElementById('stepModeBar');
+  const stepIndicator = document.getElementById('stepIndicator');
   const btnLoadTXT = document.getElementById('btnLoadTXT');
   const btnLoadCSV = document.getElementById('btnLoadCSV');
    const btnClearLogs = document.getElementById('btnClearLogs');
@@ -71,10 +75,66 @@ document.addEventListener('DOMContentLoaded', async () => {
   let downloadedCount = 0;
   let isRunning = false;
   let isPaused = false;
+  let isStepMode = false; // Step mode: manual next
+  let stepReady = false;  // Step ready to run next
   let targetTabId = null;
   let countdownInterval = null;
   let remainingCountdown = 0;
   let lastRefreshSuccessCount = 0;
+
+  // Toggle Step Mode on/off
+  function setStepMode(enabled) {
+    isStepMode = enabled;
+    if (enabled) {
+      stepModeBar.classList.remove('hidden');
+      btnToggleStepMode.style.color = '#f27d26';
+      btnToggleStepMode.style.background = 'rgba(242,125,38,0.15)';
+      btnToggleStepMode.title = 'Step Mode ON — click to disable';
+      appendLog('Step Mode enabled. Click "Generation Step" to run one prompt at a time.', 'info');
+    } else {
+      stepModeBar.classList.add('hidden');
+      btnToggleStepMode.style.color = '';
+      btnToggleStepMode.style.background = '';
+      btnToggleStepMode.title = 'Toggle Step Mode (manual next)';
+      if (!isRunning) appendLog('Step Mode disabled.', 'info');
+    }
+    updateStepButton();
+  }
+
+  // Update step button state based on current queue/running state
+  function updateStepButton() {
+    if (!isStepMode) return;
+    const total = queueData.length;
+    const remaining = total - currentIndex;
+    stepIndicator.textContent = total > 0 ? `Step ${currentIndex}/${total}` : 'Step 0/0';
+
+    if (remaining <= 0 && total > 0) {
+      // All done
+      btnStep.disabled = true;
+      btnStep.classList.remove('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = 'Done';
+    } else if (total === 0) {
+      // No prompts loaded yet
+      btnStep.disabled = true;
+      btnStep.classList.remove('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+    } else if (isRunning && remaining > 0) {
+      // Ready for next step
+      btnStep.disabled = false;
+      btnStep.classList.add('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = `Step ${currentIndex + 1}/${total}`;
+    } else if (!isRunning && remaining > 0) {
+      // Not started yet, but prompts loaded
+      btnStep.disabled = false;
+      btnStep.classList.add('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = `Step 1/${total}`;
+    } else {
+      // Fallback: disable
+      btnStep.disabled = true;
+      btnStep.classList.remove('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+    }
+  }
 
   // Filter ratio options based on selected media type
   function updateRatioOptions(type) {
@@ -425,6 +485,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
      updateQueueProgressLabel();
      renderQueueTable();
+     if (isStepMode) updateStepButton();
    }
 
    // Update queue progress label: "X/Y" format + remaining
@@ -593,6 +654,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (globalDelaySecondsInput) globalDelaySecondsInput.value = '5';
     if (refreshAfterPromptsInput) refreshAfterPromptsInput.value = '5';
     if (repeatPerPromptInput) repeatPerPromptInput.value = '1';
+
+    // Reset step mode UI (keep step mode toggle state, just reset button)
+    if (isStepMode) {
+      btnStep.disabled = true;
+      btnStep.classList.remove('step-ready');
+      btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+      stepIndicator.textContent = 'Step 0/0';
+    }
 
     // Re-apply ratio/quality filtering for Image type
     updateRatioOptions('image');
@@ -793,7 +862,11 @@ document.addEventListener('DOMContentLoaded', async () => {
      renderPromptDisplay();
 
      const repeatInfo = settings.repeatPerPrompt > 1 ? `, ${settings.repeatPerPrompt}x repeat` : '';
-     appendLog(`Starting Automation for ${queueData.length} tasks (${prompts.length} prompts${repeatInfo}, ${settings.batch}x batch per prompt)`, 'act');
+     if (isStepMode) {
+       appendLog(`Step Mode: ${queueData.length} tasks ready (${prompts.length} prompts${repeatInfo}). Click "Generation Step" to run each one.`, 'act');
+     } else {
+       appendLog(`Starting Automation for ${queueData.length} tasks (${prompts.length} prompts${repeatInfo}, ${settings.batch}x batch per prompt)`, 'act');
+     }
 
     // Check active tab
     const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -814,8 +887,191 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    processQueue(settings);
+    if (isStepMode) {
+      // In step mode: don't auto-run, just set up and wait for btnStep clicks
+      updateStepButton();
+    } else {
+      processQueue(settings);
+    }
   });
+
+  // Step button handler — run exactly one prompt then wait
+  btnStep.addEventListener('click', async () => {
+    if (!isStepMode) return;
+
+    // First click: initialize (not yet running)
+    if (!isRunning) {
+      prompts = currentPrompts;
+      if (prompts.length === 0) {
+        appendLog('Please upload a file or type a prompt.', 'error');
+        return;
+      }
+
+      resetProcessState();
+      updateQueue();
+      updateStats();
+      countdownRow.classList.add('hidden');
+
+      if (queueData.length === 0) {
+        appendLog('No prompts in queue.', 'error');
+        return;
+      }
+
+      const settings = getSettings();
+      isRunning = true;
+      btnStart.classList.add('hidden');
+      btnPause.classList.remove('hidden');
+      btnStop.classList.remove('hidden');
+      manualInput.classList.add('processing');
+      manualInput.readOnly = true;
+      manualInput.style.display = 'none';
+      promptDisplay.classList.add('visible');
+      renderPromptDisplay();
+
+      const repeatInfo = settings.repeatPerPrompt > 1 ? `, ${settings.repeatPerPrompt}x repeat` : '';
+      appendLog(`Step Mode: ${queueData.length} tasks (${prompts.length} prompts${repeatInfo}). Running step 1...`, 'act');
+
+      // Check active tab
+      const [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!targetTab) {
+        appendLog('No active tab found.', 'error');
+        stopProcess();
+        return;
+      }
+
+      targetTabId = targetTab.id;
+
+      try {
+        await prepareFlowProjectIfNeeded(targetTab);
+        await ensureContentScript(targetTab.id);
+      } catch (err) {
+        appendLog(`CRITICAL: ${err.message}. Please refresh the Flow page (F5).`, 'error');
+        stopProcess();
+        return;
+      }
+    }
+
+    // Guard: all done?
+    if (currentIndex >= queueData.length) {
+      appendLog('All prompts already completed.', 'info');
+      return;
+    }
+
+    // Disable step button while this step is running
+    btnStep.disabled = true;
+    btnStep.classList.remove('step-ready');
+    btnStep.querySelector('.btn-step-label').textContent = 'Running...';
+
+    await runOneStep(getSettings());
+
+    // After step completes, update button for next step
+    updateStepButton();
+  });
+
+  // Toggle Step Mode button
+  btnToggleStepMode.addEventListener('click', () => {
+    if (isRunning) {
+      appendLog('Cannot toggle Step Mode while running. Stop first.', 'warn');
+      return;
+    }
+    setStepMode(!isStepMode);
+  });
+
+  // Run exactly one prompt (used by step mode)
+  async function runOneStep(settings) {
+    if (currentIndex >= queueData.length || !isRunning) return;
+
+    const totalQueue = queueData.length;
+    const promptData = queueData[currentIndex];
+    promptData.status = 'processing';
+    renderQueueTable();
+    renderPromptDisplay();
+    updateStats();
+
+    // No cooldown on first step, apply on subsequent steps
+    await runPromptCooldownIfNeeded(settings.globalDelayMs || 0);
+    if (!isRunning) {
+      promptData.status = 'pending';
+      renderQueueTable();
+      renderPromptDisplay();
+      return;
+    }
+
+    const repeatInfo = promptData.repeatTotal > 1 ? ` (repeat ${promptData.repeatIndex + 1}/${promptData.repeatTotal})` : '';
+    appendLog(`[Step ${currentIndex + 1}/${totalQueue}] Processing: "${promptData.prompt}"${repeatInfo}`, 'act');
+
+    try {
+      if (!targetTabId) {
+        appendLog('Error: No target tab ID. Please re-focus the Flow page.', 'error');
+        promptData.status = 'failed';
+        failedCount++;
+        currentIndex++;
+        updateStats();
+        renderQueueTable();
+        renderPromptDisplay();
+        return;
+      }
+
+      const response = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(targetTabId, {
+          action: "PROCESS_PROMPT",
+          payload: { prompt: promptData.prompt, settings }
+        }, (res) => {
+          if (chrome.runtime.lastError) {
+            resolve({ status: 'failed', message: `Connection error: ${chrome.runtime.lastError.message}` });
+          } else {
+            resolve(res || { status: 'failed', message: 'Empty response from content script.' });
+          }
+        });
+      });
+
+      if (!isRunning) return;
+
+      if (response.status === 'success' || response.status === 'partial') {
+        successCount++;
+        const downloaded = response.downloaded || 0;
+        downloadedCount += downloaded;
+        promptData.generatedCount += downloaded;
+        promptData.status = response.status === 'success' ? 'completed' : 'partial';
+        const msg = response.status === 'partial'
+          ? `[Step ${currentIndex + 1}] ${response.message}`
+          : `[Step ${currentIndex + 1}] OK: ${response.ids ? response.ids.length : 1} variations saved.`;
+        appendLog(msg, 'success');
+      } else if (response.status === 'stopped') {
+        appendLog(`[Step ${currentIndex + 1}] Stopped by user.`, 'warn');
+        promptData.status = 'failed';
+        failedCount++;
+      } else {
+        failedCount++;
+        promptData.status = 'failed';
+        appendLog(`[Step ${currentIndex + 1}] Failed: ${response.message}`, 'error');
+      }
+    } catch (err) {
+      failedCount++;
+      promptData.status = 'failed';
+      appendLog(`[Step ${currentIndex + 1}] Execution Error: ${err.message}`, 'error');
+    }
+
+    currentIndex++;
+    updateStats();
+    renderQueueTable();
+    renderPromptDisplay();
+
+    // Refresh if needed
+    if (isRunning) {
+      try {
+        await refreshAfterCompletedPromptIfNeeded(settings);
+      } catch (err) {
+        appendLog(`Refresh failed: ${err.message}. Continuing.`, 'warn');
+      }
+    }
+
+    // Check if all done
+    if (currentIndex >= totalQueue) {
+      appendLog('All prompts completed!', 'success');
+      stopProcess();
+    }
+  }
 
   // Main processing loop
    async function processQueue(settings) {
@@ -990,6 +1246,15 @@ document.addEventListener('DOMContentLoaded', async () => {
      valCountdown.innerText = '--';
      if (cooldownProgressFill) cooldownProgressFill.style.width = '0%';
      countdownRow.classList.add('hidden');
+
+     // Reset step button
+     if (isStepMode) {
+       btnStep.disabled = true;
+       btnStep.classList.remove('step-ready');
+       btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+       const total = queueData.length;
+       stepIndicator.textContent = `Step ${currentIndex}/${total}`;
+     }
 
      // Mark any still-processing rows as failed (real stop, not pause)
      queueData.forEach(item => {
