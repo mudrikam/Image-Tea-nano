@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnReset = document.getElementById('btnReset');
   const btnToggleStepMode = document.getElementById('btnToggleStepMode');
   const btnStep = document.getElementById('btnStep');
+  const btnStopStep = document.getElementById('btnStopStep');
+  const btnRetryStep = document.getElementById('btnRetryStep');
   const stepModeBar = document.getElementById('stepModeBar');
   const stepIndicator = document.getElementById('stepIndicator');
   const btnLoadTXT = document.getElementById('btnLoadTXT');
@@ -77,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isPaused = false;
   let isStepMode = false; // Step mode: manual next
   let stepReady = false;  // Step ready to run next
+  let isStepStopped = false; // Step-level stop: abort current step only, keep queue position
   let targetTabId = null;
   let countdownInterval = null;
   let remainingCountdown = 0;
@@ -108,31 +111,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     const remaining = total - currentIndex;
     stepIndicator.textContent = total > 0 ? `Step ${currentIndex}/${total}` : 'Step 0/0';
 
-    if (remaining <= 0 && total > 0) {
-      // All done
-      btnStep.disabled = true;
-      btnStep.classList.remove('step-ready');
-      btnStep.querySelector('.btn-step-label').textContent = 'Done';
-    } else if (total === 0) {
+    // Hide stop/retry by default
+    btnStopStep.classList.add('hidden');
+    btnRetryStep.classList.add('hidden');
+
+    if (total === 0) {
       // No prompts loaded yet
       btnStep.disabled = true;
       btnStep.classList.remove('step-ready');
       btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
     } else if (isRunning && remaining > 0) {
-      // Ready for next step
-      btnStep.disabled = false;
-      btnStep.classList.add('step-ready');
-      btnStep.querySelector('.btn-step-label').textContent = `Step ${currentIndex + 1}/${total}`;
+      const currentLabel = btnStep.querySelector('.btn-step-label').textContent;
+      if (currentLabel === 'Running...') {
+        // Currently executing — show Stop Step button
+        btnStep.disabled = true;
+        btnStep.classList.remove('step-ready');
+        btnStopStep.classList.remove('hidden');
+      } else {
+        // Ready for next step
+        btnStep.disabled = false;
+        btnStep.classList.add('step-ready');
+        btnStep.querySelector('.btn-step-label').textContent = `Step ${currentIndex + 1}/${total}`;
+      }
     } else if (!isRunning && remaining > 0) {
       // Not started yet, but prompts loaded
       btnStep.disabled = false;
       btnStep.classList.add('step-ready');
       btnStep.querySelector('.btn-step-label').textContent = `Step 1/${total}`;
     } else {
-      // Fallback: disable
+      // All done or fallback: disable
       btnStep.disabled = true;
       btnStep.classList.remove('step-ready');
-      btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+      btnStep.querySelector('.btn-step-label').textContent = remaining <= 0 && total > 0 ? 'Done' : 'Generation Step';
+    }
+
+    // Show Retry if current or last step was stopped or failed (regardless of remaining)
+    if (isRunning) {
+      const currentStatus = queueData[currentIndex]?.status;
+      const lastStatus = currentIndex > 0 ? queueData[currentIndex - 1]?.status : null;
+      if (currentStatus === 'failed' || currentStatus === 'stopped' ||
+          lastStatus === 'failed' || lastStatus === 'stopped') {
+        btnRetryStep.classList.remove('hidden');
+      }
     }
   }
 
@@ -961,6 +981,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnStep.disabled = true;
     btnStep.classList.remove('step-ready');
     btnStep.querySelector('.btn-step-label').textContent = 'Running...';
+    updateStepButton(); // Show Stop Step button
 
     await runOneStep(getSettings());
 
@@ -977,10 +998,78 @@ document.addEventListener('DOMContentLoaded', async () => {
     setStepMode(!isStepMode);
   });
 
+  // Stop Step button — abort current step only (step-level stop)
+  btnStopStep.addEventListener('click', () => {
+    if (!isStepMode || !isRunning) return;
+    isStepStopped = true;
+    appendLog('Step stop requested. Aborting current step...', 'warn');
+    // Send STOP to content script to abort monitoring
+    if (targetTabId) {
+      chrome.tabs.sendMessage(targetTabId, { action: "STOP" }).catch(() => {});
+    }
+    // Button state will update after runOneStep completes
+  });
+
+  // Retry Step button — re-run the last failed/stopped step
+  btnRetryStep.addEventListener('click', async () => {
+    console.log('[Retry] Clicked. isStepMode:', isStepMode, 'isRunning:', isRunning);
+    if (!isStepMode || !isRunning) {
+      console.log('[Retry] Aborted: step mode or running check failed');
+      return;
+    }
+
+    // Determine which step to retry:
+    // - If current step is stopped/failed (not incremented yet) → retry currentIndex
+    // - If last step was failed/stopped (already incremented) → go back one
+    const currentStepStatus = queueData[currentIndex]?.status;
+    const needsDecrement = (currentStepStatus !== 'stopped' && currentStepStatus !== 'failed')
+                           && currentIndex > 0;
+
+    if (needsDecrement) {
+      currentIndex--;
+    }
+
+    if (currentIndex < 0) {
+      appendLog('No step to retry.', 'warn');
+      return;
+    }
+
+    // Allow retry even if currentIndex >= queueData.length (last step failed)
+    if (currentIndex >= queueData.length) {
+      currentIndex = queueData.length - 1;
+    }
+
+    const retryData = queueData[currentIndex];
+    console.log('[Retry] Retrying step', currentIndex + 1, 'status:', retryData.status, 'prompt:', retryData.prompt);
+    // Undo failed count if it was counted
+    if ((retryData.status === 'failed') && failedCount > 0) failedCount--;
+
+    retryData.status = 'pending';
+    retryData.generatedCount = 0;
+
+    updateStats();
+    renderQueueTable();
+    renderPromptDisplay();
+    appendLog(`Retrying step ${currentIndex + 1}/${queueData.length}: "${retryData.prompt}"`, 'act');
+
+    // Show Stop Step, hide Retry, set Running...
+    btnRetryStep.classList.add('hidden');
+    btnStep.disabled = true;
+    btnStep.classList.remove('step-ready');
+    btnStep.querySelector('.btn-step-label').textContent = 'Running...';
+    btnStopStep.classList.remove('hidden');
+
+    await runOneStep(getSettings());
+
+    // After retry completes, update button
+    updateStepButton();
+  });
+
   // Run exactly one prompt (used by step mode)
   async function runOneStep(settings) {
     if (currentIndex >= queueData.length || !isRunning) return;
 
+    isStepStopped = false; // Reset step-level stop flag
     const totalQueue = queueData.length;
     const promptData = queueData[currentIndex];
     promptData.status = 'processing';
@@ -990,10 +1079,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // No cooldown on first step, apply on subsequent steps
     await runPromptCooldownIfNeeded(settings.globalDelayMs || 0);
-    if (!isRunning) {
-      promptData.status = 'pending';
+    if (!isRunning || isStepStopped) {
+      promptData.status = isStepStopped ? 'stopped' : 'pending';
       renderQueueTable();
       renderPromptDisplay();
+      if (isStepStopped) {
+        appendLog(`[Step ${currentIndex + 1}] Stopped by user (step-level).`, 'warn');
+      }
       return;
     }
 
@@ -1025,7 +1117,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       });
 
-      if (!isRunning) return;
+      // Check if step was stopped during processing
+      if (!isRunning || isStepStopped) {
+        promptData.status = 'stopped';
+        renderQueueTable();
+        renderPromptDisplay();
+        appendLog(`[Step ${currentIndex + 1}] Stopped during processing.`, 'warn');
+        return;
+      }
 
       if (response.status === 'success' || response.status === 'partial') {
         successCount++;
@@ -1038,8 +1137,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           : `[Step ${currentIndex + 1}] OK: ${response.ids ? response.ids.length : 1} variations saved.`;
         appendLog(msg, 'success');
       } else if (response.status === 'stopped') {
-        appendLog(`[Step ${currentIndex + 1}] Stopped by user.`, 'warn');
-        promptData.status = 'failed';
+        appendLog(`[Step ${currentIndex + 1}] Stopped by content script.`, 'warn');
+        promptData.status = 'stopped';
         failedCount++;
       } else {
         failedCount++;
@@ -1058,7 +1157,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPromptDisplay();
 
     // Refresh if needed
-    if (isRunning) {
+    if (isRunning && !isStepStopped) {
       try {
         await refreshAfterCompletedPromptIfNeeded(settings);
       } catch (err) {
@@ -1232,6 +1331,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    function stopProcess() {
      isRunning = false;
      isPaused = false;
+     isStepStopped = false;
      clearInterval(countdownInterval);
      countdownInterval = null;
      targetTabId = null;
@@ -1252,6 +1352,8 @@ document.addEventListener('DOMContentLoaded', async () => {
        btnStep.disabled = true;
        btnStep.classList.remove('step-ready');
        btnStep.querySelector('.btn-step-label').textContent = 'Generation Step';
+       btnStopStep.classList.add('hidden');
+       btnRetryStep.classList.add('hidden');
        const total = queueData.length;
        stepIndicator.textContent = `Step ${currentIndex}/${total}`;
      }
