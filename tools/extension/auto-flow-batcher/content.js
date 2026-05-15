@@ -23,6 +23,7 @@ if (window.top !== window.self) {
      }
 
     let isRunning = true;
+    let _lastAppliedSettings = null; // Track last applied type/ratio/batch to skip redundant menu opens
 
       function hasExtensionRuntime() {
         return typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function';
@@ -1593,11 +1594,21 @@ if (window.top !== window.self) {
                }
 
                log('>>> SUCCESS (direct editor insert)');
-               // UI automation
-               const clicked = await clickVariantButton();
+               // UI automation — only open menu if settings changed since last prompt
+               const settingsKey = `${settings.type}|${settings.ratio}|${settings.batch}`;
+               const needsMenuOpen = _lastAppliedSettings !== settingsKey;
+               let clicked = true;
+               if (needsMenuOpen) {
+                 clicked = await clickVariantButton();
+                 if (clicked) {
+                   await selectModeTab(settings.type, settings.ratio, settings.batch);
+                   await closePopupMenu();
+                   _lastAppliedSettings = settingsKey;
+                 }
+               } else {
+                 log('>>> Settings unchanged — skipping menu open (type/ratio/batch already applied)');
+               }
                if (clicked) {
-                 await selectModeTab(settings.type, settings.ratio, settings.batch);
-                 await closePopupMenu();
                  const beforeTileIds = getCurrentTileIds();
                  const createClicked = await clickCreateButton(beforeTileIds, editor);
                  if (createClicked && isRunning) {
@@ -1662,11 +1673,21 @@ if (window.top !== window.self) {
              log('WARN: Could not find paragraph for verification, assuming success');
              if (editor.textContent && editor.textContent.trim().includes(prompt.trim())) {
                log('>>> SUCCESS (verified via editor.textContent)');
-               const clicked = await clickVariantButton();
-                if (clicked) {
-                  await selectModeTab(settings.type, settings.ratio, settings.batch);
-                  await closePopupMenu();
-                  const beforeTileIds = getCurrentTileIds();
+               const settingsKey = `${settings.type}|${settings.ratio}|${settings.batch}`;
+               const needsMenuOpen = _lastAppliedSettings !== settingsKey;
+               let clicked = true;
+               if (needsMenuOpen) {
+                 clicked = await clickVariantButton();
+                 if (clicked) {
+                   await selectModeTab(settings.type, settings.ratio, settings.batch);
+                   await closePopupMenu();
+                   _lastAppliedSettings = settingsKey;
+                 }
+               } else {
+                 log('>>> Settings unchanged — skipping menu open (type/ratio/batch already applied)');
+               }
+               if (clicked) {
+                 const beforeTileIds = getCurrentTileIds();
                   const createClicked = await clickCreateButton(beforeTileIds, editor);
                   if (createClicked && isRunning) {
                     const batchResult = await processBatch(0, parseInt(settings.batch), beforeTileIds, settings);
@@ -1699,13 +1720,21 @@ if (window.top !== window.self) {
             return { status: 'stopped', message: 'Stopped by user' };
           }
 
-            // Click variant settings button to open popup menu
-            const clicked = await clickVariantButton();
+            // Click variant settings button to open popup menu — only if settings changed
+            const settingsKey = `${settings.type}|${settings.ratio}|${settings.batch}`;
+            const needsMenuOpen = _lastAppliedSettings !== settingsKey;
+            let clicked = true;
+            if (needsMenuOpen) {
+              clicked = await clickVariantButton();
               if (clicked) {
-                // Select mode tab (image/video), ratio, and batch count
                 await selectModeTab(settings.type, settings.ratio, settings.batch);
-                // Close popup menu to avoid interfering with next prompt
                 await closePopupMenu();
+                _lastAppliedSettings = settingsKey;
+              }
+            } else {
+              log('>>> Settings unchanged — skipping menu open (type/ratio/batch already applied)');
+            }
+              if (clicked) {
 
                 // Capture pre-generation snapshot of tile IDs BEFORE clicking Create
                 const beforeTileIds = getCurrentTileIds();

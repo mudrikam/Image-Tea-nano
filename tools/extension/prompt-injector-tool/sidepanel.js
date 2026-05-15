@@ -201,6 +201,7 @@ class PromptInjector {
       btnStop: document.getElementById('btn-stop'),
       btnLoadCsv: document.getElementById('btn-load-csv'),
       btnLoadManual: document.getElementById('btn-load-manual'),
+      btnPasteManual: document.getElementById('btn-paste-manual'),
       btnClearManual: document.getElementById('btn-clear-manual'),
       btnClear: document.getElementById('btn-clear'),
       btnHelp: document.getElementById('btn-help'),
@@ -246,6 +247,9 @@ class PromptInjector {
     this.elements.btnStop.addEventListener('click', () => this.stop());
     this.elements.btnLoadCsv.addEventListener('click', () => this.loadFile());
     this.elements.btnLoadManual.addEventListener('click', () => this.loadManualInput());
+    if (this.elements.btnPasteManual) {
+      this.elements.btnPasteManual.addEventListener('click', () => this.pasteFromClipboard());
+    }
     if (this.elements.btnClearManual) {
       this.elements.btnClearManual.addEventListener('click', () => this.clearData());
     }
@@ -1126,6 +1130,25 @@ class PromptInjector {
     if (this.currentUrlKey) {
       await this.deleteFromIndexedDB(`prompts:${this.currentUrlKey}`);
       console.log(`[Prompts] Deleted saved prompts for ${this.currentUrlKey}`);
+    }
+  }
+
+  async pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        this.addLog('Clipboard is empty', 'warning');
+        return;
+      }
+      const textarea = this.elements.manualPromptInput;
+      textarea.value = text;
+      textarea.focus();
+      this.updateManualCount();
+      this.debouncedSavePrompts();
+      this.addLog(`Pasted ${text.length} characters from clipboard`, 'info');
+    } catch (err) {
+      console.error('[Paste] Failed to read clipboard:', err);
+      this.addLog('Failed to paste: clipboard access denied', 'error');
     }
   }
 

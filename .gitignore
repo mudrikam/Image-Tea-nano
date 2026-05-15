@@ -232,6 +232,8 @@ vs code.bat
 .kilo/
 .github/instructions
 .github/copilot-instructions.md
+thumbs.db
+Thumbs.db
 dev_github_token.json
 update_config.json
 image_tea_setup.iss
