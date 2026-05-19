@@ -876,7 +876,7 @@ Role: You are a high-end design consultant and AI prompt architect. Your special
    ${colorRule}
  - ASPECT RATIO (MANDATORY):
    * Target ratio: ${ratioStr}
-   * EVERY prompt MUST explicitly mention the aspect ratio and orientation in the composition description (e.g., "16:9 landscape layout", "9:16 vertical portrait", "1:1 square canvas", "4:3 portrait", "3:4 portrait"). Do not omit this.
+   * EVERY prompt MUST explicitly mention the aspect ratio and orientation in the composition description (e.g., "16:9 landscape layout", "21:9 ultrawide", "9:16 vertical portrait", "1:1 square canvas", "4:3 portrait", "3:4 portrait", "9:21 tall vertical"). Do not omit this.
  - VISUAL STYLE / PIVOT: "${styleStr}"
 - PROHIBITED: No physical mockups, no real-world photography of products, no real props, no paper textures, no real surfaces, no hands/people/rooms. This is a pure design artwork file.
 
