@@ -458,6 +458,18 @@ class AddApiKeyDialog(QDialog):
         self.model_combo = QComboBox()
         self.model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.model_combo.setToolTip("Select the model for this API key")
+        self.model_paste_btn = QPushButton()
+        self.model_paste_btn.setIcon(qta.icon('fa6s.paste'))
+        self.model_paste_btn.setFixedWidth(32)
+        self.model_paste_btn.setToolTip('Paste model from clipboard')
+        self.model_paste_btn.setFocusPolicy(Qt.NoFocus)
+        self.model_paste_btn.clicked.connect(self._on_model_paste_clicked)
+        self.add_model_btn = QPushButton()
+        self.add_model_btn.setIcon(qta.icon('fa6s.plus'))
+        self.add_model_btn.setFixedWidth(32)
+        self.add_model_btn.setToolTip('Save current model to list')
+        self.add_model_btn.setFocusPolicy(Qt.NoFocus)
+        self.add_model_btn.clicked.connect(self._on_add_model_clicked)
         self.model_manager_btn = QPushButton()
         self.model_manager_btn.setIcon(qta.icon('fa6s.gears'))
         self.model_manager_btn.setFixedWidth(32)
@@ -466,6 +478,8 @@ class AddApiKeyDialog(QDialog):
         self.model_manager_btn.clicked.connect(self._open_model_manager)
         model_layout.addWidget(_model_label_widget)
         model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(self.model_paste_btn)
+        model_layout.addWidget(self.add_model_btn)
         model_layout.addWidget(self.model_manager_btn)
         layout.addLayout(model_layout)
         self.model_combo.installEventFilter(self)
@@ -933,7 +947,7 @@ class AddApiKeyDialog(QDialog):
             models = self.model_list.get(key_map.get(service, ''), []) if isinstance(self.model_list, dict) else []
             for m in (models or []):
                 self.model_combo.addItem(m)
-            self.model_combo.setEditable(False)
+            self.model_combo.setEditable(True)
 
         if self.model_combo.count() > 0:
             self.model_combo.setCurrentIndex(0)
@@ -1665,6 +1679,82 @@ class AddApiKeyDialog(QDialog):
                 self.endpoint_edit.setCurrentText(clip)
         except Exception as e:
             print(f"[AddApiKeyDialog] Failed to paste endpoint: {e}")
+
+    def _on_model_paste_clicked(self):
+        """Paste model name from clipboard"""
+        try:
+            clip = QApplication.clipboard().text().strip()
+            if clip:
+                self.model_combo.setCurrentText(clip)
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Failed to paste model: {e}")
+
+    def _on_add_model_clicked(self):
+        """Save the current model text to the model list for the active provider"""
+        try:
+            model_text = self.model_combo.currentText().strip()
+            if not model_text:
+                QMessageBox.warning(self, "Add Model", "Please enter or select a model name first.")
+                return
+            
+            service = (self.service_combo.currentText() or '').lower()
+            service_key_map = {
+                'gemini': 'gemini',
+                'openai': 'openai',
+                'openrouter': 'openrouter',
+                'groq': 'groq',
+                'blackbox': 'blackbox',
+                'maia': 'maia',
+                'custom endpoint': 'custom',
+                'custom': 'custom'
+            }
+            service_key = service_key_map.get(service, service)
+            
+            if not service_key:
+                QMessageBox.warning(self, "Add Model", "Please select a service/provider first.")
+                return
+            
+            # Check if model already exists
+            if service_key not in self.model_list:
+                self.model_list[service_key] = []
+            
+            if model_text in self.model_list[service_key]:
+                QMessageBox.information(self, "Add Model", f"Model '{model_text}' already exists in {service} list.")
+                # Still select it
+                idx = self.model_combo.findText(model_text)
+                if idx >= 0:
+                    self.model_combo.setCurrentIndex(idx)
+                return
+            
+            # Add model to list
+            self.model_list[service_key].append(model_text)
+            
+            # Save to ai_config.json
+            ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+            try:
+                with open(ai_prompt_path, "r", encoding="utf-8") as f:
+                    ai_config = json.load(f)
+                ai_config["model_list"] = self.model_list
+                with open(ai_prompt_path, "w", encoding="utf-8") as f:
+                    json.dump(ai_config, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"Error saving model to config: {e}")
+                QMessageBox.critical(self, "Add Model", f"Failed to save model to config: {e}")
+                return
+            
+            # Refresh combo and select the new model
+            self._refresh_model_combo()
+            idx = self.model_combo.findText(model_text)
+            if idx < 0:
+                # If not found after refresh (shouldn't happen), add it manually
+                self.model_combo.addItem(model_text)
+                idx = self.model_combo.findText(model_text)
+            self.model_combo.setCurrentIndex(idx)
+            
+            QMessageBox.information(self, "Add Model", f"Model '{model_text}' has been saved to {service} list.")
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error adding model: {e}")
+            QMessageBox.critical(self, "Add Model", f"Failed to add model: {e}")
 
     def _open_model_manager(self):
         dlg = ModelManagerDialog(self.model_list, self)
