@@ -11,6 +11,38 @@ class CustomEndpointHelper:
     encode images, and extract text from common response formats."""
 
     @staticmethod
+    def normalize_endpoint(url: str) -> str:
+        """
+        Normalize endpoint URL to support both v1 and v1/chat/completions formats.
+        If user provides base URL ending with /v1, automatically append /chat/completions.
+        
+        Examples:
+            https://api.example.com/v1 -> https://api.example.com/v1/chat/completions
+            https://api.example.com/v1/ -> https://api.example.com/v1/chat/completions
+            https://api.example.com/v1/chat/completions -> https://api.example.com/v1/chat/completions (unchanged)
+        """
+        if not url:
+            return url
+        
+        url = url.rstrip('/')
+        url_lower = url.lower()
+        
+        # If already ends with /chat/completions or /completions, return as-is
+        if url_lower.endswith('/chat/completions') or url_lower.endswith('/completions'):
+            return url
+        
+        # If ends with /v1, append /chat/completions
+        if url_lower.endswith('/v1'):
+            return f"{url}/chat/completions"
+        
+        # If ends with /api/v1, append /chat/completions
+        if url_lower.endswith('/api/v1'):
+            return f"{url}/chat/completions"
+        
+        # Otherwise return as-is (might be a custom path)
+        return url
+
+    @staticmethod
     def validate_url(url: str) -> None:
         p = urlparse(url or "")
         if p.scheme not in ("http", "https") or not p.netloc:
@@ -126,6 +158,8 @@ class CustomEndpointHelper:
     @staticmethod
     def call_endpoint_with_usage(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> tuple:
         """Same as call_endpoint but returns (text, token_input, token_output, token_total)."""
+        # Normalize endpoint URL
+        endpoint = CustomEndpointHelper.normalize_endpoint(endpoint)
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -194,7 +228,9 @@ class CustomEndpointHelper:
             return resp.text or "", 0, 0, 0
 
     @staticmethod
-    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> str:
+    def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str, prompt: str, image_path: str | None = None, frame_paths: list | None = None, timeout: int = 30) -> str:
+        # Normalize endpoint URL
+        endpoint = CustomEndpointHelper.normalize_endpoint(endpoint)
         CustomEndpointHelper.validate_url(endpoint)
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -293,6 +329,8 @@ class CustomEndpointHelper:
     @staticmethod
     def test_connectivity(api_key: str, endpoint: str, provider: str | None = None, model: str | None = None, timeout: int = 30) -> tuple[bool, str]:
         """Simple connectivity + sanity test. Returns (ok, message_or_response)."""
+        # Normalize endpoint URL
+        endpoint = CustomEndpointHelper.normalize_endpoint(endpoint)
         try:
             CustomEndpointHelper.validate_url(endpoint)
         except Exception as e:

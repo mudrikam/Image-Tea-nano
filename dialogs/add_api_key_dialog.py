@@ -527,19 +527,19 @@ class AddApiKeyDialog(QDialog):
 
         endpoint_layout = QHBoxLayout()
         _endpoint_label_widget, endpoint_label = self._create_icon_label_widget("Endpoint:", 'fa6s.link', label_width)
-        endpoint_label.setToolTip("Optional custom provider endpoint URL (e.g. https://api.myrouter.local/v1)")
+        endpoint_label.setToolTip("Custom endpoint URL - supports both formats:\n• https://api.example.com/v1 (auto-adds /chat/completions)\n• https://api.example.com/v1/chat/completions (full path)")
         self.endpoint_edit = QComboBox()
         self.endpoint_edit.setEditable(True)
         self.endpoint_edit.addItem("", "")
-        self.endpoint_edit.addItem("Desainia API", "https://api.desainia.my.id/v1/chat/completions")
-        self.endpoint_edit.addItem("OpenRouter Custom", "https://openrouter.ai/api/v1/chat/completions")
-        self.endpoint_edit.addItem("Groq Custom", "https://api.groq.com/openai/v1/chat/completions")
-        self.endpoint_edit.addItem("Together AI", "https://api.together.xyz/v1/chat/completions")
+        self.endpoint_edit.addItem("Desainia API", "https://api.desainia.my.id/v1")
+        self.endpoint_edit.addItem("OpenRouter Custom", "https://openrouter.ai/api/v1")
+        self.endpoint_edit.addItem("Groq Custom", "https://api.groq.com/openai/v1")
+        self.endpoint_edit.addItem("Together AI", "https://api.together.xyz/v1")
         self.endpoint_edit.addItem("Anthropic", "https://api.anthropic.com/v1/messages")
-        self.endpoint_edit.addItem("Ollama Local", "http://localhost:11434/v1/chat/completions")
-        self.endpoint_edit.addItem("KoboiLLM", "https://api.koboillm.com/v1/chat/completions")
+        self.endpoint_edit.addItem("Ollama Local", "http://localhost:11434/v1")
+        self.endpoint_edit.addItem("KoboiLLM", "https://api.koboillm.com/v1")
         self.endpoint_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.endpoint_edit.setToolTip("Enter full endpoint URL including scheme (https://)")
+        self.endpoint_edit.setToolTip("Supports both formats:\n• Short: https://api.example.com/v1\n• Full: https://api.example.com/v1/chat/completions\nSystem will auto-complete if needed")
         self.endpoint_edit.currentIndexChanged.connect(self._on_endpoint_combo_changed)
         endpoint_layout.addWidget(_endpoint_label_widget)
         endpoint_layout.addWidget(self.endpoint_edit)
@@ -1658,19 +1658,19 @@ class AddApiKeyDialog(QDialog):
     def _on_endpoint_combo_changed(self, idx):
         current = self.endpoint_edit.currentText()
         if current == "Desainia API":
-            self.endpoint_edit.setCurrentText("https://api.desainia.my.id/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("https://api.desainia.my.id/v1")
         elif current == "OpenRouter Custom":
-            self.endpoint_edit.setCurrentText("https://openrouter.ai/api/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("https://openrouter.ai/api/v1")
         elif current == "Groq Custom":
-            self.endpoint_edit.setCurrentText("https://api.groq.com/openai/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("https://api.groq.com/openai/v1")
         elif current == "Together AI":
-            self.endpoint_edit.setCurrentText("https://api.together.xyz/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("https://api.together.xyz/v1")
         elif current == "Anthropic":
             self.endpoint_edit.setCurrentText("https://api.anthropic.com/v1/messages")
         elif current == "Ollama Local":
-            self.endpoint_edit.setCurrentText("http://localhost:11434/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("http://localhost:11434/v1")
         elif current == "KoboiLLM":
-            self.endpoint_edit.setCurrentText("https://api.koboillm.com/v1/chat/completions")
+            self.endpoint_edit.setCurrentText("https://api.koboillm.com/v1")
 
     def _on_endpoint_paste(self):
         try:
