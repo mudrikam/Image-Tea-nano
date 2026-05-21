@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from .theme_system import theme
 
 _LEVEL_COLOR_KEYS = {
@@ -197,8 +196,6 @@ class StatsSectionWidget(QWidget):
         self._current_selected = 0
         self._processing_target = 0
 
-        self._donation_dialog_shown_token = False
-
         self.reset_token_btn.clicked.connect(self._reset_token_stats)
 
         self._update_timer = QTimer()
@@ -357,22 +354,6 @@ class StatsSectionWidget(QWidget):
         self.label_token_input.setText(f"Token Input: {token_input}")
         self.label_token_output.setText(f"Token Output: {token_output}")
         self.label_token_total.setText(f"Token Total: {token_total}")
-        if token_total >= 1_000_000:
-            if not self._donation_dialog_shown_token and not is_donation_optout_today():
-                self._donation_dialog_shown_token = True
-                dialog = DonateDialog(self, show_not_today=True)
-                dialog.setWindowTitle("Support the Development")
-                label = dialog.findChild(QLabel)
-                if label:
-                    label.setText(
-                        "Thank you for trusting Image Tea for your metadata needs!\n\n"
-                        "You're awesome!\n\n"
-                        "Image Tea is possible thanks to the support of users like you.\n"
-                        "If you really love using Image Tea to generate metadata,\nconsider supporting its development!"
-                    )
-                dialog.exec()
-        else:
-            self._donation_dialog_shown_token = False
 
     def _format_time(self, ms):
         # Handle negative or zero values
@@ -462,4 +443,3 @@ class StatsSectionWidget(QWidget):
         self.label_token_input.setText("Token Input: 0")
         self.label_token_output.setText("Token Output: 0")
         self.label_token_total.setText("Token Total: 0")
-        self._donation_dialog_shown_token = False

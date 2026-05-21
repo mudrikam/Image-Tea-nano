@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from config import BASE_PATH
 from ui.theme_system import theme
+from dialogs.donation_dialog import DonateDialog
 
 
 def format_human_readable_date(iso_date_str):
@@ -135,9 +136,16 @@ class UpdateNoticeDialog(QDialog):
         else:
             community_btn.setEnabled(False)
 
+        # Donate button
+        donate_icon = qta.icon('fa6s.heart')
+        donate_btn = QPushButton(donate_icon, " Donate")
+        donate_btn.setCursor(Qt.PointingHandCursor)
+        donate_btn.clicked.connect(self._on_donate)
+
         buttons_layout.addWidget(commit_btn)
         buttons_layout.addWidget(report_btn)
         buttons_layout.addWidget(community_btn)
+        buttons_layout.addWidget(donate_btn)
         buttons_widget.setLayout(buttons_layout)
         info_layout.addWidget(buttons_widget)
 
@@ -292,6 +300,11 @@ class UpdateNoticeDialog(QDialog):
         self._auto_close_timer.stop()
         self.result_action = "skip" if self.skip_checkbox.isChecked() else "later"
         self.accept()
+
+    def _on_donate(self):
+        """Open donation dialog"""
+        dialog = DonateDialog(self)
+        dialog.exec()
 
     def _on_auto_close(self):
         self._update_countdown_timer.stop()
