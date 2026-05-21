@@ -570,7 +570,9 @@ class ActionSequencerDialog(QDialog):
         self.preset_list_widget.load_action_sets_from_db()
     
     def on_open_free_presets(self):
-        dlg = FreePresetsDialog(self)
+        current_platform_id = self.preset_list_widget.current_platform_id
+        dlg = FreePresetsDialog(self, current_platform_id)
+        dlg.preset_imported.connect(self.preset_list_widget.load_presets_from_db)
         dlg.exec()
 
     def on_load_from_database(self):

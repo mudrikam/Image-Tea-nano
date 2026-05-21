@@ -893,7 +893,7 @@ class PresetListWidget(QWidget):
                 QMessageBox.warning(self, "Wrong File Type", f"This file is of type '{shown_type}'. Please import using the Action Sets tab.")
                 return
 
-            success, message, count = self.import_export_helper.import_presets(file_path)
+            success, message, count = self.import_export_helper.import_presets(file_path, self.current_platform_id)
             if success:
                 QMessageBox.information(self, "Import Successful", message)
                 self.load_presets_from_db()
@@ -1068,7 +1068,7 @@ class PresetListWidget(QWidget):
                 QMessageBox.warning(self, "Wrong File Type", f"This file is of type '{shown_type}'. Please import using the Presets tab.")
                 return
 
-            success, message, count = self.import_export_helper.import_action_sets(file_path)
+            success, message, count = self.import_export_helper.import_action_sets(file_path, self.current_platform_id)
             if success:
                 QMessageBox.information(self, "Import Successful", message)
                 self.load_action_sets_from_db()
@@ -1077,7 +1077,7 @@ class PresetListWidget(QWidget):
     
     def on_get_free_presets(self):
         """Open FREE Presets dialog to browse and download presets from GitHub"""
-        dialog = FreePresetsDialog(self)
+        dialog = FreePresetsDialog(self, self.current_platform_id)
         dialog.preset_imported.connect(self.load_presets_from_db)
         dialog.exec()
 

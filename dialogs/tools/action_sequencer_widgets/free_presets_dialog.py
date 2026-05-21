@@ -87,7 +87,7 @@ class DownloadWorkerThread(QThread):
 class FreePresetsDialog(QDialog):
     preset_imported = Signal()
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, current_platform_id=None):
         super().__init__(parent)
         self.setWindowTitle("FREE Action Sequencer Presets")
         self.setModal(True)
@@ -98,6 +98,7 @@ class FreePresetsDialog(QDialog):
         
         self.db = ImageTeaDB()
         self.import_export_helper = ActionSequencerImportExport()
+        self.current_platform_id = current_platform_id
         self.repo_url = "https://github.com/mudrikam/Image-Tea-Action-Sequencer-Presets"
         self.presets_data = []
         self.temp_dir = tempfile.mkdtemp(prefix='image_tea_free_presets_')
@@ -580,7 +581,7 @@ class FreePresetsDialog(QDialog):
         download_thread.start()
     
     def on_download_completed(self, file_name, file_path):
-        success, message, count = self.import_export_helper.import_presets(file_path)
+        success, message, count = self.import_export_helper.import_presets(file_path, self.current_platform_id)
         
         if success:
             if file_name in self.preset_contents_cache:

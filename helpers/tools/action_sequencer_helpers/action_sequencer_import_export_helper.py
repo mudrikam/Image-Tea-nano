@@ -251,11 +251,12 @@ class ActionSequencerImportExport:
             print(f"Collect action set data error: {e}")
             return None
     
-    def import_action_sets(self, json_path):
+    def import_action_sets(self, json_path, current_platform_id=None):
         """Import action sets from JSON file
         
         Args:
             json_path: Path to JSON file
+            current_platform_id: Current active platform ID (optional, if provided will import to this platform)
         
         Returns:
             tuple: (success: bool, message: str, imported_count: int)
@@ -281,7 +282,7 @@ class ActionSequencerImportExport:
             
             imported_count = 0
             for action_set_data in action_sets:
-                if self._import_single_action_set(action_set_data):
+                if self._import_single_action_set(action_set_data, current_platform_id):
                     imported_count += 1
             
             if imported_count > 0:
@@ -294,28 +295,37 @@ class ActionSequencerImportExport:
         except Exception as e:
             return False, f"Import error: {str(e)}", 0
     
-    def _import_single_action_set(self, action_set_data):
+    def _import_single_action_set(self, action_set_data, current_platform_id=None):
         """Import single action set data to database
         
         Args:
             action_set_data: Action set data dict from JSON
+            current_platform_id: Current active platform ID (optional, if provided will import to this platform)
         
         Returns:
             bool: True if successful
         """
         try:
-            platform_name = action_set_data.get('platform_name')
-            if not platform_name:
-                return False
-            
-            platform = self._get_or_create_platform(
-                platform_name,
-                action_set_data.get('platform_note', '')
-            )
-            if not platform:
-                return False
-            
-            platform_id = platform['id']
+            # If current_platform_id is provided, use it directly
+            if current_platform_id is not None:
+                platform = self.db.get_platform_by_id(current_platform_id)
+                if not platform:
+                    return False
+                platform_id = current_platform_id
+            else:
+                # Fallback to old behavior: find or create platform by name
+                platform_name = action_set_data.get('platform_name')
+                if not platform_name:
+                    return False
+                
+                platform = self._get_or_create_platform(
+                    platform_name,
+                    action_set_data.get('platform_note', '')
+                )
+                if not platform:
+                    return False
+                
+                platform_id = platform['id']
             
             action_set_name = action_set_data.get('action_set_name', 'Imported Action Set')
             action_set = self._get_or_create_action_set(platform_id, action_set_name)
@@ -346,11 +356,12 @@ class ActionSequencerImportExport:
             print(f"Import single action set error: {e}")
             return False
     
-    def import_presets(self, json_path):
+    def import_presets(self, json_path, current_platform_id=None):
         """Import presets from JSON file
         
         Args:
             json_path: Path to JSON file
+            current_platform_id: Current active platform ID (optional, if provided will import to this platform)
         
         Returns:
             tuple: (success: bool, message: str, imported_count: int)
@@ -376,7 +387,7 @@ class ActionSequencerImportExport:
             
             imported_count = 0
             for preset_data in presets:
-                if self._import_single_preset(preset_data):
+                if self._import_single_preset(preset_data, current_platform_id):
                     imported_count += 1
             
             if imported_count > 0:
@@ -389,28 +400,37 @@ class ActionSequencerImportExport:
         except Exception as e:
             return False, f"Import error: {str(e)}", 0
     
-    def _import_single_preset(self, preset_data):
+    def _import_single_preset(self, preset_data, current_platform_id=None):
         """Import single preset data to database
         
         Args:
             preset_data: Preset data dict from JSON
+            current_platform_id: Current active platform ID (optional, if provided will import to this platform)
         
         Returns:
             bool: True if successful
         """
         try:
-            platform_name = preset_data.get('platform_name')
-            if not platform_name:
-                return False
-            
-            platform = self._get_or_create_platform(
-                platform_name, 
-                preset_data.get('platform_note', '')
-            )
-            if not platform:
-                return False
-            
-            platform_id = platform['id']
+            # If current_platform_id is provided, use it directly
+            if current_platform_id is not None:
+                platform = self.db.get_platform_by_id(current_platform_id)
+                if not platform:
+                    return False
+                platform_id = current_platform_id
+            else:
+                # Fallback to old behavior: find or create platform by name
+                platform_name = preset_data.get('platform_name')
+                if not platform_name:
+                    return False
+                
+                platform = self._get_or_create_platform(
+                    platform_name, 
+                    preset_data.get('platform_note', '')
+                )
+                if not platform:
+                    return False
+                
+                platform_id = platform['id']
             
             preset_name = self._get_unique_preset_name(
                 preset_data.get('preset_name', 'Imported Preset'),
