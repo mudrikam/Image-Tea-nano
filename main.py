@@ -94,6 +94,70 @@ class ImageTeaMainWindow(QMainWindow):
             self.close()
     
     def closeEvent(self, event):
+        # Check if any tools are currently processing
+        running_tools = []
+        
+        # Check Prompt Generator
+        if hasattr(self, '_prompt_generator_dialog') and self._prompt_generator_dialog:
+            if hasattr(self._prompt_generator_dialog, 'is_generating') and self._prompt_generator_dialog.is_generating:
+                running_tools.append("Prompt Generator")
+        
+        # Check Image Overlay Maker
+        if hasattr(self, '_image_overlay_maker_dialog') and self._image_overlay_maker_dialog:
+            if hasattr(self._image_overlay_maker_dialog, 'is_processing') and self._image_overlay_maker_dialog.is_processing:
+                running_tools.append("Image Overlay Maker")
+        
+        # Check Batch Audio Remover
+        if hasattr(self, '_batch_audio_remover_dialog') and self._batch_audio_remover_dialog:
+            if hasattr(self._batch_audio_remover_dialog, 'is_processing') and self._batch_audio_remover_dialog.is_processing:
+                running_tools.append("Batch Audio Remover")
+        
+        # Check Video Upscaler
+        if hasattr(self, '_video_upscaler_dialog') and self._video_upscaler_dialog:
+            if hasattr(self._video_upscaler_dialog, 'worker') and self._video_upscaler_dialog.worker:
+                if self._video_upscaler_dialog.worker.isRunning():
+                    running_tools.append("Video Upscaler")
+        
+        # Check Image Upscaler
+        if hasattr(self, '_image_upscaler_dialog') and self._image_upscaler_dialog:
+            if hasattr(self._image_upscaler_dialog, 'worker') and self._image_upscaler_dialog.worker:
+                if self._image_upscaler_dialog.worker.isRunning():
+                    running_tools.append("Image Upscaler")
+        
+        # Check Action Sequencer
+        if hasattr(self, '_action_sequencer_dialog') and self._action_sequencer_dialog:
+            if hasattr(self._action_sequencer_dialog, 'batch_worker') and self._action_sequencer_dialog.batch_worker:
+                if self._action_sequencer_dialog.batch_worker.isRunning():
+                    running_tools.append("Action Sequencer")
+        
+        # Check Vibe Video Generator
+        if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
+            if hasattr(self._vibe_video_generator_dialog, 'is_generating') and self._vibe_video_generator_dialog.is_generating:
+                running_tools.append("Vibe Video Generator")
+        
+        # Check Prompted Image Sorter
+        if hasattr(self, '_prompted_image_sorter_dialog') and self._prompted_image_sorter_dialog:
+            if hasattr(self._prompted_image_sorter_dialog, 'worker') and self._prompted_image_sorter_dialog.worker:
+                if self._prompted_image_sorter_dialog.worker.isRunning():
+                    running_tools.append("Prompted Image Sorter")
+        
+        # If any tools are running, show confirmation dialog
+        if running_tools:
+            from PySide6.QtWidgets import QMessageBox
+            tools_list = "\n• ".join(running_tools)
+            reply = QMessageBox.question(
+                self,
+                "Tools Still Running",
+                f"The following tools are still processing:\n\n• {tools_list}\n\nClosing Image Tea will stop all running processes. Are you sure you want to close?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+        
+        # Close all tool dialogs
         if hasattr(self, '_envato_elements_dialog') and self._envato_elements_dialog:
             self._envato_elements_dialog.close()
         if hasattr(self, '_prompt_injector_dialog') and self._prompt_injector_dialog:
@@ -110,14 +174,18 @@ class ImageTeaMainWindow(QMainWindow):
             self._pngtree_zipper_dialog.close()
         if hasattr(self, '_holiday_calendar_dialog') and self._holiday_calendar_dialog:
             self._holiday_calendar_dialog.close()
-        if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
-            self._vibe_video_generator_dialog.close()
+        if hasattr(self, '_image_overlay_maker_dialog') and self._image_overlay_maker_dialog:
+            self._image_overlay_maker_dialog.close()
         if hasattr(self, '_vibe_video_generator_dialog') and self._vibe_video_generator_dialog:
             self._vibe_video_generator_dialog.close()
         if hasattr(self, '_prompted_image_sorter_dialog') and self._prompted_image_sorter_dialog:
             self._prompted_image_sorter_dialog.close()
         if hasattr(self, '_tools_manager_dialog') and self._tools_manager_dialog:
             self._tools_manager_dialog.close()
+        if hasattr(self, '_batch_audio_remover_dialog') and self._batch_audio_remover_dialog:
+            self._batch_audio_remover_dialog.close()
+        if hasattr(self, '_prompt_generator_dialog') and self._prompt_generator_dialog:
+            self._prompt_generator_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:

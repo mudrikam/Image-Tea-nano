@@ -75,6 +75,7 @@ MENU_TOOLTIPS = {
     "vibe_video_generator": "Generate videos using AI with vibe-based prompting",
     "pngtree_zipper": "Zip asset files to submit to Pngtree",
     "holiday_calendar": "Browse and search microstock-relevant holidays by country and date",
+    "image_overlay_maker": "Apply overlay images to multiple images in batch",
     
     # Help menu
     "about": "View application information and credits",
@@ -1062,6 +1063,19 @@ def setup_main_menu(window):
         window._holiday_calendar_dialog.activateWindow()
     holiday_calendar_action.triggered.connect(open_holiday_calendar)
 
+    image_overlay_maker_action = QAction(qta.icon('fa6s.layer-group'), "Image Overlay Maker", window)
+    image_overlay_maker_action.setToolTip(MENU_TOOLTIPS["image_overlay_maker"])
+    image_overlay_maker_action.setStatusTip(MENU_TOOLTIPS["image_overlay_maker"])
+    def open_image_overlay_maker():
+        from dialogs.tools.image_overlay_maker_dialog import ImageOverlayMakerDialog
+        if not hasattr(window, '_image_overlay_maker_dialog') or not window._image_overlay_maker_dialog:
+            window._image_overlay_maker_dialog = ImageOverlayMakerDialog(None)
+            window._image_overlay_maker_dialog.destroyed.connect(lambda: setattr(window, '_image_overlay_maker_dialog', None))
+        window._image_overlay_maker_dialog.show()
+        window._image_overlay_maker_dialog.raise_()
+        window._image_overlay_maker_dialog.activateWindow()
+    image_overlay_maker_action.triggered.connect(open_image_overlay_maker)
+
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
@@ -1070,6 +1084,7 @@ def setup_main_menu(window):
     tools_menu.addAction(image_upscaler_action)
     tools_menu.addAction(vibe_video_generator_action)
     tools_menu.addAction(holiday_calendar_action)
+    tools_menu.addAction(image_overlay_maker_action)
     tools_menu.addAction(batch_audio_remover_action)
     tools_menu.addAction(envato_elements_action)
     tools_menu.addAction(pngtree_zipper_action)
