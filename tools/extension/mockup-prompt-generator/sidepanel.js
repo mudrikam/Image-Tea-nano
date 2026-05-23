@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const STORE_KEY = 'mpp_settings_v1';
+  const STORE_KEY = 'mpp_settings_v2';
   const $ = (id) => document.getElementById(id);
 
   let imageData = null;
@@ -14,6 +14,7 @@
   let autoSubmit = false;
   let isGenerating = false;
   let automationMode = 'flow';
+  let generatorMode = 'mockup'; // 'mockup' or 'preview'
   let injectorPoints = [
     { id: 1, type: 'paste', enabled: true, selector: '', delay: 1.0 },
     { id: 2, type: 'click', enabled: true, selector: '', delay: 1.0 }
@@ -23,6 +24,10 @@
   let injectorSessionId = null;
   let injectorDb = null;
   let currentInjectorUrlKey = 'site:default';
+
+  // Mockup generator state
+  let mockupDetailLevel = 'medium';
+  let mockupColorEnabled = false;
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -52,6 +57,8 @@ bindTabs();
        bindApiModal();
        bindHelpModal();
        bindPersistenceInputs();
+       bindGeneratorModeSwitch();
+       bindMockupControls();
      await initInjectorDB();
      await updateInjectorPageSettings();
     loadSettings();
@@ -69,6 +76,109 @@ bindTabs();
         $('tab-' + btn.dataset.tab).classList.add('active');
       });
     });
+  }
+
+  // ── Generator Mode Switch ────────────────────────────────────────────────
+  function bindGeneratorModeSwitch() {
+    document.querySelectorAll('.gen-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        generatorMode = btn.dataset.genMode;
+        updateGeneratorModeUI();
+        saveSettings();
+      });
+    });
+  }
+
+  function updateGeneratorModeUI() {
+    document.querySelectorAll('.gen-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.genMode === generatorMode));
+    document.querySelectorAll('.gen-mode-panel').forEach(p => p.classList.remove('active'));
+    const panel = $('panel-' + generatorMode);
+    if (panel) panel.classList.add('active');
+  }
+
+  // ── Mockup Generator Controls ────────────────────────────────────────────
+  function bindMockupControls() {
+    // Mockup visual style select
+    const sel = $('mockupVisualStyle');
+    if (sel) sel.addEventListener('change', () => {
+      const cs = $('mockupCustomStyle');
+      if (cs) cs.classList.toggle('hidden', sel.value !== 'Custom');
+      saveSettings();
+    });
+
+    // Mockup detail buttons
+    document.querySelectorAll('.mockup-detail-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        mockupDetailLevel = b.dataset.level;
+        updateMockupDetailUI();
+        saveSettings();
+      });
+    });
+
+    // Mockup color toggle
+    const colorToggle = $('toggleMockupColor');
+    if (colorToggle) colorToggle.addEventListener('click', () => {
+      mockupColorEnabled = !mockupColorEnabled;
+      colorToggle.classList.toggle('active', mockupColorEnabled);
+      const row = $('mockupColorRow');
+      if (row) row.style.opacity = mockupColorEnabled ? '1' : '0.4';
+      saveSettings();
+    });
+
+    // Mockup color inputs
+    ['mockupColorBg', 'mockupColorEnv'].forEach(id => {
+      const el = $(id);
+      const swatchId = id === 'mockupColorBg' ? 'mockupSwatchBg' : 'mockupSwatchEnv';
+      const swatch = $(swatchId);
+      if (el) {
+        el.addEventListener('input', () => {
+          const valEl = $(id + 'Val');
+          if (valEl) valEl.textContent = el.value;
+          if (swatch) {
+            swatch.style.background = el.value;
+            const isLight = getContrastYIQ(el.value) === 'light';
+            swatch.classList.toggle('light-text', !isLight);
+            swatch.classList.toggle('dark-text', isLight);
+          }
+          saveSettings();
+        });
+      }
+      if (swatch) swatch.addEventListener('click', () => el?.click());
+    });
+
+    // Mockup random color
+    const rand = $('btnRandomMockupColor');
+    if (rand) rand.addEventListener('click', () => {
+      ['mockupColorBg', 'mockupColorEnv'].forEach(id => {
+        const el = $(id);
+        if (el) {
+          el.value = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0');
+          el.dispatchEvent(new Event('input'));
+        }
+      });
+    });
+
+    // Mockup count slider
+    const countInput = $('mockupCount');
+    if (countInput) {
+      countInput.addEventListener('input', () => {
+        const val = $('mockupCountVal');
+        if (val) val.textContent = countInput.value;
+        saveSettings();
+      });
+    }
+
+    // Mockup context textarea
+    const ctx = $('mockupContext');
+    if (ctx) ctx.addEventListener('input', saveSettings);
+
+    // Mockup custom style
+    const cs = $('mockupCustomStyle');
+    if (cs) cs.addEventListener('input', saveSettings);
+  }
+
+  function updateMockupDetailUI() {
+    document.querySelectorAll('.mockup-detail-btn').forEach(b => b.classList.toggle('active', b.dataset.level === mockupDetailLevel));
   }
 
   // ── Image Drop Zone ───────────────────────────────────────────────────────
@@ -735,6 +845,9 @@ function bindPersistenceInputs() {
     const flowRatio = document.querySelector('input[name="ratio"]:checked')?.value || '16:9';
     const injectorRatio = document.querySelector('input[name="ratio-injector"]:checked')?.value || '16:9';
     return {
+      // Generator mode
+      generatorMode,
+      // Preview settings
       title: $('paramTitle')?.value || '',
       subtext: $('paramSubtitle')?.value || '',
       additionalContext: $('paramContext')?.value || '',
@@ -752,7 +865,17 @@ function bindPersistenceInputs() {
       ratio: flowRatio,
       injectorRatio,
       downloadQuality: document.querySelector('input[name="quality"]:checked')?.value || 'default',
-      batch: document.querySelector('input[name="batch"]:checked')?.value || '4',
+      batch: document.querySelector('input[name="batch"]:checked')?.value || '1',
+      // Mockup settings
+      mockupContext: $('mockupContext')?.value || '',
+      mockupCount: parseInt($('mockupCount')?.value || '3'),
+      mockupVisualStyle: $('mockupVisualStyle')?.value || '',
+      mockupCustomStyle: $('mockupCustomStyle')?.value || '',
+      mockupDetailLevel,
+      mockupColorEnabled,
+      mockupColorBg: $('mockupColorBg')?.value || '#f5f5f5',
+      mockupColorEnv: $('mockupColorEnv')?.value || '#e0e0e0',
+      // Shared
       provider: $('apiProvider')?.value || 'gemini',
       apiKey: $('apiKey')?.value || '',
       endpoint: $('apiEndpoint')?.value?.trim() || '',
@@ -774,6 +897,9 @@ function bindPersistenceInputs() {
     try {
       const data = await chrome.storage.local.get(STORE_KEY);
       const s = data[STORE_KEY] || {};
+      // Generator mode
+      generatorMode = s.generatorMode || 'mockup';
+      // Preview settings
       if ($('paramTitle')) $('paramTitle').value = s.title || '';
       if ($('paramSubtitle')) $('paramSubtitle').value = s.subtext || '';
       if ($('paramContext')) $('paramContext').value = s.additionalContext || '';
@@ -804,9 +930,36 @@ function bindPersistenceInputs() {
       checkRadio('ratio', s.ratio || '16:9');
       checkRadio('ratio-injector', s.injectorRatio || s.ratio || '16:9');
       checkRadio('quality', s.downloadQuality || 'default');
+      checkRadio('batch', s.batch || '1');
+      // Mockup settings
+      mockupDetailLevel = s.mockupDetailLevel || 'medium';
+      mockupColorEnabled = s.mockupColorEnabled === true;
+      if ($('mockupContext')) $('mockupContext').value = s.mockupContext || '';
+      if ($('mockupCount')) { $('mockupCount').value = s.mockupCount || 3; if ($('mockupCountVal')) $('mockupCountVal').textContent = s.mockupCount || 3; }
+      const mvs = $('mockupVisualStyle');
+      if (mvs) mvs.value = s.mockupVisualStyle || '';
+      if ($('mockupCustomStyle')) {
+        $('mockupCustomStyle').value = s.mockupCustomStyle || '';
+        $('mockupCustomStyle').classList.toggle('hidden', (s.mockupVisualStyle || '') !== 'Custom');
+      }
+      if ($('mockupColorBg')) {
+        $('mockupColorBg').value = s.mockupColorBg || '#f5f5f5';
+        $('mockupColorBg').dispatchEvent(new Event('input'));
+      }
+      if ($('mockupColorEnv')) {
+        $('mockupColorEnv').value = s.mockupColorEnv || '#e0e0e0';
+        $('mockupColorEnv').dispatchEvent(new Event('input'));
+      }
+      const colorToggle = $('toggleMockupColor');
+      if (colorToggle) colorToggle.classList.toggle('active', mockupColorEnabled);
+      const colorRow = $('mockupColorRow');
+      if (colorRow) colorRow.style.opacity = mockupColorEnabled ? '1' : '0.4';
+      // UI updates
       syncAllColors();
       updateStyleSelectUI();
       updateDetailUI();
+      updateMockupDetailUI();
+      updateGeneratorModeUI();
       const toggle = $('toggleStrictColor');
       if (toggle) toggle.classList.toggle('active', strictColor);
       const toggleAS = $('toggleAutoSubmit');
@@ -827,6 +980,113 @@ function bindPersistenceInputs() {
   }
 
   // ── API Call ──────────────────────────────────────────────────────────────
+
+  // ── Mockup Generator System Instruction ──────────────────────────────────
+  function buildMockupSystemInstruction(s) {
+    const lengthDesc = { short: 'concise (1-2 sentences)', medium: 'descriptive (2-3 sentences)', long: 'elaborate and detailed (4-5 sentences)' }[s.mockupDetailLevel] || 'descriptive (2-3 sentences)';
+    const envStyle = s.mockupVisualStyle === 'Custom' ? (s.mockupCustomStyle || 'Blank/Isolated') : (s.mockupVisualStyle || 'Blank/Isolated');
+    const colorInstruction = s.mockupColorEnabled
+      ? `Environment/Background Color: Use ${s.mockupColorBg} as the primary background color and ${s.mockupColorEnv} as the environment/surface accent color. The MAIN OBJECT must remain WHITE regardless of these color settings.`
+      : `Environment/Background Color: Use natural, clean colors appropriate for the chosen visual style. The MAIN OBJECT must remain WHITE.`;
+    const ratioStr = s.ratio || '16:9';
+
+    return `[ROLE]
+Name: Mockup Raw Material Prompt Generator
+Role: You are a professional mockup base photo prompt engineer specializing in photorealistic product photography prompts. Your task is to craft rich, highly detailed prompts for clean blank mockup base photos — pure raw materials without any design elements, graphics, or text. Every prompt must read like a professional photography brief: vivid, specific, and production-ready.
+
+[CORE MISSION]
+1. ANALYZE: If a reference image is provided, extract the object type, shape, material, construction details, and context to understand exactly what kind of mockup base is needed.
+2. GENERATE: Craft richly detailed prompts for clean, blank mockup base photos. The main object MUST be WHITE/plain with NO design elements, NO text, NO graphics, NO patterns — ever.
+3. VARY: Each prompt variation must differ meaningfully in environment, lighting setup, camera angle, surface treatment, props, and atmospheric mood while keeping the same white blank object as the hero.
+
+[IMAGE ANALYSIS PROTOCOL]
+- IF an image is provided, identify the PRIMARY OBJECT in precise detail (e.g., crew-neck t-shirt, ceramic mug with handle, slim phone case, canvas tote bag, A3 poster, etc.)
+- Extract: exact object type, material (cotton, ceramic, leather, paper, etc.), shape, construction, and any contextual clues about desired setting
+- Use this information to generate highly specific, accurate mockup base prompts
+- DO NOT replicate any designs, text, or graphics from the reference — only identify and describe the physical object
+
+[MANDATORY RULES]
+1. WHITE MAIN OBJECT: The primary mockup item MUST be described as white, blank, plain, unprinted, clean surface. No exceptions. Reinforce this in every prompt.
+2. NO DESIGN ELEMENTS: Absolutely no text, logos, typography, patterns, graphics, prints, embroidery, or branding on the main object.
+3. SHARP FOCUS: Main object must be in tack-sharp focus, crisp edges, clear surface detail.
+4. FULL VISIBILITY: Object must be fully visible, properly oriented, not obscured, not tilted excessively, not stacked or overlapping with other objects.
+5. CLEAN COMPOSITION: Professional product photography style, centered or rule-of-thirds composition with the white main object as the undisputed hero.
+6. PHOTOREALISTIC: All prompts must describe photorealistic, high-resolution product photography — not illustration, not 3D render, not flat design.
+
+[ENVIRONMENT & STYLE]
+- Visual Style/Environment: "${envStyle}"
+- ${colorInstruction}
+- Aspect Ratio: ${ratioStr} — explicitly describe the composition orientation and framing in every prompt.
+
+[PROMPT STRUCTURE — MANDATORY ELEMENTS]
+Every prompt MUST include ALL of the following elements, described with rich specificity:
+1. SUBJECT: Precise description of the white blank object — material, shape, size impression, surface finish (matte/glossy/textured), construction details
+2. ENVIRONMENT/BACKGROUND: Detailed scene description — surface material, background elements, props, spatial depth, scene atmosphere
+3. LIGHTING: Specific lighting setup — light source type (softbox, natural window, ring light, golden hour, etc.), direction (front, side, top, backlit), quality (soft diffused, hard dramatic, warm, cool), shadows and highlights behavior
+4. CAMERA & LENS: Shooting angle (eye-level, overhead flat lay, 3/4 angle, close-up detail), focal length feel (wide, standard 50mm, telephoto compression), depth of field (sharp throughout or shallow bokeh background)
+5. ATMOSPHERE & MOOD: Overall feeling — clean and clinical, warm and inviting, moody and dramatic, fresh and airy, etc.
+6. TECHNICAL QUALITY: Resolution, sharpness, color accuracy descriptors — "ultra-high resolution", "studio-quality", "photorealistic", "sharp product photography"
+
+[DETAIL LEVEL — STRICTLY ENFORCED]
+${lengthDesc === 'concise (1-2 sentences)' ? 
+  'SHORT MODE: Write each prompt as 1-2 dense, information-packed sentences covering subject, environment, and lighting.' :
+  lengthDesc === 'descriptive (2-3 sentences)' ?
+  'MEDIUM MODE: Write each prompt as 2-3 well-developed sentences. Cover subject details, environment/lighting, and camera/mood.' :
+  'LONG MODE: Write each prompt as a rich, elaborate paragraph of 4-6 sentences minimum. Describe the subject in full material and construction detail, paint the environment vividly, specify the exact lighting rig and its effect on the object surface, describe the camera angle and lens characteristics, and convey the atmospheric mood. Every sentence must add specific visual information — no filler, no repetition. This is a professional photography brief.'
+}
+
+[VARIATION REQUIREMENT]
+When generating multiple prompts, each MUST be meaningfully different:
+- ENVIRONMENT: Completely different backgrounds/settings/surfaces within the chosen style
+- LIGHTING: Different lighting setups with different moods and shadow behaviors
+- CAMERA ANGLE: Vary between front-facing, 3/4 angle, overhead, close-up detail shots
+- PROPS & CONTEXT: Different supporting elements (if any) that complement without distracting
+- ATMOSPHERE: Different emotional tones — clinical, warm, dramatic, airy, moody
+All variations MUST keep the main object WHITE, BLANK, and UNPRINTED.
+
+[OUTPUT FORMAT]
+Return ONLY a valid JSON object. No markdown, no code fences.
+{
+  "analysis": "Precise description of the identified object type, material, and the chosen approach for the prompt set.",
+  "prompts": ["Prompt 1...", "Prompt 2..."]
+}`;
+  }
+
+  function buildMockupUserMessage(s) {
+    const envStyle = s.mockupVisualStyle === 'Custom' ? (s.mockupCustomStyle || 'Blank/Isolated') : (s.mockupVisualStyle || 'Blank/Isolated');
+    const colorStr = s.mockupColorEnabled ? `Background: ${s.mockupColorBg}, Environment: ${s.mockupColorEnv}` : 'Natural/Auto';
+    const ratioStr = s.ratio || '16:9';
+
+    const detailInstruction = s.mockupDetailLevel === 'long'
+      ? 'LONG — Write each prompt as a rich, elaborate paragraph of 4-6 sentences. Cover: precise object material/construction, vivid environment description, exact lighting rig and its effect on the surface, camera angle and lens feel, and atmospheric mood. Every sentence must add specific visual information.'
+      : s.mockupDetailLevel === 'short'
+      ? 'SHORT — Write each prompt as 1-2 dense sentences covering subject, environment, and lighting.'
+      : 'MEDIUM — Write each prompt as 2-3 well-developed sentences covering subject, environment/lighting, and camera/mood.';
+
+    return `MOCKUP BASE GENERATION REQUEST:
+- Context/Description: "${s.mockupContext || 'Generate based on reference image'}"
+- Visual Style/Environment: "${envStyle}"
+- Color Settings: ${colorStr} (main object MUST be WHITE)
+- Aspect Ratio: ${ratioStr}
+- Number of Variations: ${s.mockupCount || 3}
+- Detail Level: ${detailInstruction}
+
+MANDATORY PROMPT ELEMENTS (include ALL in every prompt):
+1. Subject: precise white blank object with material, shape, surface finish details
+2. Environment: detailed scene — surface, background, props, spatial depth
+3. Lighting: specific setup — source type, direction, quality, shadow/highlight behavior
+4. Camera: angle, focal length feel, depth of field
+5. Mood: atmospheric feeling of the scene
+6. Quality: photorealistic, ultra-high resolution, studio-quality
+
+CRITICAL RULES:
+1. Main object MUST be WHITE, blank, unprinted — no design/text/graphics/patterns
+2. Object must be in tack-sharp focus, fully visible, properly oriented
+3. All prompts must be in ENGLISH
+4. Return JSON only with "analysis" and "prompts" fields`;
+  }
+
+  // ── Preview Generator System Instruction (original) ──────────────────────
   function buildSystemInstruction(s) {
     const lengthDesc = { short: 'concise (1-1.5 sentences)', medium: 'descriptive (2-3 sentences)', long: 'elaborate and detailed (4-5 sentences)' }[s.length] || 'descriptive (2-3 sentences)';
     const colorStr = `${s.color60}, ${s.color30}, ${s.color10}`;
@@ -1019,15 +1279,19 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     if (!s.apiKey) return appendLog('API key is required.', 'error');
     if (!s.endpoint) return appendLog('Endpoint URL is required.', 'error');
     if (!s.model) return appendLog('Model name is required.', 'error');
-    if (!s.imageData && !s.title) return appendLog('Upload an image or enter a title first.', 'error');
+    if (generatorMode === 'mockup') {
+      if (!s.imageData && !s.mockupContext) return appendLog('Upload an image or enter a context description first.', 'error');
+    } else {
+      if (!s.imageData && !s.title) return appendLog('Upload an image or enter a title first.', 'error');
+    }
     const btn = $('btnGenerate');
     if (btn) { btn.disabled = true; btn.classList.add('loading'); btn.textContent = 'Generating...'; }
     isGenerating = true;
     document.querySelector('[data-tab="prompts"]')?.click();
     renderPrompts();
-    appendLog('Generating prompts...', 'act');
+    appendLog(`Generating ${generatorMode} prompts...`, 'act');
     try {
-      const raw = s.provider === 'gemini' ? await callGemini(s) : await callOpenAI(s);
+      const raw = s.provider === 'gemini' ? await callGeminiDual(s) : await callOpenAIDual(s);
       const data = parseResponse(raw);
       prompts = data.prompts || [];
       analysis = data.analysis || '';
@@ -1035,7 +1299,7 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
       isGenerating = false;
       renderPrompts();
       await saveSettings();
-      appendLog(`Generated ${prompts.length} prompts successfully.`, 'success');
+      appendLog(`Generated ${prompts.length} ${generatorMode} prompts successfully.`, 'success');
     } catch (e) {
       isGenerating = false;
       renderPrompts();
@@ -1045,6 +1309,73 @@ CRITICAL: The "Main Title" and "Sub-text" above are absolute requirements and wi
     } finally {
       if (btn) { btn.disabled = false; btn.classList.remove('loading'); btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Prompts'; }
     }
+  }
+
+  // ── Dual-mode API Calls ──────────────────────────────────────────────────
+  async function callGeminiDual(s) {
+    if (generatorMode === 'mockup') return callGeminiMockup(s);
+    return callGemini(s);
+  }
+
+  async function callOpenAIDual(s) {
+    if (generatorMode === 'mockup') return callOpenAIMockup(s);
+    return callOpenAI(s);
+  }
+
+  async function callGeminiMockup(s) {
+    const parts = [];
+    const main = dataUrlToPart(s.imageData);
+    if (main) {
+      parts.push({ text: 'REFERENCE IMAGE: Analyze this image to identify the primary object type, shape, material, and context. You will use this to generate appropriate blank white mockup base prompts. Do NOT replicate any designs or text from this image.' });
+      parts.push({ inlineData: main });
+    }
+    parts.push({ text: buildMockupUserMessage(s) });
+    const base = s.endpoint.replace(/\/$/, '');
+    const url = `${base}/models/${encodeURIComponent(s.model)}:generateContent?key=${encodeURIComponent(s.apiKey)}`;
+    const body = {
+      contents: [{ parts }],
+      generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+      systemInstruction: { parts: [{ text: buildMockupSystemInstruction(s) }] }
+    };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      let errMsg = res.statusText;
+      try { const json = await res.json(); errMsg = json.error?.message || JSON.stringify(json); } catch (_) {}
+      throw new Error(errMsg);
+    }
+    const json = await res.json();
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('Empty response from Gemini API');
+    return text;
+  }
+
+  async function callOpenAIMockup(s) {
+    const userContent = [];
+    if (s.imageData) {
+      userContent.push({ type: 'text', text: 'REFERENCE IMAGE: Analyze this image to identify the primary object type, shape, material, and context. You will use this to generate appropriate blank white mockup base prompts. Do NOT replicate any designs or text from this image.' });
+      userContent.push({ type: 'image_url', image_url: { url: s.imageData } });
+    }
+    userContent.push({ type: 'text', text: buildMockupUserMessage(s) });
+    const url = buildOpenAIChatUrl(s.endpoint);
+    const body = {
+      model: s.model,
+      messages: [
+        { role: 'system', content: buildMockupSystemInstruction(s) },
+        { role: 'user', content: userContent }
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
+    };
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.apiKey }, body: JSON.stringify(body) });
+    if (!res.ok) {
+      let errMsg = res.statusText;
+      try { const json = await res.json(); errMsg = json.error?.message || JSON.stringify(json); } catch (_) {}
+      throw new Error(errMsg);
+    }
+    const json = await res.json();
+    const text = json.choices?.[0]?.message?.content;
+    if (!text) throw new Error('Empty response from OpenAI-compatible API');
+    return text;
   }
 
   // ── Render Prompts Tab ────────────────────────────────────────────────────

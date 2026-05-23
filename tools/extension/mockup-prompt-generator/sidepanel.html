@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mockup Preview Prompt</title>
+  <title>Mockup Prompt Generator</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
        </svg>
        <div class="title-group">
-         <span class="header-title">Mockup Preview Prompt</span>
+         <span class="header-title">Mockup Prompt Generator</span>
          <span class="header-version" id="extensionVersion"></span>
        </div>
      </div>
@@ -57,6 +57,107 @@
 
   <!-- Tab: Parameter -->
   <div class="tab-content active" id="tab-parameter">
+
+    <!-- Generator Mode Switch -->
+    <div class="generator-mode-switch">
+      <button class="gen-mode-btn active" data-gen-mode="mockup">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        Mockup Generator
+      </button>
+      <button class="gen-mode-btn" data-gen-mode="preview">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        Preview Generator
+      </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- MOCKUP GENERATOR PARAMETERS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="gen-mode-panel active" id="panel-mockup">
+      <div class="form-group">
+        <label>Context / Description</label>
+        <textarea id="mockupContext" rows="2" placeholder="E.g: T-shirt on wooden table, Coffee mug in cafe setting, Phone case flat lay..."></textarea>
+      </div>
+
+      <!-- Mockup Quantity -->
+      <div class="form-group">
+        <label>Prompt Quantity</label>
+        <div class="range-row">
+          <input type="range" id="mockupCount" min="1" max="10" value="3">
+          <span class="range-val" id="mockupCountVal">3</span>
+        </div>
+      </div>
+
+      <!-- Mockup Visual Style -->
+      <div class="form-group">
+        <label>Visual Style / Environment</label>
+        <select id="mockupVisualStyle">
+          <option value="">Select environment...</option>
+          <option value="Blank/Isolated">Blank / Isolated</option>
+          <option value="Nature">Nature</option>
+          <option value="Indoor">Indoor</option>
+          <option value="Outdoor">Outdoor</option>
+          <option value="Studio">Studio</option>
+          <option value="Flat Lay">Flat Lay</option>
+          <option value="Lifestyle">Lifestyle</option>
+          <option value="Minimalist">Minimalist</option>
+          <option value="Rustic">Rustic</option>
+          <option value="Modern">Modern</option>
+          <option value="Industrial">Industrial</option>
+          <option value="Cozy">Cozy</option>
+          <option value="Elegant">Elegant</option>
+          <option value="Urban">Urban</option>
+          <option value="Tropical">Tropical</option>
+          <option value="Seasonal">Seasonal</option>
+          <option value="Custom">Custom</option>
+        </select>
+        <input type="text" id="mockupCustomStyle" class="hidden" placeholder="Describe custom environment...">
+      </div>
+
+      <!-- Mockup Color Palette (for bg/environment) -->
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <label style="margin:0;">Environment Color</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="toggle-row" id="toggleMockupColor" style="padding:0;margin:0;">
+              <span class="toggle-label" style="font-size:9px;margin-right:6px;">Enable</span>
+              <div class="toggle-switch"></div>
+            </div>
+            <button class="btn-randomize" id="btnRandomMockupColor" title="Randomize">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.001 0 01-15.357-2m15.356 2H15"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="color-palette-row" id="mockupColorRow">
+          <div class="color-swatch light-text" data-color="#f5f5f5" style="background:#f5f5f5;" id="mockupSwatchBg">
+            <span class="color-hex" id="mockupColorBgVal">#f5f5f5</span>
+            <span class="color-pct">BG</span>
+            <input type="color" id="mockupColorBg" value="#f5f5f5" class="color-input-hidden">
+          </div>
+          <div class="color-swatch light-text" data-color="#e0e0e0" style="background:#e0e0e0;" id="mockupSwatchEnv">
+            <span class="color-hex" id="mockupColorEnvVal">#e0e0e0</span>
+            <span class="color-pct">ENV</span>
+            <input type="color" id="mockupColorEnv" value="#e0e0e0" class="color-input-hidden">
+          </div>
+        </div>
+        <p style="font-size:9px;color:var(--text-muted);margin-top:4px;">Main object stays white. Colors apply to background/environment only.</p>
+      </div>
+
+      <!-- Mockup Detail Level -->
+      <div class="form-group">
+        <label>Detail Level</label>
+        <div class="detail-level">
+          <button class="detail-btn mockup-detail-btn" data-level="short">Short</button>
+          <button class="detail-btn mockup-detail-btn active" data-level="medium">Medium</button>
+          <button class="detail-btn mockup-detail-btn" data-level="long">Long</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- PREVIEW GENERATOR PARAMETERS (original) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="gen-mode-panel" id="panel-preview">
     <div class="form-group">
       <label>Main Title / Context</label>
       <input type="text" id="paramTitle" placeholder="E.g: Modern Coffee, Minimalist slogan...">
@@ -166,8 +267,12 @@
         <button class="detail-btn" data-level="long">Long</button>
       </div>
     </div>
+    </div>
+    <!-- END PREVIEW GENERATOR PARAMETERS -->
 
-    <!-- Automation Settings -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- SHARED AUTOMATION SETTINGS (used by both modes) -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div class="settings-section">
       <span class="section-title">Automation Settings</span>
       <div class="mode-tabs" style="margin-top:8px;">
@@ -279,8 +384,8 @@
         <input type="password" id="apiKey">
         <input type="url" id="apiEndpoint">
         <input type="text" id="apiModel">
+        <input type="text" id="generatorMode" value="mockup">
       </div>
-    </div>
 
     <!-- API Settings Modal -->
      <div class="modal hidden" id="apiSettingsModal">
@@ -325,8 +430,8 @@
         </div>
         <div class="modal-body help-modal-body">
           <div class="help-section">
-            <h3 class="help-heading">What is Mockup Preview Prompt?</h3>
-            <p>Mockup Preview Prompt is an AI-powered design prompt generator that analyzes your reference images and creates professional 2D graphic design prompts for marketplace mockup previews. It extracts visual DNA (colors, typography, composition) and translates it into detailed image generation prompts.</p>
+            <h3 class="help-heading">What is Mockup Prompt Generator?</h3>
+            <p>Mockup Prompt Generator is an AI-powered dual-mode prompt generator. It has two modes: <strong>Mockup Generator</strong> creates clean, blank mockup base photo prompts (white main object, no design elements), and <strong>Preview Generator</strong> creates professional 2D graphic design prompts for marketplace mockup previews by extracting visual DNA from reference images.</p>
           </div>
 
           <div class="help-section">

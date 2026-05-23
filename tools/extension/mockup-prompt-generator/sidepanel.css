@@ -427,3 +427,52 @@ body {
 .status-failed {
   color: var(--error);
 }
+
+/* Generator Mode Switch */
+.generator-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+.gen-mode-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 9px 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.gen-mode-btn:hover {
+  color: var(--text-main);
+  background: var(--bg-hover);
+}
+.gen-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.gen-mode-btn svg {
+  flex-shrink: 0;
+}
+.gen-mode-panel {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+}
+.gen-mode-panel.active {
+  display: flex;
+}
