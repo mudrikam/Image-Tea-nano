@@ -149,6 +149,7 @@
     "prompt_generator": "documentation/lang_EN/3. Additional Tools/1. prompt_generator_tool.md",
     "prompt_injector": "documentation/lang_EN/3. Additional Tools/2. prompt_injector_tool.md",
     "prompted_image_sorter": "documentation/lang_EN/3. Additional Tools/3. prompted_image_sorter_tool.md",
-    "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md"
+    "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md",
+    "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md"
   }
 }
