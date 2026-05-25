@@ -19,7 +19,7 @@
       "name": "Prompt Injector",
       "description": "Automate mouse/keyboard actions to inject prompts into AI platforms",
       "icon": "fa6s.arrow-up-from-bracket",
-      "color": "#43A047"
+      "color": "#388E3C"
     },
     {
       "id": "image_overlay_maker",
@@ -33,35 +33,35 @@
       "name": "Envato Elements Metadata",
       "description": "Generate metadata for Envato Elements mockup submissions",
       "icon": "fa6s.tag",
-      "color": "#8E24AA"
+      "color": "#FF9800"
     },
     {
       "id": "prompted_image_sorter",
       "name": "Prompted Image Sorter",
       "description": "Sort images into folders by entering descriptive prompts",
       "icon": "fa6s.arrow-up-z-a",
-      "color": "#7B1FA2"
+      "color": "#EC407A"
     },
     {
       "id": "image_upscaler",
       "name": "Image Upscaler",
       "description": "Upscale images by 2x or 4x using RealESRGAN AI",
       "icon": "fa6s.image",
-      "color": "#D81B60"
+      "color": "#E91E63"
     },
     {
       "id": "holiday_calendar",
       "name": "Microstock Holiday Calendar",
       "description": "View microstock platform holiday schedules and submission deadlines",
       "icon": "fa6s.calendar-days",
-      "color": "#00ACC1"
+      "color": "#009688"
     },
     {
       "id": "pngtree_zipper",
       "name": "Pngtree Zipper",
       "description": "Create zip archives for Pngtree asset submissions",
       "icon": "fa6s.file-zipper",
-      "color": "#558B2F"
+      "color": "#FFB300"
     }
   ],
   "video_processing": [
@@ -70,14 +70,14 @@
       "name": "Video Upscaler",
       "description": "Upscale videos by 2x or 4x using RealESRGAN AI",
       "icon": "fa6s.video",
-      "color": "#3949AB"
+      "color": "#FF5722"
     },
     {
       "id": "vibe_video_generator",
       "name": "Vibe video Generator",
       "description": "Generate videos using AI with vibe-based prompting and templates",
       "icon": "fa6s.film",
-      "color": "#00897B"
+      "color": "#26A69A"
     },
     {
       "id": "batch_audio_remover",
@@ -94,7 +94,7 @@
       "name": "Background Remover",
       "description": "Remove image backgrounds using AI (external tool)",
       "icon": "fa6s.eraser",
-      "color": "#546E7A",
+      "color": "#795548",
       "url": "https://lynk.id/desainiajob/px5yyovk31pr"
     },
     {
@@ -102,7 +102,7 @@
       "name": "Rak Arsip 3",
       "description": "Project and document management tool",
       "icon": "fa6s.box-archive",
-      "color": "#009688",
+      "color": "#607D8B",
       "url": "https://github.com/mudrikam/Rak-Arsip-3"
     },
     {
@@ -110,7 +110,7 @@
       "name": "Mockup Renderer",
       "description": "Render mockups in batch with smart positioning",
       "icon": "fa6s.file-export",
-      "color": "#5E35B1",
+      "color": "#AB47BC",
       "url": "https://github.com/mudrikam/Mockup-Renderer"
     },
     {
@@ -118,7 +118,7 @@
       "name": "Link Opener",
       "description": "Open multiple URLs from text or CSV files",
       "icon": "fa6s.link",
-      "color": "#FF6D00",
+      "color": "#FF8F00",
       "url": "https://github.com/mudrikam/link-opener"
     },
     {
@@ -126,7 +126,7 @@
       "name": "Image Converter",
       "description": "Convert images between PNG, JPG, and WebP formats",
       "icon": "fa6s.rotate",
-      "color": "#4A148C",
+      "color": "#FFC107",
       "url": "https://github.com/mudrikam/SHL-IMG-Convert"
     },
     {
@@ -134,7 +134,7 @@
       "name": "PSD to JPG Converter",
       "description": "Convert Photoshop PSD files to JPG format",
       "icon": "fa6s.rotate",
-      "color": "#BF360C",
+      "color": "#673AB7",
       "url": "https://github.com/mudrikam/PSD-to-JPG"
     }
   ],

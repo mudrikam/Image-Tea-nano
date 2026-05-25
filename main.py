@@ -148,6 +148,29 @@ class ImageTeaMainWindow(QMainWindow):
         # Restore original menu bar
         from ui.main_menu import setup_main_menu
         setup_main_menu(self)
+        # Refresh member menu actions to reflect current login state
+        from helpers.members_helper.members_helper import is_logged_in
+        logged_in = is_logged_in()
+        if hasattr(self, 'login_member_action'):
+            self.login_member_action.setVisible(not logged_in)
+        if hasattr(self, 'register_member_action'):
+            self.register_member_action.setVisible(True)
+            if logged_in:
+                self.register_member_action.setText("Renew Membership")
+                self.register_member_action.setToolTip("Renew your Image Tea membership")
+                self.register_member_action.setStatusTip("Renew your Image Tea membership")
+            else:
+                self.register_member_action.setText("Register")
+                self.register_member_action.setToolTip("Register a new Image Tea membership account")
+                self.register_member_action.setStatusTip("Register a new Image Tea membership account")
+        if hasattr(self, 'check_limit_action'):
+            self.check_limit_action.setVisible(logged_in)
+        if hasattr(self, 'renew_secret_action'):
+            self.renew_secret_action.setVisible(logged_in)
+        if hasattr(self, 'logout_member_action'):
+            self.logout_member_action.setVisible(logged_in)
+        if hasattr(self, 'statusbar') and hasattr(self.statusbar, 'update_member_status'):
+            self.statusbar.update_member_status()
     
     def _setup_tools_picker_menu(self):
         """Setup menu bar for tools picker mode"""

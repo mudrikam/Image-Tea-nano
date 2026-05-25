@@ -7,6 +7,7 @@ import json
 import os
 import webbrowser
 from config import BASE_PATH
+from ui.theme_system import theme
 
 
 class ToolCardWidget(QFrame):
@@ -65,12 +66,12 @@ class ToolCardWidget(QFrame):
         desc_label = QLabel(description)
         desc_label.setWordWrap(True)
         desc_label.setMinimumHeight(40)
+        desc_label.setStyleSheet(f"font-size: 11px; color: {theme.get_color('gray')};")
         layout.addWidget(desc_label)
 
         layout.addStretch()
 
         # Launch button with tool-specific color
-        from ui.theme_system import theme
         
         # Compute hover/pressed colors inline to avoid method reference issues
         c = QColor(color)
@@ -214,7 +215,7 @@ class ToolsPickerWidget(QWidget):
         title_layout.addWidget(title_label)
 
         subtitle_label = QLabel("Tools are easily accessible here. Click on a tool card to launch it or view documentation.")
-        subtitle_label.setStyleSheet("font-size: 11px; color: #888888;")
+        subtitle_label.setStyleSheet(f"font-size: 11px; color: {theme.get_color('gray')};")
         title_layout.addWidget(subtitle_label)
 
         header_layout.addLayout(title_layout)
@@ -313,7 +314,7 @@ class ToolsPickerWidget(QWidget):
                         "name": manifest.get("name", ext_folder.title()),
                         "description": manifest.get("description", ""),
                         "icon": "fa6b.chrome",
-                        "color": "#311B92",
+                        "color": "#2196F3",
                         "path": ext_path,
                         "order": order_map.get(ext_folder, 99)
                     })
