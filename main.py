@@ -34,6 +34,11 @@ class ImageTeaMainWindow(QMainWindow):
         from database.db_operation import ImageTeaDB
         self.db = ImageTeaDB()
         self.api_key = self.db.get_api_key('gemini')
+        
+        # Mode tracking: 'normal' or 'tools_picker'
+        self.current_mode = 'normal'
+        
+        # Setup main UI
         setup_ui(self)
         self.table.refresh_table()
         self.generator_thread = None
@@ -41,12 +46,18 @@ class ImageTeaMainWindow(QMainWindow):
         self.show_ai_unsupported_dialog.connect(self._show_ai_unsupported_dialog_slot)
         self.background_status.connect(self._on_background_status)
         self.trigger_show_update_dialog.connect(self._on_show_update_dialog)
+        
+        # Tools picker widget will be created when needed
+        self.tools_picker_widget = None
 
         if hasattr(self, "gen_btn"):
             self.gen_btn.clicked.disconnect()
             self.gen_btn.clicked.connect(self._on_gen_btn_clicked)
 
         update_token_stats_ui(self)
+        
+        # Remove this line - we'll store it when switching modes
+        # self.main_central_widget = self.centralWidget()
         
         self.lock_file = os.path.join(BASE_PATH, "temp", "image_tea.lock")
         os.makedirs(os.path.dirname(self.lock_file), exist_ok=True)
@@ -82,6 +93,237 @@ class ImageTeaMainWindow(QMainWindow):
             stop_generate_metadata(self)
         else:
             batch_generate_metadata(self)
+    
+    def switch_to_tools_picker(self):
+        """Switch to tools picker mode"""
+        if self.current_mode == 'tools_picker':
+            return
+        
+        self.current_mode = 'tools_picker'
+        
+        # Create tools picker widget
+        from ui.tools_picker_widget import ToolsPickerWidget
+        self.tools_picker_widget = ToolsPickerWidget(self)
+        self.tools_picker_widget.tool_selected.connect(self._on_tool_selected)
+        
+        # Hide toolbar
+        if hasattr(self, 'toolbar'):
+            self.toolbar.hide()
+        
+        # Switch to tools picker
+        self.setCentralWidget(self.tools_picker_widget)
+        self.tools_picker_widget.show()
+        
+        # Keep the statusbar from main UI for member status display
+        if hasattr(self, 'statusbar'):
+            self.statusbar.update_member_status()
+        
+        # Update menu bar
+        self._setup_tools_picker_menu()
+    
+    def switch_to_normal(self):
+        """Switch back to normal metadata generator mode"""
+        if self.current_mode == 'normal':
+            return
+        
+        self.current_mode = 'normal'
+        
+        # Delete tools picker widget
+        if self.tools_picker_widget:
+            self.tools_picker_widget.deleteLater()
+            self.tools_picker_widget = None
+        
+        # Recreate main UI
+        from ui.setup_ui import setup_ui
+        setup_ui(self)
+        
+        # Refresh table
+        if hasattr(self, 'table'):
+            self.table.refresh_table()
+        
+        # Show toolbar
+        if hasattr(self, 'toolbar'):
+            self.toolbar.show()
+        
+        # Restore original menu bar
+        from ui.main_menu import setup_main_menu
+        setup_main_menu(self)
+    
+    def _setup_tools_picker_menu(self):
+        """Setup menu bar for tools picker mode"""
+        from ui.main_menu import setup_tools_picker_menu
+        setup_tools_picker_menu(self)
+    
+    def _on_tool_selected(self, tool_id):
+        """Handle tool selection from tools picker"""
+        # Switch back to normal mode
+        self.switch_to_normal()
+        
+        # Open the selected tool
+        tool_handlers = {
+            "image_upscaler": self._open_image_upscaler,
+            "image_overlay_maker": self._open_image_overlay_maker,
+            "prompted_image_sorter": self._open_prompted_image_sorter,
+            "video_upscaler": self._open_video_upscaler,
+            "batch_audio_remover": self._open_batch_audio_remover,
+            "vibe_video_generator": self._open_vibe_video_generator,
+            "action_sequencer": self._open_action_sequencer,
+            "prompt_generator": self._open_prompt_generator,
+            "prompt_injector": self._open_prompt_injector,
+            "envato_elements": self._open_envato_elements,
+            "pngtree_zipper": self._open_pngtree_zipper,
+            "holiday_calendar": self._open_holiday_calendar
+        }
+        
+        handler = tool_handlers.get(tool_id)
+        if handler:
+            handler()
+    
+    def _open_image_upscaler(self):
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["realesrgan"], parent=self):
+            return
+        from dialogs.tools.image_upscaler_tool import ImageUpscalerDialog
+        if not hasattr(self, '_image_upscaler_dialog') or not self._image_upscaler_dialog:
+            self._image_upscaler_dialog = ImageUpscalerDialog(None)
+            self._image_upscaler_dialog.destroyed.connect(lambda: setattr(self, '_image_upscaler_dialog', None))
+        self._image_upscaler_dialog.show()
+        self._image_upscaler_dialog.raise_()
+        self._image_upscaler_dialog.activateWindow()
+    
+    def _open_image_overlay_maker(self):
+        from dialogs.tools.image_overlay_maker_dialog import ImageOverlayMakerDialog
+        if not hasattr(self, '_image_overlay_maker_dialog') or not self._image_overlay_maker_dialog:
+            self._image_overlay_maker_dialog = ImageOverlayMakerDialog(None)
+            self._image_overlay_maker_dialog.destroyed.connect(lambda: setattr(self, '_image_overlay_maker_dialog', None))
+        self._image_overlay_maker_dialog.show()
+        self._image_overlay_maker_dialog.raise_()
+        self._image_overlay_maker_dialog.activateWindow()
+    
+    def _open_prompted_image_sorter(self):
+        from helpers.members_helper.members_helper import is_logged_in
+        if not is_logged_in():
+            from dialogs.member_required_dialog import MemberRequiredDialog
+            dlg = MemberRequiredDialog("Prompted Image Sorter is only accessible to logged-in members.", self)
+            if dlg.exec() == MemberRequiredDialog.Accepted:
+                from dialogs.members.member_login_dialog import MemberLoginDialog
+                login_dlg = MemberLoginDialog(self)
+                if login_dlg.exec() != MemberLoginDialog.Accepted:
+                    return
+                if not is_logged_in():
+                    return
+                if hasattr(self, '_apply_member_mode'):
+                    self._apply_member_mode()
+            else:
+                return
+        from dialogs.tools.prompted_image_sorter.prompted_image_sorter_tool import PromptedImageSorterTool
+        if not hasattr(self, '_prompted_image_sorter_dialog') or not self._prompted_image_sorter_dialog:
+            self._prompted_image_sorter_dialog = PromptedImageSorterTool(None)
+            self._prompted_image_sorter_dialog.destroyed.connect(lambda: setattr(self, '_prompted_image_sorter_dialog', None))
+        self._prompted_image_sorter_dialog.show()
+        self._prompted_image_sorter_dialog.raise_()
+        self._prompted_image_sorter_dialog.activateWindow()
+    
+    def _open_video_upscaler(self):
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["ffmpeg", "realesrgan"], parent=self):
+            return
+        from dialogs.tools.video_upscaler_tool import VideoUpscalerDialog
+        if not hasattr(self, '_video_upscaler_dialog') or not self._video_upscaler_dialog:
+            self._video_upscaler_dialog = VideoUpscalerDialog(None)
+            self._video_upscaler_dialog.destroyed.connect(lambda: setattr(self, '_video_upscaler_dialog', None))
+        self._video_upscaler_dialog.show()
+        self._video_upscaler_dialog.raise_()
+        self._video_upscaler_dialog.activateWindow()
+    
+    def _open_batch_audio_remover(self):
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["ffmpeg"], parent=self):
+            return
+        from dialogs.tools.batch_audio_remover import BatchAudioRemoverDialog
+        dlg = BatchAudioRemoverDialog(self)
+        dlg.exec()
+    
+    def _open_vibe_video_generator(self):
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["nodejs", "remotion"], parent=self):
+            return
+        from helpers.members_helper.members_helper import is_logged_in
+        if not is_logged_in():
+            from dialogs.member_required_dialog import MemberRequiredDialog
+            dlg = MemberRequiredDialog("Vibe Video Generator is only accessible to logged-in members.", self)
+            if dlg.exec() == MemberRequiredDialog.Accepted:
+                from dialogs.members.member_login_dialog import MemberLoginDialog
+                login_dlg = MemberLoginDialog(self)
+                if login_dlg.exec() != MemberLoginDialog.Accepted:
+                    return
+                if not is_logged_in():
+                    return
+                if hasattr(self, '_apply_member_mode'):
+                    self._apply_member_mode()
+            else:
+                return
+        from dialogs.tools.vibe_video_generator.vibe_video_generator_dialog import VibeVideoGeneratorDialog
+        if not hasattr(self, '_vibe_video_generator_dialog') or not self._vibe_video_generator_dialog:
+            self._vibe_video_generator_dialog = VibeVideoGeneratorDialog(None)
+            self._vibe_video_generator_dialog.destroyed.connect(lambda: setattr(self, '_vibe_video_generator_dialog', None))
+        self._vibe_video_generator_dialog.show()
+        self._vibe_video_generator_dialog.raise_()
+        self._vibe_video_generator_dialog.activateWindow()
+    
+    def _open_action_sequencer(self):
+        from dialogs.tools.action_sequencer_widgets.action_sequencer import ActionSequencerDialog
+        if not hasattr(self, '_action_sequencer_dialog') or not self._action_sequencer_dialog:
+            self._action_sequencer_dialog = ActionSequencerDialog(None)
+            self._action_sequencer_dialog.destroyed.connect(lambda: setattr(self, '_action_sequencer_dialog', None))
+        self._action_sequencer_dialog.show()
+        self._action_sequencer_dialog.raise_()
+        self._action_sequencer_dialog.activateWindow()
+    
+    def _open_prompt_generator(self):
+        from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
+        if not hasattr(self, '_prompt_generator_dialog') or not self._prompt_generator_dialog:
+            self._prompt_generator_dialog = PromptGeneratorDialog(None)
+            self._prompt_generator_dialog.destroyed.connect(lambda: setattr(self, '_prompt_generator_dialog', None))
+        self._prompt_generator_dialog.show()
+        self._prompt_generator_dialog.raise_()
+        self._prompt_generator_dialog.activateWindow()
+    
+    def _open_prompt_injector(self):
+        from dialogs.tools.prompt_injector import PromptInjectorDialog
+        if not hasattr(self, '_prompt_injector_dialog') or not self._prompt_injector_dialog:
+            self._prompt_injector_dialog = PromptInjectorDialog(None)
+            self._prompt_injector_dialog.destroyed.connect(lambda: setattr(self, '_prompt_injector_dialog', None))
+        self._prompt_injector_dialog.show()
+        self._prompt_injector_dialog.raise_()
+        self._prompt_injector_dialog.activateWindow()
+    
+    def _open_envato_elements(self):
+        from dialogs.tools.envato_elements_metadata_generator import EnvatoElementsMetadataDialog
+        if not hasattr(self, '_envato_elements_dialog') or not self._envato_elements_dialog:
+            self._envato_elements_dialog = EnvatoElementsMetadataDialog(None)
+            self._envato_elements_dialog.destroyed.connect(lambda: setattr(self, '_envato_elements_dialog', None))
+        self._envato_elements_dialog.show()
+        self._envato_elements_dialog.raise_()
+        self._envato_elements_dialog.activateWindow()
+    
+    def _open_pngtree_zipper(self):
+        from dialogs.tools.pngtree_zipper_tool import PngtreeZipperDialog
+        if not hasattr(self, '_pngtree_zipper_dialog') or not self._pngtree_zipper_dialog:
+            self._pngtree_zipper_dialog = PngtreeZipperDialog(None)
+            self._pngtree_zipper_dialog.destroyed.connect(lambda: setattr(self, '_pngtree_zipper_dialog', None))
+        self._pngtree_zipper_dialog.show()
+        self._pngtree_zipper_dialog.raise_()
+        self._pngtree_zipper_dialog.activateWindow()
+    
+    def _open_holiday_calendar(self):
+        from dialogs.tools.holiday_calendar.holiday_calendar_dialog import HolidayCalendarDialog
+        if not hasattr(self, '_holiday_calendar_dialog') or not self._holiday_calendar_dialog:
+            self._holiday_calendar_dialog = HolidayCalendarDialog(None)
+            self._holiday_calendar_dialog.destroyed.connect(lambda: setattr(self, '_holiday_calendar_dialog', None))
+        self._holiday_calendar_dialog.show()
+        self._holiday_calendar_dialog.raise_()
+        self._holiday_calendar_dialog.activateWindow()
     
     def _check_shutdown_signal(self):
         signal_file = os.path.join(BASE_PATH, "temp", "shutdown.signal")

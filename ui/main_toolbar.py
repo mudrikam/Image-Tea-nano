@@ -141,7 +141,15 @@ def show_clear_dialog(window):
             window.table.clear_failed()
 
 def setup_main_toolbar(window: QWidget):
+    # Remove existing toolbar if any
+    if hasattr(window, 'toolbar') and window.toolbar:
+        window.toolbar.deleteLater()
+    
     toolbar = QToolBar("Main Toolbar", window)
+    try:
+        window.toolbar = toolbar
+    except Exception:
+        pass
     try:
         window.main_toolbar = toolbar
     except Exception:

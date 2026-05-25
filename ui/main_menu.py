@@ -181,8 +181,200 @@ def run_rollback(window):
         print(f"Failed to start rollback process: {e}")
 
 
+def setup_tools_picker_menu(window):
+    """Setup simplified menu for tools picker mode"""
+    menubar = QMenuBar(window)
+    
+    # File menu (minimal)
+    file_menu = QMenu("File", menubar)
+    file_menu.setToolTipsVisible(True)
+    
+    exit_action = QAction(qta.icon('fa6s.right-from-bracket'), "Exit", window)
+    exit_action.setToolTip("Close the application")
+    exit_action.setStatusTip("Close the application")
+    exit_action.triggered.connect(window.close)
+    file_menu.addAction(exit_action)
+    
+    # Back to Metadata Generator
+    back_action = QAction("Back to Metadata Generator", window)
+    back_action.setToolTip("Return to the main metadata generator interface")
+    back_action.setStatusTip("Return to the main metadata generator interface")
+    back_action.triggered.connect(window.switch_to_normal)
+    
+    # Purchase menu
+    purchase_menu = QMenu("Purchase", menubar)
+    purchase_menu.setStyleSheet(
+        f"QMenu::title {{ color: {theme.get_color('primary')}; }}"
+    )
+    purchase_menu.setToolTipsVisible(True)
+    config_path = os.path.join(BASE_PATH, "configs", "app_config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    for key, url in cfg.get("purchese_links", {}).items():
+        label = key.replace('_', ' ').title()
+        icon = qta.icon('fa6s.cart-shopping', color=theme.get_color('primary'))
+        action = QAction(icon, label, window)
+        action.setToolTip(url)
+        action.setStatusTip(url)
+        action.triggered.connect(lambda checked, u=url: webbrowser.open(u))
+        purchase_menu.addAction(action)
+    
+    # Member menu (reuse from main menu)
+    member_menu = QMenu("Member", menubar)
+    member_menu.setToolTipsVisible(True)
+    _setup_member_menu_items(window, member_menu, menubar)
+    
+    # Help menu
+    help_menu = QMenu("Help", menubar)
+    help_menu.setToolTipsVisible(True)
+    
+    about_action = QAction(qta.icon('fa6s.circle-info'), "About", window)
+    about_action.setToolTip("View application information and credits")
+    about_action.setStatusTip("View application information and credits")
+    def show_about():
+        dialog = AboutDialog(window)
+        dialog.exec()
+    about_action.triggered.connect(show_about)
+    help_menu.addAction(about_action)
+    
+    documentation_action = QAction(qta.icon('fa6s.book-open'), "Help", window)
+    documentation_action.setToolTip("View built-in help and documentation")
+    documentation_action.setStatusTip("View built-in help and documentation")
+    def open_documentation():
+        if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
+            window._read_documentation_dialog = ReadDocumentationDialog(None)
+            window._read_documentation_dialog.destroyed.connect(lambda: setattr(window, '_read_documentation_dialog', None))
+            if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
+                window._read_documentation_dialog.setWindowIcon(window.windowIcon())
+        window._read_documentation_dialog.show()
+        window._read_documentation_dialog.raise_()
+        window._read_documentation_dialog.activateWindow()
+    documentation_action.triggered.connect(open_documentation)
+    help_menu.addAction(documentation_action)
+    
+    # Add menus to menubar
+    menubar.addMenu(file_menu)
+    menubar.addAction(back_action)
+    menubar.addMenu(purchase_menu)
+    menubar.addMenu(member_menu)
+    menubar.addMenu(help_menu)
+    
+    window.setMenuBar(menubar)
+
+def _setup_member_menu_items(window, member_menu, menubar):
+    """Setup member menu items (shared between normal and tools picker mode)"""
+    from helpers.members_helper.members_helper import is_logged_in
+    
+    def _apply_member_mode():
+        from helpers.members_helper.members_helper import get_session
+        session = get_session()
+        name = session.get('name') or ''
+        email = session.get('email') or ''
+        used_count = session.get('used_count') or 0
+        usage_limit = session.get('usage_limit') or 0
+        if usage_limit > 0:
+            remaining = max(usage_limit - used_count, 0)
+            credit_text = f"Remaining: {remaining:,} / {usage_limit:,}"
+        else:
+            credit_text = "Remaining: Unlimited"
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        version = cfg['version']
+        window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | {credit_text} - v{version}")
+        if hasattr(window, 'api_key_section') and window.current_mode != 'tools_picker':
+            window.api_key_section.setVisible(False)
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
+    
+    def _remove_member_mode():
+        with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
+            cfg = json.load(_f)
+        window.setWindowTitle(f"{cfg['name']} - ({cfg['tagline']}) - v{cfg['version']}")
+        if hasattr(window, 'api_key_section') and window.current_mode != 'tools_picker':
+            window.api_key_section.setVisible(True)
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
+    
+    window._apply_member_mode = _apply_member_mode
+    
+    login_member_action = QAction(qta.icon('fa6s.id-badge'), "Login", window)
+    login_member_action.setToolTip("Login to your Image Tea membership account")
+    login_member_action.setStatusTip("Login to your Image Tea membership account")
+    def open_login_member():
+        from dialogs.members.member_login_dialog import MemberLoginDialog
+        dlg = MemberLoginDialog(window)
+        if dlg.exec() == QDialog.Accepted:
+            _apply_member_mode()
+            if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+                window.statusbar.update_member_status()
+            if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'apply_member_limits'):
+                window.prompt_section.apply_member_limits()
+            _refresh_member_actions(window, login_member_action, register_member_action, 
+                                   check_limit_action, renew_secret_action, logout_member_action)
+    login_member_action.triggered.connect(open_login_member)
+    member_menu.addAction(login_member_action)
+    
+    register_member_action = QAction(qta.icon('fa6s.user-plus'), "Register", window)
+    register_member_action.setToolTip("Register a new Image Tea membership account")
+    register_member_action.setStatusTip("Register a new Image Tea membership account")
+    def open_register_member():
+        from dialogs.members.member_login_dialog import MemberLoginDialog
+        url = MemberLoginDialog.get_register_url()
+        webbrowser.open(url)
+    register_member_action.triggered.connect(open_register_member)
+    member_menu.addAction(register_member_action)
+    
+    check_limit_action = QAction(qta.icon('fa6s.gauge-high'), "Credit Usage", window)
+    check_limit_action.setToolTip("Check your current credit usage")
+    check_limit_action.setStatusTip("Check your current credit usage")
+    def open_check_limit():
+        from helpers.members_helper.members_helper import get_usage_info, refresh_usage_from_supabase, get_session
+        from dialogs.member_limit_dialog import MemberLimitDialog
+        refresh_usage_from_supabase()
+        used, limit = get_usage_info()
+        session = get_session()
+        dlg = MemberLimitDialog(window, used, limit, session=session)
+        dlg.exec()
+    check_limit_action.triggered.connect(open_check_limit)
+    member_menu.addAction(check_limit_action)
+    
+    renew_secret_action = QAction(qta.icon('fa6s.key'), "Renew Member Secret", window)
+    renew_secret_action.setToolTip("Enter your MEMBER_SECRET directly to update it")
+    renew_secret_action.setStatusTip("Enter your MEMBER_SECRET directly to update it")
+    renew_secret_action.triggered.connect(lambda: RenewSecretDialog(window).exec())
+    member_menu.addAction(renew_secret_action)
+    
+    logout_member_action = QAction(qta.icon('fa6s.right-from-bracket'), "Logout", window)
+    logout_member_action.setToolTip("Logout from member account")
+    logout_member_action.setStatusTip("Logout from member account")
+    def do_logout_member():
+        from helpers.members_helper.members_helper import logout_member
+        logout_member()
+        # Only remove member limits if prompt_section exists (not in tools picker mode)
+        if not window.current_mode == 'tools_picker' and hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
+            window.prompt_section.remove_member_limits()
+        _refresh_member_actions(window, login_member_action, register_member_action, 
+                               check_limit_action, renew_secret_action, logout_member_action)
+        _remove_member_mode()
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
+    logout_member_action.triggered.connect(do_logout_member)
+    member_menu.addAction(logout_member_action)
+    
+    _refresh_member_actions(window, login_member_action, register_member_action, 
+                           check_limit_action, renew_secret_action, logout_member_action)
+
+def _refresh_member_actions(window, login_action, register_action, check_action, renew_action, logout_action):
+    """Refresh member menu actions visibility based on login state"""
+    from helpers.members_helper.members_helper import is_logged_in
+    logged_in = is_logged_in()
+    login_action.setVisible(not logged_in)
+    register_action.setVisible(not logged_in)
+    check_action.setVisible(logged_in)
+    renew_action.setVisible(logged_in)
+    logout_action.setVisible(logged_in)
+
 def setup_main_menu(window):
-    links = get_app_links()
     menubar = QMenuBar(window)
     file_menu = QMenu("File", menubar)
     file_menu.setToolTipsVisible(True)
@@ -285,7 +477,8 @@ def setup_main_menu(window):
         logout_member()
         if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
             window.statusbar.update_member_status()
-        if hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
+        # Only remove member limits if prompt_section exists (not in tools picker mode)
+        if not getattr(window, 'current_mode', 'normal') == 'tools_picker' and hasattr(window, 'prompt_section') and hasattr(window.prompt_section, 'remove_member_limits'):
             window.prompt_section.remove_member_limits()
         _refresh_member_actions()
         _remove_member_mode()
@@ -330,6 +523,8 @@ def setup_main_menu(window):
         window.setWindowTitle(f"Image Tea - Member Mode | {name} ({email}) | {credit_text} - v{version}")
         if hasattr(window, 'api_key_section'):
             window.api_key_section.setVisible(False)
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
 
     def _remove_member_mode():
         with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
@@ -337,6 +532,8 @@ def setup_main_menu(window):
         window.setWindowTitle(f"{cfg['name']} - ({cfg['tagline']}) - v{cfg['version']}")
         if hasattr(window, 'api_key_section'):
             window.api_key_section.setVisible(True)
+        if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
+            window.statusbar.update_member_status()
 
     _refresh_member_actions()
     window._apply_member_mode = _apply_member_mode
@@ -725,6 +922,8 @@ def setup_main_menu(window):
 
     help_menu = QMenu("Help", menubar)
     help_menu.setToolTipsVisible(True)
+    
+    links = get_app_links()
 
     about_action = QAction(qta.icon('fa6s.circle-info'), "About", window)
     about_action.setToolTip(MENU_TOOLTIPS["about"])
@@ -872,9 +1071,16 @@ def setup_main_menu(window):
     documentation_action.triggered.connect(open_documentation)
     help_menu.addAction(documentation_action)
 
-    # Tools menu
-    tools_menu = QMenu("Tools", menubar)
+    # Tools menu - now opens tools picker instead of submenu
+    tools_action = QAction("Tools", window)
+    tools_action.setToolTip("Open tools launcher to access all available tools")
+    tools_action.setStatusTip("Open tools launcher to access all available tools")
+    tools_action.triggered.connect(window.switch_to_tools_picker)
+    
+    # Keep old tools menu structure for compatibility (hidden by default)
+    tools_menu = QMenu("Tools (Legacy)", menubar)
     tools_menu.setToolTipsVisible(True)
+    tools_menu.menuAction().setVisible(False)  # Hide legacy menu
 
     # Tools Manager - first item
     tools_manager_action = QAction(qta.icon('fa6s.screwdriver-wrench'), "Tools Manager", window)
@@ -1172,7 +1378,7 @@ def setup_main_menu(window):
     menubar.addMenu(edit_menu)
     menubar.addMenu(metadata_menu)
     menubar.addAction(api_action)
-    menubar.addMenu(tools_menu)
+    menubar.addAction(tools_action)
     menubar.addMenu(purchase_menu)
     menubar.addMenu(member_menu)
     menubar.addMenu(help_menu)

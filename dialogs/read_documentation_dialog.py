@@ -271,3 +271,62 @@ class ReadDocumentationDialog(QDialog):
                 self.viewer.setPlainText(f"Failed to load file:\n{file_path}\n\nError: {e}")
         else:
             self.viewer.clear()
+    
+    def focus_on_file(self, file_path):
+        """Focus on a specific documentation file"""
+        # Normalize path
+        file_path = os.path.normpath(file_path)
+        full_path = os.path.join(BASE_PATH, file_path)
+        
+        if not os.path.exists(full_path):
+            print(f"Documentation file not found: {full_path}")
+            return
+        
+        # Determine language from path
+        if "lang_EN" in full_path:
+            self.current_lang = "en"
+            self.lang_combo.setCurrentIndex(1)
+        else:
+            self.current_lang = "id"
+            self.lang_combo.setCurrentIndex(0)
+        
+        # Repopulate tree with correct language
+        self.populate_tree()
+        
+        # Find and select the item in tree
+        self._find_and_select_item(self.tree.invisibleRootItem(), full_path)
+        
+        # Load the file
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                md_text = f.read()
+            self.viewer.setSearchPaths([self.res_images_path])
+            self.viewer.setMarkdown(md_text)
+            self.viewer.setLineWrapMode(QTextBrowser.WidgetWidth)
+        except Exception as e:
+            self.viewer.setPlainText(f"Failed to load file:\n{full_path}\n\nError: {e}")
+    
+    def _find_and_select_item(self, parent_item, target_path):
+        """Recursively find and select tree item matching target path"""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            item_path = child.data(0, Qt.UserRole)
+            
+            if item_path and os.path.normpath(item_path) == target_path:
+                # Found it! Expand parents and select
+                self._expand_parents(child)
+                self.tree.setCurrentItem(child)
+                return True
+            
+            # Recursively search children
+            if self._find_and_select_item(child, target_path):
+                return True
+        
+        return False
+    
+    def _expand_parents(self, item):
+        """Expand all parent items of the given item"""
+        parent = item.parent()
+        while parent:
+            parent.setExpanded(True)
+            parent = parent.parent()

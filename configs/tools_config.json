@@ -1,0 +1,154 @@
+{
+  "image_processing": [
+    {
+      "id": "action_sequencer",
+      "name": "Action Sequencer",
+      "description": "Automate Photoshop/Illustrator actions using JSX scripts",
+      "icon": "fa6s.list-ol",
+      "color": "#E53935"
+    },
+    {
+      "id": "prompt_generator",
+      "name": "Prompt Generator",
+      "description": "Generate AI image/video prompts from reference images or parameters",
+      "icon": "fa6s.wand-magic-sparkles",
+      "color": "#1E88E5"
+    },
+    {
+      "id": "prompt_injector",
+      "name": "Prompt Injector",
+      "description": "Automate mouse/keyboard actions to inject prompts into AI platforms",
+      "icon": "fa6s.arrow-up-from-bracket",
+      "color": "#43A047"
+    },
+    {
+      "id": "image_overlay_maker",
+      "name": "Image Overlay Maker",
+      "description": "Composite PNG overlays onto multiple images in batch",
+      "icon": "fa6s.layer-group",
+      "color": "#9C27B0"
+    },
+    {
+      "id": "envato_elements",
+      "name": "Envato Elements Metadata",
+      "description": "Generate metadata for Envato Elements mockup submissions",
+      "icon": "fa6s.tag",
+      "color": "#8E24AA"
+    },
+    {
+      "id": "prompted_image_sorter",
+      "name": "Prompted Image Sorter",
+      "description": "Sort images into folders by entering descriptive prompts",
+      "icon": "fa6s.arrow-up-z-a",
+      "color": "#7B1FA2"
+    },
+    {
+      "id": "image_upscaler",
+      "name": "Image Upscaler",
+      "description": "Upscale images by 2x or 4x using RealESRGAN AI",
+      "icon": "fa6s.image",
+      "color": "#D81B60"
+    },
+    {
+      "id": "holiday_calendar",
+      "name": "Microstock Holiday Calendar",
+      "description": "View microstock platform holiday schedules and submission deadlines",
+      "icon": "fa6s.calendar-days",
+      "color": "#00ACC1"
+    },
+    {
+      "id": "pngtree_zipper",
+      "name": "Pngtree Zipper",
+      "description": "Create zip archives for Pngtree asset submissions",
+      "icon": "fa6s.file-zipper",
+      "color": "#558B2F"
+    }
+  ],
+  "video_processing": [
+    {
+      "id": "video_upscaler",
+      "name": "Video Upscaler",
+      "description": "Upscale videos by 2x or 4x using RealESRGAN AI",
+      "icon": "fa6s.video",
+      "color": "#3949AB"
+    },
+    {
+      "id": "vibe_video_generator",
+      "name": "Vibe video Generator",
+      "description": "Generate videos using AI with vibe-based prompting and templates",
+      "icon": "fa6s.film",
+      "color": "#00897B"
+    },
+    {
+      "id": "batch_audio_remover",
+      "name": "Batch Audio Remover",
+      "description": "Remove audio tracks from multiple video files in batch",
+      "icon": "fa6s.volume-xmark",
+      "color": "#F4511E"
+    }
+  ],
+  "extensions": [],
+  "others": [
+    {
+      "id": "background_remover",
+      "name": "Background Remover",
+      "description": "Remove image backgrounds using AI (external tool)",
+      "icon": "fa6s.eraser",
+      "color": "#546E7A",
+      "url": "https://lynk.id/desainiajob/px5yyovk31pr"
+    },
+    {
+      "id": "archieve_manager",
+      "name": "Rak Arsip 3",
+      "description": "Project and document management tool",
+      "icon": "fa6s.box-archive",
+      "color": "#009688",
+      "url": "https://github.com/mudrikam/Rak-Arsip-3"
+    },
+    {
+      "id": "mockup_renderer",
+      "name": "Mockup Renderer",
+      "description": "Render mockups in batch with smart positioning",
+      "icon": "fa6s.file-export",
+      "color": "#5E35B1",
+      "url": "https://github.com/mudrikam/Mockup-Renderer"
+    },
+    {
+      "id": "link_opener",
+      "name": "Link Opener",
+      "description": "Open multiple URLs from text or CSV files",
+      "icon": "fa6s.link",
+      "color": "#FF6D00",
+      "url": "https://github.com/mudrikam/link-opener"
+    },
+    {
+      "id": "image_converter",
+      "name": "Image Converter",
+      "description": "Convert images between PNG, JPG, and WebP formats",
+      "icon": "fa6s.rotate",
+      "color": "#4A148C",
+      "url": "https://github.com/mudrikam/SHL-IMG-Convert"
+    },
+    {
+      "id": "psd_to_jpg",
+      "name": "PSD to JPG Converter",
+      "description": "Convert Photoshop PSD files to JPG format",
+      "icon": "fa6s.rotate",
+      "color": "#BF360C",
+      "url": "https://github.com/mudrikam/PSD-to-JPG"
+    }
+  ],
+  "documentation": {
+    "image_overlay_maker": "documentation/lang_EN/3. Additional Tools/11. image_overlay_maker_tool.md",
+    "image_upscaler": "documentation/lang_EN/3. Additional Tools/7. image_upscaler_tool.md",
+    "video_upscaler": "documentation/lang_EN/3. Additional Tools/8. video_upscaler_tool.md",
+    "batch_audio_remover": "documentation/lang_EN/3. Additional Tools/4. batch_audio_remover_tool.md",
+    "vibe_video_generator": "documentation/lang_EN/3. Additional Tools/10. vibe_video_generator_tool.md",
+    "envato_elements": "documentation/lang_EN/3. Additional Tools/5. envato_elements_metadata_tool.md",
+    "action_sequencer": "documentation/lang_EN/3. Additional Tools/6. action_sequencer_tool.md",
+    "prompt_generator": "documentation/lang_EN/3. Additional Tools/1. prompt_generator_tool.md",
+    "prompt_injector": "documentation/lang_EN/3. Additional Tools/2. prompt_injector_tool.md",
+    "prompted_image_sorter": "documentation/lang_EN/3. Additional Tools/3. prompted_image_sorter_tool.md",
+    "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md"
+  }
+}
