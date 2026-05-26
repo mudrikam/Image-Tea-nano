@@ -320,11 +320,13 @@ class ToolsManagerDialog(QDialog):
                 missing.append(tool_info['name'])
 
         if not missing:
-            QMessageBox.information(self, "Tools Manager", "All tools are already installed!")
+            parent_window = self.window()
+            QMessageBox.information(parent_window, "Tools Manager", "All tools are already installed!")
             return
 
         msg = f"Install {len(missing)} missing tool(s)?\n\n" + "\n".join(f"  - {n}" for n in missing)
-        reply = QMessageBox.question(self, "Install All Missing", msg,
+        parent_window = self.window()
+        reply = QMessageBox.question(parent_window, "Install All Missing", msg,
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
         if reply != QMessageBox.Yes:
             return
@@ -348,8 +350,9 @@ class ToolsManagerDialog(QDialog):
         worker.start()
 
     def _do_reinstall(self, tool_name):
+        parent_window = self.window()
         reply = QMessageBox.question(
-            self, "Reinstall Tool",
+            parent_window, "Reinstall Tool",
             f"Reinstall {tool_name}?\nThis will remove and re-download the tool.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
@@ -365,8 +368,9 @@ class ToolsManagerDialog(QDialog):
         self._do_install(tool_name)
 
     def _do_remove(self, tool_name):
+        parent_window = self.window()
         reply = QMessageBox.warning(
-            self, "Remove Tool",
+            parent_window, "Remove Tool",
             f"Remove {tool_name}?\n\nThis will delete all files in tools/{tool_name} "
             f"and you will need to reinstall to use it.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No

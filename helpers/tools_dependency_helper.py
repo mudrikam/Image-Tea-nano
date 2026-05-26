@@ -45,21 +45,23 @@ def _show_tools_manager_for_missing(missing_tools: list, parent=None):
     """Open Tools Manager and inform user about missing tools."""
     from PySide6.QtWidgets import QMessageBox
 
+    # Get top-level window for proper dialog centering
+    main_window = parent
+    while main_window and main_window.parent():
+        main_window = main_window.parent()
+    
+    dialog_parent = main_window if main_window else parent
+
     tools_list = "\n".join(f"  - {t}" for t in missing_tools)
     msg = (
         f"The following required tool(s) are not installed:\n\n"
         f"{tools_list}\n\n"
         f"Opening Tools Manager to install them."
     )
-    QMessageBox.information(parent, "Missing Tools", msg)
+    QMessageBox.information(dialog_parent, "Missing Tools", msg)
 
     # Open Tools Manager
     from dialogs.tools.tools_manager.tools_manager_dialog import ToolsManagerDialog
-    
-    # Try to reuse existing instance on main window
-    main_window = parent
-    while main_window and main_window.parent():
-        main_window = main_window.parent()
 
     if main_window and hasattr(main_window, '_tools_manager_dialog'):
         if not main_window._tools_manager_dialog:
@@ -72,5 +74,5 @@ def _show_tools_manager_for_missing(missing_tools: list, parent=None):
         main_window._tools_manager_dialog.activateWindow()
     else:
         # Fallback: open as modal
-        dlg = ToolsManagerDialog(parent)
+        dlg = ToolsManagerDialog(dialog_parent)
         dlg.exec()

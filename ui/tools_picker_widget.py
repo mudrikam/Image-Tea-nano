@@ -221,11 +221,6 @@ class ToolsPickerWidget(QWidget):
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
 
-        # Tools Manager button
-        self.settings_btn = QPushButton(qta.icon('fa6s.screwdriver-wrench'), " Tools Manager")
-        self.settings_btn.clicked.connect(self._open_tools_manager)
-        header_layout.addWidget(self.settings_btn)
-
         layout.addLayout(header_layout)
 
         # Stats bar with visual chips
@@ -256,11 +251,13 @@ class ToolsPickerWidget(QWidget):
         self.video_processing_tab = self._create_tab_content()
         self.extensions_tab = self._create_tab_content()
         self.others_tab = self._create_tab_content()
+        self.tools_manager_tab = self._create_tools_manager_tab()
 
         self.tab_widget.addTab(self.image_processing_tab, qta.icon('fa6s.images'), "Image Processing")
         self.tab_widget.addTab(self.video_processing_tab, qta.icon('fa6s.video'), "Video Processing")
         self.tab_widget.addTab(self.extensions_tab, qta.icon('fa6b.chrome'), "Chrome Extensions")
         self.tab_widget.addTab(self.others_tab, qta.icon('fa6s.ellipsis'), "Others")
+        self.tab_widget.addTab(self.tools_manager_tab, qta.icon('fa6s.screwdriver-wrench'), "Tools Manager")
 
         layout.addWidget(self.tab_widget)
 
@@ -277,6 +274,42 @@ class ToolsPickerWidget(QWidget):
 
         scroll.setWidget(container)
         return scroll
+    
+    def _create_tools_manager_tab(self):
+        """Create Tools Manager tab content - embed the dialog content"""
+        from dialogs.tools.tools_manager.tools_manager_dialog import ToolsManagerDialog
+        
+        # Create container widget
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Create Tools Manager dialog instance with main window as parent
+        # so self.window() returns the correct top-level window
+        main_window = self.window()
+        self._tools_manager_instance = ToolsManagerDialog(main_window)
+        
+        # Get the main content from the dialog
+        # ToolsManagerDialog should have its content in a layout
+        if self._tools_manager_instance.layout():
+            # Create a new widget to hold the dialog's content
+            content_widget = QWidget()
+            content_layout = QVBoxLayout(content_widget)
+            content_layout.setContentsMargins(12, 12, 12, 12)
+            
+            # Move all widgets from dialog to our tab
+            dialog_layout = self._tools_manager_instance.layout()
+            while dialog_layout.count():
+                item = dialog_layout.takeAt(0)
+                if item.widget():
+                    content_layout.addWidget(item.widget())
+                elif item.layout():
+                    content_layout.addLayout(item.layout())
+            
+            layout.addWidget(content_widget)
+        
+        return container
     
     def _make_stat_chip(self, icon_name, label_text, color):
         """Create a visual stats chip with icon, label, and count badge"""
