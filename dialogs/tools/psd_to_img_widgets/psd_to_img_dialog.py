@@ -18,6 +18,7 @@ class PSDWorkerThread(QThread):
     progress_updated = Signal(int, int)
     status_updated = Signal(str, str)
     completed = Signal(int, int)
+    stopped = Signal(int, int)
     error_occurred = Signal(str)
 
     def __init__(self, files, output_path, output_format, quality, dpi, db):
@@ -50,33 +51,82 @@ class PSDWorkerThread(QThread):
                     else:
                         self.status_updated.emit(filename, "Failed")
                 except Exception as e:
-                    self.status_updated.emit(filename, f"Error: {str(e)}")
+                    self.status_updated.emit(filename, f"Error: {str(e)[:80]}")
 
                 self.progress_updated.emit(idx + 1, total_files)
 
-            self.completed.emit(processed, total_files)
+            if self.should_stop:
+                self.stopped.emit(processed, total_files)
+            else:
+                self.completed.emit(processed, total_files)
         except Exception as e:
             self.error_occurred.emit(str(e))
 
+    def _load_psd_image(self, psd_path):
+        """Load a PSD file as a PIL Image, trying PIL first then psd-tools as fallback."""
+        from PIL import Image
+
+        # Try PIL first (fast, works for simple PSD files)
+        try:
+            img = Image.open(psd_path)
+            img.load()
+            return img
+        except Exception as pil_error:
+            pil_msg = str(pil_error)
+
+        # Fallback to psd-tools (handles modern/complex PSD files)
+        try:
+            from psd_tools import PSDImage
+            psd = PSDImage.open(psd_path)
+            composite = psd.composite()
+            if composite is None:
+                raise RuntimeError("psd-tools could not composite the PSD (empty or unsupported)")
+            return composite
+        except ImportError:
+            raise RuntimeError(
+                f"PIL failed to read PSD ({pil_msg}) and psd-tools is not installed. "
+                f"Install with: pip install psd-tools"
+            )
+        except Exception as psd_error:
+            raise RuntimeError(
+                f"Failed to read PSD. PIL: {pil_msg} | psd-tools: {psd_error}"
+            )
+
     def convert_psd(self, psd_path):
         try:
-            from PIL import Image
-            img = Image.open(psd_path)
-            rgb_img = img.convert('RGB')
+            img = self._load_psd_image(psd_path)
+
+            # Normalize to RGB / RGBA depending on output format
+            target_format = self.output_format.lower()
+            if target_format in ['jpg', 'jpeg', 'bmp']:
+                # These don't support alpha
+                if img.mode != 'RGB':
+                    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                        # Flatten on white background
+                        from PIL import Image as PILImage
+                        bg = PILImage.new('RGB', img.size, (255, 255, 255))
+                        rgba = img.convert('RGBA')
+                        bg.paste(rgba, mask=rgba.split()[-1])
+                        img = bg
+                    else:
+                        img = img.convert('RGB')
+            else:
+                if img.mode not in ('RGB', 'RGBA'):
+                    img = img.convert('RGBA')
 
             base_name = os.path.splitext(os.path.basename(psd_path))[0]
-            output_file = os.path.join(self.output_path, f"{base_name}.{self.output_format.lower()}")
+            output_file = os.path.join(self.output_path, f"{base_name}.{target_format}")
 
             save_kwargs = {}
-            if self.output_format.lower() in ['jpg', 'jpeg']:
+            if target_format in ['jpg', 'jpeg']:
                 if self.quality > 0:
                     save_kwargs['quality'] = self.quality
                 save_kwargs['optimize'] = True
             if self.dpi > 0:
                 save_kwargs['dpi'] = (self.dpi, self.dpi)
-            
-            output_ext = 'jpeg' if self.output_format.lower() in ['jpg', 'jpeg'] else self.output_format.lower()
-            rgb_img.save(output_file, format=output_ext.upper(), **save_kwargs)
+
+            output_ext = 'jpeg' if target_format in ['jpg', 'jpeg'] else target_format
+            img.save(output_file, format=output_ext.upper(), **save_kwargs)
             return True
         except Exception as e:
             print(f"Error converting {psd_path}: {e}")
@@ -355,6 +405,14 @@ class PSDToIMGDialog(QDialog):
         self.convert_button.setMinimumHeight(40)
         self.convert_button.setMinimumWidth(180)
         self.convert_button.clicked.connect(self.on_convert_clicked)
+        self._apply_convert_button_style()
+        button_layout.addWidget(self.convert_button)
+
+        main_layout.addLayout(button_layout)
+
+        self.setLayout(main_layout)
+
+    def _apply_convert_button_style(self):
         self.convert_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {theme.get_color('primary')};
@@ -370,12 +428,46 @@ class PSDToIMGDialog(QDialog):
             QPushButton:pressed {{
                 background-color: {theme.get_color('primary_pressed')};
             }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('gray')};
+            }}
         """)
-        button_layout.addWidget(self.convert_button)
 
-        main_layout.addLayout(button_layout)
+    def _apply_stop_button_style(self):
+        """Apply red/danger styling for stop button using error color"""
+        from PySide6.QtGui import QColor
+        error_base = theme.get_color('error')
+        error_hover = QColor(error_base).darker(115).name()
+        error_pressed = QColor(error_base).darker(130).name()
+        white = theme.get_color('white')
+        
+        self.convert_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {error_base};
+                color: {white};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {error_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {error_pressed};
+            }}
+        """)
 
-        self.setLayout(main_layout)
+    def _set_convert_button_to_stop(self):
+        self.convert_button.setText(" STOP")
+        self.convert_button.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
+        self._apply_stop_button_style()
+
+    def _set_convert_button_to_convert(self):
+        self.convert_button.setText(" CONVERT")
+        self.convert_button.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
+        self.convert_button.setEnabled(True)
+        self._apply_convert_button_style()
 
     def on_format_changed(self, fmt):
         self.quality_slider.setEnabled(fmt.upper() in ['JPG', 'JPEG'])
@@ -558,6 +650,13 @@ class PSDToIMGDialog(QDialog):
         self.processed_label.setText("Processed: 0/0")
 
     def on_convert_clicked(self):
+        # If processing, this button acts as STOP
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.worker_thread.stop()
+            self.status_label.setText("Status: Stopping...")
+            self.convert_button.setEnabled(False)
+            return
+
         if not self.loaded_files:
             QMessageBox.warning(self, "No Files", "Please load PSD files first.")
             return
@@ -578,17 +677,18 @@ class PSDToIMGDialog(QDialog):
         output_format = self.format_combo.currentText()
         quality = self.quality_slider.value() if self.quality_slider.isEnabled() else 90
         dpi = self.dpi_spin.value()
-        
-        self.convert_button.setEnabled(False)
+
+        self._set_convert_button_to_stop()
         self.status_label.setText("Status: Converting...")
         self.progress_bar.setValue(0)
-        
+
         self.worker_thread = PSDWorkerThread(
             self.loaded_files, output_path, output_format, quality, dpi, self.db
         )
         self.worker_thread.progress_updated.connect(self.on_progress_updated)
         self.worker_thread.status_updated.connect(self.on_status_updated)
         self.worker_thread.completed.connect(self.on_conversion_completed)
+        self.worker_thread.stopped.connect(self.on_conversion_stopped)
         self.worker_thread.error_occurred.connect(self.on_conversion_error)
         self.worker_thread.start()
 
@@ -617,7 +717,7 @@ class PSDToIMGDialog(QDialog):
 
     def on_conversion_completed(self, processed, total):
         self.status_label.setText(f"Status: Completed ({processed}/{total})")
-        self.convert_button.setEnabled(True)
+        self._set_convert_button_to_convert()
 
         output_path = self.output_path_input.text().strip()
         if output_path and os.path.exists(output_path):
@@ -629,6 +729,11 @@ class PSDToIMGDialog(QDialog):
             )
             if reply == QMessageBox.Yes:
                 self._open_file_explorer(output_path)
+
+    def on_conversion_stopped(self, processed, total):
+        """Handle conversion being stopped by user"""
+        self.status_label.setText(f"Status: Stopped ({processed}/{total} processed)")
+        self._set_convert_button_to_convert()
 
     def _open_file_explorer(self, path):
         import platform
@@ -643,7 +748,7 @@ class PSDToIMGDialog(QDialog):
 
     def on_conversion_error(self, error_msg):
         self.status_label.setText("Status: Error")
-        self.convert_button.setEnabled(True)
+        self._set_convert_button_to_convert()
         QMessageBox.critical(self, "Conversion Error", error_msg)
 
     def closeEvent(self, event):

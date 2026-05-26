@@ -5,6 +5,7 @@ google-genai
 groq
 pyexiv2
 pillow
+psd-tools
 PyExifTool
 opencv-python
 CairoSVG

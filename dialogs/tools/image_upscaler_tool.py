@@ -2407,20 +2407,28 @@ class ImageUpscalerDialog(QDialog):
         if running:
             self.run_button.setText(" STOP")
             self.run_button.setIcon(qta.icon('fa6s.stop'))
+            
+            # Apply red/danger styling for stop button using error color
+            from PySide6.QtGui import QColor
+            error_base = theme.get_color('error')
+            error_hover = QColor(error_base).darker(115).name()
+            error_pressed = QColor(error_base).darker(130).name()
+            white = theme.get_color('white')
+            
             self.run_button.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {theme.get_color('secondary')};
-                    color: {theme.get_color('white')};
+                    background-color: {error_base};
+                    color: {white};
                     border: none;
                     border-radius: 6px;
                     font-weight: bold;
                     font-size: 12px;
                 }}
                 QPushButton:hover {{
-                    background-color: {theme.get_color('secondary_hover')};
+                    background-color: {error_hover};
                 }}
                 QPushButton:pressed {{
-                    background-color: {theme.get_color('secondary_pressed')};
+                    background-color: {error_pressed};
                 }}
             """)
             self.status_label.setText("Status: Running")

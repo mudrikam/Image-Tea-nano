@@ -281,38 +281,38 @@ class ToolsPickerWidget(QWidget):
     def _make_stat_chip(self, icon_name, label_text, color):
         """Create a visual stats chip with icon, label, and count badge"""
         frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setFrameShape(QFrame.NoFrame)
 
         c = QColor(color)
-        bg_rgba = f"rgba({c.red()}, {c.green()}, {c.blue()}, 0.10)"
-        border_rgba = f"rgba({c.red()}, {c.green()}, {c.blue()}, 0.45)"
+        bg_rgba = f"rgba({c.red()}, {c.green()}, {c.blue()}, 0.08)"
 
         frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {bg_rgba};
-                border: 1px solid {border_rgba};
-                border-radius: 6px;
+                border: none;
+                border-radius: 4px;
+                padding: 2px;
             }}
         """)
 
         chip_layout = QHBoxLayout(frame)
-        chip_layout.setContentsMargins(10, 6, 10, 6)
+        chip_layout.setContentsMargins(8, 4, 8, 4)
         chip_layout.setSpacing(6)
 
         icon_label = QLabel()
-        icon_label.setPixmap(qta.icon(icon_name, color=color).pixmap(16, 16))
+        icon_label.setPixmap(qta.icon(icon_name, color=color).pixmap(14, 14))
         icon_label.setStyleSheet("background: transparent; border: none;")
         chip_layout.addWidget(icon_label)
 
         text_label = QLabel(label_text)
         text_label.setStyleSheet(
-            f"background: transparent; border: none; font-size: 11px; color: {color};"
+            f"background: transparent; border: none; font-size: 10px; color: {color};"
         )
         chip_layout.addWidget(text_label)
 
         count_label = QLabel("0")
         count_label.setStyleSheet(
-            f"background: transparent; border: none; font-size: 12px; "
+            f"background: transparent; border: none; font-size: 11px; "
             f"font-weight: bold; color: {color};"
         )
         chip_layout.addWidget(count_label)

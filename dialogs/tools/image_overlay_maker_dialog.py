@@ -108,6 +108,7 @@ class ImageProcessor(QThread):
     progress_updated = Signal(int)
     status_updated = Signal(str)
     finished_processing = Signal(str)
+    processing_stopped = Signal()
     error_occurred = Signal(str)
     
     def __init__(self, image_files: List[str], overlay_path: str, output_dir: str):
@@ -138,6 +139,7 @@ class ImageProcessor(QThread):
             for i, image_path in enumerate(self.image_files):
                 if self.should_stop:
                     self.status_updated.emit("Processing stopped")
+                    self.processing_stopped.emit()
                     return
                     
                 try:
@@ -786,6 +788,30 @@ class ImageOverlayMakerDialog(QDialog):
         self.status_label.setText("Starting...")
         self.ready_label.setText("Processing...")
         
+        # Apply red/danger styling for stop button using error color
+        from PySide6.QtGui import QColor
+        error_base = theme.get_color('error')
+        error_hover = QColor(error_base).darker(115).name()
+        error_pressed = QColor(error_base).darker(130).name()
+        white = theme.get_color('white')
+        
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {error_base};
+                color: {white};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {error_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {error_pressed};
+            }}
+        """)
+        
         # Disable inputs during processing
         self._set_inputs_enabled(False)
         
@@ -794,6 +820,7 @@ class ImageOverlayMakerDialog(QDialog):
         self.processor.progress_updated.connect(self.on_progress_updated)
         self.processor.status_updated.connect(self.on_status_updated)
         self.processor.finished_processing.connect(self.on_processing_finished)
+        self.processor.processing_stopped.connect(self.on_processing_stopped)
         self.processor.error_occurred.connect(self.on_processing_error)
         self.processor.start()
     
@@ -817,6 +844,25 @@ class ImageOverlayMakerDialog(QDialog):
         self.progress_bar.setValue(100)
         self.process_btn.setText(" Process Images")
         self.process_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('gray')};
+            }}
+        """)
         self.ready_label.setText("Processing complete!")
         self.ready_label.setStyleSheet(f"color: {theme.get_color('success')}; font-weight: bold; font-size: 11px;")
         
@@ -840,6 +886,25 @@ class ImageOverlayMakerDialog(QDialog):
         self.progress_bar.setValue(0)
         self.process_btn.setText(" Process Images")
         self.process_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('gray')};
+            }}
+        """)
         self.ready_label.setText("Error occurred")
         self.ready_label.setStyleSheet(f"color: {theme.get_color('error')}; font-weight: bold; font-size: 11px;")
         
@@ -848,6 +913,39 @@ class ImageOverlayMakerDialog(QDialog):
         self.update_ui_state()
         
         QMessageBox.critical(self, "Processing Error", error_message)
+    
+    def on_processing_stopped(self):
+        """Handle processing being cancelled by the user"""
+        self.is_processing = False
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Stopped")
+        self.process_btn.setText(" Process Images")
+        self.process_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
+        self.process_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('gray')};
+            }}
+        """)
+        self.ready_label.setText("Processing stopped")
+        self.ready_label.setStyleSheet(f"color: {theme.get_color('warning')}; font-weight: bold; font-size: 11px;")
+        
+        # Re-enable inputs
+        self._set_inputs_enabled(True)
+        self.update_ui_state()
     
     def _set_inputs_enabled(self, enabled):
         """Enable or disable all input widgets"""

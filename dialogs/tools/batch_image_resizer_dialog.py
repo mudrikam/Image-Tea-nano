@@ -28,6 +28,7 @@ class ImageResizeWorker(QThread):
     progress_updated = Signal(int, int)
     status_updated = Signal(str, str)
     completed = Signal(int, int)
+    stopped = Signal(int, int)
     error_occurred = Signal(str)
 
     def __init__(self, image_list: List[Tuple[str, int, int, str]], output_dir: str, resize_mode: str, size_value: int):
@@ -84,7 +85,10 @@ class ImageResizeWorker(QThread):
 
                 self.progress_updated.emit(i + 1, total_images)
 
-            self.completed.emit(successful_count, total_images)
+            if self.should_stop:
+                self.stopped.emit(successful_count, total_images)
+            else:
+                self.completed.emit(successful_count, total_images)
 
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -392,25 +396,7 @@ class BatchImageResizerDialog(QDialog):
         self.resize_button.setMinimumHeight(40)
         self.resize_button.setMinimumWidth(180)
         self.resize_button.clicked.connect(self.on_resize_clicked)
-        self.resize_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {theme.get_color('primary')};
-                color: {theme.get_color('white')};
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {theme.get_color('primary_hover')};
-            }}
-            QPushButton:pressed {{
-                background-color: {theme.get_color('primary_pressed')};
-            }}
-            QPushButton:disabled {{
-                background-color: {theme.get_color('gray')};
-            }}
-        """)
+        self._apply_resize_button_style()
         button_layout.addWidget(self.resize_button)
 
         main_layout.addLayout(button_layout)
@@ -623,7 +609,70 @@ class BatchImageResizerDialog(QDialog):
         self.files_count_label.setText(f"Files: {len(self.image_list)}")
         self.processed_label.setText("Processed: 0/0")
 
+    def _apply_resize_button_style(self):
+        self.resize_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {theme.get_color('primary_hover')};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.get_color('primary_pressed')};
+            }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('gray')};
+            }}
+        """)
+
+    def _apply_stop_button_style(self):
+        """Apply red/danger styling for stop button using error color"""
+        error_base = theme.get_color('error')
+        error_hover = QColor(error_base).darker(115).name()
+        error_pressed = QColor(error_base).darker(130).name()
+        white = theme.get_color('white')
+        
+        self.resize_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {error_base};
+                color: {white};
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {error_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {error_pressed};
+            }}
+        """)
+
+    def _set_resize_button_to_stop(self):
+        self.resize_button.setText(" STOP")
+        self.resize_button.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
+        self._apply_stop_button_style()
+
+    def _set_resize_button_to_resize(self):
+        self.resize_button.setText(" RESIZE")
+        self.resize_button.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
+        self.resize_button.setEnabled(True)
+        self._apply_resize_button_style()
+
     def on_resize_clicked(self):
+        # If processing, this button acts as STOP
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.worker_thread.stop()
+            self.status_label.setText("Status: Stopping...")
+            self.resize_button.setEnabled(False)
+            return
+
         output_path = self._sanitize_path(self.output_path_input.text())
         if not output_path:
             output_path = self.config.get('output_path', '')
@@ -637,7 +686,7 @@ class BatchImageResizerDialog(QDialog):
 
         size_value = self.size_spin.value()
 
-        self.resize_button.setEnabled(False)
+        self._set_resize_button_to_stop()
         self.status_label.setText("Status: Resizing...")
         self.progress_bar.setValue(0)
 
@@ -655,6 +704,7 @@ class BatchImageResizerDialog(QDialog):
         self.worker_thread.progress_updated.connect(self.on_progress_updated)
         self.worker_thread.status_updated.connect(self.on_status_updated)
         self.worker_thread.completed.connect(self.on_resize_completed)
+        self.worker_thread.stopped.connect(self.on_resize_stopped)
         self.worker_thread.error_occurred.connect(self.on_resize_error)
         self.worker_thread.start()
 
@@ -679,7 +729,7 @@ class BatchImageResizerDialog(QDialog):
 
     def on_resize_completed(self, processed, total):
         self.status_label.setText(f"Status: Completed ({processed}/{total})")
-        self.resize_button.setEnabled(True)
+        self._set_resize_button_to_resize()
 
         output_path = self._sanitize_path(self.output_path_input.text())
         if output_path and os.path.exists(output_path):
@@ -697,9 +747,14 @@ class BatchImageResizerDialog(QDialog):
                 else:
                     subprocess.Popen(['xdg-open', output_path])
 
+    def on_resize_stopped(self, processed, total):
+        """Handle resize being stopped by user"""
+        self.status_label.setText(f"Status: Stopped ({processed}/{total} processed)")
+        self._set_resize_button_to_resize()
+
     def on_resize_error(self, error_msg):
         self.status_label.setText("Status: Error")
-        self.resize_button.setEnabled(True)
+        self._set_resize_button_to_resize()
         QMessageBox.critical(self, "Resize Error", error_msg)
 
     def closeEvent(self, event):
