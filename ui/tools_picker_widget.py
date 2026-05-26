@@ -228,6 +228,26 @@ class ToolsPickerWidget(QWidget):
 
         layout.addLayout(header_layout)
 
+        # Stats bar with visual chips
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(8)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.stat_total = self._make_stat_chip('fa6s.toolbox', "Total", theme.get_color('primary'))
+        self.stat_image = self._make_stat_chip('fa6s.images', "Image", '#2196F3')
+        self.stat_video = self._make_stat_chip('fa6s.video', "Video", '#9C27B0')
+        self.stat_extension = self._make_stat_chip('fa6b.chrome', "Extensions", '#FF9800')
+        self.stat_other = self._make_stat_chip('fa6s.ellipsis', "Others", theme.get_color('gray'))
+
+        stats_layout.addWidget(self.stat_total['frame'])
+        stats_layout.addWidget(self.stat_image['frame'])
+        stats_layout.addWidget(self.stat_video['frame'])
+        stats_layout.addWidget(self.stat_extension['frame'])
+        stats_layout.addWidget(self.stat_other['frame'])
+        stats_layout.addStretch()
+
+        layout.addLayout(stats_layout)
+
         # Tab widget
         self.tab_widget = QTabWidget()
 
@@ -258,6 +278,47 @@ class ToolsPickerWidget(QWidget):
         scroll.setWidget(container)
         return scroll
     
+    def _make_stat_chip(self, icon_name, label_text, color):
+        """Create a visual stats chip with icon, label, and count badge"""
+        frame = QFrame()
+        frame.setFrameShape(QFrame.StyledPanel)
+
+        c = QColor(color)
+        bg_rgba = f"rgba({c.red()}, {c.green()}, {c.blue()}, 0.10)"
+        border_rgba = f"rgba({c.red()}, {c.green()}, {c.blue()}, 0.45)"
+
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg_rgba};
+                border: 1px solid {border_rgba};
+                border-radius: 6px;
+            }}
+        """)
+
+        chip_layout = QHBoxLayout(frame)
+        chip_layout.setContentsMargins(10, 6, 10, 6)
+        chip_layout.setSpacing(6)
+
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon(icon_name, color=color).pixmap(16, 16))
+        icon_label.setStyleSheet("background: transparent; border: none;")
+        chip_layout.addWidget(icon_label)
+
+        text_label = QLabel(label_text)
+        text_label.setStyleSheet(
+            f"background: transparent; border: none; font-size: 11px; color: {color};"
+        )
+        chip_layout.addWidget(text_label)
+
+        count_label = QLabel("0")
+        count_label.setStyleSheet(
+            f"background: transparent; border: none; font-size: 12px; "
+            f"font-weight: bold; color: {color};"
+        )
+        chip_layout.addWidget(count_label)
+
+        return {'frame': frame, 'count': count_label}
+
     def _load_tools(self):
         """Load tools configuration and populate tabs"""
         config_path = os.path.join(BASE_PATH, "configs", "tools_config.json")
@@ -272,17 +333,43 @@ class ToolsPickerWidget(QWidget):
             tools_config = {"image_processing": [], "video_processing": [], "others": []}
             self._tools_config_cache = {}
 
+        image_tools = tools_config.get("image_processing", [])
+        video_tools = tools_config.get("video_processing", [])
+        other_tools = tools_config.get("others", [])
+
         # Populate Image Processing and Video Processing tabs from config
-        self._populate_tab(self.image_processing_tab, tools_config.get("image_processing", []))
-        self._populate_tab(self.video_processing_tab, tools_config.get("video_processing", []))
-        
+        self._populate_tab(self.image_processing_tab, image_tools)
+        self._populate_tab(self.video_processing_tab, video_tools)
+
         # Populate Extensions tab dynamically from tools/extension directory
         extensions_path = os.path.join(BASE_PATH, "tools", "extension")
         extension_tools = self._load_extensions_from_directory(extensions_path)
         self._populate_tab(self.extensions_tab, extension_tools)
-        
+
         # Populate Others tab from config
-        self._populate_tab(self.others_tab, tools_config.get("others", []))
+        self._populate_tab(self.others_tab, other_tools)
+
+        # Update tab labels and stats with counts
+        self._update_counts(
+            image_count=len(image_tools),
+            video_count=len(video_tools),
+            extension_count=len(extension_tools),
+            other_count=len(other_tools),
+        )
+
+    def _update_counts(self, image_count, video_count, extension_count, other_count):
+        """Update tab labels and stats summary with tool counts"""
+        self.tab_widget.setTabText(0, f"Image Processing ({image_count})")
+        self.tab_widget.setTabText(1, f"Video Processing ({video_count})")
+        self.tab_widget.setTabText(2, f"Chrome Extensions ({extension_count})")
+        self.tab_widget.setTabText(3, f"Others ({other_count})")
+
+        total = image_count + video_count + extension_count + other_count
+        self.stat_total['count'].setText(str(total))
+        self.stat_image['count'].setText(str(image_count))
+        self.stat_video['count'].setText(str(video_count))
+        self.stat_extension['count'].setText(str(extension_count))
+        self.stat_other['count'].setText(str(other_count))
     
     def _load_extensions_from_directory(self, extensions_path):
         """Load extension tools from tools/extension directory"""
