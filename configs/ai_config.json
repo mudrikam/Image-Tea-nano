@@ -529,10 +529,10 @@
     },
     "settings": {
       "prompt_length": 200,
-      "prompts_per_file": 3,
+      "prompts_per_file": 1,
       "prompt_type": "image_generation",
       "aspect_ratio": "1:1",
-      "variation_level": 3,
+      "variation_level": 9,
       "custom_instruction": ""
     },
     "variation_levels": {

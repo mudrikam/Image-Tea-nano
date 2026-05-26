@@ -7,7 +7,8 @@ import traceback
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QProgressBar, QSplitter, QWidget, QSizePolicy, QApplication
+    QProgressBar, QSplitter, QWidget, QSizePolicy, QApplication, QCheckBox,
+    QComboBox, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QObject, Slot, QThread, QTimer
 from PySide6.QtGui import QIcon, QFont, QColor, QBrush
@@ -22,15 +23,56 @@ def stem_lower(name):
     return os.path.splitext(name)[0].lower()
 
 
-def get_missing_files(src_items, dst_items):
-    """Return source filenames that don't exist in destination by stem matching."""
+def get_file_size(filepath):
+    """Get file size in bytes."""
+    try:
+        return os.path.getsize(filepath)
+    except Exception:
+        return 0
+
+
+def get_missing_files(src_items, dst_items, src_folder='', dst_folder='', consider_size=False, consider_ext=None):
+    """Return source filenames that don't exist in destination by stem matching.
+    
+    Args:
+        src_items: Set of source filenames
+        dst_items: Set of destination filenames  
+        src_folder: Source folder path (needed for size comparison)
+        dst_folder: Destination folder path (needed for size comparison)
+        consider_size: If True, also compare file sizes
+        consider_ext: Dict of extension filters or None
+    """
     dst_stems = {stem_lower(n) for n in dst_items}
     missing = set()
+    
     for name in src_items:
+        src_path = os.path.join(src_folder, name) if src_folder else ''
+        src_size = get_file_size(src_path) if consider_size and src_folder else None
+        
         if name in dst_items:
+            if consider_size:
+                dst_path = os.path.join(dst_folder, name) if dst_folder else ''
+                dst_size = get_file_size(dst_path)
+                if src_size != dst_size:
+                    missing.add(name)
             continue
-        if stem_lower(name) in dst_stems:
+            
+        dst_matches = [f for f in dst_items if stem_lower(f) == stem_lower(name)]
+        if dst_matches:
+            if consider_size and dst_folder:
+                for dst_name in dst_matches:
+                    dst_path = os.path.join(dst_folder, dst_name)
+                    dst_size = get_file_size(dst_path)
+                    if src_size != dst_size:
+                        missing.add(name)
+                        break
             continue
+            
+        if consider_ext and consider_ext.get('enabled', False):
+            ext = os.path.splitext(name)[1].lower()
+            ext_list = consider_ext.get('extensions', [])
+            if ext_list and ext not in ext_list:
+                continue
         missing.add(name)
     return missing
 
@@ -240,6 +282,47 @@ class FolderComparatorDialog(QDialog):
 
         main_layout.addSpacing(4)
 
+        # Filter options row (above source)
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(12)
+
+        self.size_checkbox = QCheckBox("Consider File Size")
+        self.size_checkbox.setToolTip("Compare files by name and size")
+        filter_layout.addWidget(self.size_checkbox)
+
+        self.ext_checkbox = QCheckBox("Filter Extensions")
+        self.ext_checkbox.setToolTip("Only compare specific file extensions")
+        self.ext_checkbox.stateChanged.connect(self.on_ext_filter_toggled)
+        filter_layout.addWidget(self.ext_checkbox)
+
+        self.ext_combo = QComboBox()
+        self.ext_combo.setMinimumWidth(200)
+        self.ext_combo.setEnabled(False)
+        self.ext_combo.addItems([
+            ".jpg, .jpeg, .png, .gif, .bmp",
+            ".psd, .ai, .eps",
+            ".mp4, .avi, .mov, .mkv",
+            ".pdf, .docx, .xlsx",
+            ".mp3, .wav, .flac",
+            "Custom"
+        ])
+        filter_layout.addWidget(self.ext_combo)
+
+        filter_layout.addStretch()
+
+        # Clear and Rescan buttons (normal size like action sequencer)
+        self.rescan_button = QPushButton(qta.icon('fa6s.arrows-rotate'), " Rescan")
+        self.rescan_button.setToolTip("Rescan source and destination folders")
+        self.rescan_button.clicked.connect(self.on_rescan_clicked)
+        filter_layout.addWidget(self.rescan_button)
+
+        self.clear_button = QPushButton(qta.icon('fa6s.broom'), " Clear")
+        self.clear_button.setToolTip("Reset all fields")
+        self.clear_button.clicked.connect(self.on_clear_clicked)
+        filter_layout.addWidget(self.clear_button)
+
+        main_layout.addLayout(filter_layout)
+
         # Source path row
         src_layout = QHBoxLayout()
         src_layout.setSpacing(6)
@@ -397,7 +480,7 @@ class FolderComparatorDialog(QDialog):
         stats_layout.addStretch()
         main_layout.addLayout(stats_layout)
 
-        # Action row: progress + buttons
+        # Action row: progress + copy button
         action_layout = QHBoxLayout()
         action_layout.setSpacing(8)
 
@@ -409,21 +492,7 @@ class FolderComparatorDialog(QDialog):
         self.progress_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         action_layout.addWidget(self.progress_bar, 1)
 
-        self.clear_button = QPushButton(qta.icon('fa6s.broom'), " Clear")
-        self.clear_button.setMinimumHeight(40)
-        self.clear_button.setToolTip("Reset all fields")
-        self.clear_button.clicked.connect(self.on_clear_clicked)
-        action_layout.addWidget(self.clear_button)
-
-        self.rescan_button = QPushButton(qta.icon('fa6s.arrows-rotate'), " Rescan")
-        self.rescan_button.setMinimumHeight(40)
-        self.rescan_button.setToolTip("Rescan source and destination folders")
-        self.rescan_button.clicked.connect(self.on_rescan_clicked)
-        action_layout.addWidget(self.rescan_button)
-
         self.copy_button = QPushButton(qta.icon('fa6s.copy'), " COPY MISSING")
-        self.copy_button.setMinimumHeight(40)
-        self.copy_button.setMinimumWidth(180)
         self.copy_button.clicked.connect(self.on_copy_clicked)
         self._apply_copy_button_style()
         action_layout.addWidget(self.copy_button)
@@ -475,6 +544,9 @@ class FolderComparatorDialog(QDialog):
     def load_settings(self):
         src = self.config.get('source_path', '')
         dst = self.config.get('destination_path', '')
+        self.size_checkbox.setChecked(self.config.get('consider_size', False))
+        self.ext_checkbox.setChecked(self.config.get('ext_filter_enabled', False))
+        self.ext_combo.setEnabled(self.ext_checkbox.isChecked())
 
         if src and os.path.isdir(src):
             self.src_input.setText(src)
@@ -488,6 +560,20 @@ class FolderComparatorDialog(QDialog):
     def save_settings(self):
         self.config.set('source_path', self.src_input.text().strip())
         self.config.set('destination_path', self.dst_input.text().strip())
+        self.config.set('consider_size', self.size_checkbox.isChecked())
+        self.config.set('ext_filter_enabled', self.ext_checkbox.isChecked())
+
+    def on_ext_filter_toggled(self, state):
+        self.ext_combo.setEnabled(state == Qt.Checked)
+
+    def _get_ext_filter(self):
+        if not self.ext_checkbox.isChecked():
+            return None
+        ext_text = self.ext_combo.currentText()
+        if ext_text == "Custom":
+            return None
+        exts = [e.strip().lower() for e in ext_text.split(',')]
+        return {'enabled': True, 'extensions': set(exts)}
 
     # ---- file table helpers ----
 
@@ -533,7 +619,15 @@ class FolderComparatorDialog(QDialog):
     def _update_compare_stats(self):
         src_items = self._get_table_items(self.left_table)
         dst_items = self._get_table_items(self.right_table)
-        missing = get_missing_files(src_items, dst_items)
+        src_folder = self.src_input.text().strip()
+        dst_folder = self.dst_input.text().strip()
+        ext_filter = self._get_ext_filter()
+        missing = get_missing_files(
+            src_items, dst_items, 
+            src_folder, dst_folder,
+            self.size_checkbox.isChecked(),
+            ext_filter
+        )
         self.missing_label.setText(f"Missing: {len(missing)}")
 
         match_color = QColor(theme.get_color('success'))
@@ -684,7 +778,13 @@ class FolderComparatorDialog(QDialog):
 
         src_items = self._get_table_items(self.left_table)
         dst_items = self._get_table_items(self.right_table)
-        missing = sorted(list(get_missing_files(src_items, dst_items)))
+        ext_filter = self._get_ext_filter()
+        missing = sorted(list(get_missing_files(
+            src_items, dst_items,
+            src_folder, dst_folder,
+            self.size_checkbox.isChecked(),
+            ext_filter
+        )))
 
         if not missing:
             QMessageBox.information(self, "Nothing to copy", "No missing files to copy.")
