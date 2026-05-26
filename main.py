@@ -179,10 +179,7 @@ class ImageTeaMainWindow(QMainWindow):
     
     def _on_tool_selected(self, tool_id):
         """Handle tool selection from tools picker"""
-        # Switch back to normal mode
-        self.switch_to_normal()
-
-        # Open the selected tool
+        # Open the selected tool (stay in tools_picker mode, user can click 'Back to Metadata Generator' manually)
         tool_handlers = {
             "image_upscaler": self._open_image_upscaler,
             "image_overlay_maker": self._open_image_overlay_maker,
