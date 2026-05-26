@@ -19,11 +19,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PIL import Image
 import itertools
-from PySide6.QtGui import QIcon, QFont, QPainter, QColor, QPalette
+from PySide6.QtGui import QIcon, QFont, QPainter, QColor, QPalette, QDragEnterEvent, QDropEvent
 import qtawesome as qta
 import traceback
 
 from ui.theme_system import theme
+from ui.DragDropPathMixin import DragDropPathMixin
 
 class FileDropListWidget(QListWidget):
     files_dropped = Signal(list)
@@ -2505,6 +2506,9 @@ class VideoUpscalerDialog(QDialog):
         self.output_edit.setMinimumWidth(0)
         self.output_edit.textChanged.connect(self._on_output_text_changed)
         self.output_edit.editingFinished.connect(self._save_config)
+        self.output_edit.setAcceptDrops(True)
+        self.output_edit.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.output_edit)
+        self.output_edit.dropEvent = DragDropPathMixin.make_drop_handler(self.output_edit, 'output', self._on_output_dropped)
         output_layout.addWidget(self.output_edit, 1)
         
         self.btn_browse_output = QPushButton(qta.icon('fa6s.folder'), "")
@@ -2822,6 +2826,12 @@ class VideoUpscalerDialog(QDialog):
             self.output_edit.setText(folder)
             self.output_dir = folder
             self._save_config()
+
+    def _on_output_dropped(self, path):
+        """Handle folder dropped onto output field."""
+        self._last_dir = path
+        self.output_dir = path
+        self._save_config()
 
     def paste_output(self):
         clipboard = QApplication.clipboard()

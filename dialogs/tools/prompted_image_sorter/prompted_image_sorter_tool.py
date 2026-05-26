@@ -10,11 +10,12 @@ from PySide6.QtWidgets import (
     QCheckBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QSize, QTimer
-from PySide6.QtGui import QIcon, QColor, QShowEvent
+from PySide6.QtGui import QIcon, QColor, QShowEvent, QDragEnterEvent, QDropEvent
 import qtawesome as qta
 from config import BASE_PATH
 from ui.api_key_section import ApiKeySectionWidget
 from ui.theme_system import theme
+from ui.DragDropPathMixin import DragDropPathMixin
 from .prompted_image_sorter_table_widget import PromptedImageSorterTableWidget
 from .prompted_image_sorter_preview_widget import PromptedImageSorterPreviewWidget
 from .prompted_image_sorter_stats_widget import PromptedImageSorterStatsWidget
@@ -106,6 +107,9 @@ class PromptedImageSorterTool(QDialog):
 
         self.source_path_input = QLineEdit()
         self.source_path_input.setPlaceholderText("Select source folder containing images...")
+        self.source_path_input.setAcceptDrops(True)
+        self.source_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.source_path_input)
+        self.source_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.source_path_input, 'source', self._on_source_dropped)
         source_layout.addWidget(self.source_path_input, 1)
 
         self.source_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -143,6 +147,9 @@ class PromptedImageSorterTool(QDialog):
 
         self.output_path_input = QLineEdit()
         self.output_path_input.setPlaceholderText("Select output folder for sorted images...")
+        self.output_path_input.setAcceptDrops(True)
+        self.output_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.output_path_input)
+        self.output_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.output_path_input, 'output', self._on_output_dropped)
         output_layout.addWidget(self.output_path_input, 1)
 
         self.output_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -588,6 +595,16 @@ class PromptedImageSorterTool(QDialog):
         path = self._sanitize_path_text(self.output_path_input.text())
         if path and os.path.exists(path):
             os.startfile(path)
+
+    def _on_source_dropped(self, path):
+        """Handle folder dropped onto source field."""
+        self.source_path_input.setText(path)
+        self._on_path_changed()
+
+    def _on_output_dropped(self, path):
+        """Handle folder dropped onto output field."""
+        self.output_path_input.setText(path)
+        self._on_path_changed()
 
     def on_new_folder(self):
         """Open dialog to create a new sorting folder."""

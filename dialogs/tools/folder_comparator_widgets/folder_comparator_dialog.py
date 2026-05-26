@@ -16,6 +16,7 @@ import qtawesome as qta
 
 from config import BASE_PATH
 from ui.theme_system import theme
+from ui.DragDropPathMixin import DragDropPathMixin
 from helpers.tools.folder_comparator_helper.folder_comparator_config_helper import FolderComparatorConfig
 
 
@@ -339,6 +340,9 @@ class FolderComparatorDialog(QDialog):
         self.src_input = QLineEdit()
         self.src_input.setPlaceholderText("Drop or select source folder...")
         self.src_input.editingFinished.connect(self.on_src_edited)
+        self.src_input.setAcceptDrops(True)
+        self.src_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.src_input)
+        self.src_input.dropEvent = DragDropPathMixin.make_drop_handler(self.src_input, 'folder', self._set_src)
         src_layout.addWidget(self.src_input, 1)
 
         self.src_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -383,6 +387,9 @@ class FolderComparatorDialog(QDialog):
         self.dst_input = QLineEdit()
         self.dst_input.setPlaceholderText("Drop or select destination folder...")
         self.dst_input.editingFinished.connect(self.on_dst_edited)
+        self.dst_input.setAcceptDrops(True)
+        self.dst_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.dst_input)
+        self.dst_input.dropEvent = DragDropPathMixin.make_drop_handler(self.dst_input, 'folder', self._set_dst)
         dst_layout.addWidget(self.dst_input, 1)
 
         self.dst_paste_button = QPushButton(qta.icon('fa6s.paste'), "")

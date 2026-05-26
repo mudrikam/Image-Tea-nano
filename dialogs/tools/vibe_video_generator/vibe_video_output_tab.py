@@ -5,9 +5,11 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QGroupBox, QComboBox, QCheckBox, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QClipboard
+from PySide6.QtGui import QClipboard, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
 import qtawesome as qta
+
+from ui.DragDropPathMixin import DragDropPathMixin
 
 WINDOWS_RESERVED_NAMES = {'CON', 'PRN', 'AUX', 'NUL',
                           'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
@@ -87,9 +89,12 @@ class OutputTabWidget(QWidget):
         output_path_layout.addWidget(output_label)
 
         self.output_path_input = QLineEdit()
-        self.output_path_input.setPlaceholderText('Select output folder...')
+        self.output_path_input.setPlaceholderText("Select output folder...")
         self.output_path_input.setToolTip("Folder where the rendered video will be saved.")
         self.output_path_input.editingFinished.connect(self.on_output_edited)
+        self.output_path_input.setAcceptDrops(True)
+        self.output_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.output_path_input)
+        self.output_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.output_path_input, 'output', self.on_output_dropped)
         output_path_layout.addWidget(self.output_path_input, 1)
 
         self.output_paste_button = QPushButton(qta.icon('fa6s.paste'), '')
@@ -227,6 +232,12 @@ class OutputTabWidget(QWidget):
             self.output_path = folder
             self.output_path_input.setText(folder)
             self.output_path_changed.emit(folder)
+
+    def on_output_dropped(self, path):
+        """Handle folder dropped onto output field."""
+        self.output_path = path
+        self.output_path_input.setText(path)
+        self.output_path_changed.emit(path)
 
     def on_open_output(self):
         path = self.output_path_input.text()

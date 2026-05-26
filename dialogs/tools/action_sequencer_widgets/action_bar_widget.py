@@ -1,11 +1,13 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QApplication, QMessageBox
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 import qtawesome as qta
 import os
 import subprocess
 import platform
 
 from ui.theme_system import theme
+from ui.DragDropPathMixin import DragDropPathMixin
 
 
 class ActionBarWidget(QWidget):
@@ -73,6 +75,9 @@ class ActionBarWidget(QWidget):
         self.source_path_input.setPlaceholderText("Select source folder...")
         self.source_path_input.setReadOnly(False)
         self.source_path_input.editingFinished.connect(self.on_source_edited)
+        self.source_path_input.setAcceptDrops(True)
+        self.source_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.source_path_input)
+        self.source_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.source_path_input, 'source', self._on_source_dropped)
         source_layout.addWidget(self.source_path_input, 1)
         
         self.source_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -108,6 +113,9 @@ class ActionBarWidget(QWidget):
         self.file_path_input.setPlaceholderText("Select file...")
         self.file_path_input.setReadOnly(False)
         self.file_path_input.editingFinished.connect(self.on_file_edited)
+        self.file_path_input.setAcceptDrops(True)
+        self.file_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.file_path_input)
+        self.file_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.file_path_input, 'file', self._on_file_dropped)
         file_layout.addWidget(self.file_path_input, 1)
         
         self.file_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -149,6 +157,9 @@ class ActionBarWidget(QWidget):
         self.output_path_input.setPlaceholderText("Select output folder...")
         self.output_path_input.setReadOnly(False)
         self.output_path_input.editingFinished.connect(self.on_output_edited)
+        self.output_path_input.setAcceptDrops(True)
+        self.output_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.output_path_input)
+        self.output_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.output_path_input, 'output', self._on_output_dropped)
         output_layout.addWidget(self.output_path_input, 1)
         
         self.output_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -250,6 +261,25 @@ class ActionBarWidget(QWidget):
             self.output_path_input.setText(sanitized)
             self.output_path = sanitized
             self.output_path_changed.emit(sanitized)
+
+    def _on_source_dropped(self, path):
+        """Handle folder dropped onto source field."""
+        self.source_path = path
+        self.source_path_changed.emit(path)
+        self.clear_source_button.setEnabled(bool(path or getattr(self, 'selected_file', '')))
+
+    def _on_file_dropped(self, path):
+        """Handle file dropped onto file field."""
+        self.selected_file = self._sanitize_path_text(path)
+        self.file_path_input.setText(self.selected_file)
+        self.file_path_changed.emit(self.selected_file)
+        self.clear_source_button.setEnabled(bool(self.source_path_input.text() or self.selected_file))
+
+    def _on_output_dropped(self, path):
+        """Handle folder dropped onto output field."""
+        self.output_path = path
+        self.output_path_input.setText(path)
+        self.output_path_changed.emit(path)
     
     def on_open_source(self):
         path = self._sanitize_path_text(self.source_path_input.text())

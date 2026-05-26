@@ -3,13 +3,14 @@ import json
 from pathlib import Path
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFileDialog, QWidget, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QPushButton, QLineEdit, QProgressBar, QSizePolicy, QSpinBox
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QIcon, QFont, QColor
+from PySide6.QtGui import QIcon, QFont, QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
 import subprocess
 import qtawesome as qta
 from ui.theme_system import theme
+from ui.DragDropPathMixin import DragDropPathMixin
 from helpers.tools.psd_to_img_helper.psd_to_img_config_helper import PSDToIMGConfig
 
 
@@ -198,6 +199,9 @@ class PSDToIMGDialog(QDialog):
         self.source_path_input = QLineEdit()
         self.source_path_input.setPlaceholderText("Select source folder or PSD file...")
         self.source_path_input.editingFinished.connect(self.on_source_edited)
+        self.source_path_input.setAcceptDrops(True)
+        self.source_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.source_path_input)
+        self.source_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.source_path_input, 'source', self.on_source_dropped)
         path_layout.addWidget(self.source_path_input, 1)
 
         self.source_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -235,6 +239,9 @@ class PSDToIMGDialog(QDialog):
         self.output_path_input = QLineEdit()
         self.output_path_input.setPlaceholderText("Select output folder...")
         self.output_path_input.editingFinished.connect(self.on_output_edited)
+        self.output_path_input.setAcceptDrops(True)
+        self.output_path_input.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.output_path_input)
+        self.output_path_input.dropEvent = DragDropPathMixin.make_drop_handler(self.output_path_input, 'output', self.on_output_dropped)
         output_layout.addWidget(self.output_path_input, 1)
 
         self.output_paste_button = QPushButton(qta.icon('fa6s.paste'), "")
@@ -480,6 +487,28 @@ class PSDToIMGDialog(QDialog):
             self.update_stats()
         else:
             QMessageBox.information(self, "No PSD Files", f"No PSD files found in:\n{path}")
+
+    def on_source_dropped(self, path):
+        """Handle folder dropped onto source field."""
+        self.loaded_files = []
+        if os.path.isfile(path) and path.lower().endswith('.psd'):
+            self.loaded_files = [path]
+            self.source_path_input.setText(path)
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                for f in files:
+                    if f.lower().endswith('.psd'):
+                        self.loaded_files.append(os.path.join(root, f))
+            if self.loaded_files:
+                self.source_path_input.setText(path)
+            else:
+                QMessageBox.information(self, "No PSD Files", f"No PSD files found in:\n{path}")
+        self.update_files_table()
+        self.update_stats()
+
+    def on_output_dropped(self, path):
+        """Handle folder dropped onto output field."""
+        self.save_settings()
 
     def on_browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", os.path.expanduser('~'))
