@@ -76,6 +76,7 @@ MENU_TOOLTIPS = {
     "pngtree_zipper": "Zip asset files to submit to Pngtree",
     "holiday_calendar": "Browse and search microstock-relevant holidays by country and date",
     "image_overlay_maker": "Apply overlay images to multiple images in batch",
+    "psd_to_img": "Convert PSD files to common image formats (JPG, PNG, etc.)",
     
     # Help menu
     "about": "View application information and credits",
@@ -1282,12 +1283,26 @@ def setup_main_menu(window):
         window._image_overlay_maker_dialog.activateWindow()
     image_overlay_maker_action.triggered.connect(open_image_overlay_maker)
 
+    psd_to_img_action = QAction(qta.icon('fa6s.file-image'), "PSD to IMG", window)
+    psd_to_img_action.setToolTip(MENU_TOOLTIPS["psd_to_img"])
+    psd_to_img_action.setStatusTip(MENU_TOOLTIPS["psd_to_img"])
+    def open_psd_to_img():
+        from dialogs.tools.psd_to_img_widgets.psd_to_img_dialog import PSDToIMGDialog
+        if not hasattr(window, '_psd_to_img_dialog') or not window._psd_to_img_dialog:
+            window._psd_to_img_dialog = PSDToIMGDialog(None)
+            window._psd_to_img_dialog.destroyed.connect(lambda: setattr(window, '_psd_to_img_dialog', None))
+        window._psd_to_img_dialog.show()
+        window._psd_to_img_dialog.raise_()
+        window._psd_to_img_dialog.activateWindow()
+    psd_to_img_action.triggered.connect(open_psd_to_img)
+
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
     tools_menu.addAction(prompted_image_sorter_action)
     tools_menu.addAction(video_upscaler_action)
     tools_menu.addAction(image_upscaler_action)
+    tools_menu.addAction(psd_to_img_action)
     tools_menu.addAction(vibe_video_generator_action)
     tools_menu.addAction(holiday_calendar_action)
     tools_menu.addAction(image_overlay_maker_action)

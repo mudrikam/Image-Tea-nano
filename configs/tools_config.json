@@ -50,6 +50,13 @@
       "color": "#E91E63"
     },
     {
+      "id": "psd_to_img",
+      "name": "PSD to IMG",
+      "description": "Convert Photoshop PSD files to common image formats (JPG, PNG, BMP, TIFF, WEBP)",
+      "icon": "fa6s.file-image",
+      "color": "#00BCD4"
+    },
+    {
       "id": "holiday_calendar",
       "name": "Microstock Holiday Calendar",
       "description": "View microstock platform holiday schedules and submission deadlines",
@@ -150,6 +157,7 @@
     "prompt_injector": "documentation/lang_EN/3. Additional Tools/2. prompt_injector_tool.md",
     "prompted_image_sorter": "documentation/lang_EN/3. Additional Tools/3. prompted_image_sorter_tool.md",
     "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md",
-    "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md"
+    "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md",
+    "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md"
   }
 }

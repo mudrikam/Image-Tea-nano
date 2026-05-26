@@ -195,7 +195,8 @@ class ImageTeaMainWindow(QMainWindow):
             "prompt_injector": self._open_prompt_injector,
             "envato_elements": self._open_envato_elements,
             "pngtree_zipper": self._open_pngtree_zipper,
-            "holiday_calendar": self._open_holiday_calendar
+            "holiday_calendar": self._open_holiday_calendar,
+            "psd_to_img": self._open_psd_to_img
         }
         
         handler = tool_handlers.get(tool_id)
@@ -302,6 +303,15 @@ class ImageTeaMainWindow(QMainWindow):
         self._action_sequencer_dialog.show()
         self._action_sequencer_dialog.raise_()
         self._action_sequencer_dialog.activateWindow()
+
+    def _open_psd_to_img(self):
+        from dialogs.tools.psd_to_img_widgets.psd_to_img_dialog import PSDToIMGDialog
+        if not hasattr(self, '_psd_to_img_dialog') or not self._psd_to_img_dialog:
+            self._psd_to_img_dialog = PSDToIMGDialog(None)
+            self._psd_to_img_dialog.destroyed.connect(lambda: setattr(self, '_psd_to_img_dialog', None))
+        self._psd_to_img_dialog.show()
+        self._psd_to_img_dialog.raise_()
+        self._psd_to_img_dialog.activateWindow()
     
     def _open_prompt_generator(self):
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
@@ -406,6 +416,12 @@ class ImageTeaMainWindow(QMainWindow):
                 if self._prompted_image_sorter_dialog.worker.isRunning():
                     running_tools.append("Prompted Image Sorter")
         
+        # Check PSD to IMG
+        if hasattr(self, '_psd_to_img_dialog') and self._psd_to_img_dialog:
+            if hasattr(self._psd_to_img_dialog, 'worker_thread') and self._psd_to_img_dialog.worker_thread:
+                if self._psd_to_img_dialog.worker_thread.isRunning():
+                    running_tools.append("PSD to IMG")
+        
         # If any tools are running, show confirmation dialog
         if running_tools:
             from PySide6.QtWidgets import QMessageBox
@@ -451,6 +467,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._batch_audio_remover_dialog.close()
         if hasattr(self, '_prompt_generator_dialog') and self._prompt_generator_dialog:
             self._prompt_generator_dialog.close()
+        if hasattr(self, '_psd_to_img_dialog') and self._psd_to_img_dialog:
+            self._psd_to_img_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:
