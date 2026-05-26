@@ -9,7 +9,8 @@ class PSDToIMGConfig:
         self.default_config = {
             'output_path': '',
             'output_format': 'PNG',
-            'quality': 90
+            'quality': 90,
+            'dpi': 300
         }
         self.config = self.load()
     

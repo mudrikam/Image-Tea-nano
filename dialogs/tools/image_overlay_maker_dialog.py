@@ -226,18 +226,6 @@ class ImageOverlayMakerDialog(QDialog):
         # Stats and action buttons
         self._build_actions_bar(main_layout)
         
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(True)
-        main_layout.addWidget(self.progress_bar)
-        
-        # Status label
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 11px;")
-        self.status_label.setVisible(False)
-        main_layout.addWidget(self.status_label)
-        
         self.setLayout(main_layout)
     
     def _build_file_inputs(self, parent_layout):
@@ -411,29 +399,39 @@ class ImageOverlayMakerDialog(QDialog):
     
     def _build_actions_bar(self, parent_layout):
         """Build actions bar with stats on left and process button on right"""
-        actions_layout = QHBoxLayout()
-        actions_layout.setSpacing(8)
-        
-        # Stats widget on the left
-        stats_widget = QWidget()
-        stats_layout = QVBoxLayout(stats_widget)
-        stats_layout.setContentsMargins(0, 0, 0, 0)
-        stats_layout.setSpacing(2)
+        # Stats row
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(16)
         
         self.files_count_label = QLabel("Files: 0")
-        self.files_count_label.setStyleSheet("font-size: 11px;")
+        self.files_count_label.setStyleSheet("font-size: 11px; font-weight: bold;")
         stats_layout.addWidget(self.files_count_label)
         
         self.ready_label = QLabel("Ready to process")
         self.ready_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; font-size: 11px;")
         stats_layout.addWidget(self.ready_label)
         
-        actions_layout.addWidget(stats_widget)
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 11px;")
+        stats_layout.addWidget(self.status_label)
         
-        # Spacer to push button to the right
-        actions_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        stats_layout.addStretch()
         
-        # Process button on the right
+        parent_layout.addLayout(stats_layout)
+        
+        # Progress bar and button layout
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setMaximumHeight(20)
+        self.progress_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button_layout.addWidget(self.progress_bar, 1)
+        
         self.process_btn = QPushButton(qta.icon('fa6s.play', color=theme.get_color('white')), " Process Images")
         self.process_btn.setMinimumHeight(40)
         self.process_btn.setMinimumWidth(180)
@@ -459,9 +457,9 @@ class ImageOverlayMakerDialog(QDialog):
                 background-color: {theme.get_color('gray')};
             }}
         """)
-        actions_layout.addWidget(self.process_btn)
+        button_layout.addWidget(self.process_btn)
         
-        parent_layout.addLayout(actions_layout)
+        parent_layout.addLayout(button_layout)
     
     def browse_folder(self):
         """Browse and select a folder to load all images"""
@@ -784,9 +782,7 @@ class ImageOverlayMakerDialog(QDialog):
         self.is_processing = True
         self.process_btn.setText(" Stop Processing")
         self.process_btn.setIcon(qta.icon('fa6s.stop', color=theme.get_color('white')))
-        self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.status_label.setVisible(True)
         self.status_label.setText("Starting...")
         self.ready_label.setText("Processing...")
         
@@ -818,8 +814,7 @@ class ImageOverlayMakerDialog(QDialog):
     def on_processing_finished(self, output_dir):
         """Handle processing completion"""
         self.is_processing = False
-        self.progress_bar.setVisible(False)
-        self.status_label.setVisible(False)
+        self.progress_bar.setValue(100)
         self.process_btn.setText(" Process Images")
         self.process_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
         self.ready_label.setText("Processing complete!")
@@ -842,8 +837,7 @@ class ImageOverlayMakerDialog(QDialog):
     def on_processing_error(self, error_message):
         """Handle processing error"""
         self.is_processing = False
-        self.progress_bar.setVisible(False)
-        self.status_label.setVisible(False)
+        self.progress_bar.setValue(0)
         self.process_btn.setText(" Process Images")
         self.process_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
         self.ready_label.setText("Error occurred")

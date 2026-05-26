@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFileDialog, QWidget, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QPushButton, QLineEdit, QProgressBar, QSizePolicy
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QFileDialog, QWidget, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QPushButton, QLineEdit, QProgressBar, QSizePolicy, QSpinBox
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIcon, QFont, QColor
 from PySide6.QtWidgets import QApplication
@@ -19,12 +19,13 @@ class PSDWorkerThread(QThread):
     completed = Signal(int, int)
     error_occurred = Signal(str)
 
-    def __init__(self, files, output_path, output_format, quality, db):
+    def __init__(self, files, output_path, output_format, quality, dpi, db):
         super().__init__()
         self.files = files
         self.output_path = output_path
         self.output_format = output_format
         self.quality = quality
+        self.dpi = dpi
         self.db = db
         self.should_stop = False
 
@@ -70,7 +71,9 @@ class PSDWorkerThread(QThread):
                 if self.quality > 0:
                     save_kwargs['quality'] = self.quality
                 save_kwargs['optimize'] = True
-
+            if self.dpi > 0:
+                save_kwargs['dpi'] = (self.dpi, self.dpi)
+            
             output_ext = 'jpeg' if self.output_format.lower() in ['jpg', 'jpeg'] else self.output_format.lower()
             rgb_img.save(output_file, format=output_ext.upper(), **save_kwargs)
             return True
@@ -101,31 +104,37 @@ class PSDToIMGDialog(QDialog):
         self.setup_ui()
         self.load_settings()
         self.resize(700, 600)
-
+    
     def load_settings(self):
         output_path = self.config.get('output_path', '')
         output_format = self.config.get('output_format', 'PNG')
         quality = self.config.get('quality', 90)
-
+        dpi = self.config.get('dpi', 300)
+        
         self.format_combo.blockSignals(True)
         self.quality_slider.blockSignals(True)
+        self.dpi_spin.blockSignals(True)
         try:
             if output_path:
                 self.output_path_input.setText(output_path)
-
+            
             self.format_combo.setCurrentText(output_format)
             self.quality_slider.setEnabled(output_format.upper() in ['JPG', 'JPEG'])
-
+            
             self.quality_slider.setValue(quality)
             self.quality_label.setText(str(quality))
+            
+            self.dpi_spin.setValue(dpi)
         finally:
             self.format_combo.blockSignals(False)
             self.quality_slider.blockSignals(False)
+            self.dpi_spin.blockSignals(False)
 
     def save_settings(self):
         self.config.set('output_path', self.output_path_input.text())
         self.config.set('output_format', self.format_combo.currentText())
         self.config.set('quality', self.quality_slider.value())
+        self.config.set('dpi', self.dpi_spin.value())
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
@@ -169,16 +178,9 @@ class PSDToIMGDialog(QDialog):
         self.clear_all_button = QPushButton(qta.icon('fa6s.trash-can'), " Clear All")
         self.clear_all_button.clicked.connect(self.on_clear_all)
         toolbar_layout.addWidget(self.clear_all_button)
-
+        
         toolbar_layout.addStretch()
-
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(['PNG', 'JPG', 'BMP', 'TIFF', 'WEBP'])
-        self.format_combo.setCurrentText('PNG')
-        self.format_combo.setMinimumWidth(100)
-        toolbar_layout.addWidget(QLabel("Output Format:"))
-        toolbar_layout.addWidget(self.format_combo)
-
+        
         main_layout.addLayout(toolbar_layout)
 
         path_layout = QHBoxLayout()
@@ -254,25 +256,48 @@ class PSDToIMGDialog(QDialog):
         output_layout.addWidget(self.output_open_button)
 
         main_layout.addLayout(output_layout)
-
-        quality_layout = QHBoxLayout()
+        
+        options_layout = QHBoxLayout()
+        options_layout.setSpacing(16)
+        
+        # Format
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(['PNG', 'JPG', 'BMP', 'TIFF', 'WEBP'])
+        self.format_combo.setCurrentText('PNG')
+        self.format_combo.setMinimumWidth(100)
+        options_layout.addWidget(QLabel("Output Format:"))
+        options_layout.addWidget(self.format_combo)
+        
+        # Quality
         quality_label = QLabel("Quality (JPG only):")
-        quality_layout.addWidget(quality_label)
-
+        options_layout.addWidget(quality_label)
+        
         self.quality_slider = QSlider(Qt.Horizontal)
         self.quality_slider.setMinimum(1)
         self.quality_slider.setMaximum(100)
         self.quality_slider.setMaximumWidth(150)
         self.quality_slider.setEnabled(False)
         self.quality_slider.valueChanged.connect(self.on_quality_changed)
-        quality_layout.addWidget(self.quality_slider)
-
+        options_layout.addWidget(self.quality_slider)
+        
         self.quality_label = QLabel("90")
-        quality_layout.addWidget(self.quality_label)
-        quality_layout.addStretch()
-
-        main_layout.addLayout(quality_layout)
-
+        options_layout.addWidget(self.quality_label)
+        
+        # DPI
+        dpi_label = QLabel("DPI:")
+        options_layout.addWidget(dpi_label)
+        
+        self.dpi_spin = QSpinBox()
+        self.dpi_spin.setMinimum(1)
+        self.dpi_spin.setMaximum(1200)
+        self.dpi_spin.setValue(300)
+        self.dpi_spin.setMaximumWidth(80)
+        options_layout.addWidget(self.dpi_spin)
+        
+        options_layout.addStretch()
+        
+        main_layout.addLayout(options_layout)
+        
         self.format_combo.currentTextChanged.connect(self.on_format_changed)
 
         files_label = QLabel("Loaded Files:")
@@ -386,26 +411,41 @@ class PSDToIMGDialog(QDialog):
 
     def on_browse_source(self):
         home_dir = os.path.expanduser('~')
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select PSD File", home_dir, "PSD Files (*.psd);;All Files (*.*)"
-        )
-        if file_path:
-            self.loaded_files = [file_path]
-            self.source_path_input.setText(file_path)
-            self.update_files_table()
-            self.update_stats()
+        folder = QFileDialog.getExistingDirectory(self, "Select Source Folder", home_dir)
+        if folder:
+            self.loaded_files = []
+            for root, dirs, files in os.walk(folder):
+                for f in files:
+                    if f.lower().endswith('.psd'):
+                        self.loaded_files.append(os.path.join(root, f))
+            if self.loaded_files:
+                self.source_path_input.setText(folder)
+                self.update_files_table()
+                self.update_stats()
+            else:
+                QMessageBox.information(self, "No PSD Files", f"No PSD files found in:\n{folder}")
 
     def on_paste_source(self):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         if text and os.path.exists(text):
-            if text.lower().endswith('.psd'):
+            self.loaded_files = []
+            if os.path.isfile(text) and text.lower().endswith('.psd'):
                 self.loaded_files = [text]
+            elif os.path.isdir(text):
+                for root, dirs, files in os.walk(text):
+                    for f in files:
+                        if f.lower().endswith('.psd'):
+                            self.loaded_files.append(os.path.join(root, f))
+            
+            if self.loaded_files:
                 self.source_path_input.setText(text)
                 self.update_files_table()
                 self.update_stats()
+            elif os.path.isdir(text):
+                QMessageBox.information(self, "No PSD Files", f"No PSD files found in:\n{text}")
             else:
-                QMessageBox.warning(self, "Invalid File", "The pasted path is not a PSD file.")
+                QMessageBox.warning(self, "Invalid File", "The pasted path is not a PSD file or folder.")
 
     def on_open_source(self):
         path = self.source_path_input.text()
@@ -423,10 +463,23 @@ class PSDToIMGDialog(QDialog):
 
     def on_source_edited(self):
         path = self.source_path_input.text().strip()
-        if path and os.path.exists(path) and path.lower().endswith('.psd'):
+        if not path or not os.path.exists(path):
+            return
+        
+        self.loaded_files = []
+        if os.path.isfile(path) and path.lower().endswith('.psd'):
             self.loaded_files = [path]
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                for f in files:
+                    if f.lower().endswith('.psd'):
+                        self.loaded_files.append(os.path.join(root, f))
+        
+        if self.loaded_files:
             self.update_files_table()
             self.update_stats()
+        else:
+            QMessageBox.information(self, "No PSD Files", f"No PSD files found in:\n{path}")
 
     def on_browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", os.path.expanduser('~'))
@@ -495,13 +548,14 @@ class PSDToIMGDialog(QDialog):
 
         output_format = self.format_combo.currentText()
         quality = self.quality_slider.value() if self.quality_slider.isEnabled() else 90
-
+        dpi = self.dpi_spin.value()
+        
         self.convert_button.setEnabled(False)
         self.status_label.setText("Status: Converting...")
         self.progress_bar.setValue(0)
-
+        
         self.worker_thread = PSDWorkerThread(
-            self.loaded_files, output_path, output_format, quality, self.db
+            self.loaded_files, output_path, output_format, quality, dpi, self.db
         )
         self.worker_thread.progress_updated.connect(self.on_progress_updated)
         self.worker_thread.status_updated.connect(self.on_status_updated)
