@@ -57,6 +57,13 @@
       "color": "#00BCD4"
     },
     {
+      "id": "batch_image_resizer",
+      "name": "Batch Image Resizer",
+      "description": "Resize multiple images to specific dimensions in batch",
+      "icon": "fa6s.crop",
+      "color": "#2196F3"
+    },
+    {
       "id": "holiday_calendar",
       "name": "Microstock Holiday Calendar",
       "description": "View microstock platform holiday schedules and submission deadlines",
@@ -108,7 +115,7 @@
       "name": "Background Remover",
       "description": "Remove image backgrounds using AI (external tool)",
       "icon": "fa6s.eraser",
-      "color": "#795548",
+      "color": "#2196F3",
       "url": "https://lynk.id/desainiajob/px5yyovk31pr"
     },
     {
@@ -166,6 +173,7 @@
     "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md",
     "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md",
     "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md",
-    "folder_comparator": "documentation/lang_EN/3. Additional Tools/14. folder_comparator_tool.md"
+    "folder_comparator": "documentation/lang_EN/3. Additional Tools/14. folder_comparator_tool.md",
+    "batch_image_resizer": "documentation/lang_EN/3. Additional Tools/15. batch_image_resizer_tool.md"
   }
 }

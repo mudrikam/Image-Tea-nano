@@ -181,7 +181,7 @@ class ImageTeaMainWindow(QMainWindow):
         """Handle tool selection from tools picker"""
         # Switch back to normal mode
         self.switch_to_normal()
-        
+
         # Open the selected tool
         tool_handlers = {
             "image_upscaler": self._open_image_upscaler,
@@ -197,9 +197,10 @@ class ImageTeaMainWindow(QMainWindow):
             "pngtree_zipper": self._open_pngtree_zipper,
             "holiday_calendar": self._open_holiday_calendar,
             "psd_to_img": self._open_psd_to_img,
-            "folder_comparator": self._open_folder_comparator
+            "folder_comparator": self._open_folder_comparator,
+            "batch_image_resizer": self._open_batch_image_resizer
         }
-        
+
         handler = tool_handlers.get(tool_id)
         if handler:
             handler()
@@ -322,6 +323,15 @@ class ImageTeaMainWindow(QMainWindow):
         self._folder_comparator_dialog.show()
         self._folder_comparator_dialog.raise_()
         self._folder_comparator_dialog.activateWindow()
+
+    def _open_batch_image_resizer(self):
+        from dialogs.tools.batch_image_resizer_dialog import BatchImageResizerDialog
+        if not hasattr(self, '_batch_image_resizer_dialog') or not self._batch_image_resizer_dialog:
+            self._batch_image_resizer_dialog = BatchImageResizerDialog(None)
+            self._batch_image_resizer_dialog.destroyed.connect(lambda: setattr(self, '_batch_image_resizer_dialog', None))
+        self._batch_image_resizer_dialog.show()
+        self._batch_image_resizer_dialog.raise_()
+        self._batch_image_resizer_dialog.activateWindow()
     
     def _open_prompt_generator(self):
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
@@ -426,7 +436,7 @@ class ImageTeaMainWindow(QMainWindow):
                 if self._prompted_image_sorter_dialog.worker.isRunning():
                     running_tools.append("Prompted Image Sorter")
         
-        # Check PSD to IMG
+# Check PSD to IMG
         if hasattr(self, '_psd_to_img_dialog') and self._psd_to_img_dialog:
             if hasattr(self._psd_to_img_dialog, 'worker_thread') and self._psd_to_img_dialog.worker_thread:
                 if self._psd_to_img_dialog.worker_thread.isRunning():
@@ -437,7 +447,13 @@ class ImageTeaMainWindow(QMainWindow):
             if hasattr(self._folder_comparator_dialog, 'controller') and self._folder_comparator_dialog.controller:
                 if self._folder_comparator_dialog.controller.is_running():
                     running_tools.append("Folder Comparator")
-        
+
+        # Check Batch Image Resizer
+        if hasattr(self, '_batch_image_resizer_dialog') and self._batch_image_resizer_dialog:
+            if hasattr(self._batch_image_resizer_dialog, 'worker_thread') and self._batch_image_resizer_dialog.worker_thread:
+                if self._batch_image_resizer_dialog.worker_thread.isRunning():
+                    running_tools.append("Batch Image Resizer")
+
         # If any tools are running, show confirmation dialog
         if running_tools:
             from PySide6.QtWidgets import QMessageBox
@@ -487,6 +503,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._psd_to_img_dialog.close()
         if hasattr(self, '_folder_comparator_dialog') and self._folder_comparator_dialog:
             self._folder_comparator_dialog.close()
+        if hasattr(self, '_batch_image_resizer_dialog') and self._batch_image_resizer_dialog:
+            self._batch_image_resizer_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:
