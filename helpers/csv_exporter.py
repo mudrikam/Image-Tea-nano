@@ -14,7 +14,7 @@ def _sanitize_text_for_csv(text):
     return sanitized
 
 SHARED_FORMATS = {
-    "Freepik": {
+    "Magnific": {
         "delimiter": ";",
         "header": ['File name', 'Title', 'Keywords', 'Prompt', 'Model'],
         "fields": ['filename', 'title', 'keywords', 'prompt', 'model'],
@@ -152,7 +152,7 @@ def generate_export_filename(base_name, output_path):
         print(f"[csv_exporter] generate_export_filename error: {e}")
         raise
 
-def _freepik_format(file):
+def _magnific_format(file):
     return {
         'filename': file[2],
         'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
@@ -358,25 +358,25 @@ def export_csv_for_platforms(platforms, output_path=None, progress_callback=None
     category_mapping = db.get_category_mapping()
 
 
-    if "Freepik" in platforms and output_path:
-        fmt = SHARED_FORMATS['Freepik']
+    if "Magnific" in platforms and output_path:
+        fmt = SHARED_FORMATS['Magnific']
         rows = []
         for file in files:
-            rows.append(_freepik_format(file))
+            rows.append(_magnific_format(file))
             if progress_callback:
                 progress_callback()
         if rows:
-            if "Freepik" not in name_map:
-                print("[csv_exporter] Missing base name for Freepik in name_map, skipping")
+            if "Magnific" not in name_map:
+                print("[csv_exporter] Missing base name for Magnific in name_map, skipping")
             else:
-                csv_filename = generate_export_filename(name_map["Freepik"], output_path)
+                csv_filename = generate_export_filename(name_map["Magnific"], output_path)
                 csv_path = os.path.join(output_path, csv_filename)
                 try:
                     row_data = [[row.get(k, '') for k in fmt['fields']] for row in rows]
                     _write_csv_with_custom_quoting(csv_path, fmt['header'], row_data, fmt['delimiter'], fmt['quote_fields'], fmt['quote_header'])
-                    print(f"[csv_exporter] Freepik CSV exported to: {csv_path}")
+                    print(f"[csv_exporter] Magnific CSV exported to: {csv_path}")
                 except Exception as e:
-                    print(f"[csv_exporter] Error exporting Freepik CSV: {e}")
+                    print(f"[csv_exporter] Error exporting Magnific CSV: {e}")
     if "Adobe Stock" in platforms and output_path:
         fmt = SHARED_FORMATS['Adobe Stock']
         rows = []

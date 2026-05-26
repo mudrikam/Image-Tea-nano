@@ -17,10 +17,10 @@ PLATFORMS = [
         'url': 'https://www.shutterstock.com/search/{kw}',
     },
     {
-        'id': 'freepik',
-        'name': 'Freepik',
-        'ico': 'freepik.ico',
-        'url': 'https://www.freepik.com/search?query={kw}',
+        'id': 'magnific',
+        'name': 'Magnific',
+        'ico': 'magnific.ico',
+        'url': 'https://www.magnific.com/search?format=search&term={kw}',
     },
     {
         'id': 'vecteezy',

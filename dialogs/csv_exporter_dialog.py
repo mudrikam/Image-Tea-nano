@@ -42,11 +42,11 @@ class CSVExporterDialog(QDialog):
             print(f"[CSVExporterDialog] Error setting up QFileSystemWatcher: {e}")
 
         self.platforms = [
-            "Freepik", "Adobe Stock", "Shutterstock", "iStock",
+            "Magnific", "Adobe Stock", "Shutterstock", "iStock",
             "123RF", "Vecteezy", "Pond5", "Depositphotos", "Canva", "MiriCanvas"
         ]
         self.platform_colors = {
-            "Freepik": "#1C7AF5", "Adobe Stock": "#CC1818",
+            "Magnific": "#1C7AF5", "Adobe Stock": "#CC1818",
             "Shutterstock": "#D12222", "iStock": "#2178C0",
             "123RF": "#FFB20D", "Vecteezy": "#DB621C",
             "Pond5": "#0EA4D6", "Depositphotos": "#19B9CE",
@@ -479,7 +479,7 @@ class CSVExporterDialog(QDialog):
             print(f"[CSVExporterDialog] Error loading default preset: {e}")
 
     def load_preset_format(self):
-        """Load format from existing SHARED_FORMATS (Freepik, Adobe Stock, etc.)"""
+        """Load format from existing SHARED_FORMATS (Magnific, Adobe Stock, etc.)"""
         platform_names = list(SHARED_FORMATS.keys())
         platform_name, ok = QInputDialog.getItem(
             self, "Load Platform Format",
