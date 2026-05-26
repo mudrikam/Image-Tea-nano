@@ -4,8 +4,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import BASE_PATH
 sys.path.insert(0, BASE_PATH)
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QDialog
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QSize
 from PySide6.QtGui import QColor, QIcon
+from PySide6.QtWidgets import QStackedWidget
 import time
 import qtawesome as qta
 from ui.splash_screen_window import SplashScreen
@@ -38,8 +39,17 @@ class ImageTeaMainWindow(QMainWindow):
         # Mode tracking: 'normal' or 'tools_picker'
         self.current_mode = 'normal'
         
-        # Setup main UI
+        # Create stacked widget for seamless mode transitions
+        self.stacked_widget = QStackedWidget()
+        
+        # Setup main UI (will be added to stacked widget)
         setup_ui(self)
+        self._main_central_widget = self.centralWidget()
+        self.stacked_widget.addWidget(self._main_central_widget)
+        
+        # Set stacked widget as central
+        self.setCentralWidget(self.stacked_widget)
+        
         self.table.refresh_table()
         self.generator_thread = None
         self.is_generating = False
@@ -55,9 +65,6 @@ class ImageTeaMainWindow(QMainWindow):
             self.gen_btn.clicked.connect(self._on_gen_btn_clicked)
 
         update_token_stats_ui(self)
-        
-        # Remove this line - we'll store it when switching modes
-        # self.main_central_widget = self.centralWidget()
         
         self.lock_file = os.path.join(BASE_PATH, "temp", "image_tea.lock")
         os.makedirs(os.path.dirname(self.lock_file), exist_ok=True)
@@ -101,18 +108,19 @@ class ImageTeaMainWindow(QMainWindow):
         
         self.current_mode = 'tools_picker'
         
-        # Create tools picker widget
-        from ui.tools_picker_widget import ToolsPickerWidget
-        self.tools_picker_widget = ToolsPickerWidget(self)
-        self.tools_picker_widget.tool_selected.connect(self._on_tool_selected)
+        # Create tools picker widget if not exists
+        if not self.tools_picker_widget:
+            from ui.tools_picker_widget import ToolsPickerWidget
+            self.tools_picker_widget = ToolsPickerWidget(self)
+            self.tools_picker_widget.tool_selected.connect(self._on_tool_selected)
+            self.stacked_widget.addWidget(self.tools_picker_widget)
         
         # Hide toolbar
         if hasattr(self, 'toolbar'):
             self.toolbar.hide()
         
         # Switch to tools picker
-        self.setCentralWidget(self.tools_picker_widget)
-        self.tools_picker_widget.show()
+        self.stacked_widget.setCurrentWidget(self.tools_picker_widget)
         
         # Keep the statusbar from main UI for member status display
         if hasattr(self, 'statusbar'):
@@ -128,14 +136,8 @@ class ImageTeaMainWindow(QMainWindow):
         
         self.current_mode = 'normal'
         
-        # Delete tools picker widget
-        if self.tools_picker_widget:
-            self.tools_picker_widget.deleteLater()
-            self.tools_picker_widget = None
-        
-        # Recreate main UI
-        from ui.setup_ui import setup_ui
-        setup_ui(self)
+        # Switch back to main UI
+        self.stacked_widget.setCurrentIndex(0)
         
         # Refresh table
         if hasattr(self, 'table'):
