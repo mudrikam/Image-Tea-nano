@@ -196,7 +196,8 @@ class ImageTeaMainWindow(QMainWindow):
             "envato_elements": self._open_envato_elements,
             "pngtree_zipper": self._open_pngtree_zipper,
             "holiday_calendar": self._open_holiday_calendar,
-            "psd_to_img": self._open_psd_to_img
+            "psd_to_img": self._open_psd_to_img,
+            "folder_comparator": self._open_folder_comparator
         }
         
         handler = tool_handlers.get(tool_id)
@@ -312,6 +313,15 @@ class ImageTeaMainWindow(QMainWindow):
         self._psd_to_img_dialog.show()
         self._psd_to_img_dialog.raise_()
         self._psd_to_img_dialog.activateWindow()
+
+    def _open_folder_comparator(self):
+        from dialogs.tools.folder_comparator_widgets.folder_comparator_dialog import FolderComparatorDialog
+        if not hasattr(self, '_folder_comparator_dialog') or not self._folder_comparator_dialog:
+            self._folder_comparator_dialog = FolderComparatorDialog(None)
+            self._folder_comparator_dialog.destroyed.connect(lambda: setattr(self, '_folder_comparator_dialog', None))
+        self._folder_comparator_dialog.show()
+        self._folder_comparator_dialog.raise_()
+        self._folder_comparator_dialog.activateWindow()
     
     def _open_prompt_generator(self):
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
@@ -421,6 +431,12 @@ class ImageTeaMainWindow(QMainWindow):
             if hasattr(self._psd_to_img_dialog, 'worker_thread') and self._psd_to_img_dialog.worker_thread:
                 if self._psd_to_img_dialog.worker_thread.isRunning():
                     running_tools.append("PSD to IMG")
+
+        # Check Folder Comparator
+        if hasattr(self, '_folder_comparator_dialog') and self._folder_comparator_dialog:
+            if hasattr(self._folder_comparator_dialog, 'controller') and self._folder_comparator_dialog.controller:
+                if self._folder_comparator_dialog.controller.is_running():
+                    running_tools.append("Folder Comparator")
         
         # If any tools are running, show confirmation dialog
         if running_tools:
@@ -469,6 +485,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._prompt_generator_dialog.close()
         if hasattr(self, '_psd_to_img_dialog') and self._psd_to_img_dialog:
             self._psd_to_img_dialog.close()
+        if hasattr(self, '_folder_comparator_dialog') and self._folder_comparator_dialog:
+            self._folder_comparator_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:

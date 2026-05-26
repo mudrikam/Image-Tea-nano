@@ -77,6 +77,7 @@ MENU_TOOLTIPS = {
     "holiday_calendar": "Browse and search microstock-relevant holidays by country and date",
     "image_overlay_maker": "Apply overlay images to multiple images in batch",
     "psd_to_img": "Convert PSD files to common image formats (JPG, PNG, etc.)",
+    "folder_comparator": "Compare two folders and copy missing files from source to destination",
     
     # Help menu
     "about": "View application information and credits",
@@ -1296,6 +1297,19 @@ def setup_main_menu(window):
         window._psd_to_img_dialog.activateWindow()
     psd_to_img_action.triggered.connect(open_psd_to_img)
 
+    folder_comparator_action = QAction(qta.icon('fa6s.code-compare'), "Folder Comparator", window)
+    folder_comparator_action.setToolTip(MENU_TOOLTIPS["folder_comparator"])
+    folder_comparator_action.setStatusTip(MENU_TOOLTIPS["folder_comparator"])
+    def open_folder_comparator():
+        from dialogs.tools.folder_comparator_widgets.folder_comparator_dialog import FolderComparatorDialog
+        if not hasattr(window, '_folder_comparator_dialog') or not window._folder_comparator_dialog:
+            window._folder_comparator_dialog = FolderComparatorDialog(None)
+            window._folder_comparator_dialog.destroyed.connect(lambda: setattr(window, '_folder_comparator_dialog', None))
+        window._folder_comparator_dialog.show()
+        window._folder_comparator_dialog.raise_()
+        window._folder_comparator_dialog.activateWindow()
+    folder_comparator_action.triggered.connect(open_folder_comparator)
+
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
@@ -1303,6 +1317,7 @@ def setup_main_menu(window):
     tools_menu.addAction(video_upscaler_action)
     tools_menu.addAction(image_upscaler_action)
     tools_menu.addAction(psd_to_img_action)
+    tools_menu.addAction(folder_comparator_action)
     tools_menu.addAction(vibe_video_generator_action)
     tools_menu.addAction(holiday_calendar_action)
     tools_menu.addAction(image_overlay_maker_action)

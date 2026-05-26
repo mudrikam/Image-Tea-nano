@@ -69,6 +69,13 @@
       "description": "Create zip archives for Pngtree asset submissions",
       "icon": "fa6s.file-zipper",
       "color": "#FFB300"
+    },
+    {
+      "id": "folder_comparator",
+      "name": "Folder Comparator",
+      "description": "Compare two folders by filename and copy missing files from source to destination",
+      "icon": "fa6s.code-compare",
+      "color": "#5C6BC0"
     }
   ],
   "video_processing": [
@@ -158,6 +165,7 @@
     "prompted_image_sorter": "documentation/lang_EN/3. Additional Tools/3. prompted_image_sorter_tool.md",
     "holiday_calendar": "documentation/lang_EN/3. Additional Tools/9. holiday_calendar_tool.md",
     "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md",
-    "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md"
+    "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md",
+    "folder_comparator": "documentation/lang_EN/3. Additional Tools/14. folder_comparator_tool.md"
   }
 }
