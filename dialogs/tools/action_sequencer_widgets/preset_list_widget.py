@@ -13,6 +13,90 @@ from datetime import datetime
 
 from ui.theme_system import theme
 
+
+class JsonDropListWidget(QListWidget):
+    """QListWidget that accepts drag-and-drop of one or more JSON files.
+
+    Emits files_dropped(list[str]) with the dropped JSON file paths. Visually
+    highlights the viewport while a valid drag is hovering, to give clear
+    feedback that the drop target is active.
+    """
+
+    files_dropped = Signal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self._drag_active = False
+        self._base_stylesheet = ""
+
+    def setStyleSheet(self, stylesheet):
+        # Track the base stylesheet so we can restore it after a drag-leave.
+        self._base_stylesheet = stylesheet or ""
+        super().setStyleSheet(self._base_stylesheet)
+
+    def _extract_json_paths(self, mime_data):
+        if not mime_data or not mime_data.hasUrls():
+            return []
+        paths = []
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            local = url.toLocalFile()
+            if local and os.path.isfile(local) and local.lower().endswith('.json'):
+                paths.append(local)
+        return paths
+
+    def _apply_drag_highlight(self, active):
+        if active == self._drag_active:
+            return
+        self._drag_active = active
+        if active:
+            try:
+                primary = QColor(theme.get_color('primary'))
+                rgb = f"{primary.red()},{primary.green()},{primary.blue()}"
+            except Exception:
+                rgb = "0,120,212"
+            highlight = f"""
+                QListWidget {{
+                    border: 2px dashed rgba({rgb},0.9);
+                    background-color: rgba({rgb},0.08);
+                }}
+            """
+            super().setStyleSheet(self._base_stylesheet + highlight)
+        else:
+            super().setStyleSheet(self._base_stylesheet)
+
+    def dragEnterEvent(self, event):
+        if self._extract_json_paths(event.mimeData()):
+            event.setDropAction(Qt.CopyAction)
+            event.acceptProposedAction()
+            self._apply_drag_highlight(True)
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._extract_json_paths(event.mimeData()):
+            event.setDropAction(Qt.CopyAction)
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._apply_drag_highlight(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        paths = self._extract_json_paths(event.mimeData())
+        self._apply_drag_highlight(False)
+        if paths:
+            event.setDropAction(Qt.CopyAction)
+            event.acceptProposedAction()
+            self.files_dropped.emit(paths)
+        else:
+            super().dropEvent(event)
+
 class PresetListWidget(QWidget):
     preset_selected = Signal(dict)
     add_preset_requested = Signal()
@@ -22,6 +106,7 @@ class PresetListWidget(QWidget):
     action_set_selected = Signal(dict)
     tab_changed = Signal(int)
     settings_requested = Signal()
+    action_set_removed = Signal()   # Emitted after action set is deleted, so parent can clear action_list_widget
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,13 +152,14 @@ class PresetListWidget(QWidget):
         preset_search_layout = QHBoxLayout()
         preset_search_layout.setSpacing(4)
         self.preset_search = QLineEdit()
-        self.preset_search.setPlaceholderText("Search presets...")
+        self.preset_search.setPlaceholderText("Search presets... (drop JSON files into the list to import)")
+        self.preset_search.setToolTip("Drop one or more preset JSON files into the list below to import them.")
         self.preset_search.setClearButtonEnabled(True)
         self.preset_search.textChanged.connect(self._filter_presets)
         preset_search_layout.addWidget(self.preset_search)
         presets_layout.addLayout(preset_search_layout)
         
-        self.preset_list = QListWidget()
+        self.preset_list = JsonDropListWidget()
         self.preset_list.setAlternatingRowColors(True)
         self.preset_list.setSpacing(2)
         _prim_q = QColor(theme.get_color('primary'))
@@ -91,6 +177,7 @@ class PresetListWidget(QWidget):
         self.preset_list.itemDoubleClicked.connect(self.on_preset_double_clicked)
         self.preset_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.preset_list.customContextMenuRequested.connect(self.on_preset_context_menu)
+        self.preset_list.files_dropped.connect(self.on_preset_files_dropped)
         presets_layout.addWidget(self.preset_list)
         
         button_layout = QHBoxLayout()
@@ -126,13 +213,14 @@ class PresetListWidget(QWidget):
         action_set_search_layout = QHBoxLayout()
         action_set_search_layout.setSpacing(4)
         self.action_set_search = QLineEdit()
-        self.action_set_search.setPlaceholderText("Search action sets...")
+        self.action_set_search.setPlaceholderText("Search action sets... (drop JSON files into the list to import)")
+        self.action_set_search.setToolTip("Drop one or more action set JSON files into the list below to import them.")
         self.action_set_search.setClearButtonEnabled(True)
         self.action_set_search.textChanged.connect(self._filter_action_sets)
         action_set_search_layout.addWidget(self.action_set_search)
         action_sets_layout.addLayout(action_set_search_layout)
         
-        self.action_set_list = QListWidget()
+        self.action_set_list = JsonDropListWidget()
         self.action_set_list.setAlternatingRowColors(True)
         self.action_set_list.setSpacing(2)
         _prim_q2 = QColor(theme.get_color('primary'))
@@ -150,6 +238,7 @@ class PresetListWidget(QWidget):
         self.action_set_list.itemDoubleClicked.connect(self.on_action_set_double_clicked)
         self.action_set_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.action_set_list.customContextMenuRequested.connect(self.on_action_set_context_menu)
+        self.action_set_list.files_dropped.connect(self.on_action_set_files_dropped)
         action_sets_layout.addWidget(self.action_set_list)
         
         action_set_button_layout = QHBoxLayout()
@@ -689,18 +778,23 @@ class PresetListWidget(QWidget):
     def on_remove_action_set_clicked(self):
         if not self.current_action_set:
             return
-        
+
         reply = QMessageBox.question(
             self,
             "Confirm Removal",
             f"Are you sure you want to remove '{self.current_action_set['name']}'?\nAll actions in this set will also be deleted.",
             QMessageBox.Yes | QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
             try:
                 self.db.delete_action_set(self.current_action_set['id'])
+                self.current_action_set = None
+                self.last_selected_action_set_id = None
+                self.edit_action_set_button.setEnabled(False)
+                self.remove_action_set_button.setEnabled(False)
                 self.load_action_sets_from_db()
+                self.action_set_removed.emit()
             except Exception as e:
                 QMessageBox.warning(self, 'Error', f'Failed to remove action set: {e}')
     
@@ -900,6 +994,7 @@ class PresetListWidget(QWidget):
             if success:
                 QMessageBox.information(self, "Import Successful", message)
                 self.load_presets_from_db()
+                self.load_action_sets_from_db()
             else:
                 QMessageBox.warning(self, "Import Failed", message) 
     
@@ -1083,4 +1178,116 @@ class PresetListWidget(QWidget):
         dialog = FreePresetsDialog(self, self.current_platform_id)
         dialog.preset_imported.connect(self.load_presets_from_db)
         dialog.exec()
+
+    def _read_json_file_type(self, file_path):
+        """Try to read a JSON file and return its declared file_type.
+
+        Returns:
+            tuple: (file_type: str | None, error: str | None)
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            return None, f"Invalid JSON format: {e}"
+        except Exception as e:
+            return None, f"Failed to read file: {e}"
+
+        if not isinstance(data, dict) or 'file_type' not in data:
+            return None, "Missing 'file_type' field. Not a valid Action Sequencer export."
+        return data.get('file_type'), None
+
+    def _import_dropped_files(self, file_paths, expected_type):
+        """Import a list of dropped JSON files for the given expected type.
+
+        Args:
+            file_paths: list[str] of JSON file paths.
+            expected_type: 'preset' or 'action_set'.
+
+        Behavior:
+            - Validates platform is selected.
+            - Skips files with missing/wrong file_type and reports them.
+            - Aggregates imported counts and shows a single summary dialog.
+            - Reloads the appropriate list on success.
+        """
+        if not file_paths:
+            return
+
+        if self.current_platform_id is None:
+            QMessageBox.warning(self, "No Platform", "Please select a platform first.")
+            return
+
+        type_label = "Preset" if expected_type == 'preset' else "Action Set"
+        wrong_tab_label = "Action Sets tab" if expected_type == 'preset' else "Presets tab"
+
+        total_imported = 0
+        success_files = []
+        failed_files = []  # list of (filename, reason)
+        skipped_files = []  # list of (filename, reason)
+
+        for path in file_paths:
+            name = os.path.basename(path)
+            file_type, err = self._read_json_file_type(path)
+            if err:
+                failed_files.append((name, err))
+                continue
+
+            if file_type != expected_type:
+                shown = (file_type or 'unknown').replace('_', ' ').title()
+                skipped_files.append((name, f"file_type is '{shown}', use {wrong_tab_label}"))
+                continue
+
+            try:
+                if expected_type == 'preset':
+                    ok, message, count = self.import_export_helper.import_presets(path, self.current_platform_id)
+                else:
+                    ok, message, count = self.import_export_helper.import_action_sets(path, self.current_platform_id)
+            except Exception as e:
+                failed_files.append((name, str(e)))
+                continue
+
+            if ok:
+                total_imported += count or 0
+                success_files.append((name, count or 0))
+            else:
+                failed_files.append((name, message or "Unknown error"))
+
+        if total_imported > 0:
+            self.load_presets_from_db()
+            self.load_action_sets_from_db()
+
+        # Build summary
+        lines = []
+        lines.append(f"Imported {total_imported} {type_label.lower()}(s) from {len(success_files)} of {len(file_paths)} file(s).")
+        if success_files:
+            lines.append("")
+            lines.append("Imported:")
+            for name, count in success_files:
+                lines.append(f"  - {name}: {count} item(s)")
+        if skipped_files:
+            lines.append("")
+            lines.append("Skipped (wrong type):")
+            for name, reason in skipped_files:
+                lines.append(f"  - {name}: {reason}")
+        if failed_files:
+            lines.append("")
+            lines.append("Failed:")
+            for name, reason in failed_files:
+                lines.append(f"  - {name}: {reason}")
+
+        summary = "\n".join(lines)
+        if total_imported > 0 and not failed_files and not skipped_files:
+            QMessageBox.information(self, f"Import {type_label}s", summary)
+        elif total_imported > 0:
+            QMessageBox.warning(self, f"Import {type_label}s (partial)", summary)
+        else:
+            QMessageBox.warning(self, f"Import {type_label}s Failed", summary)
+
+    def on_preset_files_dropped(self, file_paths):
+        """Handle JSON files dropped onto the preset list."""
+        self._import_dropped_files(file_paths, 'preset')
+
+    def on_action_set_files_dropped(self, file_paths):
+        """Handle JSON files dropped onto the action set list."""
+        self._import_dropped_files(file_paths, 'action_set')
 

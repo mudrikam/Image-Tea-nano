@@ -450,6 +450,7 @@ class ActionSequencerDialog(QDialog):
         self.preset_list_widget.tab_changed.connect(self.on_tab_changed)
         self.preset_list_widget.settings_requested.connect(self.on_open_settings)
         self.preset_list_widget.platform_changed.connect(self.on_platform_changed)
+        self.preset_list_widget.action_set_removed.connect(self.on_action_set_removed)
         
         self.step_list_widget.step_moved.connect(self.on_step_moved)
         self.step_list_widget.step_edit_requested.connect(self.on_edit_step)
@@ -535,8 +536,13 @@ class ActionSequencerDialog(QDialog):
             f"Are you sure you want to remove preset '{preset_data['name']}'?\nAll steps in this preset will also be deleted.",
             QMessageBox.Yes | QMessageBox.No
         )
-        
+
         if reply == QMessageBox.Yes:
+            # Clear step list if this is the currently displayed preset
+            current = self.step_list_widget.current_preset
+            if current and current.get('id') == preset_data['id']:
+                self.step_list_widget.clear_steps()
+                self.status_bar_widget.update_steps_count(0)
             self.db.delete_preset(preset_data['id'])
             self.preset_list_widget.load_presets_from_db()
     
@@ -565,9 +571,14 @@ class ActionSequencerDialog(QDialog):
     
     def on_action_added_to_preset(self):
         self.preset_list_widget.load_presets_from_db()
-    
+
     def on_action_modified(self):
         self.preset_list_widget.load_action_sets_from_db()
+
+    def on_action_set_removed(self):
+        """Clear the action list on the right pane when an action set is deleted."""
+        self.action_list_widget.clear_actions()
+        self.status_bar_widget.update_steps_count(0)
     
     def on_open_free_presets(self):
         current_platform_id = self.preset_list_widget.current_platform_id
