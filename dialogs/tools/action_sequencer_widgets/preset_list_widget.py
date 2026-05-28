@@ -216,7 +216,7 @@ class PresetListWidget(QWidget):
         
         self.tab_changed.emit(index)
     
-    def load_presets_from_db(self):
+    def load_presets_from_db(self, auto_select_first=True):
         selected_preset_id = self.current_preset['id'] if self.current_preset else None
         
         self.preset_list.clear()
@@ -241,7 +241,7 @@ class PresetListWidget(QWidget):
                     if preset_data and preset_data['id'] == selected_preset_id:
                         self.preset_list.setCurrentItem(item)
                         break
-            elif self.preset_list.count() > 0:
+            elif auto_select_first and self.preset_list.count() > 0:
                 self.preset_list.setCurrentItem(self.preset_list.item(0))
         except Exception as e:
             print(f"Failed to load presets: {e}")
@@ -509,8 +509,11 @@ class PresetListWidget(QWidget):
             
             self.platform_changed.emit(platform_id)
             
-            self.load_presets_from_db()
-            self.load_action_sets_from_db()
+            # Load lists without auto-selecting first item; only the active tab
+            # should auto-select below to avoid emitting selection signals for the
+            # inactive tab (which would populate the right pane unexpectedly).
+            self.load_presets_from_db(auto_select_first=False)
+            self.load_action_sets_from_db(auto_select_first=False)
             
             if self.tab_widget.currentIndex() == 0 and self.preset_list.count() > 0:
                 first_item = self.preset_list.item(0)
@@ -521,7 +524,7 @@ class PresetListWidget(QWidget):
                 self.action_set_list.setCurrentItem(first_item)
                 self.on_action_set_selection_changed(first_item, None)
     
-    def load_action_sets_from_db(self):
+    def load_action_sets_from_db(self, auto_select_first=True):
         selected_action_set_id = self.current_action_set['id'] if self.current_action_set else None
         
         self.action_set_list.clear()
@@ -546,7 +549,7 @@ class PresetListWidget(QWidget):
                     if action_set_data and action_set_data['id'] == selected_action_set_id:
                         self.action_set_list.setCurrentItem(item)
                         break
-            elif self.action_set_list.count() > 0:
+            elif auto_select_first and self.action_set_list.count() > 0:
                 self.action_set_list.setCurrentItem(self.action_set_list.item(0))
         except Exception as e:
             print(f"Failed to load action sets: {e}")
