@@ -1604,7 +1604,7 @@ class AddApiKeyDialog(QDialog):
             service = 'maia'
         elif ak.startswith('sk-') and len(ak) > 40:
             service = 'openai'
-        elif len(ak) > 30 and 'AIza' in ak:
+        elif ak.startswith('AIza') or ak.startswith('AQ'):
             service = 'gemini'
         else:
             service = None
@@ -1822,7 +1822,7 @@ class AddApiKeyDialog(QDialog):
                     service = 'maia'
                 elif ak.startswith('sk-') and len(ak) > 40:
                     service = 'openai'
-                elif len(ak) > 30 and 'AIza' in ak:
+                elif ak.startswith('AIza') or ak.startswith('AQ'):
                     service = 'gemini'
                 elif model and 'blackboxai' in model.lower():
                     service = 'blackbox'
