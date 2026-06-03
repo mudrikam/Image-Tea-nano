@@ -26,10 +26,6 @@ jobs:
           # Create all ZIP files with the same content
           cd temp_zip
           zip -r ../Image-Tea-nano.zip . -x "*.git*"
-          zip -r ../Image_Tea_Portable.zip . -x "*.git*"
-          zip -r ../Image_Tea_Windows.zip . -x "*.git*"
-          zip -r ../Image_Tea_Linux.zip . -x "*.git*"
-          zip -r ../Image_Tea_MacOS.zip . -x "*.git*"
           cd ..
       
       - name: Upload ZIP files to Release
@@ -37,11 +33,7 @@ jobs:
         with:
           files: |
             Image-Tea-nano.zip
-            Image_Tea_Portable.zip
-            Image_Tea_Windows.zip
-            Image_Tea_Linux.zip
-            Image_Tea_MacOS.zip
 
       - name: Cleanup temporary files
         run: |
-          rm -rf temp_zip Image-Tea-nano.zip Image_Tea_Portable.zip Image_Tea_Windows.zip Image_Tea_Linux.zip Image_Tea_MacOS.zip
+          rm -rf temp_zip Image-Tea-nano.zip
