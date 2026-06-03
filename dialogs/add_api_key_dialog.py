@@ -798,6 +798,7 @@ class AddApiKeyDialog(QDialog):
             'note': '',
             'endpoint': ''
         }
+        self._update_endpoint_state()
 
     def closeEvent(self, event):
         self._blink_timer.stop()
@@ -1587,9 +1588,10 @@ class AddApiKeyDialog(QDialog):
             elif service_text.lower() == "maia":
                 self._detected_service = "maia"
             elif service_text.lower() == "custom":
-                self._detected_service = "custom"
+                 self._detected_service = "custom"
             else:
                 self._detected_service = None
+            self._update_endpoint_state()
 
     def _on_key_edit_changed(self, text):
         api_key = text.strip()
@@ -1647,6 +1649,7 @@ class AddApiKeyDialog(QDialog):
         self._refresh_model_combo()
         self._api_key_valid = False
         self._service_manually_selected = True
+        self._update_endpoint_state()
 
     def _on_model_combo_changed(self, idx):
         try:
@@ -1654,6 +1657,12 @@ class AddApiKeyDialog(QDialog):
             self._model_manually_selected = True
         except Exception as e:
             print(f"[AddApiKeyDialog] Error handling model combo change: {e}")
+
+    def _update_endpoint_state(self):
+        service = self.service_combo.currentText()
+        is_custom = service == "Custom Endpoint"
+        self.endpoint_edit.setEnabled(is_custom)
+        self.endpoint_paste_btn.setEnabled(is_custom)
 
     def _on_endpoint_combo_changed(self, idx):
         current = self.endpoint_edit.currentText()
@@ -1778,7 +1787,7 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setEnabled(False)
         model = self.model_combo.currentText() if self.model_combo.count() > 0 else None
         provider_endpoint = None
-        if hasattr(self, 'endpoint_edit'):
+        if service == "custom" and hasattr(self, 'endpoint_edit'):
             ep = self.endpoint_edit.currentText().strip()
             provider_endpoint = ep if ep else None
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)
@@ -1835,9 +1844,10 @@ class AddApiKeyDialog(QDialog):
         self.progress_bar.setVisible(True)
         self.test_and_save_btn.setEnabled(False)
         provider_endpoint = None
-        if hasattr(self, 'endpoint_edit'):
-            ep = self.endpoint_edit.currentText().strip()
-            provider_endpoint = ep if ep else None
+        if user_service in ("custom endpoint", "custom"):
+            if hasattr(self, 'endpoint_edit'):
+                ep = self.endpoint_edit.currentText().strip()
+                provider_endpoint = ep if ep else None
         self._pending_provider_endpoint = provider_endpoint
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)
         self._test_thread.result.connect(lambda status, service, text: self._on_test_and_save_result(status, service, text, note, model))
@@ -2079,6 +2089,7 @@ class AddApiKeyDialog(QDialog):
             self._detected_service = "custom"
         else:
             self._detected_service = None
+        self._update_endpoint_state()
         menu = QMenu(self)
         action_test = QAction(qta.icon('fa6s.play'), "Test and Save", self)
         action_test.triggered.connect(self.test_and_save_api_key)
