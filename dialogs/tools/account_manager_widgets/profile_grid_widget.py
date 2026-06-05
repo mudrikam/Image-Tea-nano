@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 import os
+import shutil
 import qtawesome as qta
 from ui.theme_system import theme
 from database.db_account_manager_operations import AccountManagerDB
@@ -144,6 +145,20 @@ class ProfileGridWidget(QWidget):
         if not profile:
             return
         
+        # Warn if profile is running
+        if self.browser_manager.is_running(profile_id):
+            reply = QMessageBox.question(
+                self, 'Profile Running',
+                'This profile is currently running. Editing will close the browser.\n\nContinue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            
+            # Close the browser first
+            self.browser_manager.close(profile_id)
+        
         # Get workspace for auto-generating profile path
         group = self.db.get_group(profile['profile_group_id'])
         workspace = self.db.get_workspace(group['group_workspace_id']) if group else None
@@ -159,14 +174,72 @@ class ProfileGridWidget(QWidget):
             return
         
         profile_name = profile["profile_name"]
+        profile_path = profile.get("profile_browser_profile_path", "")
+        
+        # Check if profile is running
+        if self.browser_manager.is_running(profile_id):
+            reply = QMessageBox.question(
+                self, 'Profile Running',
+                'This profile is currently running. Deleting will close the browser.\n\nContinue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            self.browser_manager.close(profile_id)
         
         # Use new confirmation dialog
         dialog = DeleteConfirmationDialog('Profile', profile_name, self)
         if dialog.exec() == QDialog.Accepted:
+            # Delete profile folder if exists
+            if profile_path and os.path.exists(profile_path):
+                try:
+                    shutil.rmtree(profile_path)
+                except Exception as e:
+                    QMessageBox.warning(self, 'Delete Warning', 
+                        f'Could not delete profile folder:\n{e}\n\nProfile will be deleted from database but folder remains.')
+            
             self.db.delete_profile(profile_id)
             self.refresh_profiles()
     
     def _on_profile_saved(self, data):
+        profile_id = data.get('profile_id')
+        is_edit = profile_id is not None
+        
+        # Get old profile data for folder rename logic
+        old_profile = None
+        if is_edit:
+            old_profile = self.db.get_profile(profile_id)
+        
+        # Handle folder rename if profile is running or name/path changed
+        if is_edit and old_profile:
+            old_browser_name = old_profile.get('profile_browser_profile_name', '')
+            old_browser_path = old_profile.get('profile_browser_profile_path', '')
+            new_browser_name = data.get('profile_browser_profile_name', '')
+            new_browser_path = data.get('profile_browser_profile_path', '')
+            
+            # Check if profile is running
+            was_running = self.browser_manager.is_running(profile_id)
+            
+            if was_running:
+                # Close the browser first before renaming
+                self.browser_manager.close(profile_id)
+            
+            # Rename folder if browser profile name changed and old path exists
+            if old_browser_name and new_browser_name and old_browser_name != new_browser_name:
+                if os.path.exists(old_browser_path):
+                    try:
+                        # Rename the folder
+                        parent_dir = os.path.dirname(old_browser_path)
+                        new_full_path = os.path.join(parent_dir, new_browser_name)
+                        if old_browser_path != new_full_path:
+                            shutil.move(old_browser_path, new_full_path)
+                            # Update the path in data
+                            data['profile_browser_profile_path'] = new_full_path
+                    except Exception as e:
+                        QMessageBox.warning(self, 'Rename Warning', 
+                            f'Could not rename profile folder:\n{e}\n\nProfile will be saved with new path but old folder remains.')
+        
         if 'profile_id' in data:
             # Edit mode
             self.db.update_profile(
