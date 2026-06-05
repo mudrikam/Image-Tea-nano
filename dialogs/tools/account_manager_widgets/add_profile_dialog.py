@@ -140,13 +140,8 @@ class AddProfileDialog(QDialog):
         self.image_btn.hide()
         icon_container_layout.addWidget(self.image_btn)
 
-        # Initial mode controls
-        self.initial_input = QLineEdit()
-        self.initial_input.setPlaceholderText('Enter initial (auto from name)')
-        self.initial_input.setMaximumWidth(60)
-        self.initial_input.textChanged.connect(self._on_initial_changed)
-        self.initial_input.hide()
-        icon_container_layout.addWidget(self.initial_input)
+        # Initial mode - auto-filled from profile name (no manual input)
+        # Initial preview will be updated automatically based on profile name
 
         icon_container_layout.addStretch()
         layout.addLayout(icon_container_layout)
@@ -252,34 +247,26 @@ class AddProfileDialog(QDialog):
         if mode == 'icon':
             self.icon_btn.show()
             self.image_btn.hide()
-            self.initial_input.hide()
             self.icon_preview.mousePressEvent = lambda e: self._choose_icon()
             self.icon_preview.setToolTip('Click to choose icon')
         elif mode == 'image':
             self.icon_btn.hide()
             self.image_btn.show()
-            self.initial_input.hide()
             self.icon_preview.mousePressEvent = lambda e: self._choose_image()
             self.icon_preview.setToolTip('Click to choose image')
         elif mode == 'initial':
             self.icon_btn.hide()
             self.image_btn.hide()
-            self.initial_input.show()
-            # Auto-fill initial from name if empty
-            if not self.initial_input.text() and self.name_input.text():
-                self.initial_input.setText(self.name_input.text()[0].upper())
-            self._update_initial_preview()
+            self.icon_preview.mousePressEvent = lambda e: None
             self.icon_preview.setToolTip('')
+            self._update_initial_preview()
 
         self._update_icon_preview()
 
-    def _on_initial_changed(self, text):
-        """Update preview when initial changes"""
-        self._update_initial_preview()
-
     def _update_initial_preview(self):
-        """Update the icon preview to show initial letter"""
-        initial = self.initial_input.text().strip().upper() or '?'
+        """Update the icon preview to show initial letter (auto-generated from profile name)"""
+        name = self.name_input.text().strip()
+        initial = name[0].upper() if name else '?'
         color = self.selected_color
 
         # Create circular pixmap with initial
@@ -314,12 +301,9 @@ class AddProfileDialog(QDialog):
         self.profile_name_input.setText(sanitized)
         self._generate_browser_profile_path(sanitized)
         
-        # Auto-fill initial in initial mode when name changes
-        if self.icon_mode == 'initial' and (not self.initial_input.text() or self.is_edit_mode == False):
-            if text:
-                initial = text[0].upper()
-                self.initial_input.setText(initial)
-                self._update_initial_preview()
+        # Auto-update initial preview in initial mode when name changes
+        if self.icon_mode == 'initial' and text:
+            self._update_initial_preview()
 
     def _generate_browser_profile_path(self, profile_folder_name):
         """Generate full profile path from workspace root + profile folder name"""
@@ -457,7 +441,7 @@ class AddProfileDialog(QDialog):
         elif profile_icon.startswith('initial:'):
             self.icon_mode = 'initial'
             self.mode_combo.setCurrentText('Initial')
-            self.initial_input.setText(profile_icon[8:])  # Remove 'initial:' prefix
+            # For initial mode, we don't store the letter separately - it's auto-generated from name
             self.selected_icon = profile_icon
         else:
             self.icon_mode = 'icon'
@@ -482,15 +466,32 @@ class AddProfileDialog(QDialog):
             QMessageBox.warning(self, 'Validation Error', 'Profile name is required')
             return
 
-        # Build icon value based on mode
+        browser_profile_name = self.profile_name_input.text().strip()
+        
+        # Check for duplicate profile name (folder already exists on disk)
+        import os
+        root_path = self.workspace_data.get('workspace_root_profile_path', '') if self.workspace_data else ''
+        full_path = os.path.join(root_path, browser_profile_name) if root_path and browser_profile_name else ''
+        
+        if not self.is_edit_mode:
+            # Creating new profile - check if folder exists
+            if full_path and os.path.exists(full_path):
+                QMessageBox.warning(self, 'Profile Exists', 'A profile with this name already exists. Please use another name.')
+                return
+        else:
+            # Edit mode - check if NEW name conflicts with other profiles
+            if full_path and os.path.exists(full_path):
+                old_browser_name = self.profile_data.get('profile_browser_profile_name', '')
+                if browser_profile_name != old_browser_name:
+                    QMessageBox.warning(self, 'Profile Exists', 'A profile with this name already exists. Please use another name.')
+                    return
+
+        # Build icon value based on mode - Initial mode auto-generates from profile name
         if self.icon_mode == 'initial':
-            initial = self.initial_input.text().strip().upper() or name[0].upper()
+            initial = name[0].upper() if name else 'U'
             icon_value = f'initial:{initial}'
         else:
             icon_value = self.selected_icon
-
-        # Use sanitized browser profile name
-        browser_profile_name = self.profile_name_input.text().strip()
 
         data = {
             'profile_name': name,
