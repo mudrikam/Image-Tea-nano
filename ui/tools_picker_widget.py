@@ -251,12 +251,14 @@ class ToolsPickerWidget(QWidget):
         self.video_processing_tab = self._create_tab_content()
         self.extensions_tab = self._create_tab_content()
         self.others_tab = self._create_tab_content()
+        self.account_manager_tab = self._create_account_manager_tab()
         self.tools_manager_tab = self._create_tools_manager_tab()
 
         self.tab_widget.addTab(self.image_processing_tab, qta.icon('fa6s.images'), "Image Processing")
         self.tab_widget.addTab(self.video_processing_tab, qta.icon('fa6s.video'), "Video Processing")
         self.tab_widget.addTab(self.extensions_tab, qta.icon('fa6b.chrome'), "Chrome Extensions")
         self.tab_widget.addTab(self.others_tab, qta.icon('fa6s.ellipsis'), "Others")
+        self.tab_widget.addTab(self.account_manager_tab, qta.icon('fa6s.user-gear'), "Account Manager")
         self.tab_widget.addTab(self.tools_manager_tab, qta.icon('fa6s.screwdriver-wrench'), "Tools Manager")
 
         layout.addWidget(self.tab_widget)
@@ -275,6 +277,15 @@ class ToolsPickerWidget(QWidget):
         scroll.setWidget(container)
         return scroll
     
+    def _create_account_manager_tab(self):
+        """Create Account Manager tab content - embed the widget content"""
+        from dialogs.tools.account_manager_widgets.account_manager_widget import AccountManagerWidget
+
+        main_window = self.window()
+        self._account_manager_instance = AccountManagerWidget(main_window)
+
+        return self._account_manager_instance
+
     def _create_tools_manager_tab(self):
         """Create Tools Manager tab content - embed the dialog content"""
         from dialogs.tools.tools_manager.tools_manager_dialog import ToolsManagerDialog

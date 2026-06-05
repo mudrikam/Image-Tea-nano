@@ -865,7 +865,7 @@ class AddModelDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.btn_cancel)
         
-        self.btn_save = QPushButton(qta.icon('fa6s.check'), " Save")
+        self.btn_save = QPushButton(qta.icon('fa6s.floppy-disk'), " Save")
         self.btn_save.clicked.connect(self._save)
         button_layout.addWidget(self.btn_save)
         
