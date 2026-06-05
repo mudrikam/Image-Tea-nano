@@ -318,6 +318,9 @@ class GroupSidebarWidget(QWidget):
             self.current_workspace_id = workspace_id
         
         self.refresh_workspaces()
+        # Emit workspace_changed to refresh header in parent
+        if self.current_workspace_id:
+            self.workspace_changed.emit(self.current_workspace_id)
     
     def refresh_groups(self):
         """Reload groups from database"""

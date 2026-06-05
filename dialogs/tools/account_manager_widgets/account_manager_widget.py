@@ -10,6 +10,7 @@ from config import BASE_PATH
 
 from dialogs.tools.account_manager_widgets.group_sidebar_widget import GroupSidebarWidget
 from dialogs.tools.account_manager_widgets.profile_grid_widget import ProfileGridWidget
+from dialogs.tools.account_manager_widgets.account_manager_stats_widget import AccountManagerStatsWidget
 from database.db_account_manager_operations import AccountManagerDB
 
 
@@ -42,23 +43,45 @@ class AccountManagerWidget(QWidget):
         splitter.setSizes([220, 800])
 
         layout.addWidget(splitter)
+        
+        # Stats bar below
+        self.stats_widget = AccountManagerStatsWidget()
+        layout.addWidget(self.stats_widget)
+        
+        # Initial stats update
+        self._update_stats()
 
     def _connect_signals(self):
         # When workspace changes, update header and clear profiles
         # Connect workspace_changed first to ensure header updates before group selection
         self.group_sidebar.workspace_changed.connect(self._on_workspace_changed)
         self.group_sidebar.group_selected.connect(self._on_group_selected)
+        self.group_sidebar.workspace_changed.connect(self._update_stats)
+        self.group_sidebar.group_selected.connect(self._update_stats)
+     
+    def _update_stats(self):
+        """Update stats bar with current counts"""
+        workspaces = self.db.get_workspaces()
+        groups = self.db.get_all_groups()
+        profiles = self.db.get_all_profiles()
+        self.stats_widget.update_stats(len(workspaces), len(groups), len(profiles))
     
     def _on_workspace_changed(self, workspace_id):
         """When workspace changes, clear profile grid"""
         if workspace_id is None:
             self.profile_grid.set_group(None)
-            self.profile_grid.set_workspace_group_info('-', '-')
+            self.profile_grid.set_workspace_group_info('-', '-', 0)
+            self.profile_grid.update_workspace_display('-', 'briefcase', '#3b82f6')
             return
         
         workspace = self.db.get_workspace(workspace_id)
         if workspace:
-            self.profile_grid.set_workspace_group_info(workspace['workspace_name'], '-')
+            self.profile_grid.set_workspace_group_info(workspace['workspace_name'], '-', 0)
+            self.profile_grid.update_workspace_display(
+                workspace.get('workspace_name', '-'),
+                workspace.get('workspace_icon', 'briefcase'),
+                workspace.get('workspace_color', '#3b82f6')
+            )
     
     def _on_group_selected(self, group_id):
         """When group is selected, update profile grid with workspace/group names"""
@@ -80,10 +103,21 @@ class AccountManagerWidget(QWidget):
         if not workspace:
             return
         
-        # Update profile header with real names
+        # Get profile count for this group
+        profile_count = len(self.db.get_profiles_by_group(group_id))
+        
+        # Update profile header with real names and profile count
         self.profile_grid.set_workspace_group_info(
             workspace['workspace_name'],
-            group['group_name']
+            group['group_name'],
+            profile_count
+        )
+        
+        # Update workspace label with icon and color
+        self.profile_grid.update_workspace_display(
+            workspace.get('workspace_name', '-'),
+            workspace.get('workspace_icon', 'briefcase'),
+            workspace.get('workspace_color', '#3b82f6')
         )
 
 

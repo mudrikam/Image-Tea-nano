@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QPushButton, QLabel, QMessageBox, QLineEdit, QDialog
 )
 from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QPixmap, QPainter, QColor
 import os
 import shutil
 import qtawesome as qta
@@ -44,12 +45,19 @@ class ProfileGridWidget(QWidget):
         info_layout = QVBoxLayout()
         info_layout.setSpacing(2)
         
+        # Workspace label with icon
+        ws_layout = QHBoxLayout()
+        ws_layout.setSpacing(6)
+        self.workspace_icon_label = QLabel()
+        self.workspace_icon_label.setPixmap(qta.icon('fa6s.briefcase', color=theme.get_color('primary')).pixmap(16, 16))
+        ws_layout.addWidget(self.workspace_icon_label)
         self.workspace_label = QLabel('Workspace: -')
-        self.workspace_label.setStyleSheet(f'font-size: 10px; color: {theme.get_color("text_dark")};')
-        info_layout.addWidget(self.workspace_label)
+        self.workspace_label.setStyleSheet(f'font-size: 14px; color: {theme.get_color("text_dark")};')
+        ws_layout.addWidget(self.workspace_label)
+        info_layout.addLayout(ws_layout)
         
         self.group_label = QLabel('Group: -')
-        self.group_label.setStyleSheet('font-size: 12px; font-weight: bold;')
+        self.group_label.setStyleSheet(f'font-size: 12px; font-weight: bold; color: {theme.get_color("gray")};')
         info_layout.addWidget(self.group_label)
         
         header_layout.addLayout(info_layout)
@@ -87,12 +95,21 @@ class ProfileGridWidget(QWidget):
         
         scroll.setWidget(self.rows_container)
         layout.addWidget(scroll)
-    
-    def set_workspace_group_info(self, workspace_name, group_name):
+      
+    def set_workspace_group_info(self, workspace_name, group_name, profile_count=0):
         """Update header with current workspace and group names"""
         self.workspace_label.setText(f'Workspace: {workspace_name}')
-        self.group_label.setText(f'Group: {group_name}')
+        self.group_label.setText(f'Group: {group_name} | {profile_count}')
     
+    def update_workspace_display(self, workspace_name, icon_value, color):
+        """Update workspace label with icon and color styling"""
+        self.workspace_label.setText(f'Workspace: {workspace_name}')
+        self.workspace_label.setStyleSheet(f'font-size: 14px; color: {color};')
+        try:
+            self.workspace_icon_label.setPixmap(qta.icon(f'fa6s.{icon_value}', color=color).pixmap(16, 16))
+        except:
+            self.workspace_icon_label.setPixmap(qta.icon('fa6s.briefcase', color=color).pixmap(16, 16))
+      
     def set_group(self, group_id):
         """Load profiles for group"""
         self.current_group_id = group_id

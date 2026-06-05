@@ -194,6 +194,15 @@ class AccountManagerDB:
             conn.commit()
             return True
     
+    def get_all_groups(self) -> List[Dict[str, Any]]:
+        """Get all groups"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute('SELECT * FROM account_groups ORDER BY group_order_index, group_created_at')
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+    
     # ========== Profile Operations ==========
     
     def create_profile(self, group_id: int, name: str, description: str = "",
@@ -236,6 +245,15 @@ class AccountManagerDB:
             c.execute('SELECT * FROM account_profiles WHERE profile_id = ?', (profile_id,))
             row = c.fetchone()
             return dict(row) if row else None
+    
+    def get_all_profiles(self) -> List[Dict[str, Any]]:
+        """Get all profiles"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute('SELECT * FROM account_profiles ORDER BY profile_order_index, profile_created_at')
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
     
     def update_profile(self, profile_id: int, name: str = None, description: str = None,
                       icon: str = None, color: str = None, browser_profile_name: str = None,
