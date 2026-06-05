@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -287,6 +288,47 @@ class AccountManagerDB:
             conn.commit()
             return c.rowcount > 0
     
+    def save_profile_metadata(self, profile_data: Dict[str, Any]) -> bool:
+        """Save profile metadata to JSON file in profile folder"""
+        import os
+        profile_path = profile_data.get('profile_browser_profile_path', '')
+        if not profile_path:
+            return False
+        
+        try:
+            os.makedirs(profile_path, exist_ok=True)
+            metadata = {
+                'profile_id': profile_data.get('profile_id'),
+                'profile_name': profile_data.get('profile_name', ''),
+                'profile_description': profile_data.get('profile_description', ''),
+                'profile_icon': profile_data.get('profile_icon', 'fa6s.user'),
+                'profile_color': profile_data.get('profile_color', '#3b82f6'),
+                'profile_browser_profile_name': profile_data.get('profile_browser_profile_name', ''),
+                'profile_browser_profile_path': profile_path,
+                'group_id': profile_data.get('profile_group_id'),
+                'profile_order_index': profile_data.get('profile_order_index', 0),
+                'profile_created_at': profile_data.get('profile_created_at'),
+                'profile_updated_at': profile_data.get('profile_updated_at'),
+            }
+            metadata_path = os.path.join(profile_path, 'account_management_profile_metadata.json')
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+            return True
+        except Exception:
+            return False
+
+    def load_profile_metadata(self, profile_path: str) -> Optional[Dict[str, Any]]:
+        """Load profile metadata from JSON file if exists"""
+        import os
+        metadata_path = os.path.join(profile_path, 'account_management_profile_metadata.json')
+        if not os.path.exists(metadata_path):
+            return None
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return None
+
     def reorder_profiles(self, profile_updates: List[Dict[str, int]]) -> bool:
         """Update order_index for multiple profiles. profile_updates format: [{'profile_id': 1, 'order_index': 0}, ...]"""
         with sqlite3.connect(self.db_path) as conn:

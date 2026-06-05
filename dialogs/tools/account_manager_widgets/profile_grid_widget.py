@@ -188,7 +188,7 @@ class ProfileGridWidget(QWidget):
                 return
             self.browser_manager.close(profile_id)
         
-        # Use new confirmation dialog
+# Use new confirmation dialog
         dialog = DeleteConfirmationDialog('Profile', profile_name, self)
         if dialog.exec() == QDialog.Accepted:
             # Delete profile folder if exists
@@ -252,8 +252,8 @@ class ProfileGridWidget(QWidget):
                 browser_profile_path=data['profile_browser_profile_path']
             )
         else:
-            # Create mode
-            self.db.create_profile(
+            # Create mode - get the new profile_id
+            profile_id = self.db.create_profile(
                 self.current_group_id,
                 data['profile_name'],
                 data['profile_description'],
@@ -262,8 +262,35 @@ class ProfileGridWidget(QWidget):
                 data['profile_browser_profile_name'],
                 data['profile_browser_profile_path']
             )
+            data['profile_id'] = profile_id
+        
+        # Save metadata file to profile folder
+        self._save_profile_metadata(data)
         
         self.refresh_profiles()
+    
+    def _save_profile_metadata(self, data):
+        """Save profile metadata JSON to profile folder"""
+        profile_id = data.get('profile_id')
+        if not profile_id:
+            return
+        
+        profile = self.db.get_profile(profile_id)
+        if profile:
+            meta_data = {
+                'profile_id': profile.get('profile_id'),
+                'profile_name': profile.get('profile_name', ''),
+                'profile_description': profile.get('profile_description', ''),
+                'profile_icon': profile.get('profile_icon', 'fa6s.user'),
+                'profile_color': profile.get('profile_color', '#3b82f6'),
+                'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
+                'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
+                'group_id': profile.get('profile_group_id'),
+                'profile_order_index': profile.get('profile_order_index', 0),
+                'profile_created_at': profile.get('profile_created_at'),
+                'profile_updated_at': profile.get('profile_updated_at'),
+            }
+            self.db.save_profile_metadata(meta_data)
     
     def _on_launch_profile(self, profile_id):
         """Launch browser with profile"""

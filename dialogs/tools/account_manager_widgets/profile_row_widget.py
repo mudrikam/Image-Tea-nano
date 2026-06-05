@@ -1,9 +1,21 @@
 import os
+from datetime import datetime
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QMenu
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPixmap, QPainter, QFont
 import qtawesome as qta
 from ui.theme_system import theme
+
+
+def format_human_datetime(dt_string):
+    """Format datetime string to compact d/m/y format"""
+    if not dt_string:
+        return '-'
+    try:
+        dt = datetime.fromisoformat(dt_string)
+        return dt.strftime('%d/%m/%y')
+    except:
+        return '-'
 
 
 class ProfileRowWidget(QFrame):
@@ -39,45 +51,19 @@ class ProfileRowWidget(QFrame):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
-        # Icon with support for icon, image, and initial modes
-        self.icon_label = QLabel()
-        self._setup_icon_display(icon_value, color)
-        self.icon_label.setFixedSize(28, 28)
-        layout.addWidget(self.icon_label)
-
-        # Content
-        content_layout = QVBoxLayout()
-        content_layout.setSpacing(2)
-
-        name_label = QLabel(name)
-        name_label.setStyleSheet('font-size: 12px; font-weight: bold;')
-        content_layout.addWidget(name_label)
-
-        if desc:
-            desc_label = QLabel(desc)
-            desc_label.setStyleSheet(f'font-size: 10px; color: {theme.get_color("gray")};')
-            desc_label.setWordWrap(False)
-            desc_label.setMaximumHeight(18)
-            content_layout.addWidget(desc_label)
-
-        layout.addLayout(content_layout, 1)
-
-        # Launch/Focus button
+        # Launch/Focus button - icon only, at left
         c = QColor(color)
         hover_color = QColor(min(255, c.red() + 30), min(255, c.green() + 30), min(255, c.blue() + 30)).name()
 
-        self.launch_btn = QPushButton(qta.icon('fa6s.rocket', color=theme.get_color('white')), ' Launch')
+        self.launch_btn = QPushButton(qta.icon('fa6s.play', color=theme.get_color('white')), '')
         self.launch_btn.setObjectName(f'launchBtn_{self.profile_id}')
         self.launch_btn.setStyleSheet(f'''
             QPushButton#launchBtn_{self.profile_id} {{
                 background-color: {color};
-                color: {theme.get_color("white")};
                 border: none;
-                padding: 8px 20px;
+                padding: 8px;
                 border-radius: 4px;
-                font-weight: bold;
-                font-size: 12px;
-                min-width: 100px;
+                min-width: 20px;
             }}
             QPushButton#launchBtn_{self.profile_id}:hover {{
                 background-color: {hover_color};
@@ -110,6 +96,29 @@ class ProfileRowWidget(QFrame):
         self.close_btn.hide()
         layout.addWidget(self.close_btn)
 
+        # Icon with support for icon, image, and initial modes
+        self.icon_label = QLabel()
+        self._setup_icon_display(icon_value, color)
+        self.icon_label.setFixedSize(28, 28)
+        layout.addWidget(self.icon_label)
+
+        # Content
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(2)
+
+        name_label = QLabel(name)
+        name_label.setStyleSheet('font-size: 14px; font-weight: bold;')
+        content_layout.addWidget(name_label)
+
+        if desc:
+            desc_label = QLabel(desc)
+            desc_label.setStyleSheet(f'font-size: 12px; color: {theme.get_color("gray")};')
+            desc_label.setWordWrap(False)
+            desc_label.setMaximumHeight(18)
+            content_layout.addWidget(desc_label)
+
+        layout.addLayout(content_layout, 1)
+
         # Edit button - vanilla style
         pen_icon = qta.icon('fa6s.pen')
         pen_button = QPushButton(pen_icon, '')
@@ -133,6 +142,20 @@ class ProfileRowWidget(QFrame):
         trash_button.setToolTip('Delete')
         trash_button.clicked.connect(lambda: self.delete_clicked.emit(self.profile_id))
         layout.addWidget(trash_button)
+
+        # Timestamp labels - vertical stack after delete button
+        created_at = self.profile_data.get('profile_created_at')
+        updated_at = self.profile_data.get('profile_updated_at')
+        time_layout = QVBoxLayout()
+        time_layout.setSpacing(0)
+        time_layout.setContentsMargins(0, 0, 0, 0)
+        created_label = QLabel(f'C: {format_human_datetime(created_at)}')
+        created_label.setStyleSheet(f'font-size: 9px; color: {theme.get_color("gray")};')
+        time_layout.addWidget(created_label)
+        updated_label = QLabel(f'U: {format_human_datetime(updated_at)}')
+        updated_label.setStyleSheet(f'font-size: 9px; color: {theme.get_color("gray")};')
+        time_layout.addWidget(updated_label)
+        layout.addLayout(time_layout)
 
     def _setup_icon_display(self, icon_value, color):
         """Setup icon display based on mode (icon, image, or initial)"""
@@ -183,7 +206,7 @@ class ProfileRowWidget(QFrame):
                 painter.drawPixmap(2, 2, icon.pixmap(24, 24))
 
         else:
-            # Icon mode - show FontAwesome icon with thin circle border
+            # Icon mode - show FontAwesome icon, no border
             try:
                 icon = qta.icon(f'fa6s.{icon_value}', color=color)
                 icon_pixmap = icon.pixmap(24, 24)
@@ -191,11 +214,6 @@ class ProfileRowWidget(QFrame):
             except:
                 icon = qta.icon('fa6s.user', color=color)
                 painter.drawPixmap(2, 2, icon.pixmap(24, 24))
-            # Thin circle border with icon color
-            pen_color = QColor(r, g, b, 100)
-            painter.setPen(pen_color)
-            painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(1, 1, 26, 26)
 
         painter.end()
         self.icon_label.setPixmap(pixmap)
@@ -208,48 +226,47 @@ class ProfileRowWidget(QFrame):
             self.launch_clicked.emit(self.profile_id)
 
     def set_launching(self, launching):
-        """Set launching state - shows spinner and 'Launching...' text"""
+        """Set launching state - shows spinner icon only"""
         self._launching = launching
         if launching:
             spinner_icon = qta.icon('fa6s.spinner', color=theme.get_color('white'), animation=qta.Spin(self.launch_btn))
             self.launch_btn.setIcon(spinner_icon)
-            self.launch_btn.setText(' Launching...')
             self.launch_btn.setEnabled(False)
         else:
-            self.launch_btn.setIcon(qta.icon('fa6s.rocket', color=theme.get_color('white')))
-            self.launch_btn.setText(' Launch')
+            self.launch_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
             self.launch_btn.setEnabled(True)
 
     def set_launched(self, launched):
-        """Set launched state - shows Focus button and close X"""
+        """Set launched state - shows focus icon and close X"""
         self._is_launched = launched
+        self._update_style()
         if launched:
-            self.launch_btn.setText(' Focus')
             self.launch_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square', color=theme.get_color('white')))
             self.close_btn.show()
         else:
-            self.launch_btn.setText(' Launch')
-            self.launch_btn.setIcon(qta.icon('fa6s.rocket', color=theme.get_color('white')))
+            self.launch_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
             self.close_btn.hide()
 
     def _update_style(self):
         color = self.profile_data.get('profile_color', '#3b82f6')
+        gray = QColor(theme.get_color('gray'))
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
 
-        if self._hover:
+        # Running or hover state gets profile color styling
+        if self._is_launched or self._hover:
             self.setStyleSheet(f'''
                 ProfileRowWidget {{
-                    background-color: rgba({r}, {g}, {b}, 0.15);
-                    border: 1px solid rgba({r}, {g}, {b}, 0.4);
+                    background-color: rgba({r}, {g}, {b}, 0.12);
+                    border: 1px solid {color};
                     border-radius: 4px;
                 }}
             ''')
         else:
             self.setStyleSheet(f'''
                 ProfileRowWidget {{
-                    background-color: rgba({r}, {g}, {b}, 0.08);
-                    border: 1px solid rgba({r}, {g}, {b}, 0.25);
+                    background-color: rgba({gray.red()}, {gray.green()}, {gray.blue()}, 0.05);
+                    border: 1px solid rgba({gray.red()}, {gray.green()}, {gray.blue()}, 0.2);
                     border-radius: 4px;
                 }}
             ''')
