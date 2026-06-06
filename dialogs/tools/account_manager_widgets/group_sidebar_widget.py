@@ -1,9 +1,19 @@
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QPushButton, QScrollArea, 
-    QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QComboBox
+    QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QComboBox, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal
 import qtawesome as qta
+
+
+class ClearableLineEdit(QLineEdit):
+    """QLineEdit that clears on Delete key when focused"""
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.clear()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 from ui.theme_system import theme
 from database.db_account_manager_operations import AccountManagerDB
 from dialogs.tools.account_manager_widgets.delete_confirmation_dialog import DeleteConfirmationDialog
@@ -141,6 +151,7 @@ class GroupSidebarWidget(QWidget):
         self.db = AccountManagerDB()
         self.current_workspace_id = None
         self.selected_group_id = None
+        self._all_groups = []  # Store all groups for filtering
         self._setup_ui()
         self.refresh_workspaces()
     
@@ -148,6 +159,9 @@ class GroupSidebarWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
+        
+        primary = theme.get_color('primary')
+        primary_hover = theme.get_color('primary_hover')
         
         # Workspace selector section
         ws_label = QLabel('Workspace')
@@ -193,10 +207,12 @@ class GroupSidebarWidget(QWidget):
         groups_label.setStyleSheet(f'font-size: 10px; color: {theme.get_color("gray")}; font-weight: bold;')
         layout.addWidget(groups_label)
         
-        primary = theme.get_color('primary')
-        primary_hover = theme.get_color('primary_hover')
+        # New Group + Search in one row
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(6)
         
-        self.new_group_btn = QPushButton(qta.icon('fa6s.plus'), ' New Group')
+        # New Group button (folder icon)
+        self.new_group_btn = QPushButton(qta.icon('fa6s.folder-plus'), ' New Group')
         self.new_group_btn.setStyleSheet(f'''
             QPushButton {{
                 background-color: {primary};
@@ -209,7 +225,20 @@ class GroupSidebarWidget(QWidget):
             QPushButton:hover {{ background-color: {primary_hover}; }}
         ''')
         self.new_group_btn.clicked.connect(self._on_new_group)
-        layout.addWidget(self.new_group_btn)
+        action_layout.addWidget(self.new_group_btn)
+        
+        # Search bar
+        search_icon = QLabel()
+        search_icon.setPixmap(qta.icon('fa6s.magnifying-glass', color=theme.get_color('gray')).pixmap(16, 16))
+        action_layout.addWidget(search_icon)
+        self.groups_search_input = ClearableLineEdit()
+        self.groups_search_input.setPlaceholderText('Search groups...')
+        self.groups_search_input.textChanged.connect(self._filter_groups)
+        self.groups_search_input.setClearButtonEnabled(True)
+        self.groups_search_input.setToolTip('Delete key clears search')
+        action_layout.addWidget(self.groups_search_input)
+        
+        layout.addLayout(action_layout)
         
         # Scroll area for groups
         scroll = QScrollArea()
@@ -330,22 +359,37 @@ class GroupSidebarWidget(QWidget):
                 item.widget().deleteLater()
         
         if not self.current_workspace_id:
+            self._all_groups = []
             return
         
-        groups = self.db.get_groups_by_workspace(self.current_workspace_id)
+        self._all_groups = self.db.get_groups_by_workspace(self.current_workspace_id)
+        self._filter_groups()
         
-        for group in groups:
+        # Do NOT auto-select first group - user must manually select group to populate profiles
+        # Header is updated by workspace_changed signal in account_manager_widget.py
+        if not self._all_groups:
+            self.selected_group_id = None
+            self.group_selected.emit(None)
+    
+    def _filter_groups(self):
+        """Filter groups based on search text"""
+        while self.groups_layout.count() > 1:
+            item = self.groups_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        search_text = self.groups_search_input.text().lower() if hasattr(self, 'groups_search_input') else ''
+        
+        for group in self._all_groups:
+            group_name = group.get('group_name', '').lower()
+            if search_text and search_text not in group_name:
+                continue
+            
             item = GroupItemWidget(group)
             item.clicked.connect(self._on_group_clicked)
             item.edit_requested.connect(self._on_edit_group)
             item.delete_requested.connect(self._on_delete_group)
             self.groups_layout.insertWidget(self.groups_layout.count() - 1, item)
-        
-        # Do NOT auto-select first group - user must manually select group to populate profiles
-        # Header is updated by workspace_changed signal in account_manager_widget.py
-        if not groups:
-            self.selected_group_id = None
-            self.group_selected.emit(None)
     
     def _on_group_clicked(self, group_id):
         self.selected_group_id = group_id

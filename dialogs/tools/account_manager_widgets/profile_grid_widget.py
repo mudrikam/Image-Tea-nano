@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QPixmap, QPainter, QColor
+from PySide6.QtGui import QPixmap, QPainter, QColor, QKeyEvent
 import os
 import shutil
 import zipfile
@@ -24,6 +24,16 @@ from dialogs.tools.account_manager_widgets.import_profile_dialog import ImportPr
 from dialogs.tools.account_manager_widgets.export_profile_dialog import ExportProfileDialog
 
 
+class ClearableLineEdit(QLineEdit):
+    """QLineEdit that clears on Delete key when focused"""
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.clear()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class ProfileGridWidget(QWidget):
     """Grid display of profile cards for selected group"""
     profile_launched = Signal(int)  # profile_id
@@ -33,6 +43,7 @@ class ProfileGridWidget(QWidget):
         self.db = AccountManagerDB()
         self.browser_manager = BrowserManager()
         self.current_group_id = None
+        self._all_profiles = []  # Store all profiles for filtering
         self._setup_ui()
         self._setup_timer()
     
@@ -76,19 +87,7 @@ class ProfileGridWidget(QWidget):
         primary = theme.get_color('primary')
         primary_hover = theme.get_color('primary_hover')
         
-        # Import button (left of New Profile) - vanilla style
-        self.import_btn = QPushButton(qta.icon('fa6s.file-import'), ' Import')
-        self.import_btn.setToolTip('Import Profile')
-        self.import_btn.clicked.connect(self._on_import_profile)
-        header_layout.addWidget(self.import_btn)
-        
-        # Export button - vanilla style
-        self.export_btn = QPushButton(qta.icon('fa6s.file-zipper'), ' Export')
-        self.export_btn.setToolTip('Export Profile')
-        self.export_btn.clicked.connect(self._on_export_profile)
-        header_layout.addWidget(self.export_btn)
-        
-        # New Profile button - primary style for distinction
+        # New Profile button - separate row at top, primary style
         self.new_profile_btn = QPushButton(qta.icon('fa6s.plus', color='white'), ' New Profile')
         self.new_profile_btn.setStyleSheet(f'''
             QPushButton {{
@@ -106,6 +105,35 @@ class ProfileGridWidget(QWidget):
         header_layout.addWidget(self.new_profile_btn)
         
         layout.addLayout(header_layout)
+        
+        # Search + Import + Export in one row
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(6)
+        
+        # Search bar
+        search_icon = QLabel()
+        search_icon.setPixmap(qta.icon('fa6s.magnifying-glass', color=theme.get_color('gray')).pixmap(16, 16))
+        action_layout.addWidget(search_icon)
+        self.profile_search_input = ClearableLineEdit()
+        self.profile_search_input.setPlaceholderText('Search profiles...')
+        self.profile_search_input.textChanged.connect(self._filter_profiles)
+        self.profile_search_input.setClearButtonEnabled(True)
+        action_layout.addWidget(self.profile_search_input)
+        
+        # Import button
+        self.import_btn = QPushButton(qta.icon('fa6s.file-import'), ' Import')
+        self.import_btn.setToolTip('Import Profile')
+        self.import_btn.clicked.connect(self._on_import_profile)
+        action_layout.addWidget(self.import_btn)
+        
+        # Export button
+        self.export_btn = QPushButton(qta.icon('fa6s.file-zipper'), ' Export')
+        self.export_btn.setToolTip('Export Profile')
+        self.export_btn.clicked.connect(self._on_export_profile)
+        action_layout.addWidget(self.export_btn)
+        
+        layout.addLayout(action_layout)
+        
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
@@ -147,12 +175,26 @@ class ProfileGridWidget(QWidget):
                 item.widget().deleteLater()
         
         if not self.current_group_id:
+            self._all_profiles = []
             return
         
-        profiles = self.db.get_profiles_by_group(self.current_group_id)
+        self._all_profiles = self.db.get_profiles_by_group(self.current_group_id)
+        self._filter_profiles()
+    
+    def _filter_profiles(self):
+        """Filter profiles based on search text"""
+        while self.rows_layout.count() > 1:
+            item = self.rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
-        # Add rows
-        for profile in profiles:
+        search_text = self.profile_search_input.text().lower() if hasattr(self, 'profile_search_input') else ''
+        
+        for profile in self._all_profiles:
+            profile_name = profile.get('profile_name', '').lower()
+            if search_text and search_text not in profile_name:
+                continue
+            
             row = ProfileRowWidget(profile)
             row.launch_clicked.connect(self._on_launch_profile)
             row.focus_clicked.connect(self._on_focus_profile)
