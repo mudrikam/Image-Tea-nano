@@ -598,10 +598,13 @@ class ProfileGridWidget(QWidget):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         default_filename = f"{re.sub(r'[^a-zA-Z0-9]', '_', profile_name)}_{timestamp}.zip"
         
+        home_path = os.path.expanduser('~')
+        default_path = os.path.join(home_path, default_filename)
+        
         export_path, _ = QFileDialog.getSaveFileName(
             self,
             'Export Profile',
-            default_filename,
+            default_path,
             'ZIP Files (*.zip);;All Files (*.*)'
         )
         
