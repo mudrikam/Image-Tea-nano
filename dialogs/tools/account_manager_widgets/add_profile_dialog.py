@@ -322,7 +322,7 @@ class AddProfileDialog(QDialog):
         """Update icon preview based on current mode"""
         if self.icon_mode == 'icon':
             try:
-                icon = qta.icon(f'fa6s.{self.selected_icon}', color=self.selected_color)
+                icon = qta.icon(self.selected_icon, color=self.selected_color)
                 # Draw icon on circle background
                 pixmap = QPixmap(28, 28)
                 pixmap.fill(Qt.transparent)

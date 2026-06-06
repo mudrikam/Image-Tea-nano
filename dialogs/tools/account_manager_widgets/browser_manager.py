@@ -18,21 +18,30 @@ class BrowserManager:
     """Manages launched browser processes and window focus"""
     
     def __init__(self):
-        self.processes = {}  # profile_id -> {'proc': Popen, 'pid': int}
+        self.processes = {}  # profile_id -> {'proc': Popen, 'pid': int, 'type': str}
     
-    def launch(self, profile_id, browser_exe, profile_path=None):
+    def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome'):
         """Launch browser and track process"""
         if not os.path.exists(browser_exe):
             QMessageBox.warning(None, 'Browser Not Found', f'Browser executable not found:\n{browser_exe}')
             return None
         
+        browser_type = browser_type.lower()
         args = [browser_exe]
-        if profile_path:
-            args.append(f'--user-data-dir={profile_path}')
+        
+        if browser_type == 'firefox':
+            # Firefox uses -profile for profile path
+            if profile_path:
+                args.append(f'-profile')
+                args.append(profile_path)
+        else:
+            # Chrome/Chromium based uses --user-data-dir
+            if profile_path:
+                args.append(f'--user-data-dir={profile_path}')
         
         try:
             proc = subprocess.Popen(args, shell=False)
-            self.processes[profile_id] = {'proc': proc, 'pid': proc.pid}
+            self.processes[profile_id] = {'proc': proc, 'pid': proc.pid, 'type': browser_type}
             return proc.pid
         except Exception as e:
             QMessageBox.critical(None, 'Launch Failed', f'Failed to launch browser:\n{str(e)}')

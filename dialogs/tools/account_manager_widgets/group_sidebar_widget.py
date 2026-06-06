@@ -75,7 +75,10 @@ class GroupItemWidget(QWidget):
         
         icon_label = QLabel()
         try:
-            icon = qta.icon(f'fa6s.{icon_name}', color=color)
+            if '.' not in icon_name:
+                icon = qta.icon(f'fa6s.{icon_name}', color=color)
+            else:
+                icon = qta.icon(icon_name, color=color)
             icon_label.setPixmap(icon.pixmap(16, 16))
         except:
             icon = qta.icon('fa6s.users', color=color)
@@ -314,7 +317,8 @@ class GroupSidebarWidget(QWidget):
             self.current_workspace_id = workspace_id
             self.selected_group_id = None  # Reset selected group when workspace changes
             self.refresh_groups()
-            self.workspace_changed.emit(workspace_id)  # Emit AFTER refresh_groups
+            self.workspace_changed.emit(workspace_id)
+            self.group_selected.emit(None)  # Clear profile rows when workspace changes
     
     def _on_new_workspace(self):
         from dialogs.tools.account_manager_widgets.add_workspace_dialog import AddWorkspaceDialog
@@ -360,7 +364,8 @@ class GroupSidebarWidget(QWidget):
                 icon=data['workspace_icon'],
                 color=data['workspace_color'],
                 browser_exe_path=data['workspace_browser_exe_path'],
-                root_profile_path=data['workspace_root_profile_path']
+                root_profile_path=data['workspace_root_profile_path'],
+                browser_type=data.get('workspace_browser_type', 'chrome')
             )
         else:
             workspace_id = self.db.create_workspace(
@@ -369,7 +374,8 @@ class GroupSidebarWidget(QWidget):
                 data['workspace_icon'],
                 data['workspace_color'],
                 data['workspace_browser_exe_path'],
-                data['workspace_root_profile_path']
+                data['workspace_root_profile_path'],
+                browser_type=data.get('workspace_browser_type', 'chrome')
             )
             self.current_workspace_id = workspace_id
         

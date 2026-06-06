@@ -211,7 +211,10 @@ class ProfileRowWidget(QFrame):
         else:
             # Icon mode - show FontAwesome icon, no border
             try:
-                icon = qta.icon(f'fa6s.{icon_value}', color=color)
+                if '.' not in icon_value:
+                    icon = qta.icon(f'fa6s.{icon_value}', color=color)
+                else:
+                    icon = qta.icon(icon_value, color=color)
                 icon_pixmap = icon.pixmap(24, 24)
                 painter.drawPixmap(2, 2, icon_pixmap)
             except:

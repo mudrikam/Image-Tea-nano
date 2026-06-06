@@ -1,7 +1,8 @@
 import os
+import re
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-    QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog
+    QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog, QComboBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont
@@ -14,12 +15,18 @@ class AddWorkspaceDialog(QDialog):
     """Dialog for creating/editing workspace"""
     workspace_saved = Signal(dict)
     
+    BROWSER_TYPES = [
+        ('chrome', 'Chrome / Chromium Based'),
+        ('firefox', 'Firefox / Fork (LibreWolf, Waterfox, etc)'),
+    ]
+    
     def __init__(self, workspace_data=None, parent=None):
         super().__init__(parent)
         self.workspace_data = workspace_data
         self.is_edit_mode = workspace_data is not None
         self.selected_icon = workspace_data.get('workspace_icon', 'briefcase') if workspace_data else 'briefcase'
         self.selected_color = workspace_data.get('workspace_color', '#3b82f6') if workspace_data else '#3b82f6'
+        self.selected_browser_type = workspace_data.get('workspace_browser_type', 'chrome') if workspace_data else 'chrome'
         
         self.setWindowTitle('Edit Workspace' if self.is_edit_mode else 'New Workspace')
         self.setModal(True)
@@ -42,7 +49,6 @@ class AddWorkspaceDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        from PySide6.QtGui import QFont
         dialog_icon = qta.icon('fa6s.briefcase', color=theme.get_color('primary'))
         icon_label = QLabel()
         icon_label.setPixmap(dialog_icon.pixmap(24, 24))
@@ -70,7 +76,6 @@ class AddWorkspaceDialog(QDialog):
         
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText('e.g., Chrome Profiles, Firefox Testing')
-        from PySide6.QtWidgets import QSizePolicy
         self.name_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         name_layout.addWidget(self.name_input, 1)
         layout.addLayout(name_layout)
@@ -90,6 +95,22 @@ class AddWorkspaceDialog(QDialog):
         self.desc_input.setMaximumHeight(60)
         desc_layout.addWidget(self.desc_input, 1)
         layout.addLayout(desc_layout)
+        
+        # Browser type selector
+        browser_type_layout = QHBoxLayout()
+        browser_type_layout.setSpacing(6)
+        browser_type_icon = QLabel()
+        browser_type_icon.setPixmap(qta.icon('fa6s.globe', color=theme.get_color('gray')).pixmap(16, 16))
+        browser_type_layout.addWidget(browser_type_icon)
+        browser_type_label = QLabel('Browser Type:')
+        browser_type_label.setMinimumWidth(70)
+        browser_type_layout.addWidget(browser_type_label)
+        
+        self.browser_type_combo = QComboBox()
+        for browser_key, browser_display in self.BROWSER_TYPES:
+            self.browser_type_combo.addItem(browser_display, browser_key)
+        browser_type_layout.addWidget(self.browser_type_combo, 1)
+        layout.addLayout(browser_type_layout)
         
         # Icon picker
         icon_layout = QHBoxLayout()
@@ -210,7 +231,7 @@ class AddWorkspaceDialog(QDialog):
     
     def _update_icon_preview(self):
         try:
-            icon = qta.icon(f'fa6s.{self.selected_icon}', color=self.selected_color)
+            icon = qta.icon(self.selected_icon, color=self.selected_color)
             self.icon_preview.setPixmap(icon.pixmap(24, 24))
         except:
             self.icon_preview.setText('?')
@@ -268,6 +289,11 @@ class AddWorkspaceDialog(QDialog):
         self.exe_input.setText(self.workspace_data.get('workspace_browser_exe_path', ''))
         self.root_input.setText(self.workspace_data.get('workspace_root_profile_path', ''))
         self.color_input.setText(self.selected_color)
+        
+        # Load browser type
+        idx = self.browser_type_combo.findData(self.selected_browser_type)
+        if idx >= 0:
+            self.browser_type_combo.setCurrentIndex(idx)
     
     def _on_save(self):
         name = self.name_input.text().strip()
@@ -282,6 +308,7 @@ class AddWorkspaceDialog(QDialog):
             'workspace_color': self.selected_color,
             'workspace_browser_exe_path': self.exe_input.text().strip(),
             'workspace_root_profile_path': self.root_input.text().strip(),
+            'workspace_browser_type': self.browser_type_combo.currentData(),
         }
         
         if self.is_edit_mode:

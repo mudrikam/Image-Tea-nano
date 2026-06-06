@@ -13,9 +13,10 @@ from ui.theme_system import theme
 class ExportProfileDialog(QDialog):
     """Dialog for selecting profile to export"""
     
-    def __init__(self, profiles, parent=None):
+    def __init__(self, profiles, group_name='profiles', parent=None):
         super().__init__(parent)
         self.profiles = profiles
+        self.group_name = group_name
         self.selected_profile = None
         self.selected_profiles = []  # For export all
         self.is_export_all = False

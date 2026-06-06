@@ -14,8 +14,8 @@ class AccountManagerDB:
     # ========== Workspace Operations ==========
     
     def create_workspace(self, name: str, description: str = "", icon: str = "fa6s.briefcase", 
-                        color: str = "#3b82f6", browser_exe_path: str = "", 
-                        root_profile_path: str = "") -> int:
+                         color: str = "#3b82f6", browser_exe_path: str = "", 
+                         root_profile_path: str = "", browser_type: str = "chrome") -> int:
         """Create new workspace and return workspace_id"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -23,10 +23,10 @@ class AccountManagerDB:
             c.execute('''
                 INSERT INTO account_workspaces 
                 (workspace_name, workspace_description, workspace_icon, workspace_color, 
-                 workspace_browser_exe_path, workspace_root_profile_path, 
+                 workspace_browser_exe_path, workspace_root_profile_path, workspace_browser_type,
                  workspace_created_at, workspace_updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (name, description, icon, color, browser_exe_path, root_profile_path, now, now))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (name, description, icon, color, browser_exe_path, root_profile_path, browser_type, now, now))
             conn.commit()
             return c.lastrowid
     
@@ -50,7 +50,7 @@ class AccountManagerDB:
     
     def update_workspace(self, workspace_id: int, name: str = None, description: str = None,
                         icon: str = None, color: str = None, browser_exe_path: str = None,
-                        root_profile_path: str = None) -> bool:
+                        root_profile_path: str = None, browser_type: str = None) -> bool:
         """Update workspace fields (only provided fields are updated)"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -75,6 +75,9 @@ class AccountManagerDB:
             if root_profile_path is not None:
                 updates.append('workspace_root_profile_path = ?')
                 params.append(root_profile_path)
+            if browser_type is not None:
+                updates.append('workspace_browser_type = ?')
+                params.append(browser_type)
             
             if not updates:
                 return False
@@ -99,8 +102,8 @@ class AccountManagerDB:
     # ========== Group Operations ==========
     
     def create_group(self, workspace_id: int, name: str, description: str = "",
-                    icon: str = "fa6s.users", color: str = "#3b82f6",
-                    order_index: int = 0) -> int:
+                     icon: str = "fa6s.users", color: str = "#3b82f6",
+                     order_index: int = 0) -> int:
         """Create new group and return group_id"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -137,7 +140,7 @@ class AccountManagerDB:
             return dict(row) if row else None
     
     def update_group(self, group_id: int, name: str = None, description: str = None,
-                    icon: str = None, color: str = None, order_index: int = None) -> bool:
+                     icon: str = None, color: str = None, order_index: int = None) -> bool:
         """Update group fields (only provided fields are updated)"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -206,9 +209,9 @@ class AccountManagerDB:
     # ========== Profile Operations ==========
     
     def create_profile(self, group_id: int, name: str, description: str = "",
-                      icon: str = "fa6s.user", color: str = "#3b82f6",
-                      browser_profile_name: str = "", browser_profile_path: str = "",
-                      order_index: int = 0) -> int:
+                       icon: str = "fa6s.user", color: str = "#3b82f6",
+                       browser_profile_name: str = "", browser_profile_path: str = "",
+                       order_index: int = 0, browser_type: str = "chrome", zip_name: str = None) -> int:
         """Create new profile and return profile_id"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -217,10 +220,11 @@ class AccountManagerDB:
                 INSERT INTO account_profiles 
                 (profile_group_id, profile_name, profile_description, profile_icon, 
                  profile_color, profile_browser_profile_name, profile_browser_profile_path,
-                 profile_order_index, profile_created_at, profile_updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 profile_order_index, profile_created_at, profile_updated_at, 
+                 profile_browser_type, profile_zip_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (group_id, name, description, icon, color, browser_profile_name, 
-                  browser_profile_path, order_index, now, now))
+                  browser_profile_path, order_index, now, now, browser_type, zip_name))
             conn.commit()
             return c.lastrowid
     
@@ -256,8 +260,9 @@ class AccountManagerDB:
             return [dict(row) for row in rows]
     
     def update_profile(self, profile_id: int, name: str = None, description: str = None,
-                      icon: str = None, color: str = None, browser_profile_name: str = None,
-                      browser_profile_path: str = None, order_index: int = None) -> bool:
+                       icon: str = None, color: str = None, browser_profile_name: str = None,
+                       browser_profile_path: str = None, order_index: int = None,
+                       browser_type: str = None, zip_name: str = None) -> bool:
         """Update profile fields (only provided fields are updated)"""
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -285,6 +290,12 @@ class AccountManagerDB:
             if order_index is not None:
                 updates.append('profile_order_index = ?')
                 params.append(order_index)
+            if browser_type is not None:
+                updates.append('profile_browser_type = ?')
+                params.append(browser_type)
+            if zip_name is not None:
+                updates.append('profile_zip_name = ?')
+                params.append(zip_name)
             
             if not updates:
                 return False
@@ -334,7 +345,7 @@ class AccountManagerDB:
             return True
         except Exception:
             return False
-
+    
     def load_profile_metadata(self, profile_path: str) -> Optional[Dict[str, Any]]:
         """Load profile metadata from JSON file if exists"""
         import os
@@ -346,7 +357,7 @@ class AccountManagerDB:
                 return json.load(f)
         except Exception:
             return None
-
+    
     def reorder_profiles(self, profile_updates: List[Dict[str, int]]) -> bool:
         """Update order_index for multiple profiles. profile_updates format: [{'profile_id': 1, 'order_index': 0}, ...]"""
         with sqlite3.connect(self.db_path) as conn:

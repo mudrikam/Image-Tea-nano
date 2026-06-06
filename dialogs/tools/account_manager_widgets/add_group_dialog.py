@@ -164,7 +164,7 @@ class AddGroupDialog(QDialog):
     
     def _update_icon_preview(self):
         try:
-            icon = qta.icon(f'fa6s.{self.selected_icon}', color=self.selected_color)
+            icon = qta.icon(self.selected_icon, color=self.selected_color)
             self.icon_preview.setPixmap(icon.pixmap(24, 24))
         except:
             self.icon_preview.setText('?')
