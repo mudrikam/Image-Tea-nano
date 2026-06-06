@@ -170,7 +170,10 @@ class ExportProfileDialog(QDialog):
                 painter.drawPixmap(0, 0, icon.pixmap(24, 24))
         else:
             try:
-                icon = qta.icon(f'fa6s.{icon_value}', color=color)
+                if '.' in icon_value:
+                    icon = qta.icon(icon_value, color=color)
+                else:
+                    icon = qta.icon(f'fa6s.{icon_value}', color=color)
                 painter.drawPixmap(0, 0, icon.pixmap(24, 24))
             except:
                 icon = qta.icon('fa6s.user', color=color)

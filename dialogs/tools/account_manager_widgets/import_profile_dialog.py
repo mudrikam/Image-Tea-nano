@@ -1,11 +1,12 @@
 import os
 import zipfile
+import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QFileDialog, QMessageBox, QRadioButton, QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QFont
 import qtawesome as qta
 from config import BASE_PATH
 from ui.theme_system import theme
@@ -92,6 +93,12 @@ class ImportProfileDialog(QDialog):
         self.profiles_list.hide()
         layout.addWidget(self.profiles_list)
         
+        # Profile count label
+        self.count_label = QLabel('')
+        self.count_label.setStyleSheet(f'font-size: 12px; color: {theme.get_color("gray")}; margin-top: 4px;')
+        self.count_label.hide()
+        layout.addWidget(self.count_label)
+        
         layout.addStretch()
         
         button_layout = QHBoxLayout()
@@ -136,6 +143,7 @@ class ImportProfileDialog(QDialog):
         self.profiles_list.clear()
         self.profiles_list_label.hide()
         self.profiles_list.hide()
+        self.count_label.hide()
         self.selected_profiles = []
         
         try:
@@ -144,27 +152,51 @@ class ImportProfileDialog(QDialog):
                 
                 # Find all profile folders by looking for metadata files
                 profile_names = set()
+                profile_metadata = {}
+                
                 for name in namelist:
                     if 'account_management_profile_metadata.json' in name:
                         parts = name.split('/')
                         if len(parts) >= 1:
                             profile_names.add(parts[0])
+                            try:
+                                metadata_content = zip_ref.read(name).decode('utf-8')
+                                metadata = json.loads(metadata_content)
+                                profile_metadata[parts[0]] = metadata
+                            except:
+                                pass
                     elif name.endswith('_metadata.json'):
-                        # all_profiles format
                         parts = name.split('/')
                         if len(parts) >= 1:
-                            profile_names.add(parts[0].replace('_metadata.json', ''))
+                            profile_name = parts[0].replace('_metadata.json', '')
+                            profile_names.add(profile_name)
+                            try:
+                                metadata_content = zip_ref.read(name).decode('utf-8')
+                                metadata = json.loads(metadata_content)
+                                profile_metadata[profile_name] = metadata
+                            except:
+                                pass
                 
                 if profile_names:
                     self.profiles_list_label.show()
                     self.profiles_list.show()
+                    self.count_label.setText(f'{len(profile_names)} profile{"s" if len(profile_names) > 1 else ""} found')
+                    self.count_label.show()
                     
                     zip_name = os.path.basename(zip_path)
                     
                     for profile_name in sorted(profile_names):
-                        # Create temp item - we'll detect browser type during actual import
-                        item = QListWidgetItem(f"{profile_name}")
+                        metadata = profile_metadata.get(profile_name, {})
+                        icon_value = metadata.get('profile_icon', 'user')
+                        color = metadata.get('profile_color', '#3b82f6')
+                        
+                        item = QListWidgetItem(f"  {profile_name}")
                         item.setData(Qt.UserRole, (profile_name, zip_name))
+                        
+                        # Create icon pixmap with color
+                        icon_pixmap = self._create_profile_icon(icon_value, color)
+                        item.setIcon(QIcon(icon_pixmap))
+                        
                         self.profiles_list.addItem(item)
                     
                     # If multiple profiles, auto-select all
@@ -172,6 +204,57 @@ class ImportProfileDialog(QDialog):
                         self.profiles_list.selectAll()
         except Exception:
             pass
+    
+    def _create_profile_icon(self, icon_value, color):
+        """Create icon pixmap for profile list item"""
+        from PySide6.QtGui import QPixmap, QPainter, QColor
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        r, g, b = int(color.lstrip('#')[0:2], 16), int(color.lstrip('#')[2:4], 16), int(color.lstrip('#')[4:6], 16)
+        
+        if icon_value.startswith('initial:'):
+            initial = icon_value[8:].upper() or '?'
+            circle_color = QColor(r, g, b, 40)
+            painter.setBrush(circle_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(0, 0, 24, 24)
+            painter.setPen(QColor(r, g, b))
+            font = QFont()
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(pixmap.rect(), Qt.AlignCenter, initial)
+        elif icon_value.startswith('image:'):
+            image_path = icon_value[6:]
+            if os.path.exists(image_path):
+                from PySide6.QtGui import QPainterPath
+                path = QPainterPath()
+                path.addEllipse(0, 0, 24, 24)
+                painter.setClipPath(path)
+                img = QPixmap(image_path).scaled(24, 24, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                painter.drawPixmap(0, 0, img)
+                painter.setPen(QColor(r, g, b, 100))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawEllipse(0, 0, 24, 24)
+            else:
+                icon = qta.icon('fa6s.user', color=color)
+                painter.drawPixmap(0, 0, icon.pixmap(24, 24))
+        else:
+            try:
+                if '.' in icon_value:
+                    icon = qta.icon(icon_value, color=color)
+                else:
+                    icon = qta.icon(f'fa6s.{icon_value}', color=color)
+                painter.drawPixmap(0, 0, icon.pixmap(24, 24))
+            except:
+                icon = qta.icon('fa6s.user', color=color)
+                painter.drawPixmap(0, 0, icon.pixmap(24, 24))
+        
+        painter.end()
+        return pixmap
     
     def _on_import(self):
         if not self.selected_source:
