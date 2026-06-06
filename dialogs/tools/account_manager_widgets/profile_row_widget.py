@@ -26,6 +26,7 @@ class ProfileRowWidget(QFrame):
     focus_clicked = Signal(int)  # profile_id
     close_clicked = Signal(int)  # profile_id
     export_clicked = Signal(int)  # profile_id
+    clicked = Signal(int)  # profile_id - for selection
 
     def __init__(self, profile_data, parent=None):
         super().__init__(parent)
@@ -34,6 +35,7 @@ class ProfileRowWidget(QFrame):
         self._hover = False
         self._launching = False
         self._is_launched = False
+        self._selected = False
 
         self.setFrameShape(QFrame.StyledPanel)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -248,14 +250,27 @@ class ProfileRowWidget(QFrame):
             self.launch_btn.setIcon(qta.icon('fa6s.play', color=theme.get_color('white')))
             self.close_btn.hide()
 
+    def set_selected(self, selected):
+        """Set selected state - shows selected style"""
+        self._selected = selected
+        self._update_style()
+
     def _update_style(self):
         color = self.profile_data.get('profile_color', '#3b82f6')
         gray = QColor(theme.get_color('gray'))
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
 
-        # Running or hover state gets profile color styling
-        if self._is_launched or self._hover:
+        # Selected state gets strongest styling, then launched, then hover
+        if self._selected:
+            self.setStyleSheet(f'''
+                ProfileRowWidget {{
+                    background-color: rgba({r}, {g}, {b}, 0.25);
+                    border: 1px solid {color};
+                    border-radius: 4px;
+                }}
+            ''')
+        elif self._is_launched or self._hover:
             self.setStyleSheet(f'''
                 ProfileRowWidget {{
                     background-color: rgba({r}, {g}, {b}, 0.12);
@@ -287,6 +302,12 @@ class ProfileRowWidget(QFrame):
         if not self._is_launched and not self._launching:
             self.launch_clicked.emit(self.profile_id)
         super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event):
+        """Single click selects profile"""
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.profile_id)
+        super().mousePressEvent(event)
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)

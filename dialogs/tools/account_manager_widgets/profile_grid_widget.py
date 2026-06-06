@@ -44,6 +44,7 @@ class ProfileGridWidget(QWidget):
         self.browser_manager = BrowserManager()
         self.current_group_id = None
         self._all_profiles = []  # Store all profiles for filtering
+        self._selected_profile_id = None
         self._setup_ui()
         self._setup_timer()
     
@@ -202,12 +203,24 @@ class ProfileGridWidget(QWidget):
             row.edit_clicked.connect(self._on_edit_profile)
             row.delete_clicked.connect(self._on_delete_profile)
             row.export_clicked.connect(self._on_export_profile_row)
+            row.clicked.connect(self._on_profile_clicked)
             
             # Restore launched state if browser is still running
             if self.browser_manager.is_running(profile['profile_id']):
                 row.set_launched(True)
             
             self.rows_layout.insertWidget(self.rows_layout.count() - 1, row)
+    
+    def _on_profile_clicked(self, profile_id):
+        self._selected_profile_id = profile_id
+        self._update_profile_selection()
+    
+    def _update_profile_selection(self):
+        """Update selection styling for all profile rows"""
+        for i in range(self.rows_layout.count() - 1):
+            item = self.rows_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().set_selected(item.widget().profile_id == self._selected_profile_id)
     
     def _on_new_profile(self):
         if not self.current_group_id:

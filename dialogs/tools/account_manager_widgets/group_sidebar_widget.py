@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QComboBox, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 import qtawesome as qta
 
 
@@ -29,6 +30,8 @@ class GroupItemWidget(QWidget):
         super().__init__(parent)
         self.group_data = group_data
         self.group_id = group_data['group_id']
+        self._hover = False
+        self._selected = False
         self._setup_ui()
     
     def get_group_name(self):
@@ -50,13 +53,6 @@ class GroupItemWidget(QWidget):
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setCursor(Qt.PointingHandCursor)
         
-        self._normal_style = f'''
-            #groupItem_{self.group_id} {{
-                background-color: rgba({r}, {g}, {b}, 0.1);
-                border: 1px solid rgba({r}, {g}, {b}, 0.3);
-                border-radius: 4px;
-            }}
-        '''
         self._hover_style = f'''
             #groupItem_{self.group_id} {{
                 background-color: rgba({r}, {g}, {b}, 0.2);
@@ -64,7 +60,14 @@ class GroupItemWidget(QWidget):
                 border-radius: 4px;
             }}
         '''
-        self.setStyleSheet(self._normal_style)
+        self._selected_style = f'''
+            #groupItem_{self.group_id} {{
+                background-color: rgba({r}, {g}, {b}, 0.25);
+                border: 1px solid rgba({r}, {g}, {b}, 0.8);
+                border-radius: 4px;
+            }}
+        '''
+        self._update_style()
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
@@ -115,17 +118,41 @@ class GroupItemWidget(QWidget):
         delete_btn.clicked.connect(lambda: self.delete_requested.emit(self.group_id))
         layout.addWidget(delete_btn)
     
+    def set_selected(self, selected):
+        """Set selected state - shows selected style"""
+        self._selected = selected
+        self._update_style()
+    
+    def _update_style(self):
+        """Update style based on hover and selected state"""
+        if self._selected:
+            self.setStyleSheet(self._selected_style)
+        elif self._hover:
+            self.setStyleSheet(self._hover_style)
+        else:
+            # Use gray background like profile row when not selected/hovered
+            gray = QColor(theme.get_color('gray'))
+            self.setStyleSheet(f'''
+                #groupItem_{self.group_id} {{
+                    background-color: rgba({gray.red()}, {gray.green()}, {gray.blue()}, 0.05);
+                    border: 1px solid rgba({gray.red()}, {gray.green()}, {gray.blue()}, 0.2);
+                    border-radius: 4px;
+                }}
+            ''')
+    
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.group_id)
         super().mousePressEvent(event)
     
     def enterEvent(self, event):
-        self.setStyleSheet(self._hover_style)
+        self._hover = True
+        self._update_style()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        self.setStyleSheet(self._normal_style)
+        self._hover = False
+        self._update_style()
         super().leaveEvent(event)
     
     def _show_context_menu(self, pos):
@@ -393,7 +420,15 @@ class GroupSidebarWidget(QWidget):
     
     def _on_group_clicked(self, group_id):
         self.selected_group_id = group_id
+        self._update_group_selection()
         self.group_selected.emit(group_id)
+    
+    def _update_group_selection(self):
+        """Update selection styling for all group items"""
+        for i in range(self.groups_layout.count() - 1):
+            item = self.groups_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().set_selected(item.widget().group_id == self.selected_group_id)
     
     def _on_new_group(self):
         if not self.current_workspace_id:
