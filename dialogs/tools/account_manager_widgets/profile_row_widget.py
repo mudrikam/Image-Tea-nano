@@ -25,6 +25,7 @@ class ProfileRowWidget(QFrame):
     delete_clicked = Signal(int)
     focus_clicked = Signal(int)  # profile_id
     close_clicked = Signal(int)  # profile_id
+    export_clicked = Signal(int)  # profile_id
 
     def __init__(self, profile_data, parent=None):
         super().__init__(parent)
@@ -289,12 +290,15 @@ class ProfileRowWidget(QFrame):
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
-
+        
         edit_action = menu.addAction(qta.icon('fa6s.pen'), 'Edit')
         menu.addSeparator()
+        export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
+        menu.addSeparator()
         delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
-
+        
         edit_action.triggered.connect(lambda: self.edit_clicked.emit(self.profile_id))
+        export_action.triggered.connect(lambda: self.export_clicked.emit(self.profile_id))
         delete_action.triggered.connect(lambda: self.delete_clicked.emit(self.profile_id))
-
+        
         menu.exec(self.mapToGlobal(pos))

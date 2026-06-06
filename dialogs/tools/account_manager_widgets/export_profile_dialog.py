@@ -17,6 +17,8 @@ class ExportProfileDialog(QDialog):
         super().__init__(parent)
         self.profiles = profiles
         self.selected_profile = None
+        self.selected_profiles = []  # For export all
+        self.is_export_all = False
         self.setWindowTitle('Export Profile')
         self.setModal(True)
         self.setMinimumWidth(400)
@@ -77,6 +79,12 @@ class ExportProfileDialog(QDialog):
         export_btn.setDefault(True)
         button_layout.addWidget(export_btn)
         
+        # Export All button - inline with other buttons when multiple profiles
+        if len(self.profiles) > 1:
+            export_all_btn = QPushButton(qta.icon('fa6s.file-zipper'), f' All ({len(self.profiles)})')
+            export_all_btn.clicked.connect(self._on_export_all)
+            button_layout.addWidget(export_all_btn)
+        
         layout.addLayout(button_layout)
     
     def _populate_list(self):
@@ -109,6 +117,14 @@ class ExportProfileDialog(QDialog):
             return
         
         self.selected_profile = current_item.data(Qt.UserRole)
+        self.is_export_all = False
+        self.selected_profiles = []
+        self.accept()
+    
+    def _on_export_all(self):
+        self.selected_profiles = self.profiles.copy()
+        self.is_export_all = True
+        self.selected_profile = None
         self.accept()
     
     def _filter_profiles(self):

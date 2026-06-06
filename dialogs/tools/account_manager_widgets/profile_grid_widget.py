@@ -159,6 +159,7 @@ class ProfileGridWidget(QWidget):
             row.close_clicked.connect(self._on_close_profile)
             row.edit_clicked.connect(self._on_edit_profile)
             row.delete_clicked.connect(self._on_delete_profile)
+            row.export_clicked.connect(self._on_export_profile_row)
             
             # Restore launched state if browser is still running
             if self.browser_manager.is_running(profile['profile_id']):
@@ -431,9 +432,18 @@ class ProfileGridWidget(QWidget):
         
         dialog = ExportProfileDialog(profiles, parent=self)
         if dialog.exec() == QDialog.Accepted:
-            selected_profile = dialog.selected_profile
-            if selected_profile:
-                self._export_profile(selected_profile)
+            if dialog.is_export_all:
+                self._export_profiles_all(dialog.selected_profiles)
+            else:
+                selected_profile = dialog.selected_profile
+                if selected_profile:
+                    self._export_profile(selected_profile)
+    
+    def _on_export_profile_row(self, profile_id):
+        """Handle export from context menu on profile row"""
+        profile = self.db.get_profile(profile_id)
+        if profile:
+            self._export_profile(profile)
 
     def _detect_browser_type(self, profile_path):
         """Detect browser type from profile folder contents"""
@@ -481,7 +491,7 @@ class ProfileGridWidget(QWidget):
             counter += 1
 
     def _import_profile(self, source_path):
-        """Import profile from zip or folder"""
+        """Import profile(s) from zip or folder - supports single or multiple profiles"""
         group = self.db.get_group(self.current_group_id)
         if not group:
             return
@@ -503,6 +513,22 @@ class ProfileGridWidget(QWidget):
                 with zipfile.ZipFile(source_path, 'r') as zip_ref:
                     zip_ref.extractall(temp_extract_path)
                 
+                # Check for multiple profiles (folders with metadata files)
+                profile_folders = self._find_all_profile_folders(temp_extract_path)
+                
+                if profile_folders:
+                    # Multi-profile zip
+                    imported_count = 0
+                    for profile_folder in profile_folders:
+                        result = self._import_single_profile(profile_folder, workspace_path)
+                        if result:
+                            imported_count += 1
+                    
+                    self.refresh_profiles()
+                    if imported_count > 0:
+                        QMessageBox.information(self, 'Import Successful', f'Imported {imported_count} profile(s)')
+                    return
+                
                 extracted_items = os.listdir(temp_extract_path)
                 if len(extracted_items) == 1 and os.path.isdir(os.path.join(temp_extract_path, extracted_items[0])):
                     profile_source_path = os.path.join(temp_extract_path, extracted_items[0])
@@ -515,59 +541,110 @@ class ProfileGridWidget(QWidget):
                 QMessageBox.warning(self, 'Invalid Source', 'Source does not contain a valid profile folder')
                 return
             
-            metadata = self.db.load_profile_metadata(profile_source_path)
-            
-            if metadata:
-                profile_name = metadata.get('profile_name', os.path.basename(profile_source_path))
-                profile_desc = metadata.get('profile_description', '')
-                profile_icon = metadata.get('profile_icon', 'fa6s.user')
-                profile_color = metadata.get('profile_color', '#3b82f6')
-                browser_profile_name = metadata.get('profile_browser_profile_name', os.path.basename(profile_source_path))
-            else:
-                folder_name = os.path.basename(profile_source_path)
-                profile_name = folder_name
-                profile_desc = ''
-                profile_icon = 'fa6s.user'
-                profile_color = '#3b82f6'
-                browser_profile_name = folder_name
-            
-            browser_profile_name = self._get_unique_profile_name(browser_profile_name, workspace_path)
-            dest_path = os.path.join(workspace_path, browser_profile_name)
-            
-            if os.path.exists(dest_path):
-                reply = QMessageBox.question(
-                    self, 'Profile Exists',
-                    f'A profile folder named "{browser_profile_name}" already exists. Overwrite?',
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-                if reply == QMessageBox.No:
-                    return
-                shutil.rmtree(dest_path)
-            
-            shutil.copytree(profile_source_path, dest_path)
-            
-            profile_id = self.db.create_profile(
-                self.current_group_id,
-                profile_name,
-                profile_desc,
-                profile_icon,
-                profile_color,
-                browser_profile_name,
-                dest_path
-            )
-            
-            self._save_profile_metadata_for_import(profile_id, profile_name, profile_desc, 
-                                                  profile_icon, profile_color, browser_profile_name, dest_path)
-            
-            self.refresh_profiles()
-            QMessageBox.information(self, 'Import Successful', f'Profile "{profile_name}" imported successfully')
+            result = self._import_single_profile(profile_source_path, workspace_path)
+            if result:
+                self.refresh_profiles()
+                QMessageBox.information(self, 'Import Successful', f'Profile imported successfully')
             
         except Exception as e:
             QMessageBox.critical(self, 'Import Failed', f'Failed to import profile:\n{str(e)}')
         finally:
             if temp_extract_path and os.path.exists(temp_extract_path):
                 shutil.rmtree(temp_extract_path)
+
+    def _find_all_profile_folders(self, extract_path):
+        """Find all profile folders with metadata in extracted zip (supports single and all_profiles format)"""
+        profile_folders = []
+        processed = set()
+        
+        # First pass: find folders with account_management_profile_metadata.json inside
+        for item in os.listdir(extract_path):
+            item_path = os.path.join(extract_path, item)
+            if os.path.isdir(item_path):
+                meta_path = os.path.join(item_path, 'account_management_profile_metadata.json')
+                if os.path.exists(meta_path):
+                    profile_folders.append((item_path, 'internal'))
+                    processed.add(item_path)
+        
+        # Second pass: find folders matching *_metadata.json in root (all_profiles format)
+        for item in os.listdir(extract_path):
+            item_path = os.path.join(extract_path, item)
+            if os.path.isdir(item_path) and item_path not in processed:
+                meta_file = os.path.join(extract_path, f'{item}_metadata.json')
+                if os.path.exists(meta_file):
+                    profile_folders.append((item_path, meta_file))
+        
+        return profile_folders
+    
+    def _import_single_profile(self, profile_info, workspace_path):
+        """Import a single profile folder - profile_info is (path, metadata_source)"""
+        if isinstance(profile_info, tuple):
+            profile_source_path, meta_src = profile_info
+        else:
+            profile_source_path = profile_info
+            meta_src = 'internal'
+        
+        if not os.path.isdir(profile_source_path):
+            return False
+        
+        # Load metadata based on source
+        if meta_src == 'internal':
+            metadata = self.db.load_profile_metadata(profile_source_path)
+        else:
+            try:
+                with open(meta_src, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+            except:
+                metadata = None
+        
+        if metadata:
+            profile_name = metadata.get('profile_name', os.path.basename(profile_source_path))
+            profile_desc = metadata.get('profile_description', '')
+            profile_icon = metadata.get('profile_icon', 'fa6s.user')
+            profile_color = metadata.get('profile_color', '#3b82f6')
+            browser_profile_name = metadata.get('profile_browser_profile_name', os.path.basename(profile_source_path))
+        else:
+            folder_name = os.path.basename(profile_source_path)
+            profile_name = folder_name
+            profile_desc = ''
+            profile_icon = 'fa6s.user'
+            profile_color = '#3b82f6'
+            browser_profile_name = folder_name
+        
+        browser_profile_name = self._get_unique_profile_name(browser_profile_name, workspace_path)
+        dest_path = os.path.join(workspace_path, browser_profile_name)
+        
+        if os.path.exists(dest_path):
+            reply = QMessageBox.question(
+                self, 'Profile Exists',
+                f'A profile folder named "{browser_profile_name}" already exists. Overwrite?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return None
+            
+            if profile_source_path == dest_path:
+                return None  # Same source, skip
+            
+            shutil.rmtree(dest_path)
+        
+        shutil.copytree(profile_source_path, dest_path)
+        
+        profile_id = self.db.create_profile(
+            self.current_group_id,
+            profile_name,
+            profile_desc,
+            profile_icon,
+            profile_color,
+            browser_profile_name,
+            dest_path
+        )
+        
+        self._save_profile_metadata_for_import(profile_id, profile_name, profile_desc, 
+                                                profile_icon, profile_color, browser_profile_name, dest_path)
+        
+        return profile_id
 
     def _save_profile_metadata_for_import(self, profile_id, name, desc, icon, color, browser_name, browser_path):
         """Save metadata for imported profile"""
@@ -638,6 +715,64 @@ class ProfileGridWidget(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, 'Export Failed', f'Failed to export profile:\n{str(e)}')
+    
+    def _export_profiles_all(self, profiles):
+        """Export all profiles to single zip file"""
+        if not profiles:
+            return
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        default_filename = f"all_profiles_{timestamp}.zip"
+        
+        home_path = os.path.expanduser('~')
+        default_path = os.path.join(home_path, default_filename)
+        
+        export_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export All Profiles',
+            default_path,
+            'ZIP Files (*.zip);;All Files (*.*)'
+        )
+        
+        if not export_path:
+            return
+        
+        try:
+            with zipfile.ZipFile(export_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for profile in profiles:
+                    profile_path = profile.get('profile_browser_profile_path', '')
+                    profile_name = profile.get('profile_name', 'profile')
+                    
+                    if not profile_path or not os.path.exists(profile_path):
+                        continue
+                    
+                    safe_name = re.sub(r'[^a-zA-Z0-9]', '_', profile_name)
+                    
+                    for root, dirs, files in os.walk(profile_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, profile_path)
+                            zipf.write(file_path, os.path.join(safe_name, arcname))
+                    
+                    meta_data = {
+                        'profile_id': profile.get('profile_id'),
+                        'profile_name': profile.get('profile_name', ''),
+                        'profile_description': profile.get('profile_description', ''),
+                        'profile_icon': profile.get('profile_icon', 'fa6s.user'),
+                        'profile_color': profile.get('profile_color', '#3b82f6'),
+                        'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
+                        'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
+                        'group_id': profile.get('profile_group_id'),
+                        'profile_order_index': profile.get('profile_order_index', 0),
+                        'profile_created_at': profile.get('profile_created_at'),
+                        'profile_updated_at': profile.get('profile_updated_at'),
+                    }
+                    zipf.writestr(f'{safe_name}_metadata.json', json.dumps(meta_data, indent=2))
+            
+            QMessageBox.information(self, 'Export Successful', f'Exported {len(profiles)} profiles to:\n{export_path}')
+            
+        except Exception as e:
+            QMessageBox.critical(self, 'Export Failed', f'Failed to export profiles:\n{str(e)}')
 
     def _save_profile_metadata(self, data):
         """Save profile metadata JSON to profile folder"""
