@@ -59,6 +59,10 @@ class AccountManagerWidget(QWidget):
         self.group_sidebar.group_selected.connect(self._on_group_selected)
         self.group_sidebar.workspace_changed.connect(self._update_stats)
         self.group_sidebar.group_selected.connect(self._update_stats)
+        
+        # When profile changes, update stats and refresh group info
+        self.profile_grid.profile_changed.connect(self._update_stats)
+        self.profile_grid.profile_changed.connect(self._refresh_group_info)
      
     def _update_stats(self):
         """Update stats bar with current counts"""
@@ -115,6 +119,28 @@ class AccountManagerWidget(QWidget):
             workspace.get('workspace_name', '-'),
             workspace.get('workspace_icon', 'briefcase'),
             workspace.get('workspace_color', '#3b82f6')
+        )
+    
+    def _refresh_group_info(self):
+        """Refresh group info labels when profile changes"""
+        if not self.profile_grid.current_group_id:
+            return
+        
+        group_id = self.profile_grid.current_group_id
+        group = self.db.get_group(group_id)
+        if not group:
+            return
+        
+        workspace = self.db.get_workspace(group['group_workspace_id'])
+        if not workspace:
+            return
+        
+        profile_count = len(self.db.get_profiles_by_group(group_id))
+        
+        self.profile_grid.set_workspace_group_info(
+            workspace['workspace_name'],
+            group['group_name'],
+            profile_count
         )
 
 

@@ -38,6 +38,7 @@ class ClearableLineEdit(QLineEdit):
 class ProfileGridWidget(QWidget):
     """Grid display of profile cards for selected group"""
     profile_launched = Signal(int)  # profile_id
+    profile_changed = Signal()  # Notify when profile is created/updated/deleted
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -295,6 +296,7 @@ class ProfileGridWidget(QWidget):
             
             self.db.delete_profile(profile_id)
             self.refresh_profiles()
+            self.profile_changed.emit()
     
     def _on_profile_saved(self, data):
         profile_id = data.get('profile_id')
@@ -367,6 +369,7 @@ class ProfileGridWidget(QWidget):
         self._save_profile_metadata(data)
         
         self.refresh_profiles()
+        self.profile_changed.emit()
     
     def _save_profile_metadata(self, data):
         """Save profile metadata JSON to profile folder"""

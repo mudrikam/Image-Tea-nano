@@ -357,6 +357,7 @@ class GroupSidebarWidget(QWidget):
     
     def _on_workspace_saved(self, data):
         if 'workspace_id' in data:
+            # Edit mode - update and store ID to re-select
             self.db.update_workspace(
                 data['workspace_id'],
                 name=data['workspace_name'],
@@ -367,7 +368,9 @@ class GroupSidebarWidget(QWidget):
                 root_profile_path=data['workspace_root_profile_path'],
                 browser_type=data.get('workspace_browser_type', 'chrome')
             )
+            saved_workspace_id = data['workspace_id']
         else:
+            # New mode - create new workspace
             workspace_id = self.db.create_workspace(
                 data['workspace_name'],
                 data['workspace_description'],
@@ -377,12 +380,15 @@ class GroupSidebarWidget(QWidget):
                 data['workspace_root_profile_path'],
                 browser_type=data.get('workspace_browser_type', 'chrome')
             )
-            self.current_workspace_id = workspace_id
+            saved_workspace_id = workspace_id
         
+        # Update current workspace and refresh dropdown
+        self.current_workspace_id = saved_workspace_id
         self.refresh_workspaces()
-        # Emit workspace_changed to refresh header in parent
-        if self.current_workspace_id:
-            self.workspace_changed.emit(self.current_workspace_id)
+        
+        # Re-emit workspace_changed to sync all labels with new data
+        if saved_workspace_id:
+            self.workspace_changed.emit(saved_workspace_id)
     
     def refresh_groups(self):
         """Reload groups from database"""
@@ -471,6 +477,7 @@ class GroupSidebarWidget(QWidget):
     
     def _on_group_saved(self, data):
         if 'group_id' in data:
+            # Edit mode - update and re-select same group
             self.db.update_group(
                 data['group_id'],
                 name=data['group_name'],
@@ -478,7 +485,9 @@ class GroupSidebarWidget(QWidget):
                 icon=data['group_icon'],
                 color=data['group_color']
             )
+            saved_group_id = data['group_id']
         else:
+            # New mode - create and select new group
             group_id = self.db.create_group(
                 self.current_workspace_id,
                 data['group_name'],
@@ -486,6 +495,12 @@ class GroupSidebarWidget(QWidget):
                 data['group_icon'],
                 data['group_color']
             )
-            self.selected_group_id = group_id
+            saved_group_id = group_id
         
+        # Store group ID to re-select after refresh
+        self.selected_group_id = saved_group_id
         self.refresh_groups()
+        
+        # Re-select the group to sync all labels with new data
+        if saved_group_id:
+            self.group_selected.emit(saved_group_id)
