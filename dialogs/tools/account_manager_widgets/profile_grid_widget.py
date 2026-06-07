@@ -821,6 +821,7 @@ class ProfileGridWidget(QWidget):
                 imported_count = result.get('imported_count', 0)
                 skipped = result.get('skipped_browser_mismatch', [])
                 self.refresh_profiles()
+                self.profile_changed.emit()
                 if imported_count > 0:
                     msg = f'Imported {imported_count} profile(s)'
                     if skipped:
@@ -828,6 +829,7 @@ class ProfileGridWidget(QWidget):
                     QMessageBox.information(self, 'Import Successful', msg)
             else:
                 self.refresh_profiles()
+                self.profile_changed.emit()
                 QMessageBox.information(self, 'Import Successful', 'Profile imported successfully')
     
     @Slot(str)
