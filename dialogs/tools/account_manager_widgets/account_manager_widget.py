@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QLabel
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 import qtawesome as qta
 from config import BASE_PATH
@@ -18,6 +18,7 @@ class AccountManagerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db = AccountManagerDB()
+        self._current_workspace_id = None
         self._setup_ui()
         self._connect_signals()
 
@@ -67,34 +68,33 @@ class AccountManagerWidget(QWidget):
         self.stats_widget.update_stats(len(workspaces), len(groups), len(profiles))
     
     def _on_workspace_changed(self, workspace_id):
-        """When workspace changes, clear profile grid"""
+        """When workspace changes, update header and clear profiles"""
         if workspace_id is None:
-            self.profile_grid.set_group(None)
             self.profile_grid.set_workspace_group_info('-', '-', 0)
             self.profile_grid.update_workspace_display('-', 'briefcase', '#3b82f6')
+            self._current_workspace_id = None
+            QTimer.singleShot(0, lambda: self.profile_grid.set_group(None))
             return
         
         workspace = self.db.get_workspace(workspace_id)
         if workspace:
+            self._current_workspace_id = workspace_id
             self.profile_grid.set_workspace_group_info(workspace['workspace_name'], '-', 0)
             self.profile_grid.update_workspace_display(
                 workspace.get('workspace_name', '-'),
                 workspace.get('workspace_icon', 'briefcase'),
                 workspace.get('workspace_color', '#3b82f6')
             )
+            QTimer.singleShot(0, lambda: self.profile_grid.set_group(None))
     
     def _on_group_selected(self, group_id):
         """When group is selected, update profile grid with workspace/group names"""
-        # Clear profile grid if no group selected (workspace switch)
-        # Workspace header is preserved by _on_workspace_changed, only clear group
         if group_id is None:
             self.profile_grid.set_group(None)
-            # Don't clear workspace header - it's set by _on_workspace_changed
             return
         
         self.profile_grid.set_group(group_id)
         
-        # Get group and workspace info
         group = self.db.get_group(group_id)
         if not group:
             return
@@ -103,17 +103,14 @@ class AccountManagerWidget(QWidget):
         if not workspace:
             return
         
-        # Get profile count for this group
         profile_count = len(self.db.get_profiles_by_group(group_id))
         
-        # Update profile header with real names and profile count
         self.profile_grid.set_workspace_group_info(
             workspace['workspace_name'],
             group['group_name'],
             profile_count
         )
         
-        # Update workspace label with icon and color
         self.profile_grid.update_workspace_display(
             workspace.get('workspace_name', '-'),
             workspace.get('workspace_icon', 'briefcase'),

@@ -160,7 +160,11 @@ class ProfileGridWidget(QWidget):
         self.workspace_label.setText(f'Workspace: {workspace_name}')
         self.workspace_label.setStyleSheet(f'font-size: 14px; color: {color};')
         try:
-            self.workspace_icon_label.setPixmap(qta.icon(f'fa6s.{icon_value}', color=color).pixmap(16, 16))
+            if '.' in icon_value:
+                icon = qta.icon(icon_value, color=color)
+            else:
+                icon = qta.icon(f'fa6s.{icon_value}', color=color)
+            self.workspace_icon_label.setPixmap(icon.pixmap(16, 16))
         except:
             self.workspace_icon_label.setPixmap(qta.icon('fa6s.briefcase', color=color).pixmap(16, 16))
     
