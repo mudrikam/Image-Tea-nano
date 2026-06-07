@@ -632,6 +632,11 @@ class ProfileGridWidget(QWidget):
             'launch_window_mode',
             data.get('launch_window_mode', 'windowed')
         )
+        self.db.set_profile_setting(
+            profile_id,
+            'launch_additional_parameters',
+            json.dumps(data.get('launch_additional_parameters', []))
+        )
         
         # Save metadata file to profile folder
         self._save_profile_metadata(data)
@@ -665,6 +670,18 @@ class ProfileGridWidget(QWidget):
             }
             self.db.save_profile_metadata(meta_data)
     
+    def _parse_launch_additional_parameters(self, value):
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+                if isinstance(decoded, list):
+                    return [str(item).strip() for item in decoded if str(item).strip()]
+            except json.JSONDecodeError:
+                return [line.strip() for line in value.splitlines() if line.strip()]
+        return []
+    
     def _on_launch_profile(self, profile_id):
         """Launch browser with profile"""
         self.profile_launched.emit(profile_id)
@@ -686,6 +703,9 @@ class ProfileGridWidget(QWidget):
         profile_path = profile.get('profile_browser_profile_path', '')
         browser_type = profile.get('profile_browser_type', workspace.get('workspace_browser_type', 'chrome'))
         launch_window_mode = self.db.get_profile_setting(profile_id, 'launch_window_mode') or 'windowed'
+        launch_additional_parameters = self._parse_launch_additional_parameters(
+            self.db.get_profile_setting(profile_id, 'launch_additional_parameters')
+        )
         
         if not browser_exe:
             QMessageBox.warning(self, 'No Browser', 'Browser executable not set in workspace')
@@ -710,7 +730,8 @@ class ProfileGridWidget(QWidget):
             browser_exe,
             profile_path,
             browser_type,
-            launch_window_mode
+            launch_window_mode,
+            launch_additional_parameters
         )
         
         if pid:

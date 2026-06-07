@@ -23,7 +23,7 @@ class BrowserManager:
     def __init__(self):
         self.processes = {}  # profile_id -> {'proc': Popen, 'pid': int, 'type': str, 'browser_exe': str}
     
-    def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome', window_mode='windowed'):
+    def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome', window_mode='windowed', additional_parameters=None):
         """Launch browser and track process"""
         if not os.path.exists(browser_exe):
             QMessageBox.warning(None, 'Browser Not Found', f'Browser executable not found:\n{browser_exe}')
@@ -45,6 +45,9 @@ class BrowserManager:
                 args.append('--start-maximized')
             elif window_mode == 'fullscreen':
                 args.append('--start-fullscreen')
+        
+        if additional_parameters:
+            args.extend([str(parameter).strip() for parameter in additional_parameters if str(parameter).strip()])
         
         try:
             proc = subprocess.Popen(args, shell=False)

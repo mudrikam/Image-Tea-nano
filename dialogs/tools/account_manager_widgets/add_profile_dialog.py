@@ -1,7 +1,9 @@
 import os
+import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog, QComboBox
+    QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog, QComboBox,
+    QTabWidget, QWidget, QScrollArea, QListWidget, QInputDialog, QAbstractItemView
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor
@@ -22,10 +24,12 @@ class AddProfileDialog(QDialog):
         self.selected_icon = profile_data.get('profile_icon', 'initial') if profile_data else 'initial'
         self.selected_color = profile_data.get('profile_color', '#3b82f6') if profile_data else '#3b82f6'
         self.icon_mode = 'initial' if not profile_data else 'icon'  # Default to Initial for new, Icon for edit
+        self.additional_parameters = []
 
         self.setWindowTitle('Edit Profile' if self.is_edit_mode else 'New Profile')
         self.setModal(True)
         self.setMinimumWidth(450)
+        self.setMinimumHeight(340)
 
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -59,6 +63,27 @@ class AddProfileDialog(QDialog):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
+        self.tabs = QTabWidget()
+        self.main_tab = QWidget()
+        self.parameters_tab = QWidget()
+        self.tabs.addTab(self.main_tab, qta.icon('fa6s.user-gear'), 'Main Data')
+        self.tabs.addTab(self.parameters_tab, qta.icon('fa6s.sliders'), 'Parameters')
+        layout.addWidget(self.tabs, 1)
+
+        main_tab_layout = QVBoxLayout(self.main_tab)
+        main_tab_layout.setContentsMargins(0, 0, 0, 0)
+        main_tab_layout.setSpacing(8)
+
+        main_scroll = QScrollArea()
+        main_scroll.setWidgetResizable(True)
+        main_scroll.setFrameShape(QScrollArea.NoFrame)
+        main_content = QWidget()
+        main_layout = QVBoxLayout(main_content)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
+        main_scroll.setWidget(main_content)
+        main_tab_layout.addWidget(main_scroll)
+
         # Name field
         name_layout = QHBoxLayout()
         name_layout.setSpacing(6)
@@ -73,7 +98,7 @@ class AddProfileDialog(QDialog):
         self.name_input.setPlaceholderText('e.g., John Doe, Admin Profile')
         self.name_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         name_layout.addWidget(self.name_input, 1)
-        layout.addLayout(name_layout)
+        main_layout.addLayout(name_layout)
 
         # Description field
         desc_layout = QHBoxLayout()
@@ -89,7 +114,7 @@ class AddProfileDialog(QDialog):
         self.desc_input.setPlaceholderText('Optional description...')
         self.desc_input.setMaximumHeight(60)
         desc_layout.addWidget(self.desc_input, 1)
-        layout.addLayout(desc_layout)
+        main_layout.addLayout(desc_layout)
 
         # Icon mode selector
         mode_layout = QHBoxLayout()
@@ -105,7 +130,7 @@ class AddProfileDialog(QDialog):
         self.mode_combo.addItems(['Icon', 'Image', 'Initial'])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         mode_layout.addWidget(self.mode_combo, 1)
-        layout.addLayout(mode_layout)
+        main_layout.addLayout(mode_layout)
 
         # Icon preview container - will be updated based on mode
         icon_container_layout = QHBoxLayout()
@@ -144,7 +169,7 @@ class AddProfileDialog(QDialog):
         # Initial preview will be updated automatically based on profile name
 
         icon_container_layout.addStretch()
-        layout.addLayout(icon_container_layout)
+        main_layout.addLayout(icon_container_layout)
 
         # Color picker
         color_layout = QHBoxLayout()
@@ -172,7 +197,7 @@ class AddProfileDialog(QDialog):
         color_layout.addWidget(self.color_input, 1)
 
         color_layout.addStretch()
-        layout.addLayout(color_layout)
+        main_layout.addLayout(color_layout)
 
         # Browser profile name - auto-generated from name
         profile_name_layout = QHBoxLayout()
@@ -190,7 +215,7 @@ class AddProfileDialog(QDialog):
         self.profile_name_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.profile_name_input.setStyleSheet('QLineEdit:disabled { background-color: rgba(255,255,255,0.05); color: #888; }')
         profile_name_layout.addWidget(self.profile_name_input, 1)
-        layout.addLayout(profile_name_layout)
+        main_layout.addLayout(profile_name_layout)
 
         # Auto-update browser profile name from profile name
         self.name_input.textChanged.connect(self._update_browser_profile_name)
@@ -212,7 +237,7 @@ class AddProfileDialog(QDialog):
         self.profile_path_input.setStyleSheet('QLineEdit:disabled { background-color: rgba(255,255,255,0.05); color: #888; }')
         path_layout.addWidget(self.profile_path_input, 1)
 
-        layout.addLayout(path_layout)
+        main_layout.addLayout(path_layout)
 
         # Launch window mode setting - persisted per profile
         window_mode_layout = QHBoxLayout()
@@ -230,9 +255,10 @@ class AddProfileDialog(QDialog):
         self.window_mode_combo.addItem('Fullscreen', 'fullscreen')
         self.window_mode_combo.setToolTip('Choose how this profile window should open when launched')
         window_mode_layout.addWidget(self.window_mode_combo, 1)
-        layout.addLayout(window_mode_layout)
+        main_layout.addLayout(window_mode_layout)
 
-        layout.addStretch()
+        main_layout.addStretch()
+        self._setup_parameters_tab()
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -256,6 +282,114 @@ class AddProfileDialog(QDialog):
             self.mode_combo.setCurrentText('Initial')
         else:
             self._on_mode_changed(self.mode_combo.currentText())
+
+    def _setup_parameters_tab(self):
+        parameters_layout = QVBoxLayout(self.parameters_tab)
+        parameters_layout.setContentsMargins(8, 8, 8, 8)
+        parameters_layout.setSpacing(8)
+
+        input_layout = QHBoxLayout()
+        input_layout.setSpacing(6)
+        param_icon = QLabel()
+        param_icon.setPixmap(qta.icon('fa6s.terminal', color=theme.get_color('gray')).pixmap(16, 16))
+        input_layout.addWidget(param_icon)
+
+        self.parameter_input = QLineEdit()
+        self.parameter_input.setPlaceholderText('e.g., --disable-web-security')
+        self.parameter_input.returnPressed.connect(self._add_parameter)
+        input_layout.addWidget(self.parameter_input, 1)
+
+        self.add_parameter_btn = QPushButton(qta.icon('fa6s.plus'), ' Add')
+        self.add_parameter_btn.clicked.connect(self._add_parameter)
+        input_layout.addWidget(self.add_parameter_btn)
+        parameters_layout.addLayout(input_layout)
+
+        self.parameters_list = QListWidget()
+        self.parameters_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.parameters_list.itemDoubleClicked.connect(lambda item: self._edit_parameter())
+        self.parameters_list.setAlternatingRowColors(True)
+        parameters_layout.addWidget(self.parameters_list, 1)
+
+        action_layout = QHBoxLayout()
+        action_layout.addStretch()
+
+        self.edit_parameter_btn = QPushButton(qta.icon('fa6s.pen'), ' Edit')
+        self.edit_parameter_btn.clicked.connect(self._edit_parameter)
+        action_layout.addWidget(self.edit_parameter_btn)
+
+        self.remove_parameter_btn = QPushButton(qta.icon('fa6s.trash'), ' Remove')
+        self.remove_parameter_btn.clicked.connect(self._remove_parameter)
+        action_layout.addWidget(self.remove_parameter_btn)
+
+        self.clear_parameters_btn = QPushButton(qta.icon('fa6s.broom'), ' Clear')
+        self.clear_parameters_btn.clicked.connect(self._clear_parameters)
+        action_layout.addWidget(self.clear_parameters_btn)
+        parameters_layout.addLayout(action_layout)
+
+    def _normalize_parameter(self, value):
+        return (value or '').strip()
+
+    def _add_parameter(self):
+        parameter = self._normalize_parameter(self.parameter_input.text())
+        if not parameter:
+            return
+        self.additional_parameters.append(parameter)
+        self.parameter_input.clear()
+        self._refresh_parameters_list()
+
+    def _edit_parameter(self):
+        current_row = self.parameters_list.currentRow()
+        if current_row < 0 or current_row >= len(self.additional_parameters):
+            QMessageBox.information(self, 'No Parameter Selected', 'Select a parameter to edit')
+            return
+
+        current_value = self.additional_parameters[current_row]
+        new_value, accepted = QInputDialog.getText(self, 'Edit Parameter', 'Parameter:', text=current_value)
+        if not accepted:
+            return
+
+        new_value = self._normalize_parameter(new_value)
+        if not new_value:
+            QMessageBox.warning(self, 'Validation Error', 'Parameter cannot be empty')
+            return
+
+        self.additional_parameters[current_row] = new_value
+        self._refresh_parameters_list(current_row)
+
+    def _remove_parameter(self):
+        current_row = self.parameters_list.currentRow()
+        if current_row < 0 or current_row >= len(self.additional_parameters):
+            QMessageBox.information(self, 'No Parameter Selected', 'Select a parameter to remove')
+            return
+
+        self.additional_parameters.pop(current_row)
+        next_row = min(current_row, len(self.additional_parameters) - 1)
+        self._refresh_parameters_list(next_row)
+
+    def _clear_parameters(self):
+        if not self.additional_parameters:
+            return
+        self.additional_parameters.clear()
+        self._refresh_parameters_list()
+
+    def _refresh_parameters_list(self, selected_row=None):
+        self.parameters_list.clear()
+        for parameter in self.additional_parameters:
+            self.parameters_list.addItem(parameter)
+        if selected_row is not None and selected_row >= 0 and self.additional_parameters:
+            self.parameters_list.setCurrentRow(min(selected_row, len(self.additional_parameters) - 1))
+
+    def _parse_additional_parameters(self, value):
+        if isinstance(value, list):
+            return [self._normalize_parameter(item) for item in value if self._normalize_parameter(item)]
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+                if isinstance(decoded, list):
+                    return [self._normalize_parameter(item) for item in decoded if self._normalize_parameter(item)]
+            except json.JSONDecodeError:
+                return [line.strip() for line in value.splitlines() if line.strip()]
+        return []
 
     def _on_mode_changed(self, mode_text):
         """Handle mode change - show/hide appropriate controls"""
@@ -472,6 +606,8 @@ class AddProfileDialog(QDialog):
         launch_window_mode = (self.profile_data.get('launch_window_mode') or 'windowed').lower()
         index = self.window_mode_combo.findData(launch_window_mode)
         self.window_mode_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.additional_parameters = self._parse_additional_parameters(self.profile_data.get('launch_additional_parameters', []))
+        self._refresh_parameters_list()
 
         # Update preview
         self._on_mode_changed(self.mode_combo.currentText())
@@ -517,6 +653,7 @@ class AddProfileDialog(QDialog):
             'profile_browser_profile_name': browser_profile_name,
             'profile_browser_profile_path': self.profile_path_input.text().strip(),
             'launch_window_mode': self.window_mode_combo.currentData() or 'windowed',
+            'launch_additional_parameters': list(self.additional_parameters),
         }
 
         if self.is_edit_mode:

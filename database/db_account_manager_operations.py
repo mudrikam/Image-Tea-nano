@@ -334,10 +334,12 @@ class AccountManagerDB:
                 'profile_color': profile_data.get('profile_color', '#3b82f6'),
                 'profile_browser_profile_name': profile_data.get('profile_browser_profile_name', ''),
                 'profile_browser_profile_path': profile_path,
-                'group_id': profile_data.get('profile_group_id'),
+                'group_id': profile_data.get('profile_group_id') or profile_data.get('group_id'),
                 'profile_order_index': profile_data.get('profile_order_index', 0),
                 'profile_created_at': profile_data.get('profile_created_at'),
                 'profile_updated_at': profile_data.get('profile_updated_at'),
+                'profile_browser_type': profile_data.get('profile_browser_type', 'chrome'),
+                'profile_settings': profile_data.get('profile_settings', {}),
             }
             metadata_path = os.path.join(profile_path, 'account_management_profile_metadata.json')
             with open(metadata_path, 'w', encoding='utf-8') as f:

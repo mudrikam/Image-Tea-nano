@@ -185,6 +185,7 @@ class ImportWorker(QObject):
             profile_color = metadata.get('profile_color', '#3b82f6')
             browser_profile_name = metadata.get('profile_browser_profile_name', os.path.basename(profile_source_path))
             metadata_browser_type = metadata.get('profile_browser_type', detected_browser_type)
+            profile_settings = metadata.get('profile_settings', {}) if isinstance(metadata.get('profile_settings', {}), dict) else {}
         else:
             folder_name = os.path.basename(profile_source_path)
             profile_name = folder_name
@@ -193,6 +194,7 @@ class ImportWorker(QObject):
             profile_color = '#3b82f6'
             browser_profile_name = folder_name
             metadata_browser_type = detected_browser_type
+            profile_settings = {}
         
         existing_profiles = db.get_profiles_by_group(self.group_id)
         existing_profile_names = [p.get('profile_name', '') for p in existing_profiles]
@@ -230,6 +232,9 @@ class ImportWorker(QObject):
             zip_name=zip_name
         )
         
+        for setting_key, setting_value in profile_settings.items():
+            db.set_profile_setting(profile_id, setting_key, setting_value)
+        
         meta_data = {
             'profile_id': profile_id,
             'profile_name': profile_name_display,
@@ -243,6 +248,7 @@ class ImportWorker(QObject):
             'profile_created_at': datetime.now().isoformat(),
             'profile_updated_at': datetime.now().isoformat(),
             'profile_browser_type': metadata_browser_type,
+            'profile_settings': profile_settings,
         }
         db.save_profile_metadata(meta_data)
         
@@ -259,8 +265,29 @@ class ExportWorker(QObject):
         self.export_path = export_path
         self.is_multi = is_multi
     
+    def _build_profile_metadata(self, profile, db):
+        profile_id = profile.get('profile_id')
+        profile_settings = db.get_profile_settings(profile_id) if profile_id else {}
+        return {
+            'profile_id': profile.get('profile_id'),
+            'profile_name': profile.get('profile_name', ''),
+            'profile_description': profile.get('profile_description', ''),
+            'profile_icon': profile.get('profile_icon', 'fa6s.user'),
+            'profile_color': profile.get('profile_color', '#3b82f6'),
+            'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
+            'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
+            'group_id': profile.get('profile_group_id'),
+            'profile_order_index': profile.get('profile_order_index', 0),
+            'profile_created_at': profile.get('profile_created_at'),
+            'profile_updated_at': profile.get('profile_updated_at'),
+            'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
+            'profile_settings': profile_settings,
+        }
+    
     def run(self):
         try:
+            from database.db_account_manager_operations import AccountManagerDB
+            db = AccountManagerDB()
             if self.is_multi:
                 profiles = self.profile
                 with zipfile.ZipFile(self.export_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -277,20 +304,7 @@ class ExportWorker(QObject):
                                 arcname = os.path.relpath(file_path, profile_path)
                                 zipf.write(file_path, os.path.join(safe_name, arcname))
                         
-                        meta_data = {
-                            'profile_id': profile.get('profile_id'),
-                            'profile_name': profile.get('profile_name', ''),
-                            'profile_description': profile.get('profile_description', ''),
-                            'profile_icon': profile.get('profile_icon', 'fa6s.user'),
-                            'profile_color': profile.get('profile_color', '#3b82f6'),
-                            'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
-                            'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
-                            'group_id': profile.get('profile_group_id'),
-                            'profile_order_index': profile.get('profile_order_index', 0),
-                            'profile_created_at': profile.get('profile_created_at'),
-                            'profile_updated_at': profile.get('profile_updated_at'),
-                            'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
-                        }
+                        meta_data = self._build_profile_metadata(profile, db)
                         zipf.writestr(f'{safe_name}_metadata.json', json.dumps(meta_data, indent=2))
                         
                         self.signals.progress.emit(idx + 1, len(profiles))
@@ -311,20 +325,7 @@ class ExportWorker(QObject):
                             arcname = os.path.relpath(file_path, profile_path)
                             zipf.write(file_path, os.path.join('profile', arcname))
                     
-                    meta_data = {
-                        'profile_id': self.profile.get('profile_id'),
-                        'profile_name': self.profile.get('profile_name', ''),
-                        'profile_description': self.profile.get('profile_description', ''),
-                        'profile_icon': self.profile.get('profile_icon', 'fa6s.user'),
-                        'profile_color': self.profile.get('profile_color', '#3b82f6'),
-                        'profile_browser_profile_name': self.profile.get('profile_browser_profile_name', ''),
-                        'profile_browser_profile_path': self.profile.get('profile_browser_profile_path', ''),
-                        'group_id': self.profile.get('profile_group_id'),
-                        'profile_order_index': self.profile.get('profile_order_index', 0),
-                        'profile_created_at': self.profile.get('profile_created_at'),
-                        'profile_updated_at': self.profile.get('profile_updated_at'),
-                        'profile_browser_type': self.profile.get('profile_browser_type', 'chrome'),
-                    }
+                    meta_data = self._build_profile_metadata(self.profile, db)
                     zipf.writestr('account_management_profile_metadata.json', json.dumps(meta_data, indent=2))
                 
                 self.signals.finished.emit({
