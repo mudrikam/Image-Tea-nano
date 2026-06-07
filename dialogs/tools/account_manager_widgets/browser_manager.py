@@ -1,6 +1,8 @@
 import subprocess
 import os
 import psutil
+import threading
+import time
 from PySide6.QtWidgets import QMessageBox
 
 if os.name == 'nt':
@@ -8,7 +10,11 @@ if os.name == 'nt':
     from ctypes import wintypes
     user32 = ctypes.windll.user32
     SW_RESTORE = 9
+    SW_MAXIMIZE = 3
     WM_CLOSE = 0x0010
+    WM_KEYDOWN = 0x0100
+    WM_KEYUP = 0x0101
+    VK_F11 = 0x7A
 
 
 class BrowserManager:
@@ -17,21 +23,28 @@ class BrowserManager:
     def __init__(self):
         self.processes = {}  # profile_id -> {'proc': Popen, 'pid': int, 'type': str, 'browser_exe': str}
     
-    def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome'):
+    def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome', window_mode='windowed'):
         """Launch browser and track process"""
         if not os.path.exists(browser_exe):
             QMessageBox.warning(None, 'Browser Not Found', f'Browser executable not found:\n{browser_exe}')
             return None
         
         browser_type = (browser_type or 'chrome').lower()
+        window_mode = (window_mode or 'windowed').lower()
         args = [browser_exe]
         
         if browser_type == 'firefox':
             if profile_path:
                 args.extend(['-profile', profile_path])
+            if window_mode == 'fullscreen':
+                args.append('-fullscreen')
         else:
             if profile_path:
                 args.append(f'--user-data-dir={profile_path}')
+            if window_mode == 'maximized':
+                args.append('--start-maximized')
+            elif window_mode == 'fullscreen':
+                args.append('--start-fullscreen')
         
         try:
             proc = subprocess.Popen(args, shell=False)
@@ -40,11 +53,35 @@ class BrowserManager:
                 'pid': proc.pid,
                 'type': browser_type,
                 'browser_exe': browser_exe,
+                'window_mode': window_mode,
             }
+            self._apply_window_mode_async(profile_id, window_mode)
             return proc.pid
         except Exception as e:
             QMessageBox.critical(None, 'Launch Failed', f'Failed to launch browser:\n{str(e)}')
             return None
+
+    def _apply_window_mode_async(self, profile_id, window_mode):
+        """Best-effort native window mode adjustment after browser window appears."""
+        if os.name != 'nt' or window_mode not in {'maximized', 'fullscreen'}:
+            return
+
+        def worker():
+            for _ in range(40):
+                hwnds = self._get_candidate_windows(profile_id)
+                if hwnds:
+                    hwnd = hwnds[0]
+                    if window_mode == 'maximized':
+                        user32.ShowWindow(hwnd, SW_MAXIMIZE)
+                    elif window_mode == 'fullscreen':
+                        user32.ShowWindow(hwnd, SW_MAXIMIZE)
+                        time.sleep(0.2)
+                        user32.PostMessageW(hwnd, WM_KEYDOWN, VK_F11, 0)
+                        user32.PostMessageW(hwnd, WM_KEYUP, VK_F11, 0)
+                    return
+                time.sleep(0.25)
+
+        threading.Thread(target=worker, daemon=True).start()
     
     def get_process(self, profile_id):
         """Get tracked process for profile"""

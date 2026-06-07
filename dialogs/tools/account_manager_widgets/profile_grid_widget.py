@@ -390,6 +390,8 @@ class ProfileGridWidget(QWidget):
         profile = self.db.get_profile(profile_id)
         if not profile:
             return
+        profile = dict(profile)
+        profile.update(self.db.get_profile_settings(profile_id))
         
         if self.browser_manager.is_running(profile_id):
             reply = QMessageBox.question(
@@ -606,6 +608,7 @@ class ProfileGridWidget(QWidget):
                 browser_profile_name=data['profile_browser_profile_name'],
                 browser_profile_path=data['profile_browser_profile_path']
             )
+            profile_id = data['profile_id']
         else:
             # Create mode - get the new profile_id
             group = self.db.get_group(self.current_group_id)
@@ -623,6 +626,12 @@ class ProfileGridWidget(QWidget):
                 browser_type=browser_type
             )
             data['profile_id'] = profile_id
+
+        self.db.set_profile_setting(
+            profile_id,
+            'launch_window_mode',
+            data.get('launch_window_mode', 'windowed')
+        )
         
         # Save metadata file to profile folder
         self._save_profile_metadata(data)
@@ -638,6 +647,7 @@ class ProfileGridWidget(QWidget):
         
         profile = self.db.get_profile(profile_id)
         if profile:
+            profile_settings = self.db.get_profile_settings(profile_id)
             meta_data = {
                 'profile_id': profile.get('profile_id'),
                 'profile_name': profile.get('profile_name', ''),
@@ -651,6 +661,7 @@ class ProfileGridWidget(QWidget):
                 'profile_created_at': profile.get('profile_created_at'),
                 'profile_updated_at': profile.get('profile_updated_at'),
                 'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
+                'profile_settings': profile_settings,
             }
             self.db.save_profile_metadata(meta_data)
     
@@ -674,6 +685,7 @@ class ProfileGridWidget(QWidget):
         browser_exe = workspace.get('workspace_browser_exe_path', '')
         profile_path = profile.get('profile_browser_profile_path', '')
         browser_type = profile.get('profile_browser_type', workspace.get('workspace_browser_type', 'chrome'))
+        launch_window_mode = self.db.get_profile_setting(profile_id, 'launch_window_mode') or 'windowed'
         
         if not browser_exe:
             QMessageBox.warning(self, 'No Browser', 'Browser executable not set in workspace')
@@ -693,7 +705,13 @@ class ProfileGridWidget(QWidget):
                     break
         
         # Launch browser
-        pid = self.browser_manager.launch(profile_id, browser_exe, profile_path, browser_type)
+        pid = self.browser_manager.launch(
+            profile_id,
+            browser_exe,
+            profile_path,
+            browser_type,
+            launch_window_mode
+        )
         
         if pid:
             # Poll until browser window is visible, then switch to Focus state

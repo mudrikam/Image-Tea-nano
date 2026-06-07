@@ -214,6 +214,24 @@ class AddProfileDialog(QDialog):
 
         layout.addLayout(path_layout)
 
+        # Launch window mode setting - persisted per profile
+        window_mode_layout = QHBoxLayout()
+        window_mode_layout.setSpacing(6)
+        window_mode_icon = QLabel()
+        window_mode_icon.setPixmap(qta.icon('fa6s.window-maximize', color=theme.get_color('gray')).pixmap(16, 16))
+        window_mode_layout.addWidget(window_mode_icon)
+        window_mode_label = QLabel('Start Window:')
+        window_mode_label.setMinimumWidth(70)
+        window_mode_layout.addWidget(window_mode_label)
+
+        self.window_mode_combo = QComboBox()
+        self.window_mode_combo.addItem('Windowed', 'windowed')
+        self.window_mode_combo.addItem('Maximized', 'maximized')
+        self.window_mode_combo.addItem('Fullscreen', 'fullscreen')
+        self.window_mode_combo.setToolTip('Choose how this profile window should open when launched')
+        window_mode_layout.addWidget(self.window_mode_combo, 1)
+        layout.addLayout(window_mode_layout)
+
         layout.addStretch()
 
         # Buttons
@@ -451,6 +469,9 @@ class AddProfileDialog(QDialog):
         # Generate profile path from workspace + profile name
         self._generate_browser_profile_path(browser_profile_name)
         self.color_input.setText(self.selected_color)
+        launch_window_mode = (self.profile_data.get('launch_window_mode') or 'windowed').lower()
+        index = self.window_mode_combo.findData(launch_window_mode)
+        self.window_mode_combo.setCurrentIndex(index if index >= 0 else 0)
 
         # Update preview
         self._on_mode_changed(self.mode_combo.currentText())
@@ -495,6 +516,7 @@ class AddProfileDialog(QDialog):
             'profile_color': self.selected_color,
             'profile_browser_profile_name': browser_profile_name,
             'profile_browser_profile_path': self.profile_path_input.text().strip(),
+            'launch_window_mode': self.window_mode_combo.currentData() or 'windowed',
         }
 
         if self.is_edit_mode:
