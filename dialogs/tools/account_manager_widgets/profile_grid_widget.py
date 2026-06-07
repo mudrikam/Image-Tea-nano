@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, 
     QGridLayout, QPushButton, QLabel, QMessageBox, QLineEdit, QDialog,
-    QFileDialog
+    QFileDialog, QMenu
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QKeyEvent
@@ -47,7 +47,8 @@ class ProfileGridWidget(QWidget):
         self.current_workspace_id = None
         self.current_group_id = None
         self._all_profiles = []  # Store all profiles for filtering
-        self._selected_profile_id = None
+        self._selected_profile_ids = set()
+        self._selection_anchor_profile_id = None
         self._progress_dialog = None
         self._setup_ui()
         self._setup_timer()
@@ -173,6 +174,7 @@ class ProfileGridWidget(QWidget):
     def set_group(self, group_id):
         """Load profiles for group"""
         self.current_group_id = group_id
+        self._clear_selection()
         # Get workspace from group
         if group_id:
             group = self.db.get_group(group_id)
@@ -194,6 +196,7 @@ class ProfileGridWidget(QWidget):
         
         if not self.current_group_id:
             self._all_profiles = []
+            self._clear_selection()
             return
         
         self._all_profiles = self.db.get_profiles_by_group(self.current_group_id)
@@ -229,23 +232,143 @@ class ProfileGridWidget(QWidget):
             row.delete_clicked.connect(self._on_delete_profile)
             row.export_clicked.connect(self._on_export_profile_row)
             row.clicked.connect(self._on_profile_clicked)
+            row.context_menu_requested.connect(self._on_profile_context_menu_requested)
             
             # Restore launched state if browser is still running
             if self.browser_manager.is_running(profile['profile_id']):
                 row.set_launched(True)
             
             self.rows_layout.insertWidget(self.rows_layout.count() - 1, row)
-    
-    def _on_profile_clicked(self, profile_id):
-        self._selected_profile_id = profile_id
+
+        self._sync_selection_to_visible_rows()
         self._update_profile_selection()
     
-    def _update_profile_selection(self):
-        """Update selection styling for all profile rows"""
+    def _get_visible_rows(self):
+        rows = []
         for i in range(self.rows_layout.count() - 1):
             item = self.rows_layout.itemAt(i)
             if item and item.widget():
-                item.widget().set_selected(item.widget().profile_id == self._selected_profile_id)
+                rows.append(item.widget())
+        return rows
+
+    def _get_visible_profile_ids(self):
+        return [row.profile_id for row in self._get_visible_rows()]
+
+    def _get_selected_profile_ids(self):
+        visible_ids = set(self._get_visible_profile_ids())
+        return [profile_id for profile_id in self._get_visible_profile_ids() if profile_id in self._selected_profile_ids and profile_id in visible_ids]
+
+    def _get_selected_profiles(self):
+        profiles = []
+        for profile_id in self._get_selected_profile_ids():
+            profile = self.db.get_profile(profile_id)
+            if profile:
+                profiles.append(profile)
+        return profiles
+
+    def _sync_selection_to_visible_rows(self):
+        visible_ids = set(self._get_visible_profile_ids())
+        self._selected_profile_ids = {profile_id for profile_id in self._selected_profile_ids if profile_id in visible_ids}
+        if self._selection_anchor_profile_id not in visible_ids:
+            self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
+
+    def _clear_selection(self):
+        self._selected_profile_ids.clear()
+        self._selection_anchor_profile_id = None
+        self._update_profile_selection()
+
+    def _set_single_selection(self, profile_id):
+        self._selected_profile_ids = {profile_id}
+        self._selection_anchor_profile_id = profile_id
+        self._update_profile_selection()
+
+    def _toggle_profile_selection(self, profile_id):
+        if profile_id in self._selected_profile_ids:
+            self._selected_profile_ids.remove(profile_id)
+            if self._selection_anchor_profile_id == profile_id:
+                self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
+        else:
+            self._selected_profile_ids.add(profile_id)
+            self._selection_anchor_profile_id = profile_id
+        self._update_profile_selection()
+
+    def _select_range_to(self, profile_id, additive=False):
+        visible_ids = self._get_visible_profile_ids()
+        if not visible_ids or profile_id not in visible_ids:
+            return
+        if self._selection_anchor_profile_id not in visible_ids:
+            self._selection_anchor_profile_id = profile_id
+        start_index = visible_ids.index(self._selection_anchor_profile_id)
+        end_index = visible_ids.index(profile_id)
+        if start_index > end_index:
+            start_index, end_index = end_index, start_index
+        range_ids = set(visible_ids[start_index:end_index + 1])
+        if additive:
+            self._selected_profile_ids.update(range_ids)
+        else:
+            self._selected_profile_ids = range_ids
+        self._update_profile_selection()
+
+    def _ensure_context_selection(self, profile_id):
+        if profile_id not in self._selected_profile_ids:
+            self._set_single_selection(profile_id)
+        else:
+            self._update_profile_selection()
+    
+    def _on_profile_clicked(self, profile_id, modifiers):
+        modifier_value = modifiers.value if hasattr(modifiers, 'value') else int(modifiers)
+        ctrl_value = Qt.ControlModifier.value if hasattr(Qt.ControlModifier, 'value') else int(Qt.ControlModifier)
+        shift_value = Qt.ShiftModifier.value if hasattr(Qt.ShiftModifier, 'value') else int(Qt.ShiftModifier)
+        is_ctrl = bool(modifier_value & ctrl_value)
+        is_shift = bool(modifier_value & shift_value)
+
+        if is_shift:
+            self._select_range_to(profile_id, additive=is_ctrl)
+        elif is_ctrl:
+            self._toggle_profile_selection(profile_id)
+        else:
+            self._set_single_selection(profile_id)
+    
+    def _on_profile_context_menu_requested(self, profile_id, global_pos):
+        self._ensure_context_selection(profile_id)
+        self._show_profile_context_menu(profile_id, global_pos)
+
+    def _show_profile_context_menu(self, profile_id, global_pos):
+        selected_ids = self._get_selected_profile_ids()
+        menu = QMenu(self)
+
+        if len(selected_ids) > 1:
+            running_selected_ids = [selected_id for selected_id in selected_ids if self.browser_manager.is_running(selected_id)]
+
+            launch_selected_action = menu.addAction(qta.icon('fa6s.play'), 'Launch Selected')
+            launch_selected_action.triggered.connect(self._launch_selected_profiles)
+
+            if running_selected_ids:
+                focus_selected_action = menu.addAction(qta.icon('fa6s.arrow-up-right-from-square'), 'Focus Selected')
+                close_selected_action = menu.addAction(qta.icon('fa6s.xmark'), 'Close Selected')
+                focus_selected_action.triggered.connect(self._focus_selected_profiles)
+                close_selected_action.triggered.connect(self._close_selected_profiles)
+
+            menu.addSeparator()
+            delete_selected_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete Selected')
+            delete_selected_action.triggered.connect(self._on_delete_selected_profiles)
+        else:
+            edit_action = menu.addAction(qta.icon('fa6s.pen'), 'Edit')
+            menu.addSeparator()
+            export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
+            menu.addSeparator()
+            delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
+
+            edit_action.triggered.connect(lambda: self._on_edit_profile(profile_id))
+            export_action.triggered.connect(lambda: self._on_export_profile_row(profile_id))
+            delete_action.triggered.connect(lambda: self._on_delete_profile(profile_id))
+
+        menu.exec(global_pos)
+    
+    def _update_profile_selection(self):
+        """Update selection styling for all profile rows"""
+        for row in self._get_visible_rows():
+            row.set_selected(row.profile_id in self._selected_profile_ids)
     
     def _on_new_profile(self):
         if not self.current_group_id:
@@ -313,8 +436,122 @@ class ProfileGridWidget(QWidget):
                         f'Could not delete profile folder:\n{e}\n\nProfile will be deleted from database but folder remains.')
             
             self.db.delete_profile(profile_id)
+            self._selected_profile_ids.discard(profile_id)
+            if self._selection_anchor_profile_id == profile_id:
+                self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
             self.refresh_profiles()
             self.profile_changed.emit()
+
+    def _launch_selected_profiles(self):
+        selected_ids = self._get_selected_profile_ids()
+        if not selected_ids:
+            QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
+            return
+
+        launchable_ids = []
+        for profile_id in selected_ids:
+            row = self._find_row(profile_id)
+            if row and not getattr(row, '_launching', False) and not self.browser_manager.is_running(profile_id):
+                launchable_ids.append(profile_id)
+
+        if not launchable_ids:
+            QMessageBox.information(self, 'No Launchable Profiles', 'All selected profiles are already running or launching')
+            return
+
+        for profile_id in launchable_ids:
+            self._on_launch_profile(profile_id)
+
+    def _focus_selected_profiles(self):
+        selected_ids = self._get_selected_profile_ids()
+        if not selected_ids:
+            QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
+            return
+
+        focused_count = 0
+        for profile_id in selected_ids:
+            if self.browser_manager.is_running(profile_id):
+                self._on_focus_profile(profile_id)
+                focused_count += 1
+
+        if focused_count == 0:
+            QMessageBox.information(self, 'No Running Profiles', 'None of the selected profiles are currently running')
+
+    def _close_selected_profiles(self):
+        selected_ids = self._get_selected_profile_ids()
+        if not selected_ids:
+            QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
+            return
+
+        closed_count = 0
+        for profile_id in selected_ids:
+            if self.browser_manager.is_running(profile_id):
+                self._on_close_profile(profile_id)
+                closed_count += 1
+
+        if closed_count == 0:
+            QMessageBox.information(self, 'No Running Profiles', 'None of the selected profiles are currently running')
+
+    def _on_delete_selected_profiles(self):
+        selected_profiles = self._get_selected_profiles()
+        if len(selected_profiles) < 2:
+            if len(selected_profiles) == 1:
+                self._on_delete_profile(selected_profiles[0]['profile_id'])
+            return
+
+        running_profiles = [profile for profile in selected_profiles if self.browser_manager.is_running(profile['profile_id'])]
+        if running_profiles:
+            reply = QMessageBox.question(
+                self,
+                'Profiles Running',
+                f'{len(running_profiles)} selected profile(s) are currently running. Deleting will close their browsers.\n\nContinue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            for profile in running_profiles:
+                self.browser_manager.close(profile['profile_id'])
+
+        dialog = DeleteConfirmationDialog(
+            'Profile',
+            f'{len(selected_profiles)} profiles',
+            self,
+            bulk_items=selected_profiles
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        warnings = []
+        deleted_ids = []
+        for profile in selected_profiles:
+            profile_id = profile['profile_id']
+            profile_name = profile.get('profile_name', f'Profile {profile_id}')
+            profile_path = profile.get('profile_browser_profile_path', '')
+
+            if profile_path and os.path.exists(profile_path):
+                try:
+                    shutil.rmtree(profile_path)
+                except Exception as e:
+                    warnings.append(
+                        f'{profile_name}: Could not delete profile folder:\n{e}\n\nProfile was deleted from database but folder remains.'
+                    )
+
+            self.db.delete_profile(profile_id)
+            deleted_ids.append(profile_id)
+
+        for profile_id in deleted_ids:
+            self._selected_profile_ids.discard(profile_id)
+        self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
+
+        self.refresh_profiles()
+        self.profile_changed.emit()
+
+        if warnings:
+            QMessageBox.warning(
+                self,
+                'Delete Warning',
+                'Some profile folders could not be deleted, but the profiles were removed from the database.\n\n' + '\n\n'.join(warnings)
+            )
     
     def _on_profile_saved(self, data):
         profile_id = data.get('profile_id')
@@ -552,6 +789,11 @@ class ProfileGridWidget(QWidget):
         profile = self.db.get_profile(profile_id)
         if profile:
             self._export_profile(profile)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.childAt(event.position().toPoint()):
+            self._clear_selection()
+        super().mousePressEvent(event)
     
     def _detect_browser_type(self, profile_path):
         """Detect browser type from profile folder contents"""

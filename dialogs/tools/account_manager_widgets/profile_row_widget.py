@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QMenu
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPixmap, QPainter, QFont
 import qtawesome as qta
@@ -26,7 +26,8 @@ class ProfileRowWidget(QFrame):
     focus_clicked = Signal(int)  # profile_id
     close_clicked = Signal(int)  # profile_id
     export_clicked = Signal(int)  # profile_id
-    clicked = Signal(int)  # profile_id - for selection
+    clicked = Signal(int, object)  # profile_id, keyboard modifiers
+    context_menu_requested = Signal(int, object)  # profile_id, global pos
 
     def __init__(self, profile_data, parent=None):
         super().__init__(parent)
@@ -38,8 +39,7 @@ class ProfileRowWidget(QFrame):
         self._selected = False
 
         self.setFrameShape(QFrame.StyledPanel)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
 
         self._setup_ui()
         self._update_style()
@@ -159,8 +159,7 @@ class ProfileRowWidget(QFrame):
         updated_label.setStyleSheet(f'font-size: 9px; color: {theme.get_color("gray")};')
         time_layout.addWidget(updated_label)
         layout.addLayout(time_layout)
-        
-# Browser icon hint - shows chrome or firefox based on parent workspace browser type
+
         browser_type = self.profile_data.get('profile_browser_type', 'chrome')
         self.browser_icon_label = QLabel()
         self.browser_icon_label.setFixedSize(24, 24)
@@ -183,9 +182,8 @@ class ProfileRowWidget(QFrame):
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
 
         if icon_value.startswith('initial:'):
-            # Initial mode - show letter in circle bg with gradient tint
             initial = icon_value[8:].upper() or '?'
-            circle_color = QColor(r, g, b, 40)  # Light tint for bg
+            circle_color = QColor(r, g, b, 40)
             painter.setBrush(circle_color)
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(0, 0, 28, 28)
@@ -198,26 +196,19 @@ class ProfileRowWidget(QFrame):
             painter.drawText(pixmap.rect(), Qt.AlignCenter, initial)
 
         elif icon_value.startswith('image:'):
-            # Image mode - load and display image in circle, no border
             image_path = icon_value[6:]
             if os.path.exists(image_path):
-                # Create circular clip path
                 from PySide6.QtGui import QPainterPath
                 path = QPainterPath()
                 path.addEllipse(0, 0, 28, 28)
                 painter.setClipPath(path)
-                
-                # Draw image filling the circle
                 img = QPixmap(image_path).scaled(28, 28, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
                 painter.drawPixmap(0, 0, img)
-                # No border for image mode - just circular image
             else:
-                # Fallback to user icon
                 icon = qta.icon('fa6s.user', color=color)
                 painter.drawPixmap(2, 2, icon.pixmap(24, 24))
 
         else:
-            # Icon mode - show FontAwesome icon, no border
             try:
                 if '.' not in icon_value:
                     icon = qta.icon(f'fa6s.{icon_value}', color=color)
@@ -272,7 +263,6 @@ class ProfileRowWidget(QFrame):
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
 
-        # Selected state gets strongest styling, then launched, then hover
         if self._selected:
             self.setStyleSheet(f'''
                 ProfileRowWidget {{
@@ -310,27 +300,16 @@ class ProfileRowWidget(QFrame):
 
     def mouseDoubleClickEvent(self, event):
         """Double-click launches profile"""
-        if not self._is_launched and not self._launching:
+        if event.button() == Qt.LeftButton and not self._is_launched and not self._launching:
             self.launch_clicked.emit(self.profile_id)
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
         """Single click selects profile"""
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.profile_id)
+            self.clicked.emit(self.profile_id, event.modifiers())
         super().mousePressEvent(event)
 
-    def _show_context_menu(self, pos):
-        menu = QMenu(self)
-        
-        edit_action = menu.addAction(qta.icon('fa6s.pen'), 'Edit')
-        menu.addSeparator()
-        export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
-        menu.addSeparator()
-        delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
-        
-        edit_action.triggered.connect(lambda: self.edit_clicked.emit(self.profile_id))
-        export_action.triggered.connect(lambda: self.export_clicked.emit(self.profile_id))
-        delete_action.triggered.connect(lambda: self.delete_clicked.emit(self.profile_id))
-        
-        menu.exec(self.mapToGlobal(pos))
+    def contextMenuEvent(self, event):
+        self.context_menu_requested.emit(self.profile_id, event.globalPos())
+        event.accept()
