@@ -159,6 +159,18 @@ class ProfileRowWidget(QFrame):
         updated_label.setStyleSheet(f'font-size: 9px; color: {theme.get_color("gray")};')
         time_layout.addWidget(updated_label)
         layout.addLayout(time_layout)
+        
+# Browser icon hint - shows chrome or firefox based on parent workspace browser type
+        browser_type = self.profile_data.get('profile_browser_type', 'chrome')
+        self.browser_icon_label = QLabel()
+        self.browser_icon_label.setFixedSize(24, 24)
+        if browser_type == 'firefox':
+            self.browser_icon_label.setPixmap(qta.icon('fa6b.firefox-browser', color=theme.get_color('gray')).pixmap(24, 24))
+            self.browser_icon_label.setToolTip('Firefox')
+        else:
+            self.browser_icon_label.setPixmap(qta.icon('fa6b.chrome', color=theme.get_color('gray')).pixmap(24, 24))
+            self.browser_icon_label.setToolTip('Chrome')
+        layout.addWidget(self.browser_icon_label)
 
     def _setup_icon_display(self, icon_value, color):
         """Setup icon display based on mode (icon, image, or initial)"""

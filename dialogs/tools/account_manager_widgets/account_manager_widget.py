@@ -77,12 +77,14 @@ class AccountManagerWidget(QWidget):
             self.profile_grid.set_workspace_group_info('-', '-', 0)
             self.profile_grid.update_workspace_display('-', 'briefcase', '#3b82f6')
             self._current_workspace_id = None
+            self.profile_grid.set_workspace_id(None)
             QTimer.singleShot(0, lambda: self.profile_grid.set_group(None))
             return
         
         workspace = self.db.get_workspace(workspace_id)
         if workspace:
             self._current_workspace_id = workspace_id
+            self.profile_grid.set_workspace_id(workspace_id)
             self.profile_grid.set_workspace_group_info(workspace['workspace_name'], '-', 0)
             self.profile_grid.update_workspace_display(
                 workspace.get('workspace_name', '-'),

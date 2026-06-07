@@ -44,6 +44,7 @@ class ProfileGridWidget(QWidget):
         super().__init__(parent)
         self.db = AccountManagerDB()
         self.browser_manager = BrowserManager()
+        self.current_workspace_id = None
         self.current_group_id = None
         self._all_profiles = []  # Store all profiles for filtering
         self._selected_profile_id = None
@@ -172,7 +173,16 @@ class ProfileGridWidget(QWidget):
     def set_group(self, group_id):
         """Load profiles for group"""
         self.current_group_id = group_id
+        # Get workspace from group
+        if group_id:
+            group = self.db.get_group(group_id)
+            if group:
+                self.current_workspace_id = group.get('group_workspace_id')
         self.refresh_profiles()
+    
+    def set_workspace_id(self, workspace_id):
+        """Set workspace id for browser type fallback"""
+        self.current_workspace_id = workspace_id
     
     def refresh_profiles(self):
         """Reload profiles from database"""
@@ -198,10 +208,18 @@ class ProfileGridWidget(QWidget):
         
         search_text = self.profile_search_input.text().lower() if hasattr(self, 'profile_search_input') else ''
         
+        # Get workspace browser type for fallback
+        workspace = self.db.get_workspace(self.current_workspace_id) if self.current_workspace_id else None
+        workspace_browser_type = workspace.get('workspace_browser_type', 'chrome') if workspace else 'chrome'
+        
         for profile in self._all_profiles:
             profile_name = profile.get('profile_name', '').lower()
             if search_text and search_text not in profile_name:
                 continue
+            
+            # Ensure browser_type is set (fallback to workspace type or default)
+            if not profile.get('profile_browser_type'):
+                profile['profile_browser_type'] = workspace_browser_type
             
             row = ProfileRowWidget(profile)
             row.launch_clicked.connect(self._on_launch_profile)
