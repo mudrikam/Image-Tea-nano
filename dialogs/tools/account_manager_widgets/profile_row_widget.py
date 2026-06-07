@@ -186,7 +186,7 @@ class ProfileRowWidget(QFrame):
             painter.drawText(pixmap.rect(), Qt.AlignCenter, initial)
 
         elif icon_value.startswith('image:'):
-            # Image mode - load and display image in circle
+            # Image mode - load and display image in circle, no border
             image_path = icon_value[6:]
             if os.path.exists(image_path):
                 # Create circular clip path
@@ -198,11 +198,7 @@ class ProfileRowWidget(QFrame):
                 # Draw image filling the circle
                 img = QPixmap(image_path).scaled(28, 28, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
                 painter.drawPixmap(0, 0, img)
-                
-                # Draw circle border
-                painter.setPen(QColor(r, g, b, 100))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawEllipse(0, 0, 28, 28)
+                # No border for image mode - just circular image
             else:
                 # Fallback to user icon
                 icon = qta.icon('fa6s.user', color=color)

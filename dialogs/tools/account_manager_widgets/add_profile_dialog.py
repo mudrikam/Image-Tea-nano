@@ -357,7 +357,7 @@ class AddProfileDialog(QDialog):
             if icon_text:
                 image_path = icon_text[6:]  # Remove 'image:' prefix
                 if os.path.exists(image_path):
-                    # Create circular pixmap with image
+                    # Create circular pixmap with image, no border
                     pixmap = QPixmap(28, 28)
                     pixmap.fill(Qt.transparent)
                     painter = QPainter(pixmap)
@@ -370,12 +370,7 @@ class AddProfileDialog(QDialog):
                     
                     img = QPixmap(image_path).scaled(28, 28, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
                     painter.drawPixmap(0, 0, img)
-                    
-                    # Draw circle border
-                    r, g, b = int(self.selected_color[1:3], 16), int(self.selected_color[3:5], 16), int(self.selected_color[5:7], 16)
-                    painter.setPen(QColor(r, g, b, 100))
-                    painter.setBrush(Qt.NoBrush)
-                    painter.drawEllipse(0, 0, 28, 28)
+                    # No border for image mode - just circular image
                     painter.end()
                     
                     self.icon_preview.setPixmap(pixmap)

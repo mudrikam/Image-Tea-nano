@@ -1,10 +1,14 @@
+import os
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QPushButton, QScrollArea, 
     QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QComboBox, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap, QPainter, QFont
 import qtawesome as qta
+from ui.theme_system import theme
+from database.db_account_manager_operations import AccountManagerDB
+from dialogs.tools.account_manager_widgets.delete_confirmation_dialog import DeleteConfirmationDialog
 
 
 class ClearableLineEdit(QLineEdit):
@@ -15,9 +19,6 @@ class ClearableLineEdit(QLineEdit):
             event.accept()
             return
         super().keyPressEvent(event)
-from ui.theme_system import theme
-from database.db_account_manager_operations import AccountManagerDB
-from dialogs.tools.account_manager_widgets.delete_confirmation_dialog import DeleteConfirmationDialog
 
 
 class GroupItemWidget(QWidget):
@@ -43,16 +44,16 @@ class GroupItemWidget(QWidget):
         color = self.group_data.get('group_color', '#3b82f6')
         name = self.group_data.get('group_name', 'Unnamed')
         desc = self.group_data.get('group_description', '')
-        
+
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
-        
+
         self.setObjectName(f'groupItem_{self.group_id}')
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setCursor(Qt.PointingHandCursor)
-        
+
         self._hover_style = f'''
             #groupItem_{self.group_id} {{
                 background-color: rgba({r}, {g}, {b}, 0.2);
@@ -68,39 +69,31 @@ class GroupItemWidget(QWidget):
             }}
         '''
         self._update_style()
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
-        
-        icon_label = QLabel()
-        try:
-            if '.' not in icon_name:
-                icon = qta.icon(f'fa6s.{icon_name}', color=color)
-            else:
-                icon = qta.icon(icon_name, color=color)
-            icon_label.setPixmap(icon.pixmap(16, 16))
-        except:
-            icon = qta.icon('fa6s.users', color=color)
-            icon_label.setPixmap(icon.pixmap(16, 16))
-        icon_label.setFixedSize(18, 18)
-        layout.addWidget(icon_label)
-        
+
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(28, 28)
+        self._setup_icon_display(icon_name, color)
+        layout.addWidget(self.icon_label)
+
         content_layout = QVBoxLayout()
         content_layout.setSpacing(2)
-        
+
         name_label = QLabel(name)
         name_label.setStyleSheet('font-weight: bold; font-size: 11px;')
         content_layout.addWidget(name_label)
-        
+
         if desc:
             desc_label = QLabel(desc)
             desc_label.setStyleSheet(f'color: {theme.get_color("gray")}; font-size: 9px;')
             desc_label.setWordWrap(True)
             content_layout.addWidget(desc_label)
-        
+
         layout.addLayout(content_layout, 1)
-        
+
         # Edit button
         edit_btn = QPushButton(qta.icon('fa6s.pen'), '')
         edit_btn.setFixedSize(30, 30)
@@ -110,7 +103,7 @@ class GroupItemWidget(QWidget):
         edit_btn.setToolTip('Edit Group')
         edit_btn.clicked.connect(lambda: self.edit_requested.emit(self.group_id))
         layout.addWidget(edit_btn)
-        
+
         # Delete button
         delete_btn = QPushButton(qta.icon('fa6s.trash'), '')
         delete_btn.setFixedSize(30, 30)
@@ -142,11 +135,73 @@ class GroupItemWidget(QWidget):
                     border-radius: 4px;
                 }}
             ''')
-    
+     
+    def _setup_icon_display(self, icon_value, color):
+        """Setup icon display based on mode (icon, image, or initial)"""
+        pixmap = QPixmap(28, 28)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
+        r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
+
+        if icon_value.startswith('initial:'):
+            # Initial mode - show letter in circle bg with gradient tint
+            initial = icon_value[8:].upper() or '?'
+            circle_color = QColor(r, g, b, 40)  # Light tint for bg
+            painter.setBrush(circle_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(0, 0, 28, 28)
+
+            painter.setPen(QColor(r, g, b))
+            font = QFont()
+            font.setPointSize(12)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(pixmap.rect(), Qt.AlignCenter, initial)
+
+        elif icon_value.startswith('image:'):
+            # Image mode - load and display image in circle, no border
+            image_path = icon_value[6:]
+            if os.path.exists(image_path):
+                from PySide6.QtGui import QPainterPath
+                path = QPainterPath()
+                path.addEllipse(0, 0, 28, 28)
+                painter.setClipPath(path)
+                
+                img = QPixmap(image_path).scaled(28, 28, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                painter.drawPixmap(0, 0, img)
+                # No border for image mode - just circular image
+            else:
+                icon = qta.icon('fa6s.users', color=color)
+                painter.drawPixmap(2, 2, icon.pixmap(24, 24))
+
+        else:
+            # Icon mode - show FontAwesome icon, no border
+            try:
+                if '.' not in icon_value:
+                    icon = qta.icon(f'fa6s.{icon_value}', color=color)
+                else:
+                    icon = qta.icon(icon_value, color=color)
+                icon_pixmap = icon.pixmap(24, 24)
+                painter.drawPixmap(2, 2, icon_pixmap)
+            except:
+                icon = qta.icon('fa6s.users', color=color)
+                painter.drawPixmap(2, 2, icon.pixmap(24, 24))
+
+        painter.end()
+        self.icon_label.setPixmap(pixmap)
+     
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.group_id)
         super().mousePressEvent(event)
+    
+    def mouseDoubleClickEvent(self, event):
+        """Double-click edits the group"""
+        self.edit_requested.emit(self.group_id)
+        super().mouseDoubleClickEvent(event)
     
     def enterEvent(self, event):
         self._hover = True
