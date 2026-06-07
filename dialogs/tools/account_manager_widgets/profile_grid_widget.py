@@ -455,15 +455,26 @@ class ProfileGridWidget(QWidget):
         pid = self.browser_manager.launch(profile_id, browser_exe, profile_path, browser_type)
         
         if pid:
-            # Poll for process to be ready, then switch to Focus state
+            # Poll until browser window is visible, then switch to Focus state
+            attempts = {'count': 0}
+            
             def check_launched():
                 row = self._find_row(profile_id)
-                if row and self.browser_manager.is_running(profile_id):
+                if not row:
+                    return
+                
+                if self.browser_manager.has_window(profile_id) or self.browser_manager.is_running(profile_id):
                     row.set_launching(False)
                     row.set_launched(True)
                     return
-                if row:
-                    QTimer.singleShot(200, check_launched)
+                
+                attempts['count'] += 1
+                if attempts['count'] >= 30:
+                    row.set_launching(False)
+                    row.set_launched(False)
+                    return
+                
+                QTimer.singleShot(200, check_launched)
             
             QTimer.singleShot(500, check_launched)
     
