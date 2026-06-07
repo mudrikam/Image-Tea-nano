@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QPushButton, QLabel, QMessageBox, QLineEdit, QDialog,
     QFileDialog, QMenu
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, Slot, QThread
 from PySide6.QtGui import QPixmap, QPainter, QColor, QKeyEvent
 import os
 import shutil
@@ -12,6 +12,7 @@ import tempfile
 import re
 import json
 from datetime import datetime
+from typing import List, Dict, Optional, Any
 import qtawesome as qta
 from config import BASE_PATH
 from ui.theme_system import theme
@@ -23,6 +24,7 @@ from dialogs.tools.account_manager_widgets.add_profile_dialog import AddProfileD
 from dialogs.tools.account_manager_widgets.import_profile_dialog import ImportProfileDialog
 from dialogs.tools.account_manager_widgets.export_profile_dialog import ExportProfileDialog
 from dialogs.tools.account_manager_widgets.progress_dialog import ProgressDialog
+from dialogs.tools.account_manager_widgets.import_export_worker import ImportWorker, ExportWorker
 
 
 class ClearableLineEdit(QLineEdit):
@@ -50,6 +52,8 @@ class ProfileGridWidget(QWidget):
         self._selected_profile_ids = set()
         self._selection_anchor_profile_id = None
         self._progress_dialog = None
+        self._worker = None
+        self._thread = None
         self._setup_ui()
         self._setup_timer()
     
@@ -152,7 +156,7 @@ class ProfileGridWidget(QWidget):
         
         scroll.setWidget(self.rows_container)
         layout.addWidget(scroll)
-      
+    
     def set_workspace_group_info(self, workspace_name, group_name, profile_count=0):
         """Update header with current workspace and group names"""
         self.workspace_label.setText(f'Workspace: {workspace_name}')
@@ -239,7 +243,7 @@ class ProfileGridWidget(QWidget):
                 row.set_launched(True)
             
             self.rows_layout.insertWidget(self.rows_layout.count() - 1, row)
-
+        
         self._sync_selection_to_visible_rows()
         self._update_profile_selection()
     
@@ -250,14 +254,14 @@ class ProfileGridWidget(QWidget):
             if item and item.widget():
                 rows.append(item.widget())
         return rows
-
+    
     def _get_visible_profile_ids(self):
         return [row.profile_id for row in self._get_visible_rows()]
-
+    
     def _get_selected_profile_ids(self):
         visible_ids = set(self._get_visible_profile_ids())
         return [profile_id for profile_id in self._get_visible_profile_ids() if profile_id in self._selected_profile_ids and profile_id in visible_ids]
-
+    
     def _get_selected_profiles(self):
         profiles = []
         for profile_id in self._get_selected_profile_ids():
@@ -265,23 +269,23 @@ class ProfileGridWidget(QWidget):
             if profile:
                 profiles.append(profile)
         return profiles
-
+    
     def _sync_selection_to_visible_rows(self):
         visible_ids = set(self._get_visible_profile_ids())
         self._selected_profile_ids = {profile_id for profile_id in self._selected_profile_ids if profile_id in visible_ids}
         if self._selection_anchor_profile_id not in visible_ids:
             self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
-
+    
     def _clear_selection(self):
         self._selected_profile_ids.clear()
         self._selection_anchor_profile_id = None
         self._update_profile_selection()
-
+    
     def _set_single_selection(self, profile_id):
         self._selected_profile_ids = {profile_id}
         self._selection_anchor_profile_id = profile_id
         self._update_profile_selection()
-
+    
     def _toggle_profile_selection(self, profile_id):
         if profile_id in self._selected_profile_ids:
             self._selected_profile_ids.remove(profile_id)
@@ -291,7 +295,7 @@ class ProfileGridWidget(QWidget):
             self._selected_profile_ids.add(profile_id)
             self._selection_anchor_profile_id = profile_id
         self._update_profile_selection()
-
+    
     def _select_range_to(self, profile_id, additive=False):
         visible_ids = self._get_visible_profile_ids()
         if not visible_ids or profile_id not in visible_ids:
@@ -308,7 +312,7 @@ class ProfileGridWidget(QWidget):
         else:
             self._selected_profile_ids = range_ids
         self._update_profile_selection()
-
+    
     def _ensure_context_selection(self, profile_id):
         if profile_id not in self._selected_profile_ids:
             self._set_single_selection(profile_id)
@@ -321,7 +325,7 @@ class ProfileGridWidget(QWidget):
         shift_value = Qt.ShiftModifier.value if hasattr(Qt.ShiftModifier, 'value') else int(Qt.ShiftModifier)
         is_ctrl = bool(modifier_value & ctrl_value)
         is_shift = bool(modifier_value & shift_value)
-
+        
         if is_shift:
             self._select_range_to(profile_id, additive=is_ctrl)
         elif is_ctrl:
@@ -332,23 +336,23 @@ class ProfileGridWidget(QWidget):
     def _on_profile_context_menu_requested(self, profile_id, global_pos):
         self._ensure_context_selection(profile_id)
         self._show_profile_context_menu(profile_id, global_pos)
-
+    
     def _show_profile_context_menu(self, profile_id, global_pos):
         selected_ids = self._get_selected_profile_ids()
         menu = QMenu(self)
-
+        
         if len(selected_ids) > 1:
             running_selected_ids = [selected_id for selected_id in selected_ids if self.browser_manager.is_running(selected_id)]
-
+            
             launch_selected_action = menu.addAction(qta.icon('fa6s.play'), 'Launch Selected')
             launch_selected_action.triggered.connect(self._launch_selected_profiles)
-
+            
             if running_selected_ids:
                 focus_selected_action = menu.addAction(qta.icon('fa6s.arrow-up-right-from-square'), 'Focus Selected')
                 close_selected_action = menu.addAction(qta.icon('fa6s.xmark'), 'Close Selected')
                 focus_selected_action.triggered.connect(self._focus_selected_profiles)
                 close_selected_action.triggered.connect(self._close_selected_profiles)
-
+            
             menu.addSeparator()
             delete_selected_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete Selected')
             delete_selected_action.triggered.connect(self._on_delete_selected_profiles)
@@ -358,11 +362,11 @@ class ProfileGridWidget(QWidget):
             export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
             menu.addSeparator()
             delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
-
+            
             edit_action.triggered.connect(lambda: self._on_edit_profile(profile_id))
             export_action.triggered.connect(lambda: self._on_export_profile_row(profile_id))
             delete_action.triggered.connect(lambda: self._on_delete_profile(profile_id))
-
+        
         menu.exec(global_pos)
     
     def _update_profile_selection(self):
@@ -441,63 +445,63 @@ class ProfileGridWidget(QWidget):
                 self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
             self.refresh_profiles()
             self.profile_changed.emit()
-
+    
     def _launch_selected_profiles(self):
         selected_ids = self._get_selected_profile_ids()
         if not selected_ids:
             QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
             return
-
+        
         launchable_ids = []
         for profile_id in selected_ids:
             row = self._find_row(profile_id)
             if row and not getattr(row, '_launching', False) and not self.browser_manager.is_running(profile_id):
                 launchable_ids.append(profile_id)
-
+        
         if not launchable_ids:
             QMessageBox.information(self, 'No Launchable Profiles', 'All selected profiles are already running or launching')
             return
-
+        
         for profile_id in launchable_ids:
             self._on_launch_profile(profile_id)
-
+    
     def _focus_selected_profiles(self):
         selected_ids = self._get_selected_profile_ids()
         if not selected_ids:
             QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
             return
-
+        
         focused_count = 0
         for profile_id in selected_ids:
             if self.browser_manager.is_running(profile_id):
                 self._on_focus_profile(profile_id)
                 focused_count += 1
-
+        
         if focused_count == 0:
             QMessageBox.information(self, 'No Running Profiles', 'None of the selected profiles are currently running')
-
+    
     def _close_selected_profiles(self):
         selected_ids = self._get_selected_profile_ids()
         if not selected_ids:
             QMessageBox.information(self, 'No Profiles Selected', 'Select one or more profiles first')
             return
-
+        
         closed_count = 0
         for profile_id in selected_ids:
             if self.browser_manager.is_running(profile_id):
                 self._on_close_profile(profile_id)
                 closed_count += 1
-
+        
         if closed_count == 0:
             QMessageBox.information(self, 'No Running Profiles', 'None of the selected profiles are currently running')
-
+    
     def _on_delete_selected_profiles(self):
         selected_profiles = self._get_selected_profiles()
         if len(selected_profiles) < 2:
             if len(selected_profiles) == 1:
                 self._on_delete_profile(selected_profiles[0]['profile_id'])
             return
-
+        
         running_profiles = [profile for profile in selected_profiles if self.browser_manager.is_running(profile['profile_id'])]
         if running_profiles:
             reply = QMessageBox.question(
@@ -511,7 +515,7 @@ class ProfileGridWidget(QWidget):
                 return
             for profile in running_profiles:
                 self.browser_manager.close(profile['profile_id'])
-
+        
         dialog = DeleteConfirmationDialog(
             'Profile',
             f'{len(selected_profiles)} profiles',
@@ -520,14 +524,14 @@ class ProfileGridWidget(QWidget):
         )
         if dialog.exec() != QDialog.Accepted:
             return
-
+        
         warnings = []
         deleted_ids = []
         for profile in selected_profiles:
             profile_id = profile['profile_id']
             profile_name = profile.get('profile_name', f'Profile {profile_id}')
             profile_path = profile.get('profile_browser_profile_path', '')
-
+            
             if profile_path and os.path.exists(profile_path):
                 try:
                     shutil.rmtree(profile_path)
@@ -535,17 +539,17 @@ class ProfileGridWidget(QWidget):
                     warnings.append(
                         f'{profile_name}: Could not delete profile folder:\n{e}\n\nProfile was deleted from database but folder remains.'
                     )
-
+            
             self.db.delete_profile(profile_id)
             deleted_ids.append(profile_id)
-
+        
         for profile_id in deleted_ids:
             self._selected_profile_ids.discard(profile_id)
         self._selection_anchor_profile_id = next(iter(self._selected_profile_ids), None)
-
+        
         self.refresh_profiles()
         self.profile_changed.emit()
-
+        
         if warnings:
             QMessageBox.warning(
                 self,
@@ -749,7 +753,10 @@ class ProfileGridWidget(QWidget):
                     return row
         return None
     
+    # ========== THREADING IMPORT/EXPORT METHODS ==========
+    
     def _on_import_profile(self):
+        """Handle import button click - starts threaded import"""
         if not self.current_group_id:
             QMessageBox.warning(self, 'No Group', 'Please select a group first')
             return
@@ -757,93 +764,204 @@ class ProfileGridWidget(QWidget):
         group = self.db.get_group(self.current_group_id)
         workspace = self.db.get_workspace(group['group_workspace_id']) if group else None
         workspace_browser_type = workspace.get('workspace_browser_type', 'chrome') if workspace else 'chrome'
+        workspace_path = workspace.get('workspace_root_profile_path', '') if workspace else ''
+        
+        if not workspace_path:
+            QMessageBox.warning(self, 'No Workspace Path', 'Workspace root profile path not set')
+            return
         
         dialog = ImportProfileDialog(workspace_browser_type=workspace_browser_type, parent=self)
         if dialog.exec() == QDialog.Accepted:
             source_path = dialog.selected_source
             selected_profiles = dialog.selected_profiles
             if source_path:
-                self._import_profile(source_path, selected_profiles, workspace_browser_type)
+                self._run_import_thread(source_path, selected_profiles, workspace_browser_type, workspace_path)
+    
+    def _run_import_thread(self, source_path, selected_profiles, workspace_browser_type, workspace_path):
+        """Start import operation in background thread"""
+        self._worker = ImportWorker(
+            self.current_group_id, 
+            source_path, 
+            selected_profiles, 
+            workspace_browser_type,
+            workspace_path
+        )
+        self._thread = QThread()
+        self._worker.moveToThread(self._thread)
+        
+        self._worker.signals.progress.connect(self._on_progress_update)
+        self._worker.signals.finished.connect(self._on_import_finished)
+        self._worker.signals.error.connect(self._on_import_error)
+        self._thread.started.connect(self._worker.run)
+        self._thread.start()
+        
+        if selected_profiles and len(selected_profiles) > 1:
+            self._show_progress("Importing Profiles", f"Importing {len(selected_profiles)} profiles...", indeterminate=True)
+        else:
+            self._show_progress("Importing Profile", "Preparing import...", indeterminate=True)
+    
+    @Slot(int, int)
+    def _on_progress_update(self, value, total):
+        """Update progress dialog from thread"""
+        if self._progress_dialog:
+            self._progress_dialog.update_progress(value, total)
+    
+    @Slot(object)
+    def _on_import_finished(self, result):
+        """Handle import completion"""
+        self._hide_progress()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
+            self._thread.deleteLater()
+            self._thread = None
+        
+        if result.get('success'):
+            if result.get('is_multi'):
+                imported_count = result.get('imported_count', 0)
+                skipped = result.get('skipped_browser_mismatch', [])
+                self.refresh_profiles()
+                if imported_count > 0:
+                    msg = f'Imported {imported_count} profile(s)'
+                    if skipped:
+                        msg += f'\n\nSkipped (browser mismatch): {", ".join(skipped)}'
+                    QMessageBox.information(self, 'Import Successful', msg)
+            else:
+                self.refresh_profiles()
+                QMessageBox.information(self, 'Import Successful', 'Profile imported successfully')
+    
+    @Slot(str)
+    def _on_import_error(self, error_msg):
+        """Handle import error"""
+        self._hide_progress()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
+            self._thread.deleteLater()
+            self._thread = None
+        QMessageBox.critical(self, 'Import Failed', f'Failed to import profile:\n{error_msg}')
     
     def _on_export_profile(self):
+        """Handle export button click - starts threaded export"""
         profiles = self.db.get_profiles_by_group(self.current_group_id)
         if not profiles:
             QMessageBox.information(self, 'No Profiles', 'No profiles to export in current group')
             return
         
-        # Get group name for export all filename
         group = self.db.get_group(self.current_group_id)
-        group_name = group.get('group_name', 'profiles') if group else 'profiles' if group else 'profiles'
-        
-        dialog = ExportProfileDialog(profiles, group_name=group_name, parent=self)
+        dialog = ExportProfileDialog(profiles, group_name=group.get('group_name', 'profiles') if group else 'profiles', parent=self)
         if dialog.exec() == QDialog.Accepted:
             if dialog.is_export_all:
-                self._export_profiles_all(dialog.selected_profiles, group_name)
+                self._run_export_all_thread(dialog.selected_profiles)
             else:
                 selected_profile = dialog.selected_profile
                 if selected_profile:
-                    self._export_profile(selected_profile)
+                    self._run_export_single_thread(selected_profile)
+    
+    def _run_export_single_thread(self, profile):
+        """Start single export operation in background thread"""
+        profile_name = profile.get('profile_name', 'profile')
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        default_filename = f"{re.sub(r'[^a-zA-Z0-9]', '_', profile_name)}_{timestamp}.zip"
+        
+        home_path = os.path.expanduser('~')
+        default_path = os.path.join(home_path, default_filename)
+        
+        export_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export Profile',
+            default_path,
+            'ZIP Files (*.zip);;All Files (*.*)'
+        )
+        
+        if not export_path:
+            return
+        
+        self._worker = ExportWorker(profile, export_path, is_multi=False)
+        self._thread = QThread()
+        self._worker.moveToThread(self._thread)
+        
+        self._worker.signals.progress.connect(self._on_progress_update)
+        self._worker.signals.finished.connect(self._on_export_finished)
+        self._worker.signals.error.connect(self._on_export_error)
+        self._thread.started.connect(self._worker.run)
+        self._thread.start()
+        
+        self._show_progress("Exporting Profile", f"Exporting {profile_name}...", indeterminate=True)
+    
+    def _run_export_all_thread(self, profiles):
+        """Start export all operation in background thread"""
+        if not profiles:
+            return
+        
+        group = self.db.get_group(self.current_group_id)
+        group_name = group.get('group_name', 'profiles') if group else 'profiles'
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_group_name = re.sub(r'[^a-zA-Z0-9]', '_', group_name)
+        default_filename = f"{safe_group_name}_{timestamp}.zip"
+        
+        home_path = os.path.expanduser('~')
+        default_path = os.path.join(home_path, default_filename)
+        
+        export_path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export All Profiles',
+            default_path,
+            'ZIP Files (*.zip);;All Files (*.*)'
+        )
+        
+        if not export_path:
+            return
+        
+        self._worker = ExportWorker(profiles, export_path, is_multi=True)
+        self._thread = QThread()
+        self._worker.moveToThread(self._thread)
+        
+        self._worker.signals.progress.connect(self._on_progress_update)
+        self._worker.signals.finished.connect(self._on_export_finished)
+        self._worker.signals.error.connect(self._on_export_error)
+        self._thread.started.connect(self._worker.run)
+        self._thread.start()
+        
+        self._show_progress("Exporting Profiles", f"Exporting {len(profiles)} profiles...", indeterminate=True)
     
     def _on_export_profile_row(self, profile_id):
         """Handle export from context menu on profile row"""
         profile = self.db.get_profile(profile_id)
         if profile:
-            self._export_profile(profile)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and not self.childAt(event.position().toPoint()):
-            self._clear_selection()
-        super().mousePressEvent(event)
+            self._run_export_single_thread(profile)
     
-    def _detect_browser_type(self, profile_path):
-        """Detect browser type from profile folder contents"""
-        if not os.path.exists(profile_path):
-            return 'chrome'  # default
+    @Slot(object)
+    def _on_export_finished(self, result):
+        """Handle export completion"""
+        self._hide_progress()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
+            self._thread.deleteLater()
+            self._thread = None
         
-        chrome_indicators = ['Preferences', 'Local Storage', 'IndexedDB']
-        firefox_indicators = ['prefs.js', 'places.sqlite', 'storage']
-        
-        has_chrome = True
-        has_firefox = True
-        
-        for indicator in chrome_indicators:
-            if not os.path.exists(os.path.join(profile_path, indicator)):
-                has_chrome = False
-                break
-        
-        for indicator in firefox_indicators:
-            if not os.path.exists(os.path.join(profile_path, indicator)):
-                has_firefox = False
-                break
-        
-        if has_firefox and not has_chrome:
-            return 'firefox'
-        return 'chrome'  # default to chrome
+        if result.get('success'):
+            if result.get('is_multi'):
+                exported_count = result.get('exported_count', 0)
+                QMessageBox.information(self, 'Export Successful', f'Exported {exported_count} profiles to:\n{result.get("export_path")}')
+            else:
+                QMessageBox.information(self, 'Export Successful', f'Profile exported to:\n{result.get("export_path")}')
     
-    def _get_unique_profile_name(self, base_name, workspace_path):
-        """Generate unique profile name with _copy suffix if exists"""
-        sanitized = re.sub(r'[^a-zA-Z0-9\s]', '', base_name)
-        sanitized = re.sub(r'\s+', '_', sanitized).strip('_')
-        
-        if not sanitized:
-            sanitized = 'imported_profile'
-        
-        full_path = os.path.join(workspace_path, sanitized)
-        if not os.path.exists(full_path):
-            return sanitized, sanitized
-        
-        # Use _copy suffix instead of numbers
-        new_name = f"{sanitized}_copy"
-        full_path = os.path.join(workspace_path, new_name)
-        if not os.path.exists(full_path):
-            return sanitized, new_name
-        
-        # If _copy also exists, keep adding _copy
-        while True:
-            new_name = f"{new_name}_copy"
-            full_path = os.path.join(workspace_path, new_name)
-            if not os.path.exists(full_path):
-                return sanitized, new_name
+    @Slot(str)
+    def _on_export_error(self, error_msg):
+        """Handle export error"""
+        self._hide_progress()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
+            self._thread.deleteLater()
+            self._thread = None
+        QMessageBox.critical(self, 'Export Failed', f'Failed to export profile:\n{error_msg}')
+    
+    # ========== PROGRESS DIALOG METHODS ==========
     
     def _show_progress(self, title, detail, indeterminate=False):
         """Show progress dialog"""
@@ -868,378 +986,7 @@ class ProfileGridWidget(QWidget):
             self._progress_dialog.close()
             self._progress_dialog = None
     
-    def _import_profile(self, source_path, selected_profiles=None, workspace_browser_type='chrome'):
-        """Import profile(s) from zip or folder - supports single or multiple profiles"""
-        if selected_profiles is None:
-            selected_profiles = []
-        group = self.db.get_group(self.current_group_id)
-        if not group:
-            return
-        
-        workspace = self.db.get_workspace(group['group_workspace_id'])
-        if not workspace:
-            return
-        
-        workspace_path = workspace.get('workspace_root_profile_path', '')
-        workspace_browser_type = workspace.get('workspace_browser_type', 'chrome')
-        if not workspace_path:
-            QMessageBox.warning(self, 'No Workspace Path', 'Workspace root profile path not set')
-            return
-        
-        # Show progress dialog
-        if selected_profiles and len(selected_profiles) > 1:
-            self._show_progress("Importing Profiles", f"Importing {len(selected_profiles)} profiles...", indeterminate=True)
-        else:
-            self._show_progress("Importing Profile", "Preparing import...", indeterminate=True)
-        
-        temp_extract_path = None
-        
-        try:
-            if source_path.endswith('.zip'):
-                temp_extract_path = tempfile.mkdtemp()
-                
-                # Extract and detect browser types
-                with zipfile.ZipFile(source_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_extract_path)
-                
-                profile_folders = self._find_all_profile_folders(temp_extract_path)
-                
-                if profile_folders:
-                    # Multi-profile zip - check browser compatibility
-                    imported_count = 0
-                    total = len(profile_folders)
-                    
-                    for idx, profile_info in enumerate(profile_folders):
-                        profile_source_path, meta_src = profile_info if isinstance(profile_info, tuple) else (profile_info, 'internal')
-                        if not os.path.isdir(profile_source_path):
-                            continue
-                        
-                        detected_browser = self._detect_browser_type(profile_source_path)
-                        
-                        if detected_browser != workspace_browser_type:
-                            self._hide_progress()
-                            # Show warning about browser mismatch
-                            browser_names = {'chrome': 'Chrome/Chromium', 'firefox': 'Firefox'}
-                            reply = QMessageBox.question(
-                                self, 'Browser Type Mismatch',
-                                f'The profile "{os.path.basename(profile_source_path)}" is detected as {browser_names.get(detected_browser, detected_browser)} profile, but current workspace is {browser_names.get(workspace_browser_type, workspace_browser_type)}.\n\n'
-                                f'Importing this profile may cause issues. Continue anyway?',
-                                QMessageBox.Yes | QMessageBox.No,
-                                QMessageBox.No
-                            )
-                            if reply == QMessageBox.No:
-                                continue
-                            self._show_progress("Importing Profile", f"Importing profile {idx + 1} of {total}...", indeterminate=True)
-                        
-                        result = self._import_single_profile(profile_info, workspace_path, workspace_browser_type)
-                        if result:
-                            imported_count += 1
-                    
-                    self.refresh_profiles()
-                    self._hide_progress()
-                    if imported_count > 0:
-                        QMessageBox.information(self, 'Import Successful', f'Imported {imported_count} profile(s)')
-                    return
-                
-                extracted_items = os.listdir(temp_extract_path)
-                if len(extracted_items) == 1 and os.path.isdir(os.path.join(temp_extract_path, extracted_items[0])):
-                    profile_source_path = os.path.join(temp_extract_path, extracted_items[0])
-                else:
-                    profile_source_path = temp_extract_path
-            else:
-                profile_source_path = source_path
-            
-            if not os.path.isdir(profile_source_path):
-                self._hide_progress()
-                QMessageBox.warning(self, 'Invalid Source', 'Source does not contain a valid profile folder')
-                return
-            
-            result = self._import_single_profile(profile_source_path, workspace_path, workspace_browser_type)
-            self._hide_progress()
-            if result:
-                self.refresh_profiles()
-                QMessageBox.information(self, 'Import Successful', f'Profile imported successfully')
-            
-        except Exception as e:
-            self._hide_progress()
-            QMessageBox.critical(self, 'Import Failed', f'Failed to import profile:\n{str(e)}')
-        finally:
-            if temp_extract_path and os.path.exists(temp_extract_path):
-                shutil.rmtree(temp_extract_path)
-    
-    def _find_all_profile_folders(self, extract_path):
-        """Find all profile folders with metadata in extracted zip (supports single and all_profiles format)"""
-        profile_folders = []
-        processed = set()
-        
-        # First pass: find folders with account_management_profile_metadata.json inside
-        for item in os.listdir(extract_path):
-            item_path = os.path.join(extract_path, item)
-            if os.path.isdir(item_path):
-                meta_path = os.path.join(item_path, 'account_management_profile_metadata.json')
-                if os.path.exists(meta_path):
-                    profile_folders.append((item_path, 'internal'))
-                    processed.add(item_path)
-        
-        # Second pass: find folders matching *_metadata.json in root (all_profiles format)
-        for item in os.listdir(extract_path):
-            item_path = os.path.join(extract_path, item)
-            if os.path.isdir(item_path) and item_path not in processed:
-                meta_file = os.path.join(extract_path, f'{item}_metadata.json')
-                if os.path.exists(meta_file):
-                    profile_folders.append((item_path, meta_file))
-        
-        return profile_folders
-    
-    def _import_single_profile(self, profile_info, workspace_path, workspace_browser_type):
-        """Import a single profile folder - profile_info is (path, metadata_source)"""
-        if isinstance(profile_info, tuple):
-            profile_source_path, meta_src = profile_info
-            zip_name = os.path.basename(profile_source_path)
-        else:
-            profile_source_path = profile_info
-            meta_src = 'internal'
-            zip_name = None
-        
-        if not os.path.isdir(profile_source_path):
-            return False
-        
-        # Detect browser type from profile folder
-        detected_browser_type = self._detect_browser_type(profile_source_path)
-        
-        # Load metadata based on source
-        if meta_src == 'internal':
-            metadata = self.db.load_profile_metadata(profile_source_path)
-        else:
-            try:
-                with open(meta_src, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
-            except:
-                metadata = None
-        
-        if metadata:
-            profile_name = metadata.get('profile_name', os.path.basename(profile_source_path))
-            profile_desc = metadata.get('profile_description', '')
-            profile_icon = metadata.get('profile_icon', 'fa6s.user')
-            profile_color = metadata.get('profile_color', '#3b82f6')
-            browser_profile_name = metadata.get('profile_browser_profile_name', os.path.basename(profile_source_path))
-            metadata_browser_type = metadata.get('profile_browser_type', detected_browser_type)
-        else:
-            folder_name = os.path.basename(profile_source_path)
-            profile_name = folder_name
-            profile_desc = ''
-            profile_icon = 'fa6s.user'
-            profile_color = '#3b82f6'
-            browser_profile_name = folder_name
-            metadata_browser_type = detected_browser_type
-        
-        # Get unique profile folder name and profile name
-        original_folder_name, unique_folder_name = self._get_unique_profile_name(browser_profile_name, workspace_path)
-        
-        # Also ensure unique profile name (for display)
-        existing_profile_names = [p.get('profile_name', '') for p in self._all_profiles]
-        profile_name_display = profile_name
-        if profile_name_display in existing_profile_names:
-            profile_name_display = f"{profile_name}_copy"
-            while profile_name_display in existing_profile_names:
-                profile_name_display = f"{profile_name_display}_copy"
-        
-        dest_path = os.path.join(workspace_path, unique_folder_name)
-        
-        if os.path.exists(dest_path):
-            reply = QMessageBox.question(
-                self, 'Profile Exists',
-                f'A profile folder named "{unique_folder_name}" already exists. Overwrite?',
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return None
-            
-            if profile_source_path == dest_path:
-                return None  # Same source, skip
-            
-            shutil.rmtree(dest_path)
-        
-        shutil.copytree(profile_source_path, dest_path)
-        
-        profile_id = self.db.create_profile(
-            self.current_group_id,
-            profile_name_display,
-            profile_desc,
-            profile_icon,
-            profile_color,
-            unique_folder_name,
-            dest_path,
-            browser_type=metadata_browser_type,
-            zip_name=zip_name
-        )
-        
-        self._save_profile_metadata_for_import(profile_id, profile_name_display, profile_desc, 
-                                                profile_icon, profile_color, unique_folder_name, dest_path, metadata_browser_type)
-        
-        return profile_id
-    
-    def _save_profile_metadata_for_import(self, profile_id, name, desc, icon, color, browser_name, browser_path, browser_type):
-        """Save metadata for imported profile"""
-        meta_data = {
-            'profile_id': profile_id,
-            'profile_name': name,
-            'profile_description': desc,
-            'profile_icon': icon,
-            'profile_color': color,
-            'profile_browser_profile_name': browser_name,
-            'profile_browser_profile_path': browser_path,
-            'group_id': self.current_group_id,
-            'profile_order_index': 0,
-            'profile_created_at': datetime.now().isoformat(),
-            'profile_updated_at': datetime.now().isoformat(),
-            'profile_browser_type': browser_type,
-        }
-        self.db.save_profile_metadata(meta_data)
-    
-    def _export_profile(self, profile):
-        """Export profile to zip file"""
-        profile_path = profile.get('profile_browser_profile_path', '')
-        profile_name = profile.get('profile_name', 'profile')
-        
-        if not os.path.exists(profile_path):
-            QMessageBox.warning(self, 'Export Failed', f'Profile folder not found:\n{profile_path}')
-            return
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        default_filename = f"{re.sub(r'[^a-zA-Z0-9]', '_', profile_name)}_{timestamp}.zip"
-        
-        home_path = os.path.expanduser('~')
-        default_path = os.path.join(home_path, default_filename)
-        
-        export_path, _ = QFileDialog.getSaveFileName(
-            self,
-            'Export Profile',
-            default_path,
-            'ZIP Files (*.zip);;All Files (*.*)'
-        )
-        
-        if not export_path:
-            return
-        
-        self._show_progress("Exporting Profile", f"Exporting {profile_name}...", indeterminate=True)
-        
-        try:
-            with zipfile.ZipFile(export_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, dirs, files in os.walk(profile_path):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        arcname = os.path.relpath(file_path, profile_path)
-                        zipf.write(file_path, os.path.join('profile', arcname))
-                
-                meta_data = {
-                    'profile_id': profile.get('profile_id'),
-                    'profile_name': profile.get('profile_name', ''),
-                    'profile_description': profile.get('profile_description', ''),
-                    'profile_icon': profile.get('profile_icon', 'fa6s.user'),
-                    'profile_color': profile.get('profile_color', '#3b82f6'),
-                    'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
-                    'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
-                    'group_id': profile.get('profile_group_id'),
-                    'profile_order_index': profile.get('profile_order_index', 0),
-                    'profile_created_at': profile.get('profile_created_at'),
-                    'profile_updated_at': profile.get('profile_updated_at'),
-                    'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
-                }
-                zipf.writestr('account_management_profile_metadata.json', json.dumps(meta_data, indent=2))
-            
-            self._hide_progress()
-            QMessageBox.information(self, 'Export Successful', f'Profile exported to:\n{export_path}')
-            
-        except Exception as e:
-            self._hide_progress()
-            QMessageBox.critical(self, 'Export Failed', f'Failed to export profile:\n{str(e)}')
-    
-    def _export_profiles_all(self, profiles, group_name):
-        """Export all profiles to single zip file with group name"""
-        if not profiles:
-            return
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        safe_group_name = re.sub(r'[^a-zA-Z0-9]', '_', group_name)
-        default_filename = f"{safe_group_name}_{timestamp}.zip"
-        
-        home_path = os.path.expanduser('~')
-        default_path = os.path.join(home_path, default_filename)
-        
-        export_path, _ = QFileDialog.getSaveFileName(
-            self,
-            'Export All Profiles',
-            default_path,
-            'ZIP Files (*.zip);;All Files (*.*)'
-        )
-        
-        if not export_path:
-            return
-        
-        self._show_progress("Exporting Profiles", f"Exporting {len(profiles)} profiles...", indeterminate=True)
-        
-        try:
-            with zipfile.ZipFile(export_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for profile in profiles:
-                    profile_path = profile.get('profile_browser_profile_path', '')
-                    profile_name = profile.get('profile_name', 'profile')
-                    
-                    if not profile_path or not os.path.exists(profile_path):
-                        continue
-                    
-                    safe_name = re.sub(r'[^a-zA-Z0-9]', '_', profile_name)
-                    
-                    for root, dirs, files in os.walk(profile_path):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, profile_path)
-                            zipf.write(file_path, os.path.join(safe_name, arcname))
-                    
-                    meta_data = {
-                        'profile_id': profile.get('profile_id'),
-                        'profile_name': profile.get('profile_name', ''),
-                        'profile_description': profile.get('profile_description', ''),
-                        'profile_icon': profile.get('profile_icon', 'fa6s.user'),
-                        'profile_color': profile.get('profile_color', '#3b82f6'),
-                        'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
-                        'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
-                        'group_id': profile.get('profile_group_id'),
-                        'profile_order_index': profile.get('profile_order_index', 0),
-                        'profile_created_at': profile.get('profile_created_at'),
-                        'profile_updated_at': profile.get('profile_updated_at'),
-                        'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
-                    }
-                    zipf.writestr(f'{safe_name}_metadata.json', json.dumps(meta_data, indent=2))
-            
-            self._hide_progress()
-            QMessageBox.information(self, 'Export Successful', f'Exported {len(profiles)} profiles to:\n{export_path}')
-            
-        except Exception as e:
-            self._hide_progress()
-            QMessageBox.critical(self, 'Export Failed', f'Failed to export profiles:\n{str(e)}')
-    
-    def _save_profile_metadata(self, data):
-        """Save profile metadata JSON to profile folder"""
-        profile_id = data.get('profile_id')
-        if not profile_id:
-            return
-        
-        profile = self.db.get_profile(profile_id)
-        if profile:
-            meta_data = {
-                'profile_id': profile.get('profile_id'),
-                'profile_name': profile.get('profile_name', ''),
-                'profile_description': profile.get('profile_description', ''),
-                'profile_icon': profile.get('profile_icon', 'fa6s.user'),
-                'profile_color': profile.get('profile_color', '#3b82f6'),
-                'profile_browser_profile_name': profile.get('profile_browser_profile_name', ''),
-                'profile_browser_profile_path': profile.get('profile_browser_profile_path', ''),
-                'group_id': profile.get('profile_group_id'),
-                'profile_order_index': profile.get('profile_order_index', 0),
-                'profile_created_at': profile.get('profile_created_at'),
-                'profile_updated_at': profile.get('profile_updated_at'),
-                'profile_browser_type': profile.get('profile_browser_type', 'chrome'),
-            }
-            self.db.save_profile_metadata(meta_data)
+def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.childAt(event.position().toPoint()):
+            self._clear_selection()
+        super().mousePressEvent(event)

@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar,
     QPushButton
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 from config import BASE_PATH
 
@@ -70,7 +70,7 @@ class ProgressDialog(QDialog):
         """Set progress value"""
         if maximum > 0:
             self.progress_bar.setMaximum(maximum)
-            self.progress_bar.setValue(value)
+        self.progress_bar.setValue(value)
     
     def set_indeterminate(self, active=True):
         """Set indeterminate state (infinite progress)"""
@@ -82,3 +82,19 @@ class ProgressDialog(QDialog):
     def set_cancel_enabled(self, enabled):
         """Show/hide cancel button"""
         self.cancel_btn.setVisible(enabled)
+    
+    def update_progress(self, value, maximum=100):
+        """Update progress bar (thread-safe when called via signal)
+        
+        For threaded operations, format shows 'count/total' instead of percentage
+        to avoid confusion with small counts (e.g. 1-6 items showing 1-6%)
+        """
+        self.progress_bar.setMaximum(maximum)
+        self.progress_bar.setValue(value)
+        if maximum <= 100 and value <= maximum:
+            # For count-based progress, show "count/total" format
+            self.progress_bar.setFormat(f"{value}/{maximum}")
+        else:
+            # For percentage-based progress
+            percentage = int((value / maximum * 100) if maximum > 0 else 0)
+            self.progress_bar.setFormat(f"{percentage}%")
