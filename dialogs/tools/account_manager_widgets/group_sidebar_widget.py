@@ -27,12 +27,13 @@ class GroupItemWidget(QWidget):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
     
-    def __init__(self, group_data, parent=None):
+    def __init__(self, group_data, profile_count=0, parent=None):
         super().__init__(parent)
         self.group_data = group_data
         self.group_id = group_data['group_id']
         self._hover = False
         self._selected = False
+        self._profile_count = profile_count
         self._setup_ui()
     
     def get_group_name(self):
@@ -82,10 +83,11 @@ class GroupItemWidget(QWidget):
         content_layout = QVBoxLayout()
         content_layout.setSpacing(2)
 
-        name_label = QLabel(name)
+        name_with_count = f"{name} ({self._profile_count})" if self._profile_count > 0 else name
+        name_label = QLabel(name_with_count)
         name_label.setStyleSheet('font-weight: bold; font-size: 11px;')
         content_layout.addWidget(name_label)
-
+        
         if desc:
             desc_label = QLabel(desc)
             desc_label.setStyleSheet(f'color: {theme.get_color("gray")}; font-size: 9px;')
@@ -95,8 +97,10 @@ class GroupItemWidget(QWidget):
         layout.addLayout(content_layout, 1)
 
         # Edit button
-        edit_btn = QPushButton(qta.icon('fa6s.pen'), '')
-        edit_btn.setFixedSize(30, 30)
+        pen_icon = qta.icon('fa6s.pen')
+        edit_btn = QPushButton(pen_icon, '')
+        edit_btn.setMaximumWidth(30)
+        edit_btn.setMaximumHeight(30)
         edit_btn.setFlat(True)
         edit_btn.setStyleSheet('background: transparent; border: none;')
         edit_btn.setFocusPolicy(Qt.NoFocus)
@@ -105,8 +109,10 @@ class GroupItemWidget(QWidget):
         layout.addWidget(edit_btn)
 
         # Delete button
-        delete_btn = QPushButton(qta.icon('fa6s.trash'), '')
-        delete_btn.setFixedSize(30, 30)
+        trash_icon = qta.icon('fa6s.trash')
+        delete_btn = QPushButton(trash_icon, '')
+        delete_btn.setMaximumWidth(30)
+        delete_btn.setMaximumHeight(30)
         delete_btn.setFlat(True)
         delete_btn.setStyleSheet('background: transparent; border: none;')
         delete_btn.setFocusPolicy(Qt.NoFocus)
@@ -479,7 +485,10 @@ class GroupSidebarWidget(QWidget):
             if search_text and search_text not in group_name:
                 continue
             
-            item = GroupItemWidget(group)
+            # Get profile count for this group
+            profile_count = len(self.db.get_profiles_by_group(group['group_id']))
+            
+            item = GroupItemWidget(group, profile_count)
             item.clicked.connect(self._on_group_clicked)
             item.edit_requested.connect(self._on_edit_group)
             item.delete_requested.connect(self._on_delete_group)
@@ -496,6 +505,10 @@ class GroupSidebarWidget(QWidget):
             item = self.groups_layout.itemAt(i)
             if item and item.widget():
                 item.widget().set_selected(item.widget().group_id == self.selected_group_id)
+    
+    def update_group_counts(self):
+        """Refresh group list to update profile count badges (called after profile import/export)"""
+        self._filter_groups()
     
     def _on_new_group(self):
         if not self.current_workspace_id:

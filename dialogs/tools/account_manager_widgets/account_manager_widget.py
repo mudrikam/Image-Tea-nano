@@ -60,9 +60,10 @@ class AccountManagerWidget(QWidget):
         self.group_sidebar.workspace_changed.connect(self._update_stats)
         self.group_sidebar.group_selected.connect(self._update_stats)
         
-        # When profile changes, update stats and refresh group info
+        # When profile changes, update stats, refresh group info, and update group counts
         self.profile_grid.profile_changed.connect(self._update_stats)
         self.profile_grid.profile_changed.connect(self._refresh_group_info)
+        self.profile_grid.profile_changed.connect(self.group_sidebar.update_group_counts)
      
     def _update_stats(self):
         """Update stats bar with current counts"""
