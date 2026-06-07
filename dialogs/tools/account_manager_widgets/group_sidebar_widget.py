@@ -503,4 +503,5 @@ class GroupSidebarWidget(QWidget):
         
         # Re-select the group to sync all labels with new data
         if saved_group_id:
+            self._update_group_selection()
             self.group_selected.emit(saved_group_id)
