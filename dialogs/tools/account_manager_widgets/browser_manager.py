@@ -15,6 +15,7 @@ if os.name == 'nt':
     WM_KEYDOWN = 0x0100
     WM_KEYUP = 0x0101
     VK_F11 = 0x7A
+    GW_OWNER = 4
 
 
 class BrowserManager:
@@ -80,12 +81,20 @@ class BrowserManager:
 
         def worker():
             for _ in range(40):
-                hwnds = self._get_candidate_windows(profile_id)
+                proc_info = self.processes.get(profile_id)
+                if not proc_info:
+                    return
+
+                browser_type = proc_info.get('type', 'chrome')
+                hwnds = self._resolve_window_handles(profile_id)
                 if hwnds:
                     hwnd = hwnds[0]
                     if window_mode == 'maximized':
                         user32.ShowWindow(hwnd, SW_MAXIMIZE)
                     elif window_mode == 'fullscreen':
+                        if browser_type == 'firefox':
+                            # Firefox already receives -fullscreen at launch; F11 here would toggle it back off.
+                            return
                         user32.ShowWindow(hwnd, SW_MAXIMIZE)
                         time.sleep(0.2)
                         user32.PostMessageW(hwnd, WM_KEYDOWN, VK_F11, 0)
@@ -124,40 +133,11 @@ class BrowserManager:
     
     def has_window(self, profile_id):
         """Check whether tracked browser currently has a visible window"""
-        proc_info = self.processes.get(profile_id)
-        if not proc_info:
-            return False
-        
-        browser_type = proc_info.get('type', 'chrome')
-        browser_exe = proc_info.get('browser_exe', '')
-        hwnds = self._get_candidate_windows(profile_id)
-        if hwnds:
-            return True
-        
-        if browser_type == 'firefox':
-            if browser_exe:
-                for pid in self._find_firefox_processes_by_exe(browser_exe):
-                    if self._find_windows_by_pid(pid):
-                        return True
-            if self._find_windows_by_process_name('firefox.exe'):
-                return True
-        
-        return False
+        return bool(self._resolve_window_handles(profile_id))
     
     def focus(self, profile_id):
         """Focus browser window (restore if minimized, bring to front if backgrounded)"""
-        hwnds = self._get_candidate_windows(profile_id)
-        proc_info = self.processes.get(profile_id)
-        browser_type = proc_info.get('type', 'chrome') if proc_info else 'chrome'
-        browser_exe = proc_info.get('browser_exe', '') if proc_info else ''
-        
-        if not hwnds and browser_type == 'firefox':
-            if browser_exe:
-                for pid in self._find_firefox_processes_by_exe(browser_exe):
-                    hwnds.extend(self._find_windows_by_pid(pid))
-            if not hwnds:
-                hwnds = self._find_windows_by_process_name('firefox.exe')
-        
+        hwnds = self._resolve_window_handles(profile_id)
         if hwnds:
             hwnd = hwnds[0]
             user32.ShowWindow(hwnd, SW_RESTORE)
@@ -175,7 +155,7 @@ class BrowserManager:
         browser_type = proc_info.get('type', 'chrome')
         browser_exe = proc_info.get('browser_exe', '')
         pids_to_check = self._get_candidate_pids(profile_id)
-        hwnds = self._get_candidate_windows(profile_id)
+        hwnds = self._resolve_window_handles(profile_id)
         
         if browser_type == 'firefox':
             if browser_exe:
@@ -183,9 +163,7 @@ class BrowserManager:
                 for pid in extra_pids:
                     if pid not in pids_to_check:
                         pids_to_check.append(pid)
-                        hwnds.extend(self._find_windows_by_pid(pid))
-            if not hwnds:
-                hwnds = self._find_windows_by_process_name('firefox.exe')
+            hwnds = list(dict.fromkeys(hwnds))
         
         for hwnd in hwnds:
             user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
@@ -244,7 +222,31 @@ class BrowserManager:
         hwnds = []
         for pid in self._get_candidate_pids(profile_id):
             hwnds.extend(self._find_windows_by_pid(pid))
-        return hwnds
+        return list(dict.fromkeys(hwnds))
+
+    def _resolve_window_handles(self, profile_id):
+        """Resolve visible windows for tracked browser, including Firefox fallbacks."""
+        proc_info = self.processes.get(profile_id)
+        if not proc_info:
+            return []
+
+        hwnds = self._get_candidate_windows(profile_id)
+        if hwnds:
+            return hwnds
+
+        browser_type = proc_info.get('type', 'chrome')
+        browser_exe = proc_info.get('browser_exe', '')
+        if browser_type != 'firefox':
+            return hwnds
+
+        if browser_exe:
+            for pid in self._find_firefox_processes_by_exe(browser_exe):
+                hwnds.extend(self._find_windows_by_pid(pid))
+
+        if not hwnds:
+            hwnds = self._find_windows_by_process_name('firefox.exe')
+
+        return list(dict.fromkeys(hwnds))
     
     def _find_windows_by_pid(self, pid):
         """Find all windows belonging to process PID"""
@@ -257,7 +259,7 @@ class BrowserManager:
         def enum_windows_callback(hwnd, lParam):
             process_id = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if process_id.value == pid and user32.IsWindowVisible(hwnd):
+            if process_id.value == pid and user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, GW_OWNER) == 0:
                 hwnds.append(hwnd)
             return True
         
@@ -275,7 +277,7 @@ class BrowserManager:
         def enum_windows_callback(hwnd, lParam):
             process_id = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if user32.IsWindowVisible(hwnd):
+            if user32.IsWindowVisible(hwnd) and user32.GetWindow(hwnd, GW_OWNER) == 0:
                 try:
                     proc = psutil.Process(process_id.value)
                     name = (proc.name() or '').lower()
