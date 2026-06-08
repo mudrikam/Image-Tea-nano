@@ -299,9 +299,12 @@ class ProfileRowWidget(QFrame):
         super().leaveEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        """Double-click launches profile"""
-        if event.button() == Qt.LeftButton and not self._is_launched and not self._launching:
-            self.launch_clicked.emit(self.profile_id)
+        """Double-click launches or focuses profile based on current state"""
+        if event.button() == Qt.LeftButton:
+            if not self._is_launched and not self._launching:
+                self.launch_clicked.emit(self.profile_id)
+            else:
+                self.focus_clicked.emit(self.profile_id)
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):

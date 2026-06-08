@@ -3,7 +3,8 @@ import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog, QComboBox,
-    QTabWidget, QWidget, QScrollArea, QListWidget, QInputDialog, QAbstractItemView
+    QTabWidget, QWidget, QScrollArea, QListWidget, QInputDialog, QAbstractItemView,
+    QCheckBox, QGroupBox, QRadioButton
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor
@@ -15,6 +16,28 @@ from ui.theme_system import theme
 class AddProfileDialog(QDialog):
     """Dialog for creating/editing profile"""
     profile_saved = Signal(dict)
+    PROXY_SETTING_KEYS = [
+        'proxy_enabled',
+        'proxy_mode',
+        'proxy_scheme',
+        'proxy_host',
+        'proxy_port',
+        'proxy_username',
+        'proxy_password',
+        'proxy_bypass_list',
+        'proxy_pac_url',
+        'proxy_dns_remote',
+        'proxy_share_all_protocols',
+        'proxy_http_host',
+        'proxy_http_port',
+        'proxy_ssl_host',
+        'proxy_ssl_port',
+        'proxy_ftp_host',
+        'proxy_ftp_port',
+        'proxy_socks_host',
+        'proxy_socks_port',
+        'proxy_socks_version',
+    ]
 
     def __init__(self, profile_data=None, workspace_data=None, parent=None):
         super().__init__(parent)
@@ -25,6 +48,7 @@ class AddProfileDialog(QDialog):
         self.selected_color = profile_data.get('profile_color', '#3b82f6') if profile_data else '#3b82f6'
         self.icon_mode = 'initial' if not profile_data else 'icon'  # Default to Initial for new, Icon for edit
         self.additional_parameters = []
+        self.proxy_settings = self._default_proxy_settings()
 
         self.setWindowTitle('Edit Profile' if self.is_edit_mode else 'New Profile')
         self.setModal(True)
@@ -66,8 +90,10 @@ class AddProfileDialog(QDialog):
         self.tabs = QTabWidget()
         self.main_tab = QWidget()
         self.parameters_tab = QWidget()
+        self.proxy_tab = QWidget()
         self.tabs.addTab(self.main_tab, qta.icon('fa6s.user-gear'), 'Main Data')
         self.tabs.addTab(self.parameters_tab, qta.icon('fa6s.sliders'), 'Parameters')
+        self.tabs.addTab(self.proxy_tab, qta.icon('fa6s.network-wired'), 'Proxy')
         layout.addWidget(self.tabs, 1)
 
         main_tab_layout = QVBoxLayout(self.main_tab)
@@ -258,6 +284,7 @@ class AddProfileDialog(QDialog):
         main_layout.addLayout(window_mode_layout)
 
         main_layout.addStretch()
+        self._setup_proxy_tab()
         self._setup_parameters_tab()
 
         # Buttons
@@ -325,6 +352,320 @@ class AddProfileDialog(QDialog):
         self.clear_parameters_btn.clicked.connect(self._clear_parameters)
         action_layout.addWidget(self.clear_parameters_btn)
         parameters_layout.addLayout(action_layout)
+
+    def _setup_proxy_tab(self):
+        proxy_layout = QVBoxLayout(self.proxy_tab)
+        proxy_layout.setContentsMargins(0, 0, 0, 0)
+        proxy_layout.setSpacing(0)
+
+        proxy_scroll = QScrollArea()
+        proxy_scroll.setWidgetResizable(True)
+        proxy_scroll.setFrameShape(QScrollArea.NoFrame)
+        proxy_content = QWidget()
+        proxy_form_layout = QVBoxLayout(proxy_content)
+        proxy_form_layout.setContentsMargins(8, 8, 8, 8)
+        proxy_form_layout.setSpacing(8)
+
+        self.proxy_enabled_checkbox = QCheckBox('Enable custom proxy for this profile')
+        self.proxy_enabled_checkbox.toggled.connect(self._update_proxy_ui_state)
+        proxy_form_layout.addWidget(self.proxy_enabled_checkbox)
+
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(6)
+        mode_icon = QLabel()
+        mode_icon.setPixmap(qta.icon('fa6s.route', color=theme.get_color('gray')).pixmap(16, 16))
+        mode_layout.addWidget(mode_icon)
+        mode_label = QLabel('Mode:')
+        mode_label.setMinimumWidth(70)
+        mode_layout.addWidget(mode_label)
+
+        self.proxy_mode_combo = QComboBox()
+        self.proxy_mode_combo.addItem('Use browser/system default', 'system')
+        self.proxy_mode_combo.addItem('Direct / no proxy', 'direct')
+        self.proxy_mode_combo.addItem('Manual', 'manual')
+        self.proxy_mode_combo.addItem('PAC script URL', 'pac')
+        self.proxy_mode_combo.addItem('Auto detect', 'autodetect')
+        self.proxy_mode_combo.currentIndexChanged.connect(self._update_proxy_ui_state)
+        mode_layout.addWidget(self.proxy_mode_combo, 1)
+        proxy_form_layout.addLayout(mode_layout)
+
+        self.proxy_hint_label = QLabel()
+        self.proxy_hint_label.setWordWrap(True)
+        self.proxy_hint_label.setStyleSheet(f"color: {theme.get_color('gray')};")
+        proxy_form_layout.addWidget(self.proxy_hint_label)
+
+        self.manual_proxy_group = QGroupBox('Manual Proxy')
+        manual_layout = QVBoxLayout(self.manual_proxy_group)
+        manual_layout.setSpacing(8)
+
+        self.proxy_single_radio = QRadioButton('Single proxy for all protocols')
+        self.proxy_advanced_radio = QRadioButton('Advanced per protocol')
+        self.proxy_single_radio.setChecked(True)
+        self.proxy_single_radio.toggled.connect(self._update_proxy_ui_state)
+        self.proxy_advanced_radio.toggled.connect(self._update_proxy_ui_state)
+        manual_layout.addWidget(self.proxy_single_radio)
+        manual_layout.addWidget(self.proxy_advanced_radio)
+
+        self.single_proxy_widget = QWidget()
+        single_layout = QVBoxLayout(self.single_proxy_widget)
+        single_layout.setContentsMargins(0, 0, 0, 0)
+        single_layout.setSpacing(6)
+
+        single_host_layout = QHBoxLayout()
+        self.proxy_scheme_combo = QComboBox()
+        self.proxy_scheme_combo.addItem('HTTP', 'http')
+        self.proxy_scheme_combo.addItem('HTTPS', 'https')
+        self.proxy_scheme_combo.addItem('SOCKS4', 'socks4')
+        self.proxy_scheme_combo.addItem('SOCKS5', 'socks5')
+        single_host_layout.addWidget(self.proxy_scheme_combo)
+
+        self.proxy_host_input = QLineEdit()
+        self.proxy_host_input.setPlaceholderText('Host or IP')
+        single_host_layout.addWidget(self.proxy_host_input, 1)
+
+        self.proxy_port_input = QLineEdit()
+        self.proxy_port_input.setPlaceholderText('Port')
+        self.proxy_port_input.setMaximumWidth(90)
+        single_host_layout.addWidget(self.proxy_port_input)
+        single_layout.addLayout(single_host_layout)
+
+        auth_layout = QHBoxLayout()
+        self.proxy_username_input = QLineEdit()
+        self.proxy_username_input.setPlaceholderText('Username (stored for persistence)')
+        auth_layout.addWidget(self.proxy_username_input, 1)
+
+        self.proxy_password_input = QLineEdit()
+        self.proxy_password_input.setPlaceholderText('Password (stored for persistence)')
+        self.proxy_password_input.setEchoMode(QLineEdit.Password)
+        auth_layout.addWidget(self.proxy_password_input, 1)
+        single_layout.addLayout(auth_layout)
+        manual_layout.addWidget(self.single_proxy_widget)
+
+        self.advanced_proxy_widget = QWidget()
+        advanced_layout = QVBoxLayout(self.advanced_proxy_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(6)
+
+        self.proxy_http_host_input, self.proxy_http_port_input = self._create_proxy_endpoint_row(advanced_layout, 'HTTP:')
+        self.proxy_ssl_host_input, self.proxy_ssl_port_input = self._create_proxy_endpoint_row(advanced_layout, 'HTTPS:')
+        self.proxy_ftp_host_input, self.proxy_ftp_port_input = self._create_proxy_endpoint_row(advanced_layout, 'FTP:')
+
+        socks_layout = QHBoxLayout()
+        socks_label = QLabel('SOCKS:')
+        socks_label.setMinimumWidth(70)
+        socks_layout.addWidget(socks_label)
+        self.proxy_socks_host_input = QLineEdit()
+        self.proxy_socks_host_input.setPlaceholderText('SOCKS host')
+        socks_layout.addWidget(self.proxy_socks_host_input, 1)
+        self.proxy_socks_port_input = QLineEdit()
+        self.proxy_socks_port_input.setPlaceholderText('Port')
+        self.proxy_socks_port_input.setMaximumWidth(90)
+        socks_layout.addWidget(self.proxy_socks_port_input)
+        self.proxy_socks_version_combo = QComboBox()
+        self.proxy_socks_version_combo.addItem('SOCKS4', '4')
+        self.proxy_socks_version_combo.addItem('SOCKS5', '5')
+        socks_layout.addWidget(self.proxy_socks_version_combo)
+        advanced_layout.addLayout(socks_layout)
+        manual_layout.addWidget(self.advanced_proxy_widget)
+
+        self.proxy_remote_dns_checkbox = QCheckBox('Use remote DNS when supported (relevant for SOCKS)')
+        manual_layout.addWidget(self.proxy_remote_dns_checkbox)
+        proxy_form_layout.addWidget(self.manual_proxy_group)
+
+        self.pac_proxy_group = QGroupBox('PAC Script')
+        pac_layout = QVBoxLayout(self.pac_proxy_group)
+        pac_layout.setSpacing(6)
+        self.proxy_pac_url_input = QLineEdit()
+        self.proxy_pac_url_input.setPlaceholderText('https://example.com/proxy.pac')
+        pac_layout.addWidget(self.proxy_pac_url_input)
+        proxy_form_layout.addWidget(self.pac_proxy_group)
+
+        bypass_group = QGroupBox('Bypass List')
+        bypass_layout = QVBoxLayout(bypass_group)
+        bypass_layout.setSpacing(6)
+        self.proxy_bypass_input = QTextEdit()
+        self.proxy_bypass_input.setPlaceholderText('localhost\n127.0.0.1\n*.internal')
+        self.proxy_bypass_input.setMaximumHeight(90)
+        bypass_layout.addWidget(self.proxy_bypass_input)
+        proxy_form_layout.addWidget(bypass_group)
+
+        proxy_note = QLabel('Proxy username/password are persisted for profile portability. Runtime authentication support depends on the target browser and proxy type.')
+        proxy_note.setWordWrap(True)
+        proxy_note.setStyleSheet(f"color: {theme.get_color('gray')};")
+        proxy_form_layout.addWidget(proxy_note)
+        proxy_form_layout.addStretch()
+
+        proxy_scroll.setWidget(proxy_content)
+        proxy_layout.addWidget(proxy_scroll)
+
+        self._update_proxy_ui_state()
+
+    def _create_proxy_endpoint_row(self, parent_layout, label_text):
+        row_layout = QHBoxLayout()
+        row_layout.setSpacing(6)
+        label = QLabel(label_text)
+        label.setMinimumWidth(70)
+        row_layout.addWidget(label)
+        host_input = QLineEdit()
+        host_input.setPlaceholderText('Host or IP')
+        row_layout.addWidget(host_input, 1)
+        port_input = QLineEdit()
+        port_input.setPlaceholderText('Port')
+        port_input.setMaximumWidth(90)
+        row_layout.addWidget(port_input)
+        parent_layout.addLayout(row_layout)
+        return host_input, port_input
+
+    def _default_proxy_settings(self):
+        return {
+            'proxy_enabled': 'false',
+            'proxy_mode': 'system',
+            'proxy_scheme': 'http',
+            'proxy_host': '',
+            'proxy_port': '',
+            'proxy_username': '',
+            'proxy_password': '',
+            'proxy_bypass_list': '[]',
+            'proxy_pac_url': '',
+            'proxy_dns_remote': 'false',
+            'proxy_share_all_protocols': 'true',
+            'proxy_http_host': '',
+            'proxy_http_port': '',
+            'proxy_ssl_host': '',
+            'proxy_ssl_port': '',
+            'proxy_ftp_host': '',
+            'proxy_ftp_port': '',
+            'proxy_socks_host': '',
+            'proxy_socks_port': '',
+            'proxy_socks_version': '5',
+        }
+
+    def _is_truthy(self, value):
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _normalize_proxy_text(self, value):
+        return str(value or '').strip()
+
+    def _normalize_proxy_port(self, value):
+        text = self._normalize_proxy_text(value)
+        return text if text.isdigit() else ''
+
+    def _parse_bypass_list(self, value):
+        if isinstance(value, list):
+            return [self._normalize_proxy_text(item) for item in value if self._normalize_proxy_text(item)]
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+                if isinstance(decoded, list):
+                    return [self._normalize_proxy_text(item) for item in decoded if self._normalize_proxy_text(item)]
+            except json.JSONDecodeError:
+                pass
+            return [line.strip() for line in value.splitlines() if line.strip()]
+        return []
+
+    def _serialize_bypass_list(self, value):
+        return json.dumps(self._parse_bypass_list(value))
+
+    def _load_proxy_settings(self, profile_data):
+        settings = self._default_proxy_settings()
+        for key in self.PROXY_SETTING_KEYS:
+            if key in profile_data:
+                settings[key] = str(profile_data.get(key, settings[key]))
+        return settings
+
+    def _apply_proxy_settings_to_ui(self, settings):
+        self.proxy_settings = settings
+        self.proxy_enabled_checkbox.setChecked(self._is_truthy(settings.get('proxy_enabled')))
+        mode_index = self.proxy_mode_combo.findData(settings.get('proxy_mode', 'system'))
+        self.proxy_mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
+
+        scheme_index = self.proxy_scheme_combo.findData(settings.get('proxy_scheme', 'http'))
+        self.proxy_scheme_combo.setCurrentIndex(scheme_index if scheme_index >= 0 else 0)
+        self.proxy_host_input.setText(settings.get('proxy_host', ''))
+        self.proxy_port_input.setText(settings.get('proxy_port', ''))
+        self.proxy_username_input.setText(settings.get('proxy_username', ''))
+        self.proxy_password_input.setText(settings.get('proxy_password', ''))
+        self.proxy_bypass_input.setPlainText('\n'.join(self._parse_bypass_list(settings.get('proxy_bypass_list'))))
+        self.proxy_pac_url_input.setText(settings.get('proxy_pac_url', ''))
+        self.proxy_remote_dns_checkbox.setChecked(self._is_truthy(settings.get('proxy_dns_remote')))
+        share_all_protocols = self._is_truthy(settings.get('proxy_share_all_protocols', 'true'))
+        self.proxy_http_host_input.setText(settings.get('proxy_http_host', ''))
+        self.proxy_http_port_input.setText(settings.get('proxy_http_port', ''))
+        self.proxy_ssl_host_input.setText(settings.get('proxy_ssl_host', ''))
+        self.proxy_ssl_port_input.setText(settings.get('proxy_ssl_port', ''))
+        self.proxy_ftp_host_input.setText(settings.get('proxy_ftp_host', ''))
+        self.proxy_ftp_port_input.setText(settings.get('proxy_ftp_port', ''))
+        self.proxy_socks_host_input.setText(settings.get('proxy_socks_host', ''))
+        self.proxy_socks_port_input.setText(settings.get('proxy_socks_port', ''))
+        socks_version_index = self.proxy_socks_version_combo.findData(settings.get('proxy_socks_version', '5'))
+        self.proxy_socks_version_combo.setCurrentIndex(socks_version_index if socks_version_index >= 0 else 1)
+        self.proxy_single_radio.setChecked(share_all_protocols)
+        self.proxy_advanced_radio.setChecked(not share_all_protocols)
+        self._update_proxy_ui_state()
+
+    def _collect_proxy_settings_from_ui(self):
+        proxy_enabled = self.proxy_enabled_checkbox.isChecked()
+        proxy_mode = self.proxy_mode_combo.currentData() or 'system'
+        share_all_protocols = self.proxy_single_radio.isChecked()
+        settings = self._default_proxy_settings()
+        settings.update({
+            'proxy_enabled': 'true' if proxy_enabled else 'false',
+            'proxy_mode': proxy_mode,
+            'proxy_scheme': self.proxy_scheme_combo.currentData() or 'http',
+            'proxy_host': self._normalize_proxy_text(self.proxy_host_input.text()),
+            'proxy_port': self._normalize_proxy_port(self.proxy_port_input.text()),
+            'proxy_username': self._normalize_proxy_text(self.proxy_username_input.text()),
+            'proxy_password': self._normalize_proxy_text(self.proxy_password_input.text()),
+            'proxy_bypass_list': self._serialize_bypass_list(self.proxy_bypass_input.toPlainText()),
+            'proxy_pac_url': self._normalize_proxy_text(self.proxy_pac_url_input.text()),
+            'proxy_dns_remote': 'true' if self.proxy_remote_dns_checkbox.isChecked() else 'false',
+            'proxy_share_all_protocols': 'true' if share_all_protocols else 'false',
+            'proxy_http_host': self._normalize_proxy_text(self.proxy_http_host_input.text()),
+            'proxy_http_port': self._normalize_proxy_port(self.proxy_http_port_input.text()),
+            'proxy_ssl_host': self._normalize_proxy_text(self.proxy_ssl_host_input.text()),
+            'proxy_ssl_port': self._normalize_proxy_port(self.proxy_ssl_port_input.text()),
+            'proxy_ftp_host': self._normalize_proxy_text(self.proxy_ftp_host_input.text()),
+            'proxy_ftp_port': self._normalize_proxy_port(self.proxy_ftp_port_input.text()),
+            'proxy_socks_host': self._normalize_proxy_text(self.proxy_socks_host_input.text()),
+            'proxy_socks_port': self._normalize_proxy_port(self.proxy_socks_port_input.text()),
+            'proxy_socks_version': self.proxy_socks_version_combo.currentData() or '5',
+        })
+        return settings
+
+    def _update_proxy_ui_state(self):
+        proxy_enabled = getattr(self, 'proxy_enabled_checkbox', None) and self.proxy_enabled_checkbox.isChecked()
+        proxy_mode = self.proxy_mode_combo.currentData() if hasattr(self, 'proxy_mode_combo') else 'system'
+        is_manual = proxy_enabled and proxy_mode == 'manual'
+        is_pac = proxy_enabled and proxy_mode == 'pac'
+        use_single = self.proxy_single_radio.isChecked() if hasattr(self, 'proxy_single_radio') else True
+
+        if hasattr(self, 'manual_proxy_group'):
+            self.manual_proxy_group.setEnabled(proxy_enabled)
+            self.manual_proxy_group.setVisible(is_manual)
+        if hasattr(self, 'pac_proxy_group'):
+            self.pac_proxy_group.setEnabled(proxy_enabled)
+            self.pac_proxy_group.setVisible(is_pac)
+        if hasattr(self, 'single_proxy_widget'):
+            self.single_proxy_widget.setVisible(is_manual and use_single)
+        if hasattr(self, 'advanced_proxy_widget'):
+            self.advanced_proxy_widget.setVisible(is_manual and not use_single)
+        if hasattr(self, 'proxy_bypass_input'):
+            self.proxy_bypass_input.setEnabled(proxy_enabled and proxy_mode in {'manual', 'pac'})
+
+        hint = 'Proxy settings are disabled for this profile.'
+        if proxy_enabled:
+            if proxy_mode == 'system':
+                hint = 'Use the browser or operating system proxy defaults for this profile.'
+            elif proxy_mode == 'direct':
+                hint = 'Force direct connections and bypass proxies when the browser supports it.'
+            elif proxy_mode == 'manual':
+                hint = 'Manual proxy is translated to Chromium launch flags and Firefox profile preferences.'
+            elif proxy_mode == 'pac':
+                hint = 'PAC URL is passed to Chromium and written to Firefox proxy preferences.'
+            elif proxy_mode == 'autodetect':
+                hint = 'Use automatic proxy detection where the browser supports it.'
+        if hasattr(self, 'proxy_hint_label'):
+            self.proxy_hint_label.setText(hint)
 
     def _normalize_parameter(self, value):
         return (value or '').strip()
@@ -608,6 +949,7 @@ class AddProfileDialog(QDialog):
         self.window_mode_combo.setCurrentIndex(index if index >= 0 else 0)
         self.additional_parameters = self._parse_additional_parameters(self.profile_data.get('launch_additional_parameters', []))
         self._refresh_parameters_list()
+        self._apply_proxy_settings_to_ui(self._load_proxy_settings(self.profile_data))
 
         # Update preview
         self._on_mode_changed(self.mode_combo.currentText())
@@ -645,6 +987,31 @@ class AddProfileDialog(QDialog):
         else:
             icon_value = self.selected_icon
 
+        proxy_settings = self._collect_proxy_settings_from_ui()
+        proxy_mode = proxy_settings.get('proxy_mode', 'system')
+        if proxy_settings.get('proxy_enabled') == 'true':
+            if proxy_mode == 'manual':
+                if proxy_settings.get('proxy_share_all_protocols') == 'true':
+                    if not proxy_settings.get('proxy_host') or not proxy_settings.get('proxy_port'):
+                        QMessageBox.warning(self, 'Validation Error', 'Manual proxy requires host and port')
+                        self.tabs.setCurrentWidget(self.proxy_tab)
+                        return
+                else:
+                    advanced_has_endpoint = any([
+                        proxy_settings.get('proxy_http_host') and proxy_settings.get('proxy_http_port'),
+                        proxy_settings.get('proxy_ssl_host') and proxy_settings.get('proxy_ssl_port'),
+                        proxy_settings.get('proxy_ftp_host') and proxy_settings.get('proxy_ftp_port'),
+                        proxy_settings.get('proxy_socks_host') and proxy_settings.get('proxy_socks_port'),
+                    ])
+                    if not advanced_has_endpoint:
+                        QMessageBox.warning(self, 'Validation Error', 'Advanced manual proxy requires at least one proxy endpoint')
+                        self.tabs.setCurrentWidget(self.proxy_tab)
+                        return
+            elif proxy_mode == 'pac' and not proxy_settings.get('proxy_pac_url'):
+                QMessageBox.warning(self, 'Validation Error', 'PAC proxy mode requires a PAC URL')
+                self.tabs.setCurrentWidget(self.proxy_tab)
+                return
+
         data = {
             'profile_name': name,
             'profile_description': self.desc_input.toPlainText().strip(),
@@ -654,6 +1021,7 @@ class AddProfileDialog(QDialog):
             'profile_browser_profile_path': self.profile_path_input.text().strip(),
             'launch_window_mode': self.window_mode_combo.currentData() or 'windowed',
             'launch_additional_parameters': list(self.additional_parameters),
+            'proxy_settings': proxy_settings,
         }
 
         if self.is_edit_mode:

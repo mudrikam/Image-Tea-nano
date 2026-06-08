@@ -742,6 +742,7 @@ class ProfileGridWidget(QWidget):
             'launch_additional_parameters',
             json.dumps(data.get('launch_additional_parameters', []))
         )
+        self._save_proxy_settings(profile_id, data.get('proxy_settings'))
         
         # Save metadata file to profile folder
         self._save_profile_metadata(data)
@@ -774,6 +775,26 @@ class ProfileGridWidget(QWidget):
                 'profile_settings': profile_settings,
             }
             self.db.save_profile_metadata(meta_data)
+
+    def _save_proxy_settings(self, profile_id, proxy_settings):
+        if not profile_id:
+            return
+        proxy_settings = proxy_settings or {}
+        for key in AddProfileDialog.PROXY_SETTING_KEYS:
+            default_value = '[]' if key == 'proxy_bypass_list' else ''
+            if key == 'proxy_enabled':
+                default_value = 'false'
+            elif key == 'proxy_mode':
+                default_value = 'system'
+            elif key == 'proxy_scheme':
+                default_value = 'http'
+            elif key == 'proxy_dns_remote':
+                default_value = 'false'
+            elif key == 'proxy_share_all_protocols':
+                default_value = 'true'
+            elif key == 'proxy_socks_version':
+                default_value = '5'
+            self.db.set_profile_setting(profile_id, key, str(proxy_settings.get(key, default_value)))
     
     def _parse_launch_additional_parameters(self, value):
         if isinstance(value, list):
@@ -811,6 +832,10 @@ class ProfileGridWidget(QWidget):
         launch_additional_parameters = self._parse_launch_additional_parameters(
             self.db.get_profile_setting(profile_id, 'launch_additional_parameters')
         )
+        proxy_settings = {
+            key: self.db.get_profile_setting(profile_id, key)
+            for key in AddProfileDialog.PROXY_SETTING_KEYS
+        }
         
         if not browser_exe:
             QMessageBox.warning(self, 'No Browser', 'Browser executable not set in workspace')
@@ -837,7 +862,8 @@ class ProfileGridWidget(QWidget):
             profile_path,
             browser_type,
             launch_window_mode,
-            launch_additional_parameters
+            launch_additional_parameters,
+            proxy_settings
         )
         
         if pid:
