@@ -473,6 +473,14 @@ class ImageTeaMainWindow(QMainWindow):
                 event.ignore()
                 return
         
+        # Terminate all browsers launched by embedded Account Manager
+        if hasattr(self, 'tools_picker_widget') and self.tools_picker_widget:
+            if hasattr(self.tools_picker_widget, '_account_manager_instance') and self.tools_picker_widget._account_manager_instance:
+                try:
+                    self.tools_picker_widget._account_manager_instance.shutdown_browsers()
+                except Exception:
+                    pass
+        
         # Close all tool dialogs
         if hasattr(self, '_envato_elements_dialog') and self._envato_elements_dialog:
             self._envato_elements_dialog.close()

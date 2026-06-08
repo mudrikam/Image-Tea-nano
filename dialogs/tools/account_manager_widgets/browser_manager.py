@@ -23,6 +23,15 @@ class BrowserManager:
     def __init__(self):
         self.processes = {}  # profile_id -> {'proc': Popen, 'pid': int, 'type': str, 'browser_exe': str}
     
+    def close_all(self):
+        """Close all tracked browser processes - called on app shutdown"""
+        profile_ids = list(self.processes.keys())
+        for profile_id in profile_ids:
+            try:
+                self.close(profile_id)
+            except Exception:
+                pass
+    
     def launch(self, profile_id, browser_exe, profile_path=None, browser_type='chrome', window_mode='windowed', additional_parameters=None):
         """Launch browser and track process"""
         if not os.path.exists(browser_exe):

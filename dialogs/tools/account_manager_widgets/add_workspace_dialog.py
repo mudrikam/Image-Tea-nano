@@ -301,13 +301,38 @@ class AddWorkspaceDialog(QDialog):
             QMessageBox.warning(self, 'Validation Error', 'Workspace name is required')
             return
         
+        root_path = self.root_input.text().strip()
+        
+        # Check if root path is not empty when creating new workspace
+        if not self.is_edit_mode and root_path:
+            if os.path.exists(root_path):
+                # Check if directory is not empty
+                try:
+                    if os.listdir(root_path):
+                        QMessageBox.warning(
+                            self, 
+                            'Root Path Not Empty', 
+                            f'The root path is not empty:\n{root_path}\n\n'
+                            'For safety, the root path must be empty when creating a new workspace '
+                            'to avoid accidental data loss.\n\n'
+                            'Please choose an empty directory or create a new one.'
+                        )
+                        return
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, 
+                        'Validation Error', 
+                        f'Could not check root path:\n{str(e)}'
+                    )
+                    return
+        
         data = {
             'workspace_name': name,
             'workspace_description': self.desc_input.toPlainText().strip(),
             'workspace_icon': self.selected_icon,
             'workspace_color': self.selected_color,
             'workspace_browser_exe_path': self.exe_input.text().strip(),
-            'workspace_root_profile_path': self.root_input.text().strip(),
+            'workspace_root_profile_path': root_path,
             'workspace_browser_type': self.browser_type_combo.currentData(),
         }
         

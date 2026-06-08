@@ -72,6 +72,11 @@ class AccountManagerWidget(QWidget):
         profiles = self.db.get_all_profiles()
         self.stats_widget.update_stats(len(workspaces), len(groups), len(profiles))
 
+    def shutdown_browsers(self):
+        """Terminate all browsers launched by account manager"""
+        if hasattr(self, 'profile_grid') and self.profile_grid and hasattr(self.profile_grid, 'browser_manager'):
+            self.profile_grid.browser_manager.close_all()
+
     def _show_workspace_without_group(self):
         """Show active workspace header with no group selected."""
         self.profile_grid.set_group(None)
@@ -200,5 +205,12 @@ class AccountManagerDialog(QDialog):
         self._main_widget = AccountManagerWidget()
         root_layout.addWidget(self._main_widget)
 
+    def shutdown_browsers(self):
+        """Terminate all browsers launched by account manager"""
+        if hasattr(self, '_main_widget') and self._main_widget:
+            self._main_widget.shutdown_browsers()
+
     def closeEvent(self, event):
+        self.shutdown_browsers()
         event.accept()
+
