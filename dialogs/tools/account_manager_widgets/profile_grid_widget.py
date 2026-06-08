@@ -141,6 +141,20 @@ class ProfileGridWidget(QWidget):
         self.export_btn.setToolTip('Export Profile')
         self.export_btn.clicked.connect(self._on_export_profile)
         action_layout.addWidget(self.export_btn)
+
+        # Launch selected button
+        self.launch_selected_btn = QPushButton(qta.icon('fa6s.play'), ' Launch Selected')
+        self.launch_selected_btn.setToolTip('Launch selected profiles')
+        self.launch_selected_btn.clicked.connect(self._launch_selected_profiles)
+        self.launch_selected_btn.setEnabled(False)
+        action_layout.addWidget(self.launch_selected_btn)
+
+        # Launch all button
+        self.launch_all_btn = QPushButton(qta.icon('fa6s.rocket'), ' Launch All')
+        self.launch_all_btn.setToolTip('Launch all profiles in the current group')
+        self.launch_all_btn.clicked.connect(self._on_launch_all_button_clicked)
+        self.launch_all_btn.setEnabled(False)
+        action_layout.addWidget(self.launch_all_btn)
         
         layout.addLayout(action_layout)
         
@@ -185,6 +199,7 @@ class ProfileGridWidget(QWidget):
             if group:
                 self.current_workspace_id = group.get('group_workspace_id')
         self.refresh_profiles()
+        self._update_action_buttons()
     
     def set_workspace_id(self, workspace_id):
         """Set workspace id for browser type fallback"""
@@ -201,10 +216,12 @@ class ProfileGridWidget(QWidget):
         if not self.current_group_id:
             self._all_profiles = []
             self._clear_selection()
+            self._update_action_buttons()
             return
         
         self._all_profiles = self.db.get_profiles_by_group(self.current_group_id)
         self._filter_profiles()
+        self._update_action_buttons()
     
     def _filter_profiles(self):
         """Filter profiles based on search text"""
@@ -246,6 +263,7 @@ class ProfileGridWidget(QWidget):
         
         self._sync_selection_to_visible_rows()
         self._update_profile_selection()
+        self._update_action_buttons()
     
     def _get_visible_rows(self):
         rows = []
@@ -269,6 +287,27 @@ class ProfileGridWidget(QWidget):
             if profile:
                 profiles.append(profile)
         return profiles
+
+    def _update_action_buttons(self):
+        has_group = self.current_group_id is not None
+        selected_count = len(self._get_selected_profile_ids())
+        has_profiles_in_group = bool(self._all_profiles)
+        group_profile_ids = [profile.get('profile_id') for profile in self._all_profiles if profile.get('profile_id') is not None]
+        running_group_count = sum(1 for profile_id in group_profile_ids if self.browser_manager.is_running(profile_id))
+        all_group_profiles_running = bool(group_profile_ids) and running_group_count == len(group_profile_ids)
+
+        if hasattr(self, 'launch_selected_btn'):
+            self.launch_selected_btn.setEnabled(selected_count > 1)
+        if hasattr(self, 'launch_all_btn'):
+            self.launch_all_btn.setEnabled(has_group and has_profiles_in_group)
+            if all_group_profiles_running:
+                self.launch_all_btn.setText(' Close All')
+                self.launch_all_btn.setIcon(qta.icon('fa6s.xmark'))
+                self.launch_all_btn.setToolTip('Close all running profiles in the current group')
+            else:
+                self.launch_all_btn.setText(' Launch All')
+                self.launch_all_btn.setIcon(qta.icon('fa6s.rocket'))
+                self.launch_all_btn.setToolTip('Launch all profiles in the current group')
     
     def _sync_selection_to_visible_rows(self):
         visible_ids = set(self._get_visible_profile_ids())
@@ -280,6 +319,7 @@ class ProfileGridWidget(QWidget):
         self._selected_profile_ids.clear()
         self._selection_anchor_profile_id = None
         self._update_profile_selection()
+        self._update_action_buttons()
     
     def _set_single_selection(self, profile_id):
         self._selected_profile_ids = {profile_id}
@@ -373,6 +413,7 @@ class ProfileGridWidget(QWidget):
         """Update selection styling for all profile rows"""
         for row in self._get_visible_rows():
             row.set_selected(row.profile_id in self._selected_profile_ids)
+        self._update_action_buttons()
     
     def _on_new_profile(self):
         if not self.current_group_id:
@@ -466,6 +507,70 @@ class ProfileGridWidget(QWidget):
         
         for profile_id in launchable_ids:
             self._on_launch_profile(profile_id)
+
+    def _launch_all_profiles(self):
+        if not self.current_group_id:
+            QMessageBox.warning(self, 'No Group', 'Please select a group first')
+            return
+
+        if not self._all_profiles:
+            QMessageBox.information(self, 'No Profiles', 'There are no profiles in the selected group')
+            return
+
+        launchable_ids = []
+        for profile in self._all_profiles:
+            profile_id = profile.get('profile_id')
+            if profile_id is None:
+                continue
+
+            row = self._find_row(profile_id)
+            is_launching = getattr(row, '_launching', False) if row else False
+            if not is_launching and not self.browser_manager.is_running(profile_id):
+                launchable_ids.append(profile_id)
+
+        if not launchable_ids:
+            QMessageBox.information(self, 'No Launchable Profiles', 'All profiles in this group are already running or launching')
+            return
+
+        for profile_id in launchable_ids:
+            self._on_launch_profile(profile_id)
+
+        self._update_action_buttons()
+
+    def _close_all_profiles(self):
+        if not self.current_group_id:
+            QMessageBox.warning(self, 'No Group', 'Please select a group first')
+            return
+
+        if not self._all_profiles:
+            QMessageBox.information(self, 'No Profiles', 'There are no profiles in the selected group')
+            return
+
+        running_profile_ids = [
+            profile.get('profile_id')
+            for profile in self._all_profiles
+            if profile.get('profile_id') is not None and self.browser_manager.is_running(profile.get('profile_id'))
+        ]
+
+        if not running_profile_ids:
+            QMessageBox.information(self, 'No Running Profiles', 'There are no running profiles in the selected group')
+            return
+
+        for profile_id in running_profile_ids:
+            self._on_close_profile(profile_id)
+
+        self._update_action_buttons()
+
+    def _on_launch_all_button_clicked(self):
+        group_profile_ids = [profile.get('profile_id') for profile in self._all_profiles if profile.get('profile_id') is not None]
+        all_group_profiles_running = bool(group_profile_ids) and all(
+            self.browser_manager.is_running(profile_id) for profile_id in group_profile_ids
+        )
+
+        if all_group_profiles_running:
+            self._close_all_profiles()
+        else:
+            self._launch_all_profiles()
     
     def _focus_selected_profiles(self):
         selected_ids = self._get_selected_profile_ids()
@@ -722,6 +827,7 @@ class ProfileGridWidget(QWidget):
                 row = item.widget()
                 if hasattr(row, 'profile_id') and row.profile_id == profile_id:
                     row.set_launching(True)
+                    self._update_action_buttons()
                     break
         
         # Launch browser
@@ -741,22 +847,30 @@ class ProfileGridWidget(QWidget):
             def check_launched():
                 row = self._find_row(profile_id)
                 if not row:
+                    self._update_action_buttons()
                     return
                 
                 if self.browser_manager.has_window(profile_id) or self.browser_manager.is_running(profile_id):
                     row.set_launching(False)
                     row.set_launched(True)
+                    self._update_action_buttons()
                     return
                 
                 attempts['count'] += 1
                 if attempts['count'] >= 30:
                     row.set_launching(False)
                     row.set_launched(False)
+                    self._update_action_buttons()
                     return
                 
                 QTimer.singleShot(200, check_launched)
             
             QTimer.singleShot(500, check_launched)
+        else:
+            row = self._find_row(profile_id)
+            if row:
+                row.set_launching(False)
+            self._update_action_buttons()
     
     def _on_focus_profile(self, profile_id):
         """Focus already launched browser"""
@@ -771,9 +885,11 @@ class ProfileGridWidget(QWidget):
             row = self._find_row(profile_id)
             if row:
                 row.set_launched(False)
+        self._update_action_buttons()
     
     def _check_external_closes(self):
         """Periodically check if any launched browsers were closed externally"""
+        state_changed = False
         for i in range(self.rows_layout.count() - 1):
             item = self.rows_layout.itemAt(i)
             if item and item.widget():
@@ -781,6 +897,9 @@ class ProfileGridWidget(QWidget):
                 if hasattr(row, 'profile_id') and hasattr(row, '_is_launched') and row._is_launched:
                     if not self.browser_manager.is_running(row.profile_id):
                         row.set_launched(False)
+                        state_changed = True
+        if state_changed:
+            self._update_action_buttons()
     
     def _find_row(self, profile_id):
         """Find ProfileRowWidget by profile_id"""
