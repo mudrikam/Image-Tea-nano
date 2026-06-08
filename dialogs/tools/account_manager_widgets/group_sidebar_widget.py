@@ -419,8 +419,18 @@ class GroupSidebarWidget(QWidget):
         # Use new confirmation dialog
         dialog = DeleteConfirmationDialog('Workspace', workspace_name, self)
         if dialog.exec() == QDialog.Accepted:
-            self.db.delete_workspace(self.current_workspace_id)
+            result = self.db.delete_workspace(self.current_workspace_id)
+            if not result.get('deleted'):
+                QMessageBox.warning(self, 'Delete Failed', result.get('error', 'Failed to delete workspace'))
+                return
             self.refresh_workspaces()
+            warnings = result.get('warnings', [])
+            if warnings:
+                QMessageBox.warning(
+                    self,
+                    'Delete Warning',
+                    'Workspace was deleted, but some profile folders could not be removed.\n\n' + '\n'.join(warnings)
+                )
     
     def _on_workspace_saved(self, data):
         if 'workspace_id' in data:
@@ -552,11 +562,21 @@ class GroupSidebarWidget(QWidget):
         # Use new confirmation dialog
         dialog = DeleteConfirmationDialog('Group', group_name, self)
         if dialog.exec() == QDialog.Accepted:
-            self.db.delete_group(group_id)
+            result = self.db.delete_group(group_id)
+            if not result.get('deleted'):
+                QMessageBox.warning(self, 'Delete Failed', result.get('error', 'Failed to delete group'))
+                return
             if was_selected:
                 self.selected_group_id = None
                 self.group_selected.emit(None)
             self.refresh_groups()
+            warnings = result.get('warnings', [])
+            if warnings:
+                QMessageBox.warning(
+                    self,
+                    'Delete Warning',
+                    'Group was deleted, but some profile folders could not be removed.\n\n' + '\n'.join(warnings)
+                )
     
     def _on_group_saved(self, data):
         if 'group_id' in data:

@@ -1077,7 +1077,12 @@ def setup_main_menu(window):
     tools_action = QAction("Tools", window)
     tools_action.setToolTip("Open tools launcher to access all available tools")
     tools_action.setStatusTip("Open tools launcher to access all available tools")
-    tools_action.triggered.connect(window.switch_to_tools_picker)
+    tools_action.triggered.connect(lambda checked=False: window.switch_to_tools_picker())
+
+    account_manager_action = QAction("Account Manager", window)
+    account_manager_action.setToolTip("Open tools launcher directly to the Account Manager tab")
+    account_manager_action.setStatusTip("Open tools launcher directly to the Account Manager tab")
+    account_manager_action.triggered.connect(lambda checked=False: window.switch_to_account_manager())
     
     # Keep old tools menu structure for compatibility (hidden by default)
     tools_menu = QMenu("Tools (Legacy)", menubar)
@@ -1409,6 +1414,7 @@ def setup_main_menu(window):
     menubar.addMenu(metadata_menu)
     menubar.addAction(api_action)
     menubar.addAction(tools_action)
+    menubar.addAction(account_manager_action)
     menubar.addMenu(purchase_menu)
     menubar.addMenu(member_menu)
     menubar.addMenu(help_menu)

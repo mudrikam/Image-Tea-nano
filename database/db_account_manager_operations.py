@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -11,13 +13,80 @@ class AccountManagerDB:
     def __init__(self):
         self.db_path = get_db_path()
     
+    def _get_connection(self):
+        """Create sqlite connection with foreign keys enabled."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('PRAGMA foreign_keys = ON')
+        return conn
+    
+    def _collect_workspace_profiles(self, workspace_id: int, conn=None) -> List[Dict[str, Any]]:
+        """Collect all profiles belonging to a workspace."""
+        owns_connection = conn is None
+        if owns_connection:
+            conn = self._get_connection()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute('''
+                SELECT p.*
+                FROM account_profiles p
+                INNER JOIN account_groups g ON g.group_id = p.profile_group_id
+                WHERE g.group_workspace_id = ?
+                ORDER BY p.profile_id
+            ''', (workspace_id,))
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            if owns_connection:
+                conn.close()
+    
+    def _collect_group_profiles(self, group_id: int, conn=None) -> List[Dict[str, Any]]:
+        """Collect all profiles belonging to a group."""
+        owns_connection = conn is None
+        if owns_connection:
+            conn = self._get_connection()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute('''
+                SELECT *
+                FROM account_profiles
+                WHERE profile_group_id = ?
+                ORDER BY profile_id
+            ''', (group_id,))
+            rows = c.fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            if owns_connection:
+                conn.close()
+    
+    def _delete_profile_folders(self, profiles: List[Dict[str, Any]]) -> List[str]:
+        """Delete profile folders and return warnings for failures."""
+        warnings = []
+        deleted_paths = set()
+        
+        for profile in profiles:
+            profile_name = profile.get('profile_name', f"Profile {profile.get('profile_id', '')}")
+            profile_path = (profile.get('profile_browser_profile_path') or '').strip()
+            
+            if not profile_path or profile_path in deleted_paths or not os.path.exists(profile_path):
+                continue
+            
+            try:
+                shutil.rmtree(profile_path)
+                deleted_paths.add(profile_path)
+            except Exception as e:
+                warnings.append(f'{profile_name}: Could not delete profile folder: {e}')
+        
+        return warnings
+    
     # ========== Workspace Operations ==========
     
     def create_workspace(self, name: str, description: str = "", icon: str = "fa6s.briefcase", 
                          color: str = "#3b82f6", browser_exe_path: str = "", 
                          root_profile_path: str = "", browser_type: str = "chrome") -> int:
         """Create new workspace and return workspace_id"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             c.execute('''
@@ -32,7 +101,7 @@ class AccountManagerDB:
     
     def get_workspaces(self) -> List[Dict[str, Any]]:
         """Get all workspaces"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_workspaces ORDER BY workspace_created_at DESC')
@@ -41,7 +110,7 @@ class AccountManagerDB:
     
     def get_workspace(self, workspace_id: int) -> Optional[Dict[str, Any]]:
         """Get single workspace by ID"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_workspaces WHERE workspace_id = ?', (workspace_id,))
@@ -52,7 +121,7 @@ class AccountManagerDB:
                         icon: str = None, color: str = None, browser_exe_path: str = None,
                         root_profile_path: str = None, browser_type: str = None) -> bool:
         """Update workspace fields (only provided fields are updated)"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             updates = []
             params = []
@@ -91,13 +160,35 @@ class AccountManagerDB:
             conn.commit()
             return c.rowcount > 0
     
-    def delete_workspace(self, workspace_id: int) -> bool:
-        """Delete workspace (cascade deletes groups and profiles)"""
-        with sqlite3.connect(self.db_path) as conn:
+    def delete_workspace(self, workspace_id: int) -> Dict[str, Any]:
+        """Delete workspace, all nested profiles, and their folders."""
+        with self._get_connection() as conn:
+            workspace = self.get_workspace(workspace_id)
+            if not workspace:
+                return {
+                    'success': False,
+                    'deleted': False,
+                    'warnings': [],
+                    'deleted_profile_count': 0,
+                    'deleted_group_count': 0,
+                    'error': 'Workspace not found'
+                }
+            
+            groups = self.get_groups_by_workspace(workspace_id)
+            profiles = self._collect_workspace_profiles(workspace_id, conn)
+            warnings = self._delete_profile_folders(profiles)
             c = conn.cursor()
             c.execute('DELETE FROM account_workspaces WHERE workspace_id = ?', (workspace_id,))
+            deleted = c.rowcount > 0
             conn.commit()
-            return c.rowcount > 0
+            return {
+                'success': deleted,
+                'deleted': deleted,
+                'warnings': warnings,
+                'deleted_profile_count': len(profiles),
+                'deleted_group_count': len(groups),
+                'error': None if deleted else 'Workspace delete failed'
+            }
     
     # ========== Group Operations ==========
     
@@ -105,7 +196,7 @@ class AccountManagerDB:
                      icon: str = "fa6s.users", color: str = "#3b82f6",
                      order_index: int = 0) -> int:
         """Create new group and return group_id"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             c.execute('''
@@ -119,7 +210,7 @@ class AccountManagerDB:
     
     def get_groups_by_workspace(self, workspace_id: int) -> List[Dict[str, Any]]:
         """Get all groups for a workspace ordered by order_index"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('''
@@ -132,7 +223,7 @@ class AccountManagerDB:
     
     def get_group(self, group_id: int) -> Optional[Dict[str, Any]]:
         """Get single group by ID"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_groups WHERE group_id = ?', (group_id,))
@@ -142,7 +233,7 @@ class AccountManagerDB:
     def update_group(self, group_id: int, name: str = None, description: str = None,
                      icon: str = None, color: str = None, order_index: int = None) -> bool:
         """Update group fields (only provided fields are updated)"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             updates = []
             params = []
@@ -175,17 +266,36 @@ class AccountManagerDB:
             conn.commit()
             return c.rowcount > 0
     
-    def delete_group(self, group_id: int) -> bool:
-        """Delete group (cascade deletes profiles)"""
-        with sqlite3.connect(self.db_path) as conn:
+    def delete_group(self, group_id: int) -> Dict[str, Any]:
+        """Delete group, nested profiles, and their folders."""
+        with self._get_connection() as conn:
+            group = self.get_group(group_id)
+            if not group:
+                return {
+                    'success': False,
+                    'deleted': False,
+                    'warnings': [],
+                    'deleted_profile_count': 0,
+                    'error': 'Group not found'
+                }
+            
+            profiles = self._collect_group_profiles(group_id, conn)
+            warnings = self._delete_profile_folders(profiles)
             c = conn.cursor()
             c.execute('DELETE FROM account_groups WHERE group_id = ?', (group_id,))
+            deleted = c.rowcount > 0
             conn.commit()
-            return c.rowcount > 0
+            return {
+                'success': deleted,
+                'deleted': deleted,
+                'warnings': warnings,
+                'deleted_profile_count': len(profiles),
+                'error': None if deleted else 'Group delete failed'
+            }
     
     def reorder_groups(self, group_updates: List[Dict[str, int]]) -> bool:
         """Update order_index for multiple groups. group_updates format: [{'group_id': 1, 'order_index': 0}, ...]"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             for update in group_updates:
@@ -199,7 +309,7 @@ class AccountManagerDB:
     
     def get_all_groups(self) -> List[Dict[str, Any]]:
         """Get all groups"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_groups ORDER BY group_order_index, group_created_at')
@@ -213,7 +323,7 @@ class AccountManagerDB:
                        browser_profile_name: str = "", browser_profile_path: str = "",
                        order_index: int = 0, browser_type: str = "chrome", zip_name: str = None) -> int:
         """Create new profile and return profile_id"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             c.execute('''
@@ -230,7 +340,7 @@ class AccountManagerDB:
     
     def get_profiles_by_group(self, group_id: int) -> List[Dict[str, Any]]:
         """Get all profiles for a group ordered by order_index"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('''
@@ -243,7 +353,7 @@ class AccountManagerDB:
     
     def get_profile(self, profile_id: int) -> Optional[Dict[str, Any]]:
         """Get single profile by ID"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_profiles WHERE profile_id = ?', (profile_id,))
@@ -252,7 +362,7 @@ class AccountManagerDB:
     
     def get_all_profiles(self) -> List[Dict[str, Any]]:
         """Get all profiles"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute('SELECT * FROM account_profiles ORDER BY profile_order_index, profile_created_at')
@@ -264,7 +374,7 @@ class AccountManagerDB:
                        browser_profile_path: str = None, order_index: int = None,
                        browser_type: str = None, zip_name: str = None) -> bool:
         """Update profile fields (only provided fields are updated)"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             updates = []
             params = []
@@ -311,7 +421,7 @@ class AccountManagerDB:
     
     def delete_profile(self, profile_id: int) -> bool:
         """Delete profile (cascade deletes settings)"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             c.execute('DELETE FROM account_profiles WHERE profile_id = ?', (profile_id,))
             conn.commit()
@@ -319,7 +429,6 @@ class AccountManagerDB:
     
     def save_profile_metadata(self, profile_data: Dict[str, Any]) -> bool:
         """Save profile metadata to JSON file in profile folder"""
-        import os
         profile_path = profile_data.get('profile_browser_profile_path', '')
         if not profile_path:
             return False
@@ -350,7 +459,6 @@ class AccountManagerDB:
     
     def load_profile_metadata(self, profile_path: str) -> Optional[Dict[str, Any]]:
         """Load profile metadata from JSON file if exists"""
-        import os
         metadata_path = os.path.join(profile_path, 'account_management_profile_metadata.json')
         if not os.path.exists(metadata_path):
             return None
@@ -362,7 +470,7 @@ class AccountManagerDB:
     
     def reorder_profiles(self, profile_updates: List[Dict[str, int]]) -> bool:
         """Update order_index for multiple profiles. profile_updates format: [{'profile_id': 1, 'order_index': 0}, ...]"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             for update in profile_updates:
@@ -378,7 +486,7 @@ class AccountManagerDB:
     
     def set_profile_setting(self, profile_id: int, key: str, value: str) -> bool:
         """Set or update a profile setting"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
             c.execute('''
@@ -394,7 +502,7 @@ class AccountManagerDB:
     
     def get_profile_settings(self, profile_id: int) -> Dict[str, str]:
         """Get all settings for a profile as key-value dict"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             c.execute('''
                 SELECT setting_key, setting_value 
@@ -406,7 +514,7 @@ class AccountManagerDB:
     
     def get_profile_setting(self, profile_id: int, key: str) -> Optional[str]:
         """Get single profile setting value"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             c = conn.cursor()
             c.execute('''
                 SELECT setting_value 
