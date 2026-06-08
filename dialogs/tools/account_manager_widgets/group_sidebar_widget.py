@@ -234,8 +234,8 @@ class GroupItemWidget(QWidget):
 
 class GroupSidebarWidget(QWidget):
     """Sidebar with workspace selector and groups"""
-    group_selected = Signal(int)  # group_id
-    workspace_changed = Signal(int)  # workspace_id
+    group_selected = Signal(object)
+    workspace_changed = Signal(object)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -360,12 +360,18 @@ class GroupSidebarWidget(QWidget):
             self.current_workspace_id = workspaces[0]['workspace_id']
             self._update_workspace_buttons(True)
         else:
+            self.current_workspace_id = None
+            self.selected_group_id = None
             self._update_workspace_buttons(False)
         
         self.workspace_combo.blockSignals(False)
         
         if self.current_workspace_id:
             self.refresh_groups()
+        else:
+            self.refresh_groups()
+            self.workspace_changed.emit(None)
+            self.group_selected.emit(None)
     
     def _update_workspace_buttons(self, has_workspace):
         self.ws_edit_btn.setEnabled(has_workspace)
@@ -460,9 +466,12 @@ class GroupSidebarWidget(QWidget):
         
         if not self.current_workspace_id:
             self._all_groups = []
+            self.selected_group_id = None
             return
         
         self._all_groups = self.db.get_groups_by_workspace(self.current_workspace_id)
+        if self.selected_group_id and not any(group['group_id'] == self.selected_group_id for group in self._all_groups):
+            self.selected_group_id = None
         self._filter_groups()
         
         # Do NOT auto-select first group - user must manually select group to populate profiles
@@ -493,6 +502,8 @@ class GroupSidebarWidget(QWidget):
             item.edit_requested.connect(self._on_edit_group)
             item.delete_requested.connect(self._on_delete_group)
             self.groups_layout.insertWidget(self.groups_layout.count() - 1, item)
+
+        self._update_group_selection()
     
     def _on_group_clicked(self, group_id):
         self.selected_group_id = group_id
@@ -536,11 +547,15 @@ class GroupSidebarWidget(QWidget):
             return
         
         group_name = group["group_name"]
+        was_selected = self.selected_group_id == group_id
         
         # Use new confirmation dialog
         dialog = DeleteConfirmationDialog('Group', group_name, self)
         if dialog.exec() == QDialog.Accepted:
             self.db.delete_group(group_id)
+            if was_selected:
+                self.selected_group_id = None
+                self.group_selected.emit(None)
             self.refresh_groups()
     
     def _on_group_saved(self, data):

@@ -71,6 +71,29 @@ class AccountManagerWidget(QWidget):
         groups = self.db.get_all_groups()
         profiles = self.db.get_all_profiles()
         self.stats_widget.update_stats(len(workspaces), len(groups), len(profiles))
+
+    def _show_workspace_without_group(self):
+        """Show active workspace header with no group selected."""
+        self.profile_grid.set_group(None)
+
+        if not self._current_workspace_id:
+            self.profile_grid.set_workspace_group_info('-', '-', 0)
+            self.profile_grid.update_workspace_display('-', 'briefcase', '#3b82f6')
+            return
+
+        workspace = self.db.get_workspace(self._current_workspace_id)
+        if not workspace:
+            self.profile_grid.set_workspace_group_info('-', '-', 0)
+            self.profile_grid.update_workspace_display('-', 'briefcase', '#3b82f6')
+            return
+
+        self.profile_grid.set_workspace_id(self._current_workspace_id)
+        self.profile_grid.set_workspace_group_info(workspace['workspace_name'], '-', 0)
+        self.profile_grid.update_workspace_display(
+            workspace.get('workspace_name', '-'),
+            workspace.get('workspace_icon', 'briefcase'),
+            workspace.get('workspace_color', '#3b82f6')
+        )
     
     def _on_workspace_changed(self, workspace_id):
         """When workspace changes, update header and clear profiles"""
@@ -97,19 +120,22 @@ class AccountManagerWidget(QWidget):
     def _on_group_selected(self, group_id):
         """When group is selected, update profile grid with workspace/group names"""
         if group_id is None:
-            self.profile_grid.set_group(None)
+            self._show_workspace_without_group()
             return
         
         self.profile_grid.set_group(group_id)
         
         group = self.db.get_group(group_id)
         if not group:
+            self._show_workspace_without_group()
             return
         
         workspace = self.db.get_workspace(group['group_workspace_id'])
         if not workspace:
+            self._show_workspace_without_group()
             return
         
+        self._current_workspace_id = workspace['workspace_id']
         profile_count = len(self.db.get_profiles_by_group(group_id))
         
         self.profile_grid.set_workspace_group_info(
