@@ -398,12 +398,14 @@ class ProfileGridWidget(QWidget):
             delete_selected_action.triggered.connect(self._on_delete_selected_profiles)
         else:
             edit_action = menu.addAction(qta.icon('fa6s.pen'), 'Edit')
+            duplicate_action = menu.addAction(qta.icon('fa6s.copy'), 'Duplicate')
             menu.addSeparator()
             export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
             menu.addSeparator()
             delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
             
             edit_action.triggered.connect(lambda: self._on_edit_profile(profile_id))
+            duplicate_action.triggered.connect(lambda: self._on_duplicate_profile(profile_id))
             export_action.triggered.connect(lambda: self._on_export_profile_row(profile_id))
             delete_action.triggered.connect(lambda: self._on_delete_profile(profile_id))
         
@@ -451,6 +453,91 @@ class ProfileGridWidget(QWidget):
         dialog = AddProfileDialog(profile_data=profile, workspace_data=workspace, parent=self)
         dialog.profile_saved.connect(self._on_profile_saved)
         dialog.exec()
+
+    def _build_duplicate_profile_names(self, profile_name, browser_profile_name, workspace_path):
+        sanitized = re.sub(r'[^a-zA-Z0-9_\s]', '', browser_profile_name or '')
+        sanitized = re.sub(r'\s+', '_', sanitized).strip('_')
+        if not sanitized:
+            sanitized = 'duplicated_profile'
+
+        duplicate_profile_name = f'{profile_name}_copy'
+        duplicate_folder_name = f'{sanitized}_copy'
+
+        while os.path.exists(os.path.join(workspace_path, duplicate_folder_name)):
+            duplicate_profile_name = f'{duplicate_profile_name}_copy'
+            duplicate_folder_name = f'{duplicate_folder_name}_copy'
+
+        return duplicate_profile_name, duplicate_folder_name
+
+    def _on_duplicate_profile(self, profile_id):
+        profile = self.db.get_profile(profile_id)
+        if not profile:
+            return
+
+        group = self.db.get_group(profile['profile_group_id'])
+        workspace = self.db.get_workspace(group['group_workspace_id']) if group else None
+        workspace_path = workspace.get('workspace_root_profile_path', '') if workspace else ''
+        source_profile_path = profile.get('profile_browser_profile_path', '')
+
+        if not source_profile_path or not os.path.exists(source_profile_path):
+            QMessageBox.warning(self, 'Profile Not Found', 'Source profile folder not found')
+            return
+
+        if not workspace_path or not os.path.exists(workspace_path):
+            QMessageBox.warning(self, 'Workspace Not Found', 'Workspace root profile path not found')
+            return
+
+        if self.browser_manager.is_running(profile_id):
+            reply = QMessageBox.question(
+                self,
+                'Profile Running',
+                'This profile is currently running. Duplicating will close the browser first.\n\nContinue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            self.browser_manager.close(profile_id)
+
+        duplicate_profile_name, duplicate_folder_name = self._build_duplicate_profile_names(
+            profile.get('profile_name', 'Profile'),
+            profile.get('profile_browser_profile_name', profile.get('profile_name', 'profile')),
+            workspace_path
+        )
+        duplicate_profile_path = os.path.join(workspace_path, duplicate_folder_name)
+        profile_settings = self.db.get_profile_settings(profile_id)
+        browser_type = profile.get('profile_browser_type') or (workspace.get('workspace_browser_type', 'chrome') if workspace else 'chrome')
+
+        try:
+            shutil.copytree(source_profile_path, duplicate_profile_path)
+
+            new_profile_id = self.db.create_profile(
+                profile['profile_group_id'],
+                duplicate_profile_name,
+                profile.get('profile_description', ''),
+                profile.get('profile_icon', 'fa6s.user'),
+                profile.get('profile_color', '#3b82f6'),
+                duplicate_folder_name,
+                duplicate_profile_path,
+                browser_type=browser_type,
+                zip_name=profile.get('profile_zip_name')
+            )
+
+            for setting_key, setting_value in profile_settings.items():
+                self.db.set_profile_setting(new_profile_id, setting_key, setting_value)
+
+            self._save_profile_metadata({'profile_id': new_profile_id})
+            self.refresh_profiles()
+            self._set_single_selection(new_profile_id)
+            self.profile_changed.emit()
+            QMessageBox.information(self, 'Duplicate Successful', f'Profile duplicated as {duplicate_profile_name}')
+        except Exception as e:
+            if os.path.exists(duplicate_profile_path):
+                try:
+                    shutil.rmtree(duplicate_profile_path)
+                except Exception:
+                    pass
+            QMessageBox.critical(self, 'Duplicate Failed', f'Failed to duplicate profile:\n{e}')
     
     def _on_delete_profile(self, profile_id):
         profile = self.db.get_profile(profile_id)
