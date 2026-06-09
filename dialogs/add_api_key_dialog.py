@@ -319,7 +319,7 @@ class ModelManagerDialog(QDialog):
         service_item = self.service_list.currentItem()
         if not service_item:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         name, ok = self._get_text_with_custom_buttons('Add Model', 'Model name:')
         if ok and name:
             name = name.strip()
@@ -335,7 +335,7 @@ class ModelManagerDialog(QDialog):
         sel = self.models_list.currentItem()
         if not service_item or not sel:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         old = sel.text()
         name, ok = self._get_text_with_custom_buttons('Edit Model', 'Model name:', text=old)
         if ok and name:
@@ -349,7 +349,7 @@ class ModelManagerDialog(QDialog):
         sel = self.models_list.currentItem()
         if not service_item or not sel:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         mb = QMessageBox(self)
         mb.setWindowTitle("Delete Model")
         mb.setText(f"Delete model '{sel.text()}' for '{service}'?")
@@ -375,7 +375,7 @@ class ModelManagerDialog(QDialog):
         service_item = self.service_list.currentItem()
         if not sel or not service_item:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         idx = self.models_list.row(sel)
         if idx <= 0:
             return
@@ -388,7 +388,7 @@ class ModelManagerDialog(QDialog):
         service_item = self.service_list.currentItem()
         if not sel or not service_item:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         idx = self.models_list.row(sel)
         if idx < 0 or idx >= len(self.model_list.get(service, [])) - 1:
             return
@@ -404,7 +404,7 @@ class ModelManagerDialog(QDialog):
                 cfg = json.load(f)
         except Exception:
             cfg = {}
-        cfg['model_list'] = self.model_list
+        cfg['model_list'] = AddApiKeyDialog.normalize_model_list(self.model_list)
         try:
             with open(cfg_path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -439,6 +439,48 @@ class AddApiKeyDialog(QDialog):
         'Ollama Local': 'http://localhost:11434/v1',
         'KoboiLLM': 'https://api.koboillm.com/v1'
     }
+
+    SERVICE_ALIASES = {
+        'custom endpoint': 'custom',
+        'custom': 'custom'
+    }
+
+    @classmethod
+    def normalize_service_key(cls, service):
+        service_text = (service or '').strip().lower()
+        if not service_text:
+            return ''
+        if service_text in cls.SERVICE_ALIASES:
+            return cls.SERVICE_ALIASES[service_text]
+        if service_text in cls.SERVICE_MAP.values():
+            return service_text
+        normalized_display_map = {display.lower(): key for display, key in cls.SERVICE_MAP.items()}
+        return normalized_display_map.get(service_text, service_text)
+
+    @classmethod
+    def get_service_display_name(cls, service):
+        service_key = cls.normalize_service_key(service)
+        reverse_service_map = {v: k for k, v in cls.SERVICE_MAP.items()}
+        return reverse_service_map.get(service_key, str(service))
+
+    @classmethod
+    def normalize_model_list(cls, model_list):
+        normalized_model_list = {}
+        if not isinstance(model_list, dict):
+            normalized_model_list['custom'] = []
+            return normalized_model_list
+
+        for raw_service, models in model_list.items():
+            service_key = cls.normalize_service_key(raw_service)
+            if not service_key:
+                continue
+            normalized_model_list.setdefault(service_key, [])
+            for model in (models or []):
+                if model and model not in normalized_model_list[service_key]:
+                    normalized_model_list[service_key].append(model)
+
+        normalized_model_list.setdefault('custom', [])
+        return normalized_model_list
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -453,15 +495,14 @@ class AddApiKeyDialog(QDialog):
         try:
             with open(ai_prompt_path, "r", encoding="utf-8") as f:
                 ai_prompt = json.load(f)
-                self.model_list = ai_prompt.get("model_list", {})
+                self.model_list = self.normalize_model_list(ai_prompt.get("model_list", {}))
         except Exception as e:
             print(f"Failed to load model list: {e}")
             self.model_list = {}
         try:
-            if isinstance(self.model_list, dict) and 'custom' not in self.model_list:
-                self.model_list.setdefault('custom', [])
+            self.model_list = self.normalize_model_list(self.model_list)
         except Exception:
-            pass
+            self.model_list = {'custom': []}
         service_layout = QHBoxLayout()
         _service_label_widget, service_label = self._create_icon_label_widget("Service:", 'fa6s.gears', label_width)
         service_label.setToolTip("Select the service/model for this API key")
@@ -599,10 +640,9 @@ class AddApiKeyDialog(QDialog):
             services = []
         sort_items = ["All"]
         # Create reverse map: internal_key -> display_name
-        reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
         for s in services:
             try:
-                svc_display = reverse_service_map.get(str(s).lower(), str(s).capitalize())
+                svc_display = self.get_service_display_name(s)
                 sort_items.append(f"Service: {svc_display}")
             except Exception:
                 sort_items.append(f"Service: {s}")
@@ -930,7 +970,7 @@ class AddApiKeyDialog(QDialog):
         return widget, text_lbl
 
     def _refresh_model_combo(self):
-        service_key = self.service_combo.currentData()
+        service_key = self.normalize_service_key(self.service_combo.currentData())
         self.model_combo.clear()
 
         if service_key == 'custom':
@@ -972,7 +1012,7 @@ class AddApiKeyDialog(QDialog):
         return super().eventFilter(obj, event)
 
     def _open_model_search_popup(self):
-        service_key = self.service_combo.currentData()
+        service_key = self.normalize_service_key(self.service_combo.currentData())
         if service_key == 'custom':
             seen = set()
             models = []
@@ -1150,9 +1190,7 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
 
-            # Create reverse map: internal_key -> display_name
-            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
-            svc_display = reverse_service_map.get(str(service).lower(), str(service))
+            svc_display = self.get_service_display_name(service)
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
@@ -1282,7 +1320,7 @@ class AddApiKeyDialog(QDialog):
         api_item = self.api_table.item(row, 1)
         if not service_item or not api_item:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         api_key = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text().strip()
         model = None
         provider_endpoint = None
@@ -1319,7 +1357,7 @@ class AddApiKeyDialog(QDialog):
         api_item = self.api_table.item(row, 0)
         key_item = self.api_table.item(row, 1)
         if api_item and key_item:
-            svc = service or api_item.text().lower()
+            svc = self.normalize_service_key(service or api_item.text())
             api_key = key_item.data(Qt.UserRole) if key_item.data(Qt.UserRole) is not None else key_item.text().strip()
             note = None
             model = None
@@ -1402,7 +1440,7 @@ class AddApiKeyDialog(QDialog):
         api_item = self.api_table.item(row, 1)
         if not service_item or not api_item:
             return
-        service = service_item.text().lower()
+        service = self.normalize_service_key(service_item.text())
         api_key = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text().strip()
         if not api_key or not service:
             QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
@@ -1436,8 +1474,8 @@ class AddApiKeyDialog(QDialog):
                 note_item = self.api_table.item(r, 5)
                 if not service_item or not api_item:
                     continue
-                service = service_item.text().lower()
-                api = api_item.text().strip()
+                service = self.normalize_service_key(service_item.text())
+                api = api_item.data(Qt.UserRole) if api_item.data(Qt.UserRole) is not None else api_item.text().strip()
                 note = note_item.text().strip() if note_item else ''
                 rows_to_delete.append((service, api, note))
         else:
@@ -1451,8 +1489,8 @@ class AddApiKeyDialog(QDialog):
             if not service_item or not api_item:
                 QMessageBox.warning(self, "Delete API Key", "No API Key selected to delete.")
                 return
-            service = service_item.text().lower()
-            api = api_item.text().strip()
+            service = self.normalize_service_key(service_item.text())
+            api = api_item.data(Qt.UserRole) if api_item.data(Qt.UserRole) is not None else api_item.text().strip()
             note = note_item.text().strip() if note_item else ''
             rows_to_delete.append((service, api, note))
 
@@ -1530,8 +1568,7 @@ class AddApiKeyDialog(QDialog):
             self.note_edit.setText(note_text)
             self.endpoint_edit.setCurrentText(endpoint_text)
             # Find combo text from SERVICE_MAP (reverse lookup)
-            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
-            combo_text = reverse_service_map.get(service_text.lower(), service_text.capitalize())
+            combo_text = self.get_service_display_name(service_text)
             self.service_combo.setCurrentText(combo_text)
             self._refresh_model_combo()
             
@@ -1555,7 +1592,7 @@ class AddApiKeyDialog(QDialog):
                     reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
                     if reply == QMessageBox.Yes:
                         
-                        service_key = reverse_service_map.get(service_text.lower(), service_text.lower())
+                        service_key = self.normalize_service_key(service_text)
                         if service_key not in self.model_list:
                             self.model_list[service_key] = []
                         if model_text not in self.model_list[service_key]:
@@ -1565,7 +1602,7 @@ class AddApiKeyDialog(QDialog):
                             try:
                                 with open(ai_prompt_path, "r", encoding="utf-8") as f:
                                     ai_config = json.load(f)
-                                ai_config["model_list"] = self.model_list
+                                ai_config["model_list"] = self.normalize_model_list(self.model_list)
                                 with open(ai_prompt_path, "w", encoding="utf-8") as f:
                                     json.dump(ai_config, f, indent=2, ensure_ascii=False)
                             except Exception as e:
@@ -1580,8 +1617,8 @@ class AddApiKeyDialog(QDialog):
                     self.model_combo.setCurrentIndex(idx)
             elif self.model_combo.count() > 0:
                 self.model_combo.setCurrentIndex(0)
-            # Set detected service using SERVICE_MAP
-            self._detected_service = reverse_service_map.get(service_text.lower(), service_text.lower() if service_text.lower() in self.SERVICE_MAP.values() else None)
+            # Set detected service using normalized service key
+            self._detected_service = self.normalize_service_key(service_text) or None
             self._update_endpoint_state()
 
     def _on_key_edit_changed(self, text):
@@ -1603,16 +1640,15 @@ class AddApiKeyDialog(QDialog):
             service = None
         if not self._service_manually_selected:
             # Use reverse map to get display name for service
-            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
-            if service and service in reverse_service_map:
-                self.service_combo.setCurrentText(reverse_service_map[service])
+            if service:
+                self.service_combo.setCurrentText(self.get_service_display_name(service))
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
 
     def _on_service_combo_changed(self, idx):
         """When user selects a service, update internal state and refresh models"""
-        self._detected_service = self.service_combo.currentData()
+        self._detected_service = self.normalize_service_key(self.service_combo.currentData()) or None
         self._refresh_model_combo()
         self._api_key_valid = False
         self._service_manually_selected = True
@@ -1627,7 +1663,7 @@ class AddApiKeyDialog(QDialog):
 
     def _update_endpoint_state(self):
         """Enable/disable endpoint field based on service selection"""
-        service_key = self.service_combo.currentData()
+        service_key = self.normalize_service_key(self.service_combo.currentData())
         is_custom = service_key == 'custom'
         self.endpoint_edit.setEnabled(is_custom)
         self.endpoint_paste_btn.setEnabled(is_custom)
@@ -1664,7 +1700,7 @@ class AddApiKeyDialog(QDialog):
                 return
             
             # Get service key from combo userData
-            service_key = self.service_combo.currentData()
+            service_key = self.normalize_service_key(self.service_combo.currentData())
             service = self.service_combo.currentText()
             
             if not service_key:
@@ -1721,7 +1757,7 @@ class AddApiKeyDialog(QDialog):
             try:
                 with open(ai_prompt_path, "r", encoding="utf-8") as f:
                     ai_prompt = json.load(f)
-                    self.model_list = ai_prompt.get("model_list", {})
+                    self.model_list = self.normalize_model_list(ai_prompt.get("model_list", {}))
             except Exception as e:
                 QMessageBox.critical(self, 'Model Manager', f'Failed to reload model list: {e}')
                 return
@@ -1735,7 +1771,7 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setEnabled(False)
         model = self.model_combo.currentText() if self.model_combo.count() > 0 else None
         provider_endpoint = None
-        service_key = self.service_combo.currentData()
+        service_key = self.normalize_service_key(self.service_combo.currentData())
         if service_key == 'custom':
             ep = self.endpoint_edit.currentText().strip()
             provider_endpoint = ep if ep else None
@@ -1759,7 +1795,7 @@ class AddApiKeyDialog(QDialog):
     def test_and_save_api_key(self):
         api_key = self.key_edit.text().strip()
         note = self.note_edit.text().strip()
-        service_key = self.service_combo.currentData()
+        service_key = self.normalize_service_key(self.service_combo.currentData())
         is_custom = service_key == 'custom'
         if is_custom:
             service = "custom"
@@ -1977,16 +2013,14 @@ class AddApiKeyDialog(QDialog):
         if not service_item or not api_item:
             return
         service_text = service_item.text()
-        api_text = api_item.text()
+        api_text = api_item.data(Qt.UserRole) if api_item and api_item.data(Qt.UserRole) is not None else api_item.text()
         endpoint_text = endpoint_item.text() if endpoint_item else ""
         model_text = model_item.text() if model_item else ""
         note_text = note_item.text() if note_item else ""
         self.key_edit.setText(api_text)
         self.note_edit.setText(note_text)
         self.endpoint_edit.setCurrentText(endpoint_text)
-        # Find combo text from SERVICE_MAP (reverse lookup)
-        reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
-        combo_text = reverse_service_map.get(service_text.lower(), service_text.capitalize())
+        combo_text = self.get_service_display_name(service_text)
         self.service_combo.setCurrentText(combo_text)
         self._refresh_model_combo()
         if model_text:
@@ -2007,7 +2041,7 @@ class AddApiKeyDialog(QDialog):
                 mb.exec()
                 reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
                 if reply == QMessageBox.Yes:
-                    service_key = reverse_service_map.get(service_text.lower(), service_text.lower())
+                    service_key = self.normalize_service_key(service_text)
                     if service_key not in self.model_list:
                         self.model_list[service_key] = []
                     if model_text not in self.model_list[service_key]:
@@ -2016,7 +2050,7 @@ class AddApiKeyDialog(QDialog):
                         try:
                             with open(ai_prompt_path, "r", encoding="utf-8") as f:
                                 ai_config = json.load(f)
-                            ai_config["model_list"] = self.model_list
+                            ai_config["model_list"] = self.normalize_model_list(self.model_list)
                             with open(ai_prompt_path, "w", encoding="utf-8") as f:
                                 json.dump(ai_config, f, indent=2, ensure_ascii=False)
                         except Exception as e:
@@ -2029,8 +2063,7 @@ class AddApiKeyDialog(QDialog):
                 self.model_combo.setCurrentIndex(idx)
         elif self.model_combo.count() > 0:
             self.model_combo.setCurrentIndex(0)
-        # Set detected service using SERVICE_MAP
-        self._detected_service = reverse_service_map.get(service_text.lower(), service_text.lower() if service_text.lower() in self.SERVICE_MAP.values() else None)
+        self._detected_service = self.normalize_service_key(service_text) or None
         self._update_endpoint_state()
         menu = QMenu(self)
         action_test = QAction(qta.icon('fa6s.play'), "Test and Save", self)
