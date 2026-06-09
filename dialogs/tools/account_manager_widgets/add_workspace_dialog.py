@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Optional, Dict, Any
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QPushButton, QTextEdit, QFileDialog, QMessageBox, QSizePolicy, QColorDialog, QComboBox
@@ -303,28 +304,71 @@ class AddWorkspaceDialog(QDialog):
         
         root_path = self.root_input.text().strip()
         
-        # Check if root path is not empty when creating new workspace
         if not self.is_edit_mode and root_path:
+            # Check if workspace already exists in account manager
+            existing_workspace = self._get_workspace_by_root_path(root_path)
+            if existing_workspace:
+                existing_name = existing_workspace.get('workspace_name', 'Unknown')
+                QMessageBox.warning(
+                    self, 
+                    'Workspace Already Exists', 
+                    f'A workspace already exists with this root path.\n\n'
+                    f'Workspace Name: {existing_name}\n'
+                    f'Root Path: {root_path}'
+                )
+                return
+            
             if os.path.exists(root_path):
-                # Check if directory is not empty
-                try:
-                    if os.listdir(root_path):
+                # Check if workspace metadata exists (restore scenario)
+                if self._workspace_metadata_exists(root_path):
+                    reply = QMessageBox.question(
+                        self,
+                        'Restore Workspace',
+                        f'Workspace metadata found at:\n{root_path}\n\n'
+                        'Do you want to restore this workspace (groups and profiles) to Account Manager?',
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        # Check if directory is not empty for safety
+                        try:
+                            if os.listdir(root_path):
+                                QMessageBox.warning(
+                                    self, 
+                                    'Root Path Not Empty', 
+                                    f'The root path is not empty:\n{root_path}\n\n'
+                                    'For safety, the root path must be empty when creating a new workspace '
+                                    'to avoid accidental data loss.\n\n'
+                                    'Please choose an empty directory or create a new one.'
+                                )
+                                return
+                        except Exception as e:
+                            QMessageBox.warning(
+                                self, 
+                                'Validation Error', 
+                                f'Could not check root path:\n{str(e)}'
+                            )
+                            return
+                else:
+                    # No metadata - check if directory is not empty
+                    try:
+                        if os.listdir(root_path):
+                            QMessageBox.warning(
+                                self, 
+                                'Root Path Not Empty', 
+                                f'The root path is not empty:\n{root_path}\n\n'
+                                'For safety, the root path must be empty when creating a new workspace '
+                                'to avoid accidental data loss.\n\n'
+                                'Please choose an empty directory or create a new one.'
+                            )
+                            return
+                    except Exception as e:
                         QMessageBox.warning(
                             self, 
-                            'Root Path Not Empty', 
-                            f'The root path is not empty:\n{root_path}\n\n'
-                            'For safety, the root path must be empty when creating a new workspace '
-                            'to avoid accidental data loss.\n\n'
-                            'Please choose an empty directory or create a new one.'
+                            'Validation Error', 
+                            f'Could not check root path:\n{str(e)}'
                         )
                         return
-                except Exception as e:
-                    QMessageBox.warning(
-                        self, 
-                        'Validation Error', 
-                        f'Could not check root path:\n{str(e)}'
-                    )
-                    return
         
         data = {
             'workspace_name': name,
@@ -341,3 +385,19 @@ class AddWorkspaceDialog(QDialog):
         
         self.workspace_saved.emit(data)
         self.accept()
+    
+    def _get_workspace_by_root_path(self, root_path: str) -> Optional[Dict[str, Any]]:
+        """Get workspace by normalized root path for display name."""
+        from database.db_account_manager_operations import AccountManagerDB
+        db = AccountManagerDB()
+        return db.get_workspace_by_root_path(root_path)
+    
+    def _workspace_exists_in_db(self, root_path: str) -> bool:
+        """Check if a workspace with this root path exists in database."""
+        return self._get_workspace_by_root_path(root_path) is not None
+    
+    def _workspace_metadata_exists(self, root_path: str) -> bool:
+        """Check if workspace metadata file exists in directory."""
+        from database.db_account_manager_operations import AccountManagerDB
+        db = AccountManagerDB()
+        return db.workspace_metadata_exists(root_path)

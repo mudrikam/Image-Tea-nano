@@ -433,6 +433,7 @@ class GroupSidebarWidget(QWidget):
                 )
     
     def _on_workspace_saved(self, data):
+        root_path = data.get('workspace_root_profile_path', '')
         if 'workspace_id' in data:
             # Edit mode - update and store ID to re-select
             self.db.update_workspace(
@@ -447,17 +448,34 @@ class GroupSidebarWidget(QWidget):
             )
             saved_workspace_id = data['workspace_id']
         else:
-            # New mode - create new workspace
-            workspace_id = self.db.create_workspace(
-                data['workspace_name'],
-                data['workspace_description'],
-                data['workspace_icon'],
-                data['workspace_color'],
-                data['workspace_browser_exe_path'],
-                data['workspace_root_profile_path'],
-                browser_type=data.get('workspace_browser_type', 'chrome')
-            )
-            saved_workspace_id = workspace_id
+            # New mode - check for restore via metadata
+            if root_path and self.db.workspace_metadata_exists(root_path):
+                result = self.db.restore_workspace_from_metadata(root_path)
+                if not result.get('success'):
+                    QMessageBox.warning(self, 'Restore Failed', result.get('error', 'Failed to restore workspace'))
+                    return
+                saved_workspace_id = result.get('workspace_id')
+                restored_group_count = result.get('restored_group_count', 0)
+                restored_profile_count = result.get('restored_profile_count', 0)
+                QMessageBox.information(
+                    self,
+                    'Workspace Restored',
+                    f'Workspace restored successfully!\n\n'
+                    f'Groups restored: {restored_group_count}\n'
+                    f'Profiles restored: {restored_profile_count}'
+                )
+            else:
+                # Create new workspace normally
+                workspace_id = self.db.create_workspace(
+                    data['workspace_name'],
+                    data['workspace_description'],
+                    data['workspace_icon'],
+                    data['workspace_color'],
+                    data['workspace_browser_exe_path'],
+                    data['workspace_root_profile_path'],
+                    browser_type=data.get('workspace_browser_type', 'chrome')
+                )
+                saved_workspace_id = workspace_id
         
         # Update current workspace and refresh dropdown
         self.current_workspace_id = saved_workspace_id
