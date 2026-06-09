@@ -262,6 +262,13 @@ class ProfileRowWidget(QFrame):
         gray = QColor(theme.get_color('gray'))
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)
+        browser_type = self.profile_data.get('profile_browser_type', 'chrome')
+        browser_icon_name = 'fa6b.firefox-browser' if browser_type == 'firefox' else 'fa6b.chrome'
+        browser_icon_color = color if (self._selected or self._is_launched or self._hover) else theme.get_color('gray')
+        browser_tooltip = 'Firefox' if browser_type == 'firefox' else 'Chrome'
+
+        self.browser_icon_label.setPixmap(qta.icon(browser_icon_name, color=browser_icon_color).pixmap(24, 24))
+        self.browser_icon_label.setToolTip(browser_tooltip)
 
         if self._selected:
             self.setStyleSheet(f'''
