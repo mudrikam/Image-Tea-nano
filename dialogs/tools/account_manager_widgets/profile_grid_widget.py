@@ -399,17 +399,83 @@ class ProfileGridWidget(QWidget):
         else:
             edit_action = menu.addAction(qta.icon('fa6s.pen'), 'Edit')
             duplicate_action = menu.addAction(qta.icon('fa6s.copy'), 'Duplicate')
-            menu.addSeparator()
             export_action = menu.addAction(qta.icon('fa6s.file-zipper'), 'Export')
             menu.addSeparator()
+            move_top_action = menu.addAction(qta.icon('fa6s.angles-up'), 'To Top')
+            move_up_action = menu.addAction(qta.icon('fa6s.arrow-up'), 'Move Up')
+            move_down_action = menu.addAction(qta.icon('fa6s.arrow-down'), 'Move Down')
+            move_bottom_action = menu.addAction(qta.icon('fa6s.angles-down'), 'To Bottom')
+            menu.addSeparator()
             delete_action = menu.addAction(qta.icon('fa6s.trash'), 'Delete')
+
+            visible_ids = self._get_visible_profile_ids()
+            if profile_id in visible_ids:
+                current_index = visible_ids.index(profile_id)
+                move_up_action.setEnabled(current_index > 0)
+                move_top_action.setEnabled(current_index > 0)
+                move_down_action.setEnabled(current_index < len(visible_ids) - 1)
+                move_bottom_action.setEnabled(current_index < len(visible_ids) - 1)
+            else:
+                move_up_action.setEnabled(False)
+                move_down_action.setEnabled(False)
+                move_top_action.setEnabled(False)
+                move_bottom_action.setEnabled(False)
             
             edit_action.triggered.connect(lambda: self._on_edit_profile(profile_id))
             duplicate_action.triggered.connect(lambda: self._on_duplicate_profile(profile_id))
             export_action.triggered.connect(lambda: self._on_export_profile_row(profile_id))
+            move_up_action.triggered.connect(lambda: self._move_profile_by_offset(profile_id, -1))
+            move_down_action.triggered.connect(lambda: self._move_profile_by_offset(profile_id, 1))
+            move_top_action.triggered.connect(lambda: self._move_profile_to_position(profile_id, 0))
+            move_bottom_action.triggered.connect(lambda: self._move_profile_to_position(profile_id, len(visible_ids) - 1))
             delete_action.triggered.connect(lambda: self._on_delete_profile(profile_id))
         
         menu.exec(global_pos)
+
+    def _reorder_profiles_by_ids(self, ordered_profile_ids):
+        if not self.current_group_id or not ordered_profile_ids:
+            return False
+
+        all_profiles = self.db.get_profiles_by_group(self.current_group_id)
+        all_profile_ids = [profile.get('profile_id') for profile in all_profiles if profile.get('profile_id') is not None]
+        ordered_profile_ids = [profile_id for profile_id in ordered_profile_ids if profile_id in all_profile_ids]
+        remaining_ids = [profile_id for profile_id in all_profile_ids if profile_id not in ordered_profile_ids]
+        final_ids = ordered_profile_ids + remaining_ids
+
+        if final_ids == all_profile_ids:
+            return False
+
+        self.db.reorder_profiles([
+            {'profile_id': current_profile_id, 'order_index': index}
+            for index, current_profile_id in enumerate(final_ids)
+        ])
+        self.refresh_profiles()
+        return True
+
+    def _move_profile_to_position(self, profile_id, target_index):
+        visible_ids = self._get_visible_profile_ids()
+        if profile_id not in visible_ids or not visible_ids:
+            return
+
+        current_index = visible_ids.index(profile_id)
+        bounded_target_index = max(0, min(target_index, len(visible_ids) - 1))
+        if current_index == bounded_target_index:
+            return
+
+        reordered_ids = list(visible_ids)
+        moved_profile_id = reordered_ids.pop(current_index)
+        reordered_ids.insert(bounded_target_index, moved_profile_id)
+
+        if self._reorder_profiles_by_ids(reordered_ids):
+            self._set_single_selection(profile_id)
+
+    def _move_profile_by_offset(self, profile_id, offset):
+        visible_ids = self._get_visible_profile_ids()
+        if profile_id not in visible_ids:
+            return
+
+        current_index = visible_ids.index(profile_id)
+        self._move_profile_to_position(profile_id, current_index + offset)
     
     def _update_profile_selection(self):
         """Update selection styling for all profile rows"""

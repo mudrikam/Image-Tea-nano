@@ -695,12 +695,15 @@ class AccountManagerDB:
     def create_profile(self, group_id: int, name: str, description: str = "",
                        icon: str = "fa6s.user", color: str = "#3b82f6",
                        browser_profile_name: str = "", browser_profile_path: str = "",
-                       order_index: int = 0, browser_type: str = "chrome", zip_name: str = None) -> int:
+                       order_index: Optional[int] = None, browser_type: str = "chrome", zip_name: str = None) -> int:
         """Create new profile and return profile_id"""
         normalized_profile_path = self._normalize_path(browser_profile_path)
         with self._get_connection() as conn:
             c = conn.cursor()
             now = datetime.now().isoformat()
+            if order_index is None:
+                c.execute('SELECT COALESCE(MAX(profile_order_index), -1) + 1 FROM account_profiles WHERE profile_group_id = ?', (group_id,))
+                order_index = c.fetchone()[0]
             c.execute('''
                 INSERT INTO account_profiles 
                 (profile_group_id, profile_name, profile_description, profile_icon, 
