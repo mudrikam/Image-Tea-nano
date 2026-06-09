@@ -245,21 +245,34 @@ class ToolsPickerWidget(QWidget):
 
         # Tab widget
         self.tab_widget = QTabWidget()
+        self._tab_ids = {}
 
         # Create tabs
         self.image_processing_tab = self._create_tab_content()
         self.video_processing_tab = self._create_tab_content()
         self.extensions_tab = self._create_tab_content()
         self.others_tab = self._create_tab_content()
+        self.account_manager_tab = self._create_account_manager_tab()
         self.tools_manager_tab = self._create_tools_manager_tab()
 
-        self.tab_widget.addTab(self.image_processing_tab, qta.icon('fa6s.images'), "Image Processing")
-        self.tab_widget.addTab(self.video_processing_tab, qta.icon('fa6s.video'), "Video Processing")
-        self.tab_widget.addTab(self.extensions_tab, qta.icon('fa6b.chrome'), "Chrome Extensions")
-        self.tab_widget.addTab(self.others_tab, qta.icon('fa6s.ellipsis'), "Others")
-        self.tab_widget.addTab(self.tools_manager_tab, qta.icon('fa6s.screwdriver-wrench'), "Tools Manager")
+        self._add_tab("image_processing", self.image_processing_tab, qta.icon('fa6s.images'), "Image Processing")
+        self._add_tab("video_processing", self.video_processing_tab, qta.icon('fa6s.video'), "Video Processing")
+        self._add_tab("extensions", self.extensions_tab, qta.icon('fa6b.chrome'), "Chrome Extensions")
+        self._add_tab("others", self.others_tab, qta.icon('fa6s.ellipsis'), "Others")
+        self._add_tab("account_manager", self.account_manager_tab, qta.icon('fa6s.user-gear'), "Account Manager")
+        self._add_tab("tools_manager", self.tools_manager_tab, qta.icon('fa6s.screwdriver-wrench'), "Tools Manager")
 
         layout.addWidget(self.tab_widget)
+
+    def _add_tab(self, tab_id, widget, icon, label):
+        index = self.tab_widget.addTab(widget, icon, label)
+        self._tab_ids[tab_id] = index
+
+    def set_active_tab(self, tab_id):
+        """Set active tab by logical tab id"""
+        index = self._tab_ids.get(tab_id)
+        if index is not None:
+            self.tab_widget.setCurrentIndex(index)
 
     def _create_tab_content(self):
         """Create scroll area content for a tab"""
@@ -275,6 +288,15 @@ class ToolsPickerWidget(QWidget):
         scroll.setWidget(container)
         return scroll
     
+    def _create_account_manager_tab(self):
+        """Create Account Manager tab content - embed the widget content"""
+        from dialogs.tools.account_manager_widgets.account_manager_widget import AccountManagerWidget
+
+        main_window = self.window()
+        self._account_manager_instance = AccountManagerWidget(main_window)
+
+        return self._account_manager_instance
+
     def _create_tools_manager_tab(self):
         """Create Tools Manager tab content - embed the dialog content"""
         from dialogs.tools.tools_manager.tools_manager_dialog import ToolsManagerDialog

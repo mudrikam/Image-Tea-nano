@@ -131,40 +131,40 @@ class IconPickerDialog(QDialog):
     
     def load_icon_list(self):
         self.icon_list.clear()
-        
+
         style = self.style_combo.currentText().lower()
         icons = self.icons_data.get(style, [])
-        
+
         prefix_map = {
             "solid": "fa6s",
             "regular": "fa6r",
             "brands": "fa6b"
         }
-        
+
         prefix = prefix_map.get(style, "fa6s")
-        
+
         for icon_name in icons:
             if icon_name.startswith("fa-"):
                 clean_name = icon_name[3:]
                 full_name = f"{prefix}.{clean_name}"
-                
+
                 item = QListWidgetItem()
                 # Show only the icon name (user doesn't need namespace)
                 item.setText(clean_name)
-                item.setData(Qt.UserRole, clean_name)  # Simpan hanya nama tanpa prefix
-                item.setData(Qt.UserRole + 1, style)  # Simpan style
+                item.setData(Qt.UserRole, full_name)  # Store full icon name with prefix
+                item.setData(Qt.UserRole + 1, style)  # Store style
                 # Center label and make consistent size for grid layout
                 item.setTextAlignment(Qt.AlignHCenter)
                 item.setSizeHint(QSize(110, 72))
                 item.setToolTip(full_name)
-                
+
                 try:
                     # Keep list icons unstyled so system theme applies
                     icon = qta.icon(full_name)
                     item.setIcon(icon)
                 except:
                     pass
-                
+
                 self.icon_list.addItem(item)
     
     def filter_icons(self):
@@ -176,21 +176,13 @@ class IconPickerDialog(QDialog):
             item.setHidden(search_text not in item_text)
     
     def on_icon_clicked(self, item):
-        icon_name = item.data(Qt.UserRole)  # Hanya nama
-        icon_style = item.data(Qt.UserRole + 1)  # Style
-        
-        prefix_map = {
-            "solid": "fa6s",
-            "regular": "fa6r",
-            "brands": "fa6b"
-        }
-        prefix = prefix_map.get(icon_style, "fa6s")
-        full_name = f"{prefix}.{icon_name}"
-        
-        self.manual_input.setText(icon_name)  # Simpan hanya nama
+        full_name = item.data(Qt.UserRole)  # Full icon name with prefix
+        icon_name = item.text()  # Just the name for display
+
+        self.manual_input.setText(full_name)  # Store full icon name with prefix
         # Show only the icon name in preview
         self.preview_text_label.setText(icon_name)
-        
+
         try:
             # Use yellow preview color consistent with editor
             icon = qta.icon(full_name, color='#fcb103')
@@ -199,41 +191,41 @@ class IconPickerDialog(QDialog):
             self.preview_icon_label.clear()
     
     def on_icon_double_clicked(self, item):
-        icon_name = item.data(Qt.UserRole)  # Hanya nama
-        self.manual_input.setText(icon_name)
+        full_name = item.data(Qt.UserRole)  # Full icon name with prefix
+        self.manual_input.setText(full_name)
         self.on_select()
-    
+
     def on_select(self):
-        icon_name = self.manual_input.text().strip()
-        
-        if not icon_name:
+        icon_input = self.manual_input.text().strip()
+
+        if not icon_input:
             QMessageBox.warning(self, "Validation Error", "Please select or enter an icon")
             return
-        
-        # Dapatkan style dari combobox untuk validasi
-        style = self.style_combo.currentText().lower()
-        
-        prefix_map = {
-            "solid": "fa6s",
-            "regular": "fa6r",
-            "brands": "fa6b"
-        }
-        prefix = prefix_map.get(style, "fa6s")
-        
-        # Jika user mengetik dengan prefix, extract nama saja
-        if "." in icon_name:
-            icon_name = icon_name.split(".")[1]
-        
-        full_name = f"{prefix}.{icon_name}"
-        
+
+        # User entered full icon name (e.g., fa6b.chrome) or just the name
+        # Validate by trying to create the icon directly
         try:
-            qta.icon(full_name)
-            self.icon_selected.emit(icon_name)  # Emit hanya nama
+            qta.icon(icon_input)
+            # Store full icon name with prefix (or validate and use the current style prefix if just name)
+            style = self.style_combo.currentText().lower()
+            prefix_map = {
+                "solid": "fa6s",
+                "regular": "fa6r",
+                "brands": "fa6b"
+            }
+            prefix = prefix_map.get(style, "fa6s")
+
+            if "." not in icon_input:
+                icon_full = f"{prefix}.{icon_input}"
+            else:
+                icon_full = icon_input
+
+            self.icon_selected.emit(icon_full)
             self.accept()
         except:
             QMessageBox.warning(
                 self,
                 "Invalid Icon",
-                f"Icon '{icon_name}' is not valid for style '{style}'.\n\n"
+                f"Icon '{icon_input}' is not valid.\n\n"
                 "Please select from the list or enter a valid icon name."
             )

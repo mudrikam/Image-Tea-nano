@@ -530,7 +530,7 @@ class AddEditPointDialog(QDialog):
 
 	def _on_icon_selected(self, icon_name):
 		self._selected_icon = icon_name
-		self._selected_icon_style = "solid"
+		self._selected_icon_style = None  # No longer needed, icon_name is now full name
 		self.icon_name_lbl.setText(icon_name)
 		self._refresh_icon_preview()
 

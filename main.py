@@ -101,33 +101,37 @@ class ImageTeaMainWindow(QMainWindow):
         else:
             batch_generate_metadata(self)
     
-    def switch_to_tools_picker(self):
+    def switch_to_tools_picker(self, initial_tab="image_processing"):
         """Switch to tools picker mode"""
-        if self.current_mode == 'tools_picker':
-            return
-        
-        self.current_mode = 'tools_picker'
-        
-        # Create tools picker widget if not exists
         if not self.tools_picker_widget:
             from ui.tools_picker_widget import ToolsPickerWidget
             self.tools_picker_widget = ToolsPickerWidget(self)
             self.tools_picker_widget.tool_selected.connect(self._on_tool_selected)
             self.stacked_widget.addWidget(self.tools_picker_widget)
-        
-        # Hide toolbar
-        if hasattr(self, 'toolbar'):
-            self.toolbar.hide()
-        
-        # Switch to tools picker
-        self.stacked_widget.setCurrentWidget(self.tools_picker_widget)
-        
-        # Keep the statusbar from main UI for member status display
-        if hasattr(self, 'statusbar'):
-            self.statusbar.update_member_status()
-        
-        # Update menu bar
-        self._setup_tools_picker_menu()
+
+        if self.current_mode != 'tools_picker':
+            self.current_mode = 'tools_picker'
+
+            # Hide toolbar
+            if hasattr(self, 'toolbar'):
+                self.toolbar.hide()
+
+            # Switch to tools picker
+            self.stacked_widget.setCurrentWidget(self.tools_picker_widget)
+
+            # Keep the statusbar from main UI for member status display
+            if hasattr(self, 'statusbar'):
+                self.statusbar.update_member_status()
+
+            # Update menu bar
+            self._setup_tools_picker_menu()
+
+        if hasattr(self.tools_picker_widget, 'set_active_tab'):
+            self.tools_picker_widget.set_active_tab(initial_tab)
+    
+    def switch_to_account_manager(self):
+        """Switch to tools picker mode and open Account Manager tab"""
+        self.switch_to_tools_picker(initial_tab="account_manager")
     
     def switch_to_normal(self):
         """Switch back to normal metadata generator mode"""
@@ -468,6 +472,14 @@ class ImageTeaMainWindow(QMainWindow):
             if reply == QMessageBox.No:
                 event.ignore()
                 return
+        
+        # Terminate all browsers launched by embedded Account Manager
+        if hasattr(self, 'tools_picker_widget') and self.tools_picker_widget:
+            if hasattr(self.tools_picker_widget, '_account_manager_instance') and self.tools_picker_widget._account_manager_instance:
+                try:
+                    self.tools_picker_widget._account_manager_instance.shutdown_browsers()
+                except Exception:
+                    pass
         
         # Close all tool dialogs
         if hasattr(self, '_envato_elements_dialog') and self._envato_elements_dialog:
