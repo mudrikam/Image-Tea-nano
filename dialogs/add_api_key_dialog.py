@@ -414,6 +414,32 @@ class ModelManagerDialog(QDialog):
         self.accept()
 
 class AddApiKeyDialog(QDialog):
+    # Central mapping for services: display_name -> internal_key
+    SERVICE_MAP = {
+        'Gemini': 'gemini',
+        'OpenAI': 'openai',
+        'OpenRouter': 'openrouter',
+        'Groq': 'groq',
+        'Blackbox': 'blackbox',
+        'Maia': 'maia',
+        'Custom Endpoint': 'custom'
+    }
+    
+    # Central mapping for endpoints: display_name -> url
+    ENDPOINT_MAP = {
+        'Desainia API': 'https://api.desainia.my.id/v1',
+        'OpenRouter Custom': 'https://openrouter.ai/api/v1',
+        'Groq Custom': 'https://api.groq.com/openai/v1',
+        'Together AI': 'https://api.together.xyz/v1',
+        'Mistral AI': 'https://api.mistral.ai/v1',
+        'Cohere': 'https://api.cohere.com/v2',
+        'Perplexity': 'https://api.perplexity.ai',
+        'Fireworks AI': 'https://api.fireworks.ai/inference/v1',
+        'Anthropic': 'https://api.anthropic.com/v1/messages',
+        'Ollama Local': 'http://localhost:11434/v1',
+        'KoboiLLM': 'https://api.koboillm.com/v1'
+    }
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("API Key Manager")
@@ -440,13 +466,9 @@ class AddApiKeyDialog(QDialog):
         _service_label_widget, service_label = self._create_icon_label_widget("Service:", 'fa6s.gears', label_width)
         service_label.setToolTip("Select the service/model for this API key")
         self.service_combo = QComboBox()
-        self.service_combo.addItem("Gemini")
-        self.service_combo.addItem("OpenAI")
-        self.service_combo.addItem("OpenRouter")
-        self.service_combo.addItem("Groq")
-        self.service_combo.addItem("Blackbox")
-        self.service_combo.addItem("Maia")
-        self.service_combo.addItem("Custom Endpoint")
+        # Populate service combo with userData
+        for display_name, service_key in self.SERVICE_MAP.items():
+            self.service_combo.addItem(display_name, service_key)
         self.service_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.service_combo.setToolTip("Select the service/model for this API key")
         service_layout.addWidget(_service_label_widget)
@@ -531,13 +553,9 @@ class AddApiKeyDialog(QDialog):
         self.endpoint_edit = QComboBox()
         self.endpoint_edit.setEditable(True)
         self.endpoint_edit.addItem("", "")
-        self.endpoint_edit.addItem("Desainia API", "https://api.desainia.my.id/v1")
-        self.endpoint_edit.addItem("OpenRouter Custom", "https://openrouter.ai/api/v1")
-        self.endpoint_edit.addItem("Groq Custom", "https://api.groq.com/openai/v1")
-        self.endpoint_edit.addItem("Together AI", "https://api.together.xyz/v1")
-        self.endpoint_edit.addItem("Anthropic", "https://api.anthropic.com/v1/messages")
-        self.endpoint_edit.addItem("Ollama Local", "http://localhost:11434/v1")
-        self.endpoint_edit.addItem("KoboiLLM", "https://api.koboillm.com/v1")
+        # Populate endpoint combo with userData
+        for display_name, url in self.ENDPOINT_MAP.items():
+            self.endpoint_edit.addItem(display_name, url)
         self.endpoint_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.endpoint_edit.setToolTip("Supports both formats:\n• Short: https://api.example.com/v1\n• Full: https://api.example.com/v1/chat/completions\nSystem will auto-complete if needed")
         self.endpoint_edit.currentIndexChanged.connect(self._on_endpoint_combo_changed)
@@ -580,10 +598,11 @@ class AddApiKeyDialog(QDialog):
             print(f"Error fetching services for sort combo: {e}")
             services = []
         sort_items = ["All"]
-        display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia', 'custom': 'Custom Endpoint'}
+        # Create reverse map: internal_key -> display_name
+        reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
         for s in services:
             try:
-                svc_display = display_service_map.get(str(s).lower(), str(s).capitalize())
+                svc_display = reverse_service_map.get(str(s).lower(), str(s).capitalize())
                 sort_items.append(f"Service: {svc_display}")
             except Exception:
                 sort_items.append(f"Service: {s}")
@@ -911,10 +930,10 @@ class AddApiKeyDialog(QDialog):
         return widget, text_lbl
 
     def _refresh_model_combo(self):
-        service = (self.service_combo.currentText() or '').lower()
+        service_key = self.service_combo.currentData()
         self.model_combo.clear()
 
-        if service in ("custom endpoint", "custom"):
+        if service_key == 'custom':
             seen = set()
             aggregated = []
             try:
@@ -937,15 +956,7 @@ class AddApiKeyDialog(QDialog):
                 self.model_combo.addItem(m)
             self.model_combo.setEditable(True)
         else:
-            key_map = {
-                'gemini': 'gemini',
-                'openai': 'openai',
-                'openrouter': 'openrouter',
-                'groq': 'groq',
-                'blackbox': 'blackbox',
-                'maia': 'maia'
-            }
-            models = self.model_list.get(key_map.get(service, ''), []) if isinstance(self.model_list, dict) else []
+            models = self.model_list.get(service_key, []) if isinstance(self.model_list, dict) else []
             for m in (models or []):
                 self.model_combo.addItem(m)
             self.model_combo.setEditable(True)
@@ -961,8 +972,8 @@ class AddApiKeyDialog(QDialog):
         return super().eventFilter(obj, event)
 
     def _open_model_search_popup(self):
-        service = (self.service_combo.currentText() or '').lower()
-        if service in ("custom endpoint", "custom"):
+        service_key = self.service_combo.currentData()
+        if service_key == 'custom':
             seen = set()
             models = []
             try:
@@ -982,7 +993,7 @@ class AddApiKeyDialog(QDialog):
                 pass
             models = sorted(models)
         else:
-            models = self.model_list.get(service, []) if service else []
+            models = self.model_list.get(service_key, []) if service_key else []
 
         dlg = QDialog(self)
         dlg.setWindowFlags(Qt.Popup)
@@ -1139,8 +1150,9 @@ class AddApiKeyDialog(QDialog):
             tooltip_lines.append(f"Note: {note or 'N/A'}")
             tooltip_text = "\n".join(tooltip_lines)
 
-            display_service_map = {'openai': 'OpenAI', 'openrouter': 'OpenRouter', 'gemini': 'Gemini', 'groq': 'Groq', 'blackbox': 'Blackbox', 'maia': 'Maia', 'custom': 'Custom'}
-            svc_display = display_service_map.get(str(service).lower(), str(service))
+            # Create reverse map: internal_key -> display_name
+            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
+            svc_display = reverse_service_map.get(str(service).lower(), str(service))
             service_item = QTableWidgetItem(svc_display)
             service_item.setToolTip(tooltip_text)
             self.api_table.setItem(row_idx, 0, service_item)
@@ -1517,16 +1529,9 @@ class AddApiKeyDialog(QDialog):
             self.key_edit.setText(api_text)
             self.note_edit.setText(note_text)
             self.endpoint_edit.setCurrentText(endpoint_text)
-            service_combo_map = {
-                'openai': 'OpenAI',
-                'openrouter': 'OpenRouter',
-                'gemini': 'Gemini',
-                'groq': 'Groq',
-                'blackbox': 'Blackbox',
-                'maia': 'Maia',
-                'custom': 'Custom Endpoint'
-            }
-            combo_text = service_combo_map.get(service_text.lower(), service_text.capitalize())
+            # Find combo text from SERVICE_MAP (reverse lookup)
+            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
+            combo_text = reverse_service_map.get(service_text.lower(), service_text.capitalize())
             self.service_combo.setCurrentText(combo_text)
             self._refresh_model_combo()
             
@@ -1550,7 +1555,7 @@ class AddApiKeyDialog(QDialog):
                     reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
                     if reply == QMessageBox.Yes:
                         
-                        service_key = service_text.lower()
+                        service_key = reverse_service_map.get(service_text.lower(), service_text.lower())
                         if service_key not in self.model_list:
                             self.model_list[service_key] = []
                         if model_text not in self.model_list[service_key]:
@@ -1575,22 +1580,8 @@ class AddApiKeyDialog(QDialog):
                     self.model_combo.setCurrentIndex(idx)
             elif self.model_combo.count() > 0:
                 self.model_combo.setCurrentIndex(0)
-            if service_text.lower() == "openai":
-                self._detected_service = "openai"
-            elif service_text.lower() == "openrouter":
-                self._detected_service = "openrouter"
-            elif service_text.lower() == "gemini":
-                self._detected_service = "gemini"
-            elif service_text.lower() == "groq":
-                self._detected_service = "groq"
-            elif service_text.lower() == "blackbox":
-                self._detected_service = "blackbox"
-            elif service_text.lower() == "maia":
-                self._detected_service = "maia"
-            elif service_text.lower() == "custom":
-                 self._detected_service = "custom"
-            else:
-                self._detected_service = None
+            # Set detected service using SERVICE_MAP
+            self._detected_service = reverse_service_map.get(service_text.lower(), service_text.lower() if service_text.lower() in self.SERVICE_MAP.values() else None)
             self._update_endpoint_state()
 
     def _on_key_edit_changed(self, text):
@@ -1611,41 +1602,17 @@ class AddApiKeyDialog(QDialog):
         else:
             service = None
         if not self._service_manually_selected:
-            if service == 'openai':
-                self.service_combo.setCurrentText("OpenAI")
-            elif service == 'openrouter':
-                self.service_combo.setCurrentText("OpenRouter")
-            elif service == 'gemini':
-                self.service_combo.setCurrentText("Gemini")
-            elif service == 'groq':
-                self.service_combo.setCurrentText("Groq")
-            elif service == 'blackbox':
-                self.service_combo.setCurrentText("Blackbox")
-            elif service == 'maia':
-                self.service_combo.setCurrentText("Maia")
-            elif service == 'custom':
-                self.service_combo.setCurrentText("Custom Endpoint")
+            # Use reverse map to get display name for service
+            reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
+            if service and service in reverse_service_map:
+                self.service_combo.setCurrentText(reverse_service_map[service])
         self._detected_service = service
         self._api_key_valid = False
         self.progress_bar.setVisible(False)
 
     def _on_service_combo_changed(self, idx):
-        if self.service_combo.currentText() == "OpenAI":
-            self._detected_service = 'openai'
-        elif self.service_combo.currentText() == "OpenRouter":
-            self._detected_service = 'openrouter'
-        elif self.service_combo.currentText() == "Gemini":
-            self._detected_service = 'gemini'
-        elif self.service_combo.currentText() == "Groq":
-            self._detected_service = 'groq'
-        elif self.service_combo.currentText() == "Blackbox":
-            self._detected_service = 'blackbox'
-        elif self.service_combo.currentText() == "Maia":
-            self._detected_service = 'maia'
-        elif self.service_combo.currentText() == "Custom Endpoint":
-            self._detected_service = 'custom'
-        else:
-            self._detected_service = None
+        """When user selects a service, update internal state and refresh models"""
+        self._detected_service = self.service_combo.currentData()
         self._refresh_model_combo()
         self._api_key_valid = False
         self._service_manually_selected = True
@@ -1659,27 +1626,17 @@ class AddApiKeyDialog(QDialog):
             print(f"[AddApiKeyDialog] Error handling model combo change: {e}")
 
     def _update_endpoint_state(self):
-        service = self.service_combo.currentText()
-        is_custom = service == "Custom Endpoint"
+        """Enable/disable endpoint field based on service selection"""
+        service_key = self.service_combo.currentData()
+        is_custom = service_key == 'custom'
         self.endpoint_edit.setEnabled(is_custom)
         self.endpoint_paste_btn.setEnabled(is_custom)
 
     def _on_endpoint_combo_changed(self, idx):
-        current = self.endpoint_edit.currentText()
-        if current == "Desainia API":
-            self.endpoint_edit.setCurrentText("https://api.desainia.my.id/v1")
-        elif current == "OpenRouter Custom":
-            self.endpoint_edit.setCurrentText("https://openrouter.ai/api/v1")
-        elif current == "Groq Custom":
-            self.endpoint_edit.setCurrentText("https://api.groq.com/openai/v1")
-        elif current == "Together AI":
-            self.endpoint_edit.setCurrentText("https://api.together.xyz/v1")
-        elif current == "Anthropic":
-            self.endpoint_edit.setCurrentText("https://api.anthropic.com/v1/messages")
-        elif current == "Ollama Local":
-            self.endpoint_edit.setCurrentText("http://localhost:11434/v1")
-        elif current == "KoboiLLM":
-            self.endpoint_edit.setCurrentText("https://api.koboillm.com/v1")
+        """When user selects a provider from dropdown, auto-fill the endpoint URL"""
+        url = self.endpoint_edit.currentData()
+        if url:
+            self.endpoint_edit.setCurrentText(url)
 
     def _on_endpoint_paste(self):
         try:
@@ -1706,18 +1663,9 @@ class AddApiKeyDialog(QDialog):
                 QMessageBox.warning(self, "Add Model", "Please enter or select a model name first.")
                 return
             
-            service = (self.service_combo.currentText() or '').lower()
-            service_key_map = {
-                'gemini': 'gemini',
-                'openai': 'openai',
-                'openrouter': 'openrouter',
-                'groq': 'groq',
-                'blackbox': 'blackbox',
-                'maia': 'maia',
-                'custom endpoint': 'custom',
-                'custom': 'custom'
-            }
-            service_key = service_key_map.get(service, service)
+            # Get service key from combo userData
+            service_key = self.service_combo.currentData()
+            service = self.service_combo.currentText()
             
             if not service_key:
                 QMessageBox.warning(self, "Add Model", "Please select a service/provider first.")
@@ -1787,7 +1735,8 @@ class AddApiKeyDialog(QDialog):
         self.test_and_save_btn.setEnabled(False)
         model = self.model_combo.currentText() if self.model_combo.count() > 0 else None
         provider_endpoint = None
-        if service == "custom" and hasattr(self, 'endpoint_edit'):
+        service_key = self.service_combo.currentData()
+        if service_key == 'custom':
             ep = self.endpoint_edit.currentText().strip()
             provider_endpoint = ep if ep else None
         self._test_thread = ApiKeyTestThread(api_key, service, model, provider_endpoint)
@@ -1810,8 +1759,9 @@ class AddApiKeyDialog(QDialog):
     def test_and_save_api_key(self):
         api_key = self.key_edit.text().strip()
         note = self.note_edit.text().strip()
-        user_service = self.service_combo.currentText().lower()
-        if user_service in ("custom endpoint", "custom"):
+        service_key = self.service_combo.currentData()
+        is_custom = service_key == 'custom'
+        if is_custom:
             service = "custom"
         else:
             service = self._detected_service
@@ -1819,7 +1769,7 @@ class AddApiKeyDialog(QDialog):
         if not api_key:
             QMessageBox.warning(self, "Input Error", "API Key cannot be empty.")
             return
-        if user_service not in ("custom endpoint", "custom"):
+        if not is_custom:
             if not service:
                 ak = api_key.strip()
                 ak_lower = ak.lower()
@@ -1844,7 +1794,7 @@ class AddApiKeyDialog(QDialog):
         self.progress_bar.setVisible(True)
         self.test_and_save_btn.setEnabled(False)
         provider_endpoint = None
-        if user_service in ("custom endpoint", "custom"):
+        if is_custom:
             if hasattr(self, 'endpoint_edit'):
                 ep = self.endpoint_edit.currentText().strip()
                 provider_endpoint = ep if ep else None
@@ -2021,17 +1971,23 @@ class AddApiKeyDialog(QDialog):
         self.api_table.selectRow(row)
         service_item = self.api_table.item(row, 0)
         api_item = self.api_table.item(row, 1)
+        endpoint_item = self.api_table.item(row, 2)
         model_item = self.api_table.item(row, 4)
         note_item = self.api_table.item(row, 5)
         if not service_item or not api_item:
             return
         service_text = service_item.text()
         api_text = api_item.text()
+        endpoint_text = endpoint_item.text() if endpoint_item else ""
         model_text = model_item.text() if model_item else ""
         note_text = note_item.text() if note_item else ""
         self.key_edit.setText(api_text)
         self.note_edit.setText(note_text)
-        self.service_combo.setCurrentText(service_text.capitalize())
+        self.endpoint_edit.setCurrentText(endpoint_text)
+        # Find combo text from SERVICE_MAP (reverse lookup)
+        reverse_service_map = {v: k for k, v in self.SERVICE_MAP.items()}
+        combo_text = reverse_service_map.get(service_text.lower(), service_text.capitalize())
+        self.service_combo.setCurrentText(combo_text)
         self._refresh_model_combo()
         if model_text:
             idx = self.model_combo.findText(model_text)
@@ -2051,7 +2007,7 @@ class AddApiKeyDialog(QDialog):
                 mb.exec()
                 reply = QMessageBox.Yes if mb.clickedButton() == btn_yes else QMessageBox.No
                 if reply == QMessageBox.Yes:
-                    service_key = service_text.lower()
+                    service_key = reverse_service_map.get(service_text.lower(), service_text.lower())
                     if service_key not in self.model_list:
                         self.model_list[service_key] = []
                     if model_text not in self.model_list[service_key]:
@@ -2073,22 +2029,8 @@ class AddApiKeyDialog(QDialog):
                 self.model_combo.setCurrentIndex(idx)
         elif self.model_combo.count() > 0:
             self.model_combo.setCurrentIndex(0)
-        if service_text.lower() == "openai":
-            self._detected_service = "openai"
-        elif service_text.lower() == "openrouter":
-            self._detected_service = "openrouter"
-        elif service_text.lower() == "gemini":
-            self._detected_service = "gemini"
-        elif service_text.lower() == "groq":
-            self._detected_service = "groq"
-        elif service_text.lower() == "blackbox":
-            self._detected_service = "blackbox"
-        elif service_text.lower() == "maia":
-            self._detected_service = "maia"
-        elif service_text.lower() == "custom":
-            self._detected_service = "custom"
-        else:
-            self._detected_service = None
+        # Set detected service using SERVICE_MAP
+        self._detected_service = reverse_service_map.get(service_text.lower(), service_text.lower() if service_text.lower() in self.SERVICE_MAP.values() else None)
         self._update_endpoint_state()
         menu = QMenu(self)
         action_test = QAction(qta.icon('fa6s.play'), "Test and Save", self)
