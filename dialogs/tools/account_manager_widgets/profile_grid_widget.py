@@ -245,6 +245,11 @@ class ProfileGridWidget(QWidget):
             if not profile.get('profile_browser_type'):
                 profile['profile_browser_type'] = workspace_browser_type
             
+            # Load window mode from profile settings
+            profile_id = profile.get('profile_id')
+            window_mode = self.db.get_profile_setting(profile_id, 'launch_window_mode') or 'windowed'
+            profile['profile_window_mode'] = window_mode
+            
             row = ProfileRowWidget(profile)
             row.launch_clicked.connect(self._on_launch_profile)
             row.focus_clicked.connect(self._on_focus_profile)
