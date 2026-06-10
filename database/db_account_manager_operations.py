@@ -889,6 +889,34 @@ class AccountManagerDB:
                 self.sync_workspace_metadata(workspace_id, conn=conn)
             return True
     
+    def set_profile_settings_batch(self, profile_id: int, settings: Dict[str, str]) -> bool:
+        """Set or update multiple profile settings in one transaction - more efficient than multiple set_profile_setting calls"""
+        if not settings:
+            return True
+        
+        with self._get_connection() as conn:
+            workspace_id = self._get_workspace_id_by_profile_id(profile_id, conn=conn)
+            c = conn.cursor()
+            now = datetime.now().isoformat()
+            
+            for key, value in settings.items():
+                c.execute('''
+                    INSERT INTO account_profile_settings 
+                    (setting_profile_id, setting_key, setting_value, setting_created_at, setting_updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(setting_profile_id, setting_key) 
+                    DO UPDATE SET setting_value = excluded.setting_value, 
+                                 setting_updated_at = excluded.setting_updated_at
+                ''', (profile_id, key, str(value), now, now))
+            
+            conn.commit()
+            
+            # Sync workspace metadata once after all settings are saved
+            if workspace_id:
+                self.sync_workspace_metadata(workspace_id, conn=conn)
+            
+            return True
+    
     def get_profile_settings(self, profile_id: int) -> Dict[str, str]:
         """Get all settings for a profile as key-value dict"""
         with self._get_connection() as conn:

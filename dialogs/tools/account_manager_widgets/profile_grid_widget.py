@@ -589,10 +589,18 @@ class ProfileGridWidget(QWidget):
                 zip_name=profile.get('profile_zip_name')
             )
 
-            for setting_key, setting_value in profile_settings.items():
-                self.db.set_profile_setting(new_profile_id, setting_key, setting_value)
+            # Use batch method to save all settings efficiently
+            if profile_settings:
+                self.db.set_profile_settings_batch(new_profile_id, profile_settings)
 
             self._save_profile_metadata({'profile_id': new_profile_id})
+            
+            # Sync workspace metadata to JSON file for real-time updates after duplicate
+            if group:
+                workspace_id = group.get('group_workspace_id')
+                if workspace_id:
+                    self.db.sync_workspace_metadata(workspace_id)
+            
             self.refresh_profiles()
             self._set_single_selection(new_profile_id)
             self.profile_changed.emit()
@@ -895,10 +903,21 @@ class ProfileGridWidget(QWidget):
             'launch_additional_parameters',
             json.dumps(data.get('launch_additional_parameters', []))
         )
-        self._save_proxy_settings(profile_id, data.get('proxy_settings'))
+        
+        # Use batch method for proxy settings to avoid multiple syncs
+        self._save_proxy_settings_batch(profile_id, data.get('proxy_settings'))
         
         # Save metadata file to profile folder
         self._save_profile_metadata(data)
+        
+        # Final sync to ensure workspace metadata is up-to-date
+        profile = self.db.get_profile(profile_id)
+        if profile:
+            group = self.db.get_group(profile.get('profile_group_id'))
+            if group:
+                workspace_id = group.get('group_workspace_id')
+                if workspace_id:
+                    self.db.sync_workspace_metadata(workspace_id)
         
         self.refresh_profiles()
         self.profile_changed.emit()
@@ -930,9 +949,11 @@ class ProfileGridWidget(QWidget):
             self.db.save_profile_metadata(meta_data)
 
     def _save_proxy_settings(self, profile_id, proxy_settings):
+        """Legacy method - use _save_proxy_settings_batch for better performance"""
         if not profile_id:
             return
         proxy_settings = proxy_settings or {}
+        
         for key in AddProfileDialog.PROXY_SETTING_KEYS:
             default_value = '[]' if key == 'proxy_bypass_list' else ''
             if key == 'proxy_enabled':
@@ -948,6 +969,33 @@ class ProfileGridWidget(QWidget):
             elif key == 'proxy_socks_version':
                 default_value = '5'
             self.db.set_profile_setting(profile_id, key, str(proxy_settings.get(key, default_value)))
+    
+    def _save_proxy_settings_batch(self, profile_id, proxy_settings):
+        """Batch save all proxy settings efficiently - only syncs workspace metadata once"""
+        if not profile_id:
+            return
+        proxy_settings = proxy_settings or {}
+        
+        # Prepare all settings to save in batch
+        settings_dict = {}
+        for key in AddProfileDialog.PROXY_SETTING_KEYS:
+            default_value = '[]' if key == 'proxy_bypass_list' else ''
+            if key == 'proxy_enabled':
+                default_value = 'false'
+            elif key == 'proxy_mode':
+                default_value = 'system'
+            elif key == 'proxy_scheme':
+                default_value = 'http'
+            elif key == 'proxy_dns_remote':
+                default_value = 'false'
+            elif key == 'proxy_share_all_protocols':
+                default_value = 'true'
+            elif key == 'proxy_socks_version':
+                default_value = '5'
+            settings_dict[key] = str(proxy_settings.get(key, default_value))
+        
+        # Use batch method to save all settings at once
+        self.db.set_profile_settings_batch(profile_id, settings_dict)
     
     def _parse_launch_additional_parameters(self, value):
         if isinstance(value, list):

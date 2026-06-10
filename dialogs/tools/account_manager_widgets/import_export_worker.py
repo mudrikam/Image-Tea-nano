@@ -339,8 +339,9 @@ class ImportWorker(QObject):
             zip_name=zip_name
         )
         
-        for setting_key, setting_value in profile_settings.items():
-            db.set_profile_setting(profile_id, setting_key, setting_value)
+        # Use batch method to save all settings efficiently
+        if profile_settings:
+            db.set_profile_settings_batch(profile_id, profile_settings)
         
         meta_data = {
             'profile_id': profile_id,
@@ -358,6 +359,11 @@ class ImportWorker(QObject):
             'profile_settings': profile_settings,
         }
         db.save_profile_metadata(meta_data)
+        
+        # Sync workspace metadata to JSON file for real-time updates after import
+        workspace_id = db._get_workspace_id_by_group_id(self.group_id)
+        if workspace_id:
+            db.sync_workspace_metadata(workspace_id)
         
         return profile_id
 
