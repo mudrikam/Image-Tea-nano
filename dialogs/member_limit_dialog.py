@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 import qtawesome as qta
+from helpers.members_helper.members_helper import get_session
 from ui.theme_system import theme
 
 
@@ -353,6 +354,11 @@ class MemberLimitDialog(QDialog):
             self._option2_lbl.setText("Atau gunakan API Key sendiri melalui menu Add API Key")
 
 
-def show_member_limit_dialog(parent=None, used=0, limit=0):
-    dlg = MemberLimitDialog(parent, used, limit)
+def show_member_limit_dialog(parent=None, used=0, limit=0, session=None):
+    if session is None:
+        try:
+            session = get_session()
+        except Exception:
+            session = {}
+    dlg = MemberLimitDialog(parent, used, limit, session=session)
     dlg.exec()
