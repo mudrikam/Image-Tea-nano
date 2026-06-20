@@ -267,13 +267,14 @@ class CSVExporterDialog(QDialog):
 
         # Field mapping table
         self.custom_table = QTableWidget()
-        self.custom_table.setColumnCount(5)
-        self.custom_table.setHorizontalHeaderLabels(["Column Name", "Source Field", "Transform", "Quote", "Preview"])
+        self.custom_table.setColumnCount(6)
+        self.custom_table.setHorizontalHeaderLabels(["Column Name", "Source Type", "Source Field/Custom Text", "Transform", "Quote", "Preview"])
         self.custom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.custom_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.custom_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.custom_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.custom_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.custom_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.custom_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.custom_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.custom_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.custom_table.setAlternatingRowColors(True)
         self.custom_layout.addWidget(self.custom_table, 1)
@@ -343,31 +344,65 @@ class CSVExporterDialog(QDialog):
         col_name_item = QTableWidgetItem("Column_" + str(row + 1))
         self.custom_table.setItem(row, 0, col_name_item)
 
-        # Source field dropdown
+        # Source type dropdown (DB Field or Custom Text)
+        source_type_combo = QComboBox()
+        source_type_combo.addItems(["DB Field", "Custom Text"])
+        source_type_combo.currentTextChanged.connect(lambda _text, r=row: self.on_source_type_changed(r))
+        self.custom_table.setCellWidget(row, 1, source_type_combo)
+
+        # Source field dropdown (or text input)
         source_combo = QComboBox()
         source_combo.addItems(self.available_fields)
         source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-        self.custom_table.setCellWidget(row, 1, source_combo)
+        self.custom_table.setCellWidget(row, 2, source_combo)
 
         # Transform dropdown
         transform_combo = QComboBox()
         transform_combo.addItems(self.transform_options)
         transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-        self.custom_table.setCellWidget(row, 2, transform_combo)
+        self.custom_table.setCellWidget(row, 3, transform_combo)
 
         # Per-field quote mode
         quote_combo = QComboBox()
         quote_combo.addItems(["Auto", "Yes", "No"])
         quote_combo.setCurrentIndex(0)
-        self.custom_table.setCellWidget(row, 3, quote_combo)
+        self.custom_table.setCellWidget(row, 4, quote_combo)
 
         # Preview
         preview_item = QTableWidgetItem("")
         preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
-        self.custom_table.setItem(row, 4, preview_item)
+        self.custom_table.setItem(row, 5, preview_item)
 
         self.update_preview_row(row)
         self.validate_output_and_buttons()
+    
+    def on_source_type_changed(self, row):
+        """Handle source type change between DB Field and Custom Text"""
+        source_type_combo = self.custom_table.cellWidget(row, 1)
+        if not source_type_combo:
+            return
+        
+        source_type = source_type_combo.currentText()
+        
+        # Remove existing widget
+        old_widget = self.custom_table.cellWidget(row, 2)
+        if old_widget:
+            self.custom_table.removeCellWidget(row, 2)
+        
+        if source_type == "DB Field":
+            # Create dropdown for database fields
+            source_combo = QComboBox()
+            source_combo.addItems(self.available_fields)
+            source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 2, source_combo)
+        else:  # Custom Text
+            # Create text input for custom text
+            source_input = QLineEdit()
+            source_input.setPlaceholderText("Enter custom text...")
+            source_input.textChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+            self.custom_table.setCellWidget(row, 2, source_input)
+        
+        self.update_preview_row(row)
 
     def remove_custom_field_row(self):
         """Remove selected row from custom field mapping table"""
@@ -389,30 +424,45 @@ class CSVExporterDialog(QDialog):
             self.validate_output_and_buttons()
 
     def update_preview_row(self, row):
-        """Update preview for a specific row based on source field and transform"""
+        """Update preview for a specific row based on source type, field/text and transform"""
         try:
-            source_combo = self.custom_table.cellWidget(row, 1)
-            transform_combo = self.custom_table.cellWidget(row, 2)
+            source_type_combo = self.custom_table.cellWidget(row, 1)
+            source_widget = self.custom_table.cellWidget(row, 2)
+            transform_combo = self.custom_table.cellWidget(row, 3)
             
-            if not source_combo or not transform_combo:
+            if not source_type_combo or not source_widget or not transform_combo:
                 return
             
-            source_field = source_combo.currentText()
+            source_type = source_type_combo.currentText()
             transform = transform_combo.currentText()
             
-            # Generate sample preview
-            sample_data = {
-                "id": "1",
-                "filepath": "D:/assets/sample_image.jpg",
-                "filename": "sample_image.jpg",
-                "title": "Sample Title",
-                "description": "Sample description text",
-                "tags": "keyword1, keyword2, keyword3",
-                "status": "success",
-                "original_filename": "IMG_0001.jpg"
-            }
-            
-            preview_value = "" if source_field == "EMPTY" else sample_data.get(source_field, f"<{source_field}>")
+            # Get value based on source type
+            if source_type == "Custom Text":
+                # Custom text input
+                if isinstance(source_widget, QLineEdit):
+                    preview_value = source_widget.text()
+                else:
+                    preview_value = ""
+            else:
+                # DB Field
+                if isinstance(source_widget, QComboBox):
+                    source_field = source_widget.currentText()
+                    
+                    # Generate sample preview
+                    sample_data = {
+                        "id": "1",
+                        "filepath": "D:/assets/sample_image.jpg",
+                        "filename": "sample_image.jpg",
+                        "title": "Sample Title",
+                        "description": "Sample description text",
+                        "tags": "keyword1, keyword2, keyword3",
+                        "status": "success",
+                        "original_filename": "IMG_0001.jpg"
+                    }
+                    
+                    preview_value = "" if source_field == "EMPTY" else sample_data.get(source_field, f"<{source_field}>")
+                else:
+                    preview_value = ""
             
             # Apply transform
             if transform == "Uppercase":
@@ -426,7 +476,7 @@ class CSVExporterDialog(QDialog):
             elif transform == "Truncate":
                 preview_value = str(preview_value)[:50] + "..." if len(str(preview_value)) > 50 else str(preview_value)
             
-            preview_item = self.custom_table.item(row, 4)
+            preview_item = self.custom_table.item(row, 5)
             if preview_item:
                 preview_item.setText(str(preview_value))
         except Exception as e:
@@ -688,26 +738,34 @@ class CSVExporterDialog(QDialog):
             self.custom_table.insertRow(row)
             self.custom_table.setItem(row, 0, QTableWidgetItem(header))
             
+            # Source type
+            source_type_combo = QComboBox()
+            source_type_combo.addItems(["DB Field", "Custom Text"])
+            source_type_combo.setCurrentText("DB Field")
+            source_type_combo.currentTextChanged.connect(lambda _text, r=row: self.on_source_type_changed(r))
+            self.custom_table.setCellWidget(row, 1, source_type_combo)
+            
+            # Source field
             source_combo = QComboBox()
             source_combo.addItems(self.available_fields)
             source_combo.setCurrentText(mapped_field)
             source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-            self.custom_table.setCellWidget(row, 1, source_combo)
+            self.custom_table.setCellWidget(row, 2, source_combo)
             
             transform_combo = QComboBox()
             transform_combo.addItems(self.transform_options)
             transform_combo.setCurrentText("None")
             transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-            self.custom_table.setCellWidget(row, 2, transform_combo)
+            self.custom_table.setCellWidget(row, 3, transform_combo)
             
             quote_combo = QComboBox()
             quote_combo.addItems(["Auto", "Yes", "No"])
             quote_combo.setCurrentText(quote_mode)
-            self.custom_table.setCellWidget(row, 3, quote_combo)
+            self.custom_table.setCellWidget(row, 4, quote_combo)
             
             preview_item = QTableWidgetItem("")
             preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
-            self.custom_table.setItem(row, 4, preview_item)
+            self.custom_table.setItem(row, 5, preview_item)
             
             self.update_preview_row(row)
     
@@ -726,13 +784,26 @@ class CSVExporterDialog(QDialog):
         fields = []
         for row in range(self.custom_table.rowCount()):
             col_name_item = self.custom_table.item(row, 0)
-            source_combo = self.custom_table.cellWidget(row, 1)
-            transform_combo = self.custom_table.cellWidget(row, 2)
-            quote_combo = self.custom_table.cellWidget(row, 3)
-            if col_name_item and source_combo and transform_combo and quote_combo:
+            source_type_combo = self.custom_table.cellWidget(row, 1)
+            source_widget = self.custom_table.cellWidget(row, 2)
+            transform_combo = self.custom_table.cellWidget(row, 3)
+            quote_combo = self.custom_table.cellWidget(row, 4)
+            
+            if col_name_item and source_type_combo and source_widget and transform_combo and quote_combo:
+                source_type = source_type_combo.currentText()
+                
+                # Get source value based on type
+                if source_type == "Custom Text" and isinstance(source_widget, QLineEdit):
+                    source_value = source_widget.text()
+                elif source_type == "DB Field" and isinstance(source_widget, QComboBox):
+                    source_value = source_widget.currentText()
+                else:
+                    source_value = ""
+                
                 fields.append({
                     "column_name": col_name_item.text(),
-                    "source_field": source_combo.currentText(),
+                    "source_type": source_type,
+                    "source_value": source_value,
                     "transform": transform_combo.currentText(),
                     "quote": quote_combo.currentText()
                 })
@@ -756,36 +827,54 @@ class CSVExporterDialog(QDialog):
         # Generate filename based on preset name (always use preset name, ignore saved filename)
         filename = self.default_base_name(preset_name)
         self.custom_filename_edit.setText(filename)
+        
         for field_data in config.get("fields", []):
             row = self.custom_table.rowCount()
             self.custom_table.insertRow(row)
             self.custom_table.setItem(row, 0, QTableWidgetItem(field_data.get("column_name", "")))
 
-            source_combo = QComboBox()
-            source_combo.addItems(self.available_fields)
-            saved_source = field_data.get("source_field", "EMPTY")
-            if saved_source == "keywords":
-                saved_source = "tags"
-            if saved_source not in self.available_fields:
-                saved_source = "EMPTY"
-            source_combo.setCurrentText(saved_source)
-            source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-            self.custom_table.setCellWidget(row, 1, source_combo)
+            # Source type (backward compatibility: if no source_type, assume DB Field)
+            source_type = field_data.get("source_type", "DB Field")
+            source_type_combo = QComboBox()
+            source_type_combo.addItems(["DB Field", "Custom Text"])
+            source_type_combo.setCurrentText(source_type)
+            source_type_combo.currentTextChanged.connect(lambda _text, r=row: self.on_source_type_changed(r))
+            self.custom_table.setCellWidget(row, 1, source_type_combo)
+
+            # Source value (field or custom text)
+            source_value = field_data.get("source_value", field_data.get("source_field", "EMPTY"))
+            if source_type == "Custom Text":
+                source_input = QLineEdit()
+                source_input.setText(source_value)
+                source_input.setPlaceholderText("Enter custom text...")
+                source_input.textChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+                self.custom_table.setCellWidget(row, 2, source_input)
+            else:  # DB Field
+                source_combo = QComboBox()
+                source_combo.addItems(self.available_fields)
+                # Backward compatibility mapping
+                if source_value == "keywords":
+                    source_value = "tags"
+                if source_value not in self.available_fields:
+                    source_value = "EMPTY"
+                source_combo.setCurrentText(source_value)
+                source_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
+                self.custom_table.setCellWidget(row, 2, source_combo)
 
             transform_combo = QComboBox()
             transform_combo.addItems(self.transform_options)
             transform_combo.setCurrentText(field_data.get("transform", "None"))
             transform_combo.currentTextChanged.connect(lambda _text, r=row: self.update_preview_row(r))
-            self.custom_table.setCellWidget(row, 2, transform_combo)
+            self.custom_table.setCellWidget(row, 3, transform_combo)
 
             quote_combo = QComboBox()
             quote_combo.addItems(["Auto", "Yes", "No"])
             quote_combo.setCurrentText(field_data.get("quote", "Auto"))
-            self.custom_table.setCellWidget(row, 3, quote_combo)
+            self.custom_table.setCellWidget(row, 4, quote_combo)
 
             preview_item = QTableWidgetItem("")
             preview_item.setFlags(preview_item.flags() & ~Qt.ItemIsEditable)
-            self.custom_table.setItem(row, 4, preview_item)
+            self.custom_table.setItem(row, 5, preview_item)
             self.update_preview_row(row)
         self.validate_output_and_buttons()
 
@@ -918,18 +1007,30 @@ class CSVExporterDialog(QDialog):
         # Build header and field mappings
         headers = []
         field_mappings = []
+        source_types = []
         transforms = []
         quote_modes = []
         
         for row in range(self.custom_table.rowCount()):
             col_name_item = self.custom_table.item(row, 0)
-            source_combo = self.custom_table.cellWidget(row, 1)
-            transform_combo = self.custom_table.cellWidget(row, 2)
-            quote_combo = self.custom_table.cellWidget(row, 3)
+            source_type_combo = self.custom_table.cellWidget(row, 1)
+            source_widget = self.custom_table.cellWidget(row, 2)
+            transform_combo = self.custom_table.cellWidget(row, 3)
+            quote_combo = self.custom_table.cellWidget(row, 4)
             
-            if col_name_item and source_combo and transform_combo and quote_combo:
+            if col_name_item and source_type_combo and source_widget and transform_combo and quote_combo:
                 headers.append(col_name_item.text())
-                field_mappings.append(source_combo.currentText())
+                source_type = source_type_combo.currentText()
+                source_types.append(source_type)
+                
+                # Get source value based on type
+                if source_type == "Custom Text" and isinstance(source_widget, QLineEdit):
+                    field_mappings.append(source_widget.text())
+                elif source_type == "DB Field" and isinstance(source_widget, QComboBox):
+                    field_mappings.append(source_widget.currentText())
+                else:
+                    field_mappings.append("")
+                
                 transforms.append(transform_combo.currentText())
                 quote_modes.append(quote_combo.currentText())
         
@@ -955,8 +1056,13 @@ class CSVExporterDialog(QDialog):
                 break
             
             row = []
-            for field, transform in zip(field_mappings, transforms):
-                value = self._extract_field_value(file_data, field)
+            for field, source_type, transform in zip(field_mappings, source_types, transforms):
+                if source_type == "Custom Text":
+                    # Use custom text as-is
+                    value = field
+                else:
+                    # Extract from database field
+                    value = self._extract_field_value(file_data, field)
                 value = self._apply_transform(value, transform)
                 row.append(value)
             
