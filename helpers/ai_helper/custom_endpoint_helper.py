@@ -327,6 +327,86 @@ class CustomEndpointHelper:
             return resp.text or ""
 
     @staticmethod
+    def fetch_models(api_key: str, endpoint: str, timeout: int = 30) -> tuple[bool, list[dict], str]:
+        """
+        Fetch available models from OpenAI-compatible endpoint.
+        Returns (success, models_list, error_message)
+        models_list is a list of dicts with keys: 'id', 'name', 'free' (bool)
+        """
+        try:
+            # Normalize endpoint to base URL (remove /chat/completions if present)
+            base_url = endpoint.rstrip('/')
+            if base_url.lower().endswith('/chat/completions'):
+                base_url = base_url[:-len('/chat/completions')]
+            elif base_url.lower().endswith('/completions'):
+                base_url = base_url[:-len('/completions')]
+            
+            # Construct models endpoint
+            models_endpoint = f"{base_url}/models"
+            
+            CustomEndpointHelper.validate_url(models_endpoint)
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            resp = requests.get(models_endpoint, headers=headers, timeout=timeout)
+            
+            if resp.status_code >= 400:
+                body = resp.text or "<no body>"
+                return False, [], f"Status {resp.status_code}: {body}"
+            
+            j = resp.json()
+            models = []
+            
+            # Parse OpenAI-compatible response format
+            data = j.get('data', [])
+            if isinstance(data, list):
+                for model in data:
+                    if isinstance(model, dict):
+                        model_id = model.get('id', '')
+                        model_name = model.get('name') or model_id
+                        
+                        # Detect if model is free based on common patterns
+                        is_free = False
+                        if isinstance(model, dict):
+                            # Check explicit free field
+                            if 'free' in model:
+                                is_free = bool(model.get('free'))
+                            elif 'pricing' in model:
+                                pricing = model.get('pricing', {})
+                                if isinstance(pricing, dict):
+                                    # Check if input/output costs are 0
+                                    prompt_cost = pricing.get('prompt', pricing.get('input', 1))
+                                    completion_cost = pricing.get('completion', pricing.get('output', 1))
+                                    is_free = (prompt_cost == 0 and completion_cost == 0)
+                        
+                        # Check model name/id for free indicators
+                        model_id_lower = str(model_id).lower()
+                        model_name_lower = str(model_name).lower()
+                        if any((keyword in model_id_lower) or (keyword in model_name_lower) for keyword in ['free', 'gratis', 'zero-cost']):
+                            is_free = True
+                        
+                        models.append({
+                            'id': model_id,
+                            'name': model_name,
+                            'free': is_free
+                        })
+            
+            # Sort: free models first, then alphabetically
+            models.sort(key=lambda m: (not m['free'], m['id'].lower()))
+            
+            return True, models, ""
+            
+        except requests.exceptions.Timeout:
+            return False, [], "Request timeout - endpoint took too long to respond"
+        except requests.exceptions.ConnectionError:
+            return False, [], "Connection error - could not reach endpoint"
+        except Exception as e:
+            return False, [], str(e)
+
+    @staticmethod
     def test_connectivity(api_key: str, endpoint: str, provider: str | None = None, model: str | None = None, timeout: int = 30) -> tuple[bool, str]:
         """Simple connectivity + sanity test. Returns (ok, message_or_response)."""
         # Normalize endpoint URL

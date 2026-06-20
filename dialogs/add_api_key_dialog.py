@@ -16,6 +16,184 @@ import base64
 
 from ui.theme_system import theme
 
+class FetchModelsThread(QThread):
+    result = Signal(bool, list, str)  # success, models_list, error_message
+    
+    def __init__(self, api_key, endpoint):
+        super().__init__()
+        self.api_key = api_key
+        self.endpoint = endpoint
+    
+    def run(self):
+        try:
+            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
+            success, models, error = CustomEndpointHelper.fetch_models(self.api_key, self.endpoint)
+            self.result.emit(success, models, error)
+        except Exception as e:
+            self.result.emit(False, [], str(e))
+
+
+class FetchModelsDialog(QDialog):
+    model_selected = Signal(str)  # Emits selected model ID
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Fetch Models")
+        self.setFixedSize(450, 400)
+        self.selected_model = None
+        
+        layout = QVBoxLayout()
+        
+        # Search box
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search models...")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.addAction(qta.icon('fa6s.magnifying-glass'), QLineEdit.LeadingPosition)
+        self.search_edit.textChanged.connect(self._filter_models)
+        layout.addWidget(self.search_edit)
+        
+        # Models list
+        self.models_list = QListWidget()
+        self.models_list.itemDoubleClicked.connect(self._on_model_double_clicked)
+        layout.addWidget(self.models_list)
+        
+        # Stats
+        self.stats_widget = QWidget()
+        stats_layout = QHBoxLayout(self.stats_widget)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(12)
+        
+        total_icon = QLabel()
+        total_icon.setPixmap(qta.icon('fa6s.cubes', color=theme.get_color('text_dark')).pixmap(12, 12))
+        self.total_models_lbl = QLabel('Total: 0')
+        self.total_models_lbl.setStyleSheet(f"color: {theme.get_color('text_dark')};")
+        
+        free_icon = QLabel()
+        free_icon.setPixmap(qta.icon('fa6s.gift', color=theme.get_color('primary')).pixmap(12, 12))
+        self.free_models_lbl = QLabel('Free: 0')
+        self.free_models_lbl.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold;")
+        
+        stats_layout.addWidget(total_icon)
+        stats_layout.addWidget(self.total_models_lbl)
+        stats_layout.addWidget(free_icon)
+        stats_layout.addWidget(self.free_models_lbl)
+        stats_layout.addStretch()
+        layout.addWidget(self.stats_widget)
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        self.select_btn = QPushButton('Select Model')
+        self.select_btn.setIcon(qta.icon('fa6s.check'))
+        self.select_btn.setToolTip('Select model')
+        self.select_btn.clicked.connect(self._on_select_clicked)
+        
+        self.cancel_btn = QPushButton('Cancel')
+        self.cancel_btn.setIcon(qta.icon('fa6s.xmark'))
+        self.cancel_btn.setToolTip('Cancel')
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addWidget(self.select_btn)
+        btn_layout.addWidget(self.cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+        
+        self.models_data = []
+        self.fetch_thread = None
+    
+    def fetch_models(self, api_key, endpoint):
+        """Start fetching models from endpoint"""
+        self.progress_bar.setVisible(True)
+        self.models_list.clear()
+        self.select_btn.setEnabled(False)
+        
+        self.fetch_thread = FetchModelsThread(api_key, endpoint)
+        self.fetch_thread.result.connect(self._on_fetch_result)
+        self.fetch_thread.finished.connect(lambda: self.progress_bar.setVisible(False))
+        self.fetch_thread.start()
+    
+    def _on_fetch_result(self, success, models, error):
+        """Handle fetch result"""
+        self.progress_bar.setVisible(False)
+        
+        if not success:
+            QMessageBox.warning(self, "Fetch Models", f"Failed to fetch models:\n{error}")
+            self.reject()
+            return
+        
+        if not models:
+            QMessageBox.information(self, "Fetch Models", "No models found at this endpoint.")
+            self.reject()
+            return
+        
+        self.models_data = models
+        self._populate_models()
+        self.select_btn.setEnabled(True)
+    
+    def _populate_models(self):
+        """Populate list with models"""
+        self.models_list.clear()
+        
+        total_models = len(self.models_data)
+        free_models = sum(1 for model in self.models_data if model.get('free', False))
+        self.total_models_lbl.setText(f'Total: {total_models}')
+        self.free_models_lbl.setText(f'Free: {free_models}')
+        
+        for model in self.models_data:
+            item = QListWidgetItem(model['id'])
+            
+            # Style free models with primary color
+            model_text_lower = str(model.get('id', '')).lower()
+            is_free_model = model.get('free', False) or ('free' in model_text_lower)
+            if is_free_model:
+                primary_color = QColor(theme.get_color('primary'))
+                item.setForeground(QBrush(primary_color))
+            
+            item.setData(Qt.UserRole, model['id'])
+            self.models_list.addItem(item)
+        
+        if self.models_list.count() > 0:
+            self.models_list.setCurrentRow(0)
+    
+    def _filter_models(self, text):
+        """Filter models based on search text"""
+        search_text = text.lower().strip()
+        
+        for i in range(self.models_list.count()):
+            item = self.models_list.item(i)
+            if not search_text:
+                item.setHidden(False)
+            else:
+                item.setHidden(search_text not in item.text().lower())
+    
+    def _on_model_double_clicked(self, item):
+        """Handle double-click on model"""
+        self.selected_model = item.data(Qt.UserRole)
+        self.accept()
+    
+    def _on_select_clicked(self):
+        """Handle select button click"""
+        current_item = self.models_list.currentItem()
+        if current_item:
+            self.selected_model = current_item.data(Qt.UserRole)
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Select Model", "Please select a model from the list.")
+    
+    def get_selected_model(self):
+        """Return selected model ID"""
+        return self.selected_model
+
+
 class ApiKeyTestThread(QThread):
     result = Signal(str, str, object)
     def __init__(self, api_key, service=None, model=None, provider_endpoint=None):
@@ -527,6 +705,13 @@ class AddApiKeyDialog(QDialog):
         self.model_paste_btn.setToolTip('Paste model from clipboard')
         self.model_paste_btn.setFocusPolicy(Qt.NoFocus)
         self.model_paste_btn.clicked.connect(self._on_model_paste_clicked)
+        self.fetch_models_btn = QPushButton()
+        self.fetch_models_btn.setIcon(qta.icon('fa6s.download'))
+        self.fetch_models_btn.setFixedWidth(32)
+        self.fetch_models_btn.setToolTip('Fetch models from custom endpoint')
+        self.fetch_models_btn.setFocusPolicy(Qt.NoFocus)
+        self.fetch_models_btn.clicked.connect(self._on_fetch_models_clicked)
+        self.fetch_models_btn.setVisible(False)  # Hidden by default, shown only for custom endpoint
         self.add_model_btn = QPushButton()
         self.add_model_btn.setIcon(qta.icon('fa6s.plus'))
         self.add_model_btn.setFixedWidth(32)
@@ -542,6 +727,7 @@ class AddApiKeyDialog(QDialog):
         model_layout.addWidget(_model_label_widget)
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_paste_btn)
+        model_layout.addWidget(self.fetch_models_btn)
         model_layout.addWidget(self.add_model_btn)
         model_layout.addWidget(self.model_manager_btn)
         layout.addLayout(model_layout)
@@ -1667,6 +1853,7 @@ class AddApiKeyDialog(QDialog):
         is_custom = service_key == 'custom'
         self.endpoint_edit.setEnabled(is_custom)
         self.endpoint_paste_btn.setEnabled(is_custom)
+        self.fetch_models_btn.setVisible(is_custom)
 
     def _on_endpoint_combo_changed(self, idx):
         """When user selects a provider from dropdown, auto-fill the endpoint URL"""
@@ -1691,6 +1878,35 @@ class AddApiKeyDialog(QDialog):
         except Exception as e:
             print(f"[AddApiKeyDialog] Failed to paste model: {e}")
 
+    def _on_fetch_models_clicked(self):
+        """Fetch models from custom endpoint"""
+        try:
+            # Validate inputs
+            api_key = self.key_edit.text().strip()
+            endpoint = self.endpoint_edit.currentText().strip()
+            
+            if not api_key:
+                QMessageBox.warning(self, "Fetch Models", "Please enter an API key first.")
+                return
+            
+            if not endpoint:
+                QMessageBox.warning(self, "Fetch Models", "Please enter a custom endpoint URL first.")
+                return
+            
+            # Create and show dialog
+            dialog = FetchModelsDialog(self)
+            dialog.fetch_models(api_key, endpoint)
+            
+            if dialog.exec():
+                selected_model = dialog.get_selected_model()
+                if selected_model:
+                    # Set the model in the combo
+                    self.model_combo.setCurrentText(selected_model)
+                    
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error fetching models: {e}")
+            QMessageBox.critical(self, "Fetch Models", f"Failed to fetch models: {e}")
+    
     def _on_add_model_clicked(self):
         """Save the current model text to the model list for the active provider"""
         try:
