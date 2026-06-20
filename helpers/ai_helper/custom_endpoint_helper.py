@@ -2,8 +2,10 @@ import json
 import base64
 import os
 import mimetypes
+import re
 import requests
 from urllib.parse import urlparse
+from config import BASE_PATH
 
 
 class CustomEndpointHelper:
@@ -327,84 +329,152 @@ class CustomEndpointHelper:
             return resp.text or ""
 
     @staticmethod
-    def fetch_models(api_key: str, endpoint: str, timeout: int = 30) -> tuple[bool, list[dict], str]:
-        """
-        Fetch available models from OpenAI-compatible endpoint.
-        Returns (success, models_list, error_message)
-        models_list is a list of dicts with keys: 'id', 'name', 'free' (bool)
-        """
+    def _load_provider_endpoints() -> dict:
         try:
-            # Normalize endpoint to base URL (remove /chat/completions if present)
-            base_url = endpoint.rstrip('/')
-            if base_url.lower().endswith('/chat/completions'):
-                base_url = base_url[:-len('/chat/completions')]
-            elif base_url.lower().endswith('/completions'):
-                base_url = base_url[:-len('/completions')]
-            
-            # Construct models endpoint
+            cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            return cfg.get('provider_endpoints', {}) or {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _normalize_models_base_url(endpoint: str) -> str:
+        base_url = (endpoint or '').rstrip('/')
+        base_url_lower = base_url.lower()
+        if base_url_lower.endswith('/chat/completions'):
+            return base_url[:-len('/chat/completions')]
+        if base_url_lower.endswith('/completions'):
+            return base_url[:-len('/completions')]
+        if base_url_lower.endswith('/models'):
+            return base_url[:-len('/models')]
+        return base_url
+
+    @staticmethod
+    def _parse_free_flag(model: dict, model_id: str, model_name: str) -> bool:
+        is_free = False
+        if isinstance(model, dict):
+            if 'free' in model:
+                is_free = bool(model.get('free'))
+            elif 'pricing' in model:
+                pricing = model.get('pricing', {})
+                if isinstance(pricing, dict):
+                    prompt_cost = pricing.get('prompt', pricing.get('input', 1))
+                    completion_cost = pricing.get('completion', pricing.get('output', 1))
+                    try:
+                        is_free = float(prompt_cost) == 0 and float(completion_cost) == 0
+                    except Exception:
+                        is_free = prompt_cost == 0 and completion_cost == 0
+        model_id_lower = str(model_id).lower()
+        model_name_lower = str(model_name).lower()
+        if any((keyword in model_id_lower) or (keyword in model_name_lower) for keyword in ['free', 'gratis', 'zero-cost']):
+            is_free = True
+        return is_free
+
+    @staticmethod
+    def _sort_models(models: list[dict]) -> list[dict]:
+        models.sort(key=lambda m: (not bool(m.get('free')), str(m.get('id', '')).lower()))
+        return models
+
+    @staticmethod
+    def _fetch_openai_compatible_models(api_key: str, endpoint: str, timeout: int = 30) -> tuple[bool, list[dict], str]:
+        try:
+            base_url = CustomEndpointHelper._normalize_models_base_url(endpoint)
             models_endpoint = f"{base_url}/models"
-            
             CustomEndpointHelper.validate_url(models_endpoint)
-            
             headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json'
             }
-            
             resp = requests.get(models_endpoint, headers=headers, timeout=timeout)
-            
             if resp.status_code >= 400:
-                body = resp.text or "<no body>"
+                body = resp.text or '<no body>'
                 return False, [], f"Status {resp.status_code}: {body}"
-            
             j = resp.json()
             models = []
-            
-            # Parse OpenAI-compatible response format
             data = j.get('data', [])
             if isinstance(data, list):
                 for model in data:
-                    if isinstance(model, dict):
-                        model_id = model.get('id', '')
-                        model_name = model.get('name') or model_id
-                        
-                        # Detect if model is free based on common patterns
-                        is_free = False
-                        if isinstance(model, dict):
-                            # Check explicit free field
-                            if 'free' in model:
-                                is_free = bool(model.get('free'))
-                            elif 'pricing' in model:
-                                pricing = model.get('pricing', {})
-                                if isinstance(pricing, dict):
-                                    # Check if input/output costs are 0
-                                    prompt_cost = pricing.get('prompt', pricing.get('input', 1))
-                                    completion_cost = pricing.get('completion', pricing.get('output', 1))
-                                    is_free = (prompt_cost == 0 and completion_cost == 0)
-                        
-                        # Check model name/id for free indicators
-                        model_id_lower = str(model_id).lower()
-                        model_name_lower = str(model_name).lower()
-                        if any((keyword in model_id_lower) or (keyword in model_name_lower) for keyword in ['free', 'gratis', 'zero-cost']):
-                            is_free = True
-                        
-                        models.append({
-                            'id': model_id,
-                            'name': model_name,
-                            'free': is_free
-                        })
-            
-            # Sort: free models first, then alphabetically
-            models.sort(key=lambda m: (not m['free'], m['id'].lower()))
-            
-            return True, models, ""
-            
+                    if not isinstance(model, dict):
+                        continue
+                    model_id = model.get('id', '')
+                    model_name = model.get('name') or model_id
+                    models.append({
+                        'id': model_id,
+                        'name': model_name,
+                        'free': CustomEndpointHelper._parse_free_flag(model, model_id, model_name)
+                    })
+            return True, CustomEndpointHelper._sort_models(models), ''
         except requests.exceptions.Timeout:
-            return False, [], "Request timeout - endpoint took too long to respond"
+            return False, [], 'Request timeout - endpoint took too long to respond'
         except requests.exceptions.ConnectionError:
-            return False, [], "Connection error - could not reach endpoint"
+            return False, [], 'Connection error - could not reach endpoint'
         except Exception as e:
             return False, [], str(e)
+
+    @staticmethod
+    def _fetch_gemini_models(api_key: str, endpoint: str | None = None, timeout: int = 30) -> tuple[bool, list[dict], str]:
+        try:
+            base_url = (endpoint or CustomEndpointHelper._load_provider_endpoints().get('gemini') or 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
+            base_url_lower = base_url.lower()
+            if 'generative.googleapis.com' in base_url_lower:
+                base_url = 'https://generativelanguage.googleapis.com/v1beta'
+            elif base_url_lower.endswith('/v1'):
+                base_url = f"{base_url[:-3]}/v1beta"
+            elif not re.search(r'/v1beta(?:/|$)', base_url_lower):
+                base_url = f"{base_url}/v1beta" if '/v1' not in base_url_lower else base_url
+            models_endpoint = f"{base_url}/models"
+            CustomEndpointHelper.validate_url(models_endpoint)
+            resp = requests.get(models_endpoint, params={'key': api_key}, timeout=timeout)
+            if resp.status_code >= 400:
+                body = resp.text or '<no body>'
+                return False, [], f"Status {resp.status_code}: {body}"
+            j = resp.json()
+            models = []
+            data = j.get('models', [])
+            if isinstance(data, list):
+                for model in data:
+                    if not isinstance(model, dict):
+                        continue
+                    raw_name = model.get('name', '')
+                    model_id = raw_name.split('models/', 1)[1] if raw_name.startswith('models/') else raw_name
+                    if not model_id:
+                        continue
+                    display_name = model.get('displayName') or model_id
+                    models.append({
+                        'id': model_id,
+                        'name': display_name,
+                        'free': CustomEndpointHelper._parse_free_flag(model, model_id, display_name)
+                    })
+            return True, CustomEndpointHelper._sort_models(models), ''
+        except requests.exceptions.Timeout:
+            return False, [], 'Request timeout - endpoint took too long to respond'
+        except requests.exceptions.ConnectionError:
+            return False, [], 'Connection error - could not reach endpoint'
+        except Exception as e:
+            return False, [], str(e)
+
+    @staticmethod
+    def fetch_models(api_key: str, endpoint: str | None = None, timeout: int = 30, provider: str | None = None) -> tuple[bool, list[dict], str]:
+        """
+        Fetch available models for built-in or custom providers.
+        Returns (success, models_list, error_message)
+        models_list is a list of dicts with keys: 'id', 'name', 'free' (bool)
+        """
+        provider_key = (provider or '').strip().lower()
+        provider_endpoints = CustomEndpointHelper._load_provider_endpoints()
+        openai_compatible = {'openai', 'openrouter', 'groq', 'blackbox', 'maia', 'custom'}
+        if provider_key == 'gemini':
+            return CustomEndpointHelper._fetch_gemini_models(api_key, endpoint or provider_endpoints.get('gemini'), timeout)
+        if provider_key in openai_compatible:
+            resolved_endpoint = endpoint or provider_endpoints.get(provider_key)
+            if not resolved_endpoint:
+                return False, [], f'No endpoint configured for provider: {provider_key}'
+            return CustomEndpointHelper._fetch_openai_compatible_models(api_key, resolved_endpoint, timeout)
+        resolved_endpoint = endpoint or provider_endpoints.get(provider_key)
+        if resolved_endpoint:
+            return CustomEndpointHelper._fetch_openai_compatible_models(api_key, resolved_endpoint, timeout)
+        return False, [], f'Unsupported provider for model fetch: {provider_key}'
 
     @staticmethod
     def test_connectivity(api_key: str, endpoint: str, provider: str | None = None, model: str | None = None, timeout: int = 30) -> tuple[bool, str]:

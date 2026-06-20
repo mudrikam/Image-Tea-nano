@@ -19,15 +19,16 @@ from ui.theme_system import theme
 class FetchModelsThread(QThread):
     result = Signal(bool, list, str)  # success, models_list, error_message
     
-    def __init__(self, api_key, endpoint):
+    def __init__(self, api_key, endpoint=None, provider=None):
         super().__init__()
         self.api_key = api_key
         self.endpoint = endpoint
+        self.provider = provider
     
     def run(self):
         try:
             from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-            success, models, error = CustomEndpointHelper.fetch_models(self.api_key, self.endpoint)
+            success, models, error = CustomEndpointHelper.fetch_models(self.api_key, self.endpoint, provider=self.provider)
             self.result.emit(success, models, error)
         except Exception as e:
             self.result.emit(False, [], str(e))
@@ -36,11 +37,12 @@ class FetchModelsThread(QThread):
 class FetchModelsDialog(QDialog):
     model_selected = Signal(str)  # Emits selected model ID
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, provider=None):
         super().__init__(parent)
         self.setWindowTitle("Fetch Models")
         self.setFixedSize(450, 400)
         self.selected_model = None
+        self.provider = provider
         
         layout = QVBoxLayout()
         
@@ -110,13 +112,15 @@ class FetchModelsDialog(QDialog):
         self.models_data = []
         self.fetch_thread = None
     
-    def fetch_models(self, api_key, endpoint):
-        """Start fetching models from endpoint"""
+    def fetch_models(self, api_key, endpoint=None, provider=None):
+        """Start fetching models from provider or endpoint"""
         self.progress_bar.setVisible(True)
         self.models_list.clear()
         self.select_btn.setEnabled(False)
+        if provider:
+            self.provider = provider
         
-        self.fetch_thread = FetchModelsThread(api_key, endpoint)
+        self.fetch_thread = FetchModelsThread(api_key, endpoint, self.provider)
         self.fetch_thread.result.connect(self._on_fetch_result)
         self.fetch_thread.finished.connect(lambda: self.progress_bar.setVisible(False))
         self.fetch_thread.start()
@@ -1851,9 +1855,10 @@ class AddApiKeyDialog(QDialog):
         """Enable/disable endpoint field based on service selection"""
         service_key = self.normalize_service_key(self.service_combo.currentData())
         is_custom = service_key == 'custom'
+        fetchable_services = {'gemini', 'openai', 'openrouter', 'groq', 'blackbox', 'maia', 'custom'}
         self.endpoint_edit.setEnabled(is_custom)
         self.endpoint_paste_btn.setEnabled(is_custom)
-        self.fetch_models_btn.setVisible(is_custom)
+        self.fetch_models_btn.setVisible(service_key in fetchable_services)
 
     def _on_endpoint_combo_changed(self, idx):
         """When user selects a provider from dropdown, auto-fill the endpoint URL"""
@@ -1878,34 +1883,79 @@ class AddApiKeyDialog(QDialog):
         except Exception as e:
             print(f"[AddApiKeyDialog] Failed to paste model: {e}")
 
-    def _on_fetch_models_clicked(self):
-        """Fetch models from custom endpoint"""
+    def _save_fetched_models_to_config(self, service_key, models):
         try:
-            # Validate inputs
+            if not service_key:
+                return
+            fetched_model_ids = []
+            for model in (models or []):
+                if isinstance(model, dict):
+                    model_id = (model.get('id') or '').strip()
+                    if model_id and model_id not in fetched_model_ids:
+                        fetched_model_ids.append(model_id)
+            if not fetched_model_ids:
+                return
+            ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'configs', 'ai_config.json')
+            try:
+                with open(ai_prompt_path, 'r', encoding='utf-8') as f:
+                    ai_config = json.load(f)
+            except Exception:
+                ai_config = {}
+            model_list = self.normalize_model_list(ai_config.get('model_list', {}))
+            model_list[service_key] = fetched_model_ids
+            ai_config['model_list'] = model_list
+            with open(ai_prompt_path, 'w', encoding='utf-8') as f:
+                json.dump(ai_config, f, indent=2, ensure_ascii=False)
+            self.model_list = self.normalize_model_list(model_list)
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Error saving fetched models to config: {e}")
+
+    def _resolve_fetch_provider_endpoint(self, service_key):
+        endpoint = None
+        try:
+            ai_prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'configs', 'ai_config.json')
+            with open(ai_prompt_path, 'r', encoding='utf-8') as f:
+                ai_config = json.load(f)
+            endpoint = (ai_config.get('provider_endpoints', {}) or {}).get(service_key)
+        except Exception as e:
+            print(f"[AddApiKeyDialog] Failed loading provider endpoints: {e}")
+        if service_key == 'custom':
+            custom_endpoint = self.endpoint_edit.currentText().strip()
+            return custom_endpoint or endpoint
+        return endpoint
+
+    def _on_fetch_models_clicked(self):
+        """Fetch models from selected provider or custom endpoint"""
+        try:
             api_key = self.key_edit.text().strip()
-            endpoint = self.endpoint_edit.currentText().strip()
+            service_key = self.normalize_service_key(self.service_combo.currentData())
+            endpoint = self._resolve_fetch_provider_endpoint(service_key)
             
             if not api_key:
-                QMessageBox.warning(self, "Fetch Models", "Please enter an API key first.")
+                QMessageBox.warning(self, 'Fetch Models', 'Please enter an API key first.')
+                return
+            if service_key == 'custom' and not endpoint:
+                QMessageBox.warning(self, 'Fetch Models', 'Please enter a custom endpoint URL first.')
+                return
+            if not service_key:
+                QMessageBox.warning(self, 'Fetch Models', 'Please select a provider first.')
                 return
             
-            if not endpoint:
-                QMessageBox.warning(self, "Fetch Models", "Please enter a custom endpoint URL first.")
-                return
-            
-            # Create and show dialog
-            dialog = FetchModelsDialog(self)
-            dialog.fetch_models(api_key, endpoint)
+            dialog = FetchModelsDialog(self, provider=service_key)
+            dialog.fetch_models(api_key, endpoint, provider=service_key)
             
             if dialog.exec():
                 selected_model = dialog.get_selected_model()
+                fetched_models = getattr(dialog, 'models_data', [])
+                if fetched_models:
+                    self._save_fetched_models_to_config(service_key, fetched_models)
+                    self._refresh_model_combo()
                 if selected_model:
-                    # Set the model in the combo
                     self.model_combo.setCurrentText(selected_model)
                     
         except Exception as e:
             print(f"[AddApiKeyDialog] Error fetching models: {e}")
-            QMessageBox.critical(self, "Fetch Models", f"Failed to fetch models: {e}")
+            QMessageBox.critical(self, 'Fetch Models', f'Failed to fetch models: {e}')
     
     def _on_add_model_clicked(self):
         """Save the current model text to the model list for the active provider"""
