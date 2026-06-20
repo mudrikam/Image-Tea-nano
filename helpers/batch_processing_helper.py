@@ -70,6 +70,53 @@ def get_flow_mode_import_target(window, is_parallel_mode=False, api_keys_list=No
         return batch_size * max(1, len(api_keys_list))
     return batch_size
 
+
+def get_flow_mode_batch_rows(window, is_parallel_mode=False, api_keys_list=None):
+    if not getattr(window, 'table', None):
+        return []
+    table = window.table
+    pending_files = table.get_flow_mode_pending_files() if hasattr(table, 'get_flow_mode_pending_files') else []
+    if not pending_files:
+        return []
+    import_target = get_flow_mode_import_target(window, is_parallel_mode, api_keys_list)
+    imported_files = table.import_flow_mode_files(import_target) if hasattr(table, 'import_flow_mode_files') else []
+    rows = []
+    for filepath in imported_files:
+        row = window.db.get_file_by_path(filepath) if hasattr(window.db, 'get_file_by_path') else None
+        if row:
+            rows.append(row)
+    print(f"[FLOW MODE] Imported batch rows: {len(rows)} / target {import_target} / pending source {len(pending_files)}")
+    return rows
+
+
+def refill_flow_mode_batches(window, state):
+    is_parallel_mode = state.get('is_parallel_mode', False)
+    api_keys_list = state.get('api_keys_list', [])
+    flow_mode_rows = get_flow_mode_batch_rows(window, is_parallel_mode, api_keys_list)
+    if not flow_mode_rows:
+        return False
+
+    batch_size = get_batch_size()
+    if is_parallel_mode and api_keys_list:
+        state['batches'] = create_parallel_rounds(flow_mode_rows, api_keys_list, batch_size)
+    else:
+        state['batches'] = [flow_mode_rows[i:i+batch_size] for i in range(0, len(flow_mode_rows), batch_size)]
+
+    state['rows'] = flow_mode_rows
+    state['current'] = 0
+    state['row_map'] = {}
+    state['batch_retry_count'] = 0
+    state['batch_same_api_retry'] = 0
+    state['file_retry_count'] = 0
+    state['current_api_index'] = 0
+    window._flow_mode_session_active = True
+
+    if hasattr(window, 'stats_section'):
+        window.stats_section.set_processing_target(len(flow_mode_rows))
+
+    print(f"[FLOW MODE] Refilled {len(flow_mode_rows)} file(s) into {len(state['batches'])} batch/round(s)")
+    return True
+
 def get_max_retries():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -566,6 +613,8 @@ def create_parallel_rounds(files, api_keys_list, batch_size):
 def batch_generate_metadata(window):
     if getattr(window, 'is_generating', False):
         return
+    if getattr(window, '_flow_mode_session_active', False):
+        return
 
     # Clean up any stuck processing files from previous runs
     cleanup_stuck_processing_files(window)
@@ -726,44 +775,67 @@ def batch_generate_metadata(window):
         else:
             mode = "all"
 
-    if hasattr(window, 'table') and getattr(window.table, 'flow_mode_enabled', False) and mode == 'all':
-        # Flow Mode: import ALL pending files from the source folder into the DB at once,
-        # so the normal sequential batch loop processes them all continuously until done.
-        pending_flow_files = window.table.get_flow_mode_pending_files() if hasattr(window.table, 'get_flow_mode_pending_files') else []
-        if pending_flow_files:
-            print(f"[FLOW MODE] Importing ALL {len(pending_flow_files)} pending file(s) from source folder before generation")
-            imported_now = window.table.import_flow_mode_files(len(pending_flow_files))
-            if imported_now:
-                print(f"[FLOW MODE] Imported {len(imported_now)} file(s) from source folder. Processing all sequentially.")
+    flow_mode_active = bool(getattr(window, 'table', None) and getattr(window.table, 'flow_mode_enabled', False) and getattr(window.table, 'flow_mode_source_path', '').strip())
+    flow_mode_pending_files = []
+    flow_mode_import_target = get_flow_mode_import_target(window, is_parallel_mode, api_keys_list) if flow_mode_active and mode == 'all' else 0
+    if flow_mode_active and mode == 'all':
+        flow_mode_pending_files = window.table.get_flow_mode_pending_files() if hasattr(window.table, 'get_flow_mode_pending_files') else []
+        if flow_mode_pending_files:
+            print(f"[FLOW MODE] Source folder active with {len(flow_mode_pending_files)} pending file(s)")
+            print(f"[FLOW MODE] Import target this round: {flow_mode_import_target}")
         else:
-            print(f"[FLOW MODE] No pending files to import from source folder.")
+            print(f"[FLOW MODE] Source folder active but no pending file(s) found")
 
     # Get rows based on pagination-aware approach
     rows = []
     row_map = {}
     
     if mode == "all":
-        # For "all" mode, get all files across all pages
-        search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
-        total_count = window.db.get_files_count(search_text)
-        if total_count == 0:
-            QMessageBox.information(window, "Generate Metadata", "No files found to process.")
-            window.table.progress_bar.setVisible(False)
-            return
-        
-        # Get all files using pagination to avoid memory issues for very large datasets
-        page_size = 1000  # Use larger page size for batch processing
-        current_page = 1
-        while True:
-            page_rows = window.db.get_files_paginated(
-                page=current_page, 
-                page_size=page_size, 
-                search_text=search_text
-            )
-            if not page_rows:
-                break
-            rows.extend(page_rows)
-            current_page += 1
+        if flow_mode_active:
+            flow_mode_rows = get_flow_mode_batch_rows(window, is_parallel_mode, api_keys_list)
+            if flow_mode_rows:
+                rows = flow_mode_rows
+            else:
+                search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+                total_count = window.db.get_files_count(search_text)
+                if total_count == 0:
+                    QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+                    window.table.progress_bar.setVisible(False)
+                    return
+                page_size = 1000
+                current_page = 1
+                while True:
+                    page_rows = window.db.get_files_paginated(
+                        page=current_page,
+                        page_size=page_size,
+                        search_text=search_text
+                    )
+                    if not page_rows:
+                        break
+                    rows.extend(page_rows)
+                    current_page += 1
+        else:
+            # For "all" mode, get all files across all pages
+            search_text = window.table.search_edit.text() if hasattr(window.table, 'search_edit') else None
+            total_count = window.db.get_files_count(search_text)
+            if total_count == 0:
+                QMessageBox.information(window, "Generate Metadata", "No files found to process.")
+                window.table.progress_bar.setVisible(False)
+                return
+            
+            # Get all files using pagination to avoid memory issues for very large datasets
+            page_size = 1000  # Use larger page size for batch processing
+            current_page = 1
+            while True:
+                page_rows = window.db.get_files_paginated(
+                    page=current_page, 
+                    page_size=page_size, 
+                    search_text=search_text
+                )
+                if not page_rows:
+                    break
+                rows.extend(page_rows)
+                current_page += 1
             
     elif mode == "selected":
         # For "selected" mode, only get checked items from current page
@@ -2063,8 +2135,12 @@ def _run_next_batch(window):
         _on_generation_finished(window, state['errors'], stopped=True)
         return
     if state['current'] >= len(state['batches']):
-        _on_generation_finished(window, state['errors'])
-        return
+        flow_mode_enabled = bool(getattr(window, 'table', None) and getattr(window.table, 'flow_mode_enabled', False) and getattr(window.table, 'flow_mode_source_path', '').strip() and state.get('mode') == 'all')
+        if flow_mode_enabled and refill_flow_mode_batches(window, state):
+            print("[FLOW MODE] Continuing with next source batch")
+        else:
+            _on_generation_finished(window, state['errors'])
+            return
     
     # Refresh configuration from JSON for each batch run
     try:

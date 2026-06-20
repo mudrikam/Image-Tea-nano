@@ -1072,18 +1072,14 @@ class ImageTableWidget(QWidget):
         self.flow_mode_refresh_btn = QPushButton(qta.icon('fa6s.rotate-right'), "Refresh")
         self.flow_mode_refresh_btn.clicked.connect(self.refresh_flow_mode_source)
         flow_path_layout.addWidget(self.flow_mode_refresh_btn)
-        self.flow_mode_tab_layout.addLayout(flow_path_layout)
 
-        flow_header = QLabel("Flow Mode helps scan a folder and auto-import files to the database only when generation needs them.")
-        flow_header.setWordWrap(True)
-        flow_header.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 10pt;")
-        self.flow_mode_tab_layout.addWidget(flow_header)
+        self.flow_mode_clear_btn = QPushButton(qta.icon('fa6s.eraser'), "Clear")
+        self.flow_mode_clear_btn.clicked.connect(self.clear_flow_mode_source)
+        flow_path_layout.addWidget(self.flow_mode_clear_btn)
+        self.flow_mode_tab_layout.addLayout(flow_path_layout)
 
         flow_source_layout = QVBoxLayout()
         flow_source_layout.setSpacing(2)
-        self.flow_mode_source_title_label = QLabel("Source Path")
-        self.flow_mode_source_title_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 9pt; font-weight: bold;")
-        flow_source_layout.addWidget(self.flow_mode_source_title_label)
         self.flow_mode_source_label = QLabel("-")
         self.flow_mode_source_label.setStyleSheet(f"color: {theme.get_color('text_dark')}; font-size: 9pt;")
         self.flow_mode_source_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -1102,10 +1098,6 @@ class ImageTableWidget(QWidget):
         flow_stats_layout.addStretch()
         self.flow_mode_tab_layout.addLayout(flow_stats_layout)
 
-        self.flow_mode_status_label = QLabel("Choose a folder to start Flow Mode.")
-        self.flow_mode_status_label.setWordWrap(True)
-        self.flow_mode_status_label.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 9pt;")
-        self.flow_mode_tab_layout.addWidget(self.flow_mode_status_label)
 
         self.flow_mode_table = QTableWidget(0, 1, self.flow_mode_tab)
         self.flow_mode_table.setHorizontalHeaderLabels(["Files"])
@@ -3337,14 +3329,14 @@ class ImageTableWidget(QWidget):
         if not source_path:
             self.flow_mode_files = []
             self.flow_mode_imported_files = set()
-            self._update_flow_mode_ui("Choose a folder to start Flow Mode.")
+            self._update_flow_mode_ui()
             return
 
         if not os.path.isdir(source_path):
             self.flow_mode_files = []
             self.flow_mode_imported_files = set()
             self.flow_mode_last_scan_error = "Selected path is not a valid folder."
-            self._update_flow_mode_ui(self.flow_mode_last_scan_error)
+            self._update_flow_mode_ui()
             return
 
         scanned_files = []
@@ -3357,31 +3349,34 @@ class ImageTableWidget(QWidget):
         scanned_files.sort(key=lambda path: (os.path.basename(path).lower(), path.lower()))
         self.flow_mode_files = scanned_files
         self._sync_flow_mode_with_database()
-        self._update_flow_mode_ui(f"Flow Mode ready. {len(scanned_files)} supported file(s) found.")
 
     def _sync_flow_mode_with_database(self):
         imported = set()
-        flow_mode_files_set = set(self.flow_mode_files)
+        flow_mode_files_set = {os.path.normcase(os.path.normpath(path)) for path in self.flow_mode_files}
         if flow_mode_files_set and self.db:
             try:
                 for row in self.db.get_all_files():
-                    filepath = os.path.normpath(row[1])
+                    filepath = os.path.normcase(os.path.normpath(row[1]))
                     if filepath in flow_mode_files_set:
                         imported.add(filepath)
             except Exception as e:
                 print(f"[Flow Mode] Failed to sync DB state: {e}")
         self.flow_mode_imported_files = imported
+        print(f"[Flow Mode] Sync DB matched {len(imported)} of {len(self.flow_mode_files)} source file(s)")
         self._populate_flow_mode_table()
+        self._update_flow_mode_ui()
 
     def _populate_flow_mode_table(self):
         if not hasattr(self, 'flow_mode_table'):
             return
         self.flow_mode_table.setRowCount(len(self.flow_mode_files))
+        imported = self.flow_mode_imported_files or set()
         for index, file_path in enumerate(self.flow_mode_files):
             display_name = os.path.basename(file_path)
             item = QTableWidgetItem(display_name)
             item.setToolTip(file_path)
-            if file_path in self.flow_mode_imported_files:
+            normalized = os.path.normcase(os.path.normpath(file_path))
+            if normalized in imported:
                 item.setForeground(QBrush(QColor(theme.get_color('gray'))))
             self.flow_mode_table.setItem(index, 0, item)
         self.flow_mode_table.verticalHeader().setDefaultSectionSize(22)
@@ -3408,17 +3403,25 @@ class ImageTableWidget(QWidget):
             self.flow_mode_pending_label.setText(f"Pending Import: {pending_count}")
         if hasattr(self, 'flow_mode_db_label'):
             self.flow_mode_db_label.setText(f"Already In DB: {len(self.flow_mode_imported_files)}")
-        if hasattr(self, 'flow_mode_status_label'):
-            self.flow_mode_status_label.setText(status_text or self.flow_mode_status_label.text())
 
     def get_flow_mode_pending_files(self):
         pending_files = []
         imported = self.flow_mode_imported_files or set()
         for file_path in self.flow_mode_files:
-            normalized = os.path.normpath(file_path)
-            if normalized not in imported and os.path.isfile(normalized):
-                pending_files.append(normalized)
+            normalized = os.path.normcase(os.path.normpath(file_path))
+            if normalized not in imported and os.path.isfile(file_path):
+                pending_files.append(os.path.normpath(file_path))
         return pending_files
+
+    def clear_flow_mode_source(self):
+        self.flow_mode_path_edit.clear()
+        self.flow_mode_source_path = ""
+        self.flow_mode_enabled = False
+        self.flow_mode_files = []
+        self.flow_mode_imported_files = set()
+        self.flow_mode_last_scan_error = ""
+        self._sync_flow_mode_with_database()
+        self._update_flow_mode_ui()
 
     def import_flow_mode_files(self, max_files):
         if not self.flow_mode_enabled:
@@ -3435,12 +3438,10 @@ class ImageTableWidget(QWidget):
             self.refresh_table()
             self._sync_flow_mode_with_database()
             if imported_ok:
-                imported_count = len([path for path in pending_files if path in self.flow_mode_imported_files])
-                self._update_flow_mode_ui(f"Imported {imported_count} file(s) from Flow Mode source.")
-                return pending_files[:imported_count]
+                return pending_files
         except Exception as e:
             self.flow_mode_last_scan_error = str(e)
-            self._update_flow_mode_ui(f"Flow Mode import failed: {e}")
+            self._update_flow_mode_ui()
             print(f"[Flow Mode] Import failed: {e}")
         return []
 

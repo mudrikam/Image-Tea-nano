@@ -192,6 +192,12 @@ class ImageTeaDB:
             c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files ORDER BY filename COLLATE NOCASE ASC, filepath ASC')
             return c.fetchall()
 
+    def get_file_by_path(self, filepath):
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files WHERE filepath=? LIMIT 1', (filepath,))
+            return c.fetchone()
+
     def get_files_count(self, search_text=None, status_filter=None):
         """Get total count of files, optionally filtered by search and status"""
         with sqlite3.connect(self.db_path) as conn:
