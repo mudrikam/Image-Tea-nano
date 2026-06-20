@@ -15,6 +15,8 @@
 ### 🧉 SO I BUILT MY OWN!
 
 ![Image Tea UI](res/images/ui_screenshot.png)
+![Image Tea UI](res/images/ui_screenshot_tools.png)
+![Image Tea UI](res/images/ui_screenshot_account_manager.png)
 
 No trial. No subscription. No accounts. No tracking. Just paste your API key and go.
 

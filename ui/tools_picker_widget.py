@@ -8,6 +8,7 @@ import os
 import webbrowser
 from config import BASE_PATH
 from ui.theme_system import theme
+from database.db_account_manager_operations import AccountManagerDB
 
 
 class ToolCardWidget(QFrame):
@@ -233,12 +234,14 @@ class ToolsPickerWidget(QWidget):
         self.stat_video = self._make_stat_chip('fa6s.video', "Video", '#9C27B0')
         self.stat_extension = self._make_stat_chip('fa6b.chrome', "Extensions", '#FF9800')
         self.stat_other = self._make_stat_chip('fa6s.ellipsis', "Others", theme.get_color('gray'))
+        self.stat_profiles = self._make_stat_chip('fa6s.user', "Profiles", '#4CAF50')
 
         stats_layout.addWidget(self.stat_total['frame'])
         stats_layout.addWidget(self.stat_image['frame'])
         stats_layout.addWidget(self.stat_video['frame'])
         stats_layout.addWidget(self.stat_extension['frame'])
         stats_layout.addWidget(self.stat_other['frame'])
+        stats_layout.addWidget(self.stat_profiles['frame'])
         stats_layout.addStretch()
 
         layout.addLayout(stats_layout)
@@ -404,15 +407,24 @@ class ToolsPickerWidget(QWidget):
         # Populate Others tab from config
         self._populate_tab(self.others_tab, other_tools)
 
+        # Get profile count from Account Manager database
+        try:
+            db = AccountManagerDB()
+            all_profiles = db.get_all_profiles()
+            profile_count = len(all_profiles)
+        except Exception:
+            profile_count = 0
+
         # Update tab labels and stats with counts
         self._update_counts(
             image_count=len(image_tools),
             video_count=len(video_tools),
             extension_count=len(extension_tools),
             other_count=len(other_tools),
+            profile_count=profile_count,
         )
 
-    def _update_counts(self, image_count, video_count, extension_count, other_count):
+    def _update_counts(self, image_count, video_count, extension_count, other_count, profile_count=0):
         """Update tab labels and stats summary with tool counts"""
         self.tab_widget.setTabText(0, f"Image Processing ({image_count})")
         self.tab_widget.setTabText(1, f"Video Processing ({video_count})")
@@ -425,6 +437,7 @@ class ToolsPickerWidget(QWidget):
         self.stat_video['count'].setText(str(video_count))
         self.stat_extension['count'].setText(str(extension_count))
         self.stat_other['count'].setText(str(other_count))
+        self.stat_profiles['count'].setText(str(profile_count))
     
     def _load_extensions_from_directory(self, extensions_path):
         """Load extension tools from tools/extension directory"""
