@@ -63,6 +63,13 @@ def get_delay_interval():
         return random.uniform(1, 5)
     return float(delay_value)
 
+
+def get_flow_mode_import_target(window, is_parallel_mode=False, api_keys_list=None):
+    batch_size = get_batch_size()
+    if is_parallel_mode and api_keys_list:
+        return batch_size * max(1, len(api_keys_list))
+    return batch_size
+
 def get_max_retries():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -718,7 +725,19 @@ def batch_generate_metadata(window):
             mode = "all"  # Pure rolling/parallel APIs processes all files
         else:
             mode = "all"
-    
+
+    if hasattr(window, 'table') and getattr(window.table, 'flow_mode_enabled', False) and mode == 'all':
+        # Flow Mode: import ALL pending files from the source folder into the DB at once,
+        # so the normal sequential batch loop processes them all continuously until done.
+        pending_flow_files = window.table.get_flow_mode_pending_files() if hasattr(window.table, 'get_flow_mode_pending_files') else []
+        if pending_flow_files:
+            print(f"[FLOW MODE] Importing ALL {len(pending_flow_files)} pending file(s) from source folder before generation")
+            imported_now = window.table.import_flow_mode_files(len(pending_flow_files))
+            if imported_now:
+                print(f"[FLOW MODE] Imported {len(imported_now)} file(s) from source folder. Processing all sequentially.")
+        else:
+            print(f"[FLOW MODE] No pending files to import from source folder.")
+
     # Get rows based on pagination-aware approach
     rows = []
     row_map = {}
