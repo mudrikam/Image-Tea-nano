@@ -775,7 +775,13 @@ def batch_generate_metadata(window):
         else:
             mode = "all"
 
-    flow_mode_active = bool(getattr(window, 'table', None) and getattr(window.table, 'flow_mode_enabled', False) and getattr(window.table, 'flow_mode_source_path', '').strip())
+    # Re-check flow mode status from both attribute and QLineEdit to ensure reliability
+    flow_mode_active = bool(
+        getattr(window, 'table', None) and 
+        getattr(window.table, 'flow_mode_enabled', False) and 
+        (getattr(window.table, 'flow_mode_source_path', '').strip() or 
+         (hasattr(window.table, 'flow_mode_path_edit') and window.table.flow_mode_path_edit.text().strip()))
+    )
     flow_mode_pending_files = []
     flow_mode_import_target = get_flow_mode_import_target(window, is_parallel_mode, api_keys_list) if flow_mode_active and mode == 'all' else 0
     if flow_mode_active and mode == 'all':

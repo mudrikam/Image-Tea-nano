@@ -1063,6 +1063,7 @@ class ImageTableWidget(QWidget):
         self.flow_mode_path_edit.setToolTip("Source folder for Flow Mode. Files remain on disk and are imported to DB automatically per batch.")
         self.flow_mode_path_edit.dragEnterEvent = DragDropPathMixin.make_drag_enter_handler(self.flow_mode_path_edit)
         self.flow_mode_path_edit.dropEvent = DragDropPathMixin.make_drop_handler(self.flow_mode_path_edit, 'folder', self._on_flow_mode_path_dropped)
+        self.flow_mode_path_edit.textChanged.connect(self._on_flow_mode_path_edit_text_changed)
         flow_path_layout.addWidget(self.flow_mode_path_edit)
 
         self.flow_mode_browse_btn = QPushButton(qta.icon('fa6s.folder-open'), "Browse Folder")
@@ -3322,6 +3323,9 @@ class ImageTableWidget(QWidget):
 
     def refresh_flow_mode_source(self):
         source_path = self.flow_mode_path_edit.text().strip()
+        self._sync_flow_mode_state(source_path)
+
+    def _sync_flow_mode_state(self, source_path):
         self.flow_mode_source_path = source_path
         self.flow_mode_enabled = bool(source_path)
         self.flow_mode_last_scan_error = ""
@@ -3349,6 +3353,10 @@ class ImageTableWidget(QWidget):
         scanned_files.sort(key=lambda path: (os.path.basename(path).lower(), path.lower()))
         self.flow_mode_files = scanned_files
         self._sync_flow_mode_with_database()
+
+    def _on_flow_mode_path_edit_text_changed(self):
+        source_path = self.flow_mode_path_edit.text().strip()
+        self._sync_flow_mode_state(source_path)
 
     def _sync_flow_mode_with_database(self):
         imported = set()
