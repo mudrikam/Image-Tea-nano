@@ -609,6 +609,7 @@ class AddApiKeyDialog(QDialog):
     
     # Central mapping for endpoints: display_name -> url
     ENDPOINT_MAP = {
+        'KoboiLLM': 'https://api.koboillm.com/v1',
         'Desainia API': 'https://api.desainia.my.id/v1',
         'OpenRouter Custom': 'https://openrouter.ai/api/v1',
         'Groq Custom': 'https://api.groq.com/openai/v1',
@@ -618,8 +619,7 @@ class AddApiKeyDialog(QDialog):
         'Perplexity': 'https://api.perplexity.ai',
         'Fireworks AI': 'https://api.fireworks.ai/inference/v1',
         'Anthropic': 'https://api.anthropic.com/v1/messages',
-        'Ollama Local': 'http://localhost:11434/v1',
-        'KoboiLLM': 'https://api.koboillm.com/v1'
+        'Ollama Local': 'http://localhost:11434/v1'
     }
 
     SERVICE_ALIASES = {

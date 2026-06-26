@@ -131,10 +131,10 @@ def process_image_with_gemini(image_data, api_key, model, limits, service=None, 
     
     # Other OpenAI-compatible services (use OpenAI SDK with their default endpoints)
     openai_compatible_defaults = {
+        'kobillm': 'https://api.koboillm.com/v1',
         'openai': 'https://api.openai.com/v1',
         'groq': 'https://api.groq.com/openai/v1',
         'together': 'https://api.together.xyz/v1',
-        'kobillm': 'https://api.koboillm.com/v1',
         'deepseek': 'https://api.deepseek.com/v1',
         'perplexity': 'https://api.perplexity.ai/v1',
     }

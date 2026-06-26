@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QFrame, QApplication, QScrollArea, QWidget
+    QFrame, QApplication, QScrollArea, QWidget, QToolTip
 )
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
@@ -52,9 +52,9 @@ class ExtensionInstallDialog(QDialog):
         step1 = self.create_step(
             step_number=1,
             title="Open Chrome Extensions Page",
-            description="Open your Chrome browser and navigate to the Extensions management page.",
-            button_text="Open chrome://extensions",
-            button_action=self.open_extensions_page
+            description="Copy the URL below and open Chrome browser, then paste it in the address bar to navigate to the Extensions management page.",
+            button_text="Copy Extension URL",
+            button_action=self.copy_extensions_url
         )
         scroll_layout.addWidget(step1)
         
@@ -125,6 +125,12 @@ class ExtensionInstallDialog(QDialog):
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll)
+        
+        self.instructions_label = QLabel("chrome://extensions/")
+        self.instructions_label.setStyleSheet(f"color: {theme.get_color('primary')}; font-family: monospace; font-size: 12px; margin-top: 10px;")
+        self.instructions_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.instructions_label.setCursor(Qt.CursorShape.IBeamCursor)
+        layout.addWidget(self.instructions_label)
         
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
@@ -235,9 +241,9 @@ class ExtensionInstallDialog(QDialog):
                     }}
                 """)
             if 'Copy' in button_text:
-                btn.setToolTip('Copy extension path to clipboard')
+                btn.setToolTip('Copy URL to clipboard')
             elif 'Open' in button_text:
-                btn.setToolTip('Open chrome://extensions (URL copied to clipboard)')
+                btn.setToolTip('Open extension folder in file explorer')
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(button_action)
             content_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -250,16 +256,32 @@ class ExtensionInstallDialog(QDialog):
         
         return frame
     
-    def open_extensions_page(self):
-        QDesktopServices.openUrl(QUrl("chrome://extensions/"))
-        print("[Extension Install] Opened chrome://extensions/ - user needs to paste in Chrome address bar")
-        
+    def copy_extensions_url(self):
         clipboard = QApplication.clipboard()
         clipboard.setText("chrome://extensions/")
+        try:
+            btn = self.sender()
+            if btn:
+                pos = btn.mapToGlobal(btn.rect().center())
+            else:
+                pos = self.mapToGlobal(self.rect().center())
+            QToolTip.showText(pos, "Copied: chrome://extensions/", self)
+        except Exception as e:
+            print(f"[Extension Install] Tooltip error: {e}")
+        print("[Extension Install] Copied chrome://extensions/ to clipboard - paste in Chrome address bar")
         
     def copy_extension_path(self):
         clipboard = QApplication.clipboard()
         clipboard.setText(self.extension_path)
+        try:
+            btn = self.sender()
+            if btn:
+                pos = btn.mapToGlobal(btn.rect().center())
+            else:
+                pos = self.mapToGlobal(self.rect().center())
+            QToolTip.showText(pos, f"Copied: {self.extension_path}", self)
+        except Exception as e:
+            print(f"[Extension Install] Tooltip error: {e}")
         print(f"[Extension Install] Extension path copied to clipboard: {self.extension_path}")
     
     def open_extension_folder(self):
