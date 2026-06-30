@@ -929,14 +929,10 @@ class UpscaleWorker(QThread):
                         self.progress_signal.emit(min(100, progress_pct))
                     
                     self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
-                    
-                    if (idx + 1) % 10 == 0 or (idx + 1) == len(frames_to_process):
-                        self.log_signal.emit(f"   Progress: {processed}/{total_frames} frames ({progress_pct}%)")
-                
-                elapsed = time.time() - start_time
-                self.progress_signal.emit(100)
-                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_process)} frames (skipped {skipped_count}) in {elapsed:.2f}s")
-            
+
+                if (idx + 1) % 10 == 0 or (idx + 1) == len(frames_to_process):
+                    self.log_signal.emit(f"   Progress: {processed}/{total_frames} frames ({progress_pct}%)")
+
             elif self.model_type == 'waifu2x':
                 if not self._preflight_waifu2x():
                     return False
@@ -1039,12 +1035,8 @@ class UpscaleWorker(QThread):
                         eta = (elapsed / processed) * remaining if processed > 0 else 0.0
                         progress_pct = int((processed / total_frames) * 100)
                         self.progress_signal.emit(min(100, progress_pct))
-                        self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
-                    
-                    elapsed = time.time() - start_time
-                    self.progress_signal.emit(100)
-                    self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {len(frames_to_upscale)} frames (Waifu2x) in {elapsed:.2f}s")
-            
+                    self.stats_signal.emit(processed, total_frames, elapsed, remaining, float(eta))
+
             elif not skip_upscale:
                 model_to_use = self.model
                 if re.search(r"x([1-8])", model_to_use, re.IGNORECASE):
@@ -1263,38 +1255,38 @@ class UpscaleWorker(QThread):
                             progress_pct = int((processed / frame_count) * 100)
                             self.progress_signal.emit(min(100, progress_pct))
 
-                        self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
-            
-                if self._stop_requested:
-                    return False
-                
-                self.log_signal.emit("🔧 Renaming output frames...")
-                output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
-                for idx, frame_file in enumerate(output_frames, start=1):
-                    new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
-                    if frame_file != new_name:
-                        try:
-                            frame_file.rename(new_name)
-                        except Exception as e:
-                            self.log_signal.emit(f"   ❗ Failed renaming {frame_file.name} -> {new_name.name}: {e}")
-                            overall_success = False
-                
-                output_frames_renamed = sorted(OUT_FRAMES_DIR.glob("frame*.png"))
-                renamed_count = len(output_frames_renamed)
-                if renamed_count != frame_count:
-                    missing = frame_count - renamed_count
-                    expected_names = [f"frame{i:08d}.png" for i in range(1, frame_count+1)]
-                    existing = {p.name for p in output_frames_renamed}
-                    missing_examples = [n for n in expected_names if n not in existing][:10]
-                    self.log_signal.emit(f"   ⚠️ Found {renamed_count}/{frame_count} upscaled frames (missing {missing})")
-                    if missing_examples:
-                        self.log_signal.emit(f"   ⚠️ Missing examples: {', '.join(missing_examples)}")
-                    self.log_signal.emit("   ❌ Aborting: not enough upscaled frames to merge.")
-                    return False
-                
-                self.progress_signal.emit(100)
-                elapsed = time.time() - start_time
-                self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
+                    self.stats_signal.emit(processed, frame_count, elapsed, remaining, float(eta))
+
+            if self._stop_requested:
+                return False
+
+            self.log_signal.emit("🔧 Renaming output frames...")
+            output_frames = sorted(OUT_FRAMES_DIR.glob("*.png"))
+            for idx, frame_file in enumerate(output_frames, start=1):
+                new_name = OUT_FRAMES_DIR / f"frame{idx:08d}.png"
+                if frame_file != new_name:
+                    try:
+                        frame_file.rename(new_name)
+                    except Exception as e:
+                        self.log_signal.emit(f"   ❗ Failed renaming {frame_file.name} -> {new_name.name}: {e}")
+                        overall_success = False
+
+            output_frames_renamed = sorted(OUT_FRAMES_DIR.glob("frame*.png"))
+            renamed_count = len(output_frames_renamed)
+            if renamed_count != frame_count:
+                missing = frame_count - renamed_count
+                expected_names = [f"frame{i:08d}.png" for i in range(1, frame_count+1)]
+                existing = {p.name for p in output_frames_renamed}
+                missing_examples = [n for n in expected_names if n not in existing][:10]
+                self.log_signal.emit(f"   ⚠️ Found {renamed_count}/{frame_count} upscaled frames (missing {missing})")
+                if missing_examples:
+                    self.log_signal.emit(f"   ⚠️ Missing examples: {', '.join(missing_examples)}")
+                self.log_signal.emit("   ❌ Aborting: not enough upscaled frames to merge.")
+                return False
+
+            self.progress_signal.emit(100)
+            elapsed = time.time() - start_time
+            self.log_signal.emit(f"✅ PHASE 2 COMPLETE: Upscaled {processed} frames in {elapsed:.2f}s")
 
             if self._stop_requested:
                 return False
