@@ -201,7 +201,8 @@ class ImageTeaMainWindow(QMainWindow):
             "holiday_calendar": self._open_holiday_calendar,
             "psd_to_img": self._open_psd_to_img,
             "folder_comparator": self._open_folder_comparator,
-            "batch_image_resizer": self._open_batch_image_resizer
+            "batch_image_resizer": self._open_batch_image_resizer,
+            "image_converter": self._open_image_converter
         }
 
         handler = tool_handlers.get(tool_id)
@@ -335,6 +336,15 @@ class ImageTeaMainWindow(QMainWindow):
         self._batch_image_resizer_dialog.show()
         self._batch_image_resizer_dialog.raise_()
         self._batch_image_resizer_dialog.activateWindow()
+
+    def _open_image_converter(self):
+        from dialogs.tools.image_converter_widgets.image_converter_dialog import ImageConverterDialog
+        if not hasattr(self, '_image_converter_dialog') or not self._image_converter_dialog:
+            self._image_converter_dialog = ImageConverterDialog(None)
+            self._image_converter_dialog.destroyed.connect(lambda: setattr(self, '_image_converter_dialog', None))
+        self._image_converter_dialog.show()
+        self._image_converter_dialog.raise_()
+        self._image_converter_dialog.activateWindow()
     
     def _open_prompt_generator(self):
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
@@ -457,6 +467,12 @@ class ImageTeaMainWindow(QMainWindow):
                 if self._batch_image_resizer_dialog.worker_thread.isRunning():
                     running_tools.append("Batch Image Resizer")
 
+        # Check Image Converter
+        if hasattr(self, '_image_converter_dialog') and self._image_converter_dialog:
+            if hasattr(self._image_converter_dialog, 'worker_thread') and self._image_converter_dialog.worker_thread:
+                if self._image_converter_dialog.worker_thread.isRunning():
+                    running_tools.append("Image Converter")
+
         # If any tools are running, show confirmation dialog
         if running_tools:
             from PySide6.QtWidgets import QMessageBox
@@ -516,6 +532,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._folder_comparator_dialog.close()
         if hasattr(self, '_batch_image_resizer_dialog') and self._batch_image_resizer_dialog:
             self._batch_image_resizer_dialog.close()
+        if hasattr(self, '_image_converter_dialog') and self._image_converter_dialog:
+            self._image_converter_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:

@@ -78,6 +78,7 @@ MENU_TOOLTIPS = {
     "image_overlay_maker": "Apply overlay images to multiple images in batch",
     "psd_to_img": "Convert PSD files to common image formats (JPG, PNG, etc.)",
     "folder_comparator": "Compare two folders and copy missing files from source to destination",
+    "image_converter": "Convert images between PNG, JPG, BMP, TIFF, WEBP formats in batch",
     
     # Help menu
     "about": "View application information and credits",
@@ -1315,6 +1316,19 @@ def setup_main_menu(window):
         window._folder_comparator_dialog.activateWindow()
     folder_comparator_action.triggered.connect(open_folder_comparator)
 
+    image_converter_action = QAction(qta.icon('fa6s.rotate'), "Image Converter", window)
+    image_converter_action.setToolTip(MENU_TOOLTIPS["image_converter"])
+    image_converter_action.setStatusTip(MENU_TOOLTIPS["image_converter"])
+    def open_image_converter():
+        from dialogs.tools.image_converter_widgets.image_converter_dialog import ImageConverterDialog
+        if not hasattr(window, '_image_converter_dialog') or not window._image_converter_dialog:
+            window._image_converter_dialog = ImageConverterDialog(None)
+            window._image_converter_dialog.destroyed.connect(lambda: setattr(window, '_image_converter_dialog', None))
+        window._image_converter_dialog.show()
+        window._image_converter_dialog.raise_()
+        window._image_converter_dialog.activateWindow()
+    image_converter_action.triggered.connect(open_image_converter)
+
     tools_menu.addAction(action_sequencer_action)
     tools_menu.addAction(prompt_generator_action)
     tools_menu.addAction(prompt_injector_action)
@@ -1323,6 +1337,7 @@ def setup_main_menu(window):
     tools_menu.addAction(image_upscaler_action)
     tools_menu.addAction(psd_to_img_action)
     tools_menu.addAction(folder_comparator_action)
+    tools_menu.addAction(image_converter_action)
     tools_menu.addAction(vibe_video_generator_action)
     tools_menu.addAction(holiday_calendar_action)
     tools_menu.addAction(image_overlay_maker_action)

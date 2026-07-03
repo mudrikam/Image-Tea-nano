@@ -83,6 +83,13 @@
       "description": "Compare two folders by filename and copy missing files from source to destination",
       "icon": "fa6s.code-compare",
       "color": "#5C6BC0"
+    },
+    {
+      "id": "image_converter",
+      "name": "Image Converter",
+      "description": "Convert images between PNG, JPG, BMP, TIFF, WEBP formats in batch",
+      "icon": "fa6s.rotate",
+      "color": "#4CAF50"
     }
   ],
   "video_processing": [
@@ -174,6 +181,7 @@
     "pngtree_zipper": "documentation/lang_EN/3. Additional Tools/12. pngtree_zipper_tool.md",
     "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md",
     "folder_comparator": "documentation/lang_EN/3. Additional Tools/14. folder_comparator_tool.md",
-    "batch_image_resizer": "documentation/lang_EN/3. Additional Tools/15. batch_image_resizer_tool.md"
+    "batch_image_resizer": "documentation/lang_EN/3. Additional Tools/15. batch_image_resizer_tool.md",
+    "image_converter": "documentation/lang_EN/3. Additional Tools/16. image_converter_tool.md"
   }
 }
