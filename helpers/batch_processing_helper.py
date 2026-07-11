@@ -238,12 +238,25 @@ class BatchWorker(QThread):
                 return
             try:
                 image_path = row[1]
+                # Build metadata context from existing row data (title, description, tags)
+                title = row[3] if len(row) > 3 else ''
+                description = row[4] if len(row) > 4 else ''
+                tags = row[5] if len(row) > 5 else ''
+                metadata_parts = []
+                if title and str(title).strip():
+                    metadata_parts.append(f"Title: {str(title).strip()}")
+                if description and str(description).strip():
+                    metadata_parts.append(f"Description: {str(description).strip()}")
+                if tags and str(tags).strip():
+                    metadata_parts.append(f"Tags: {str(tags).strip()}")
+                metadata_context = "\n".join(metadata_parts) if metadata_parts else None
+                
                 prompt = None
                 # For rolling mode, pass service to metadata_func; for non-rolling, use old signature
                 if self.is_rolling_mode:
-                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag, service_override=self.service)
+                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag, service_override=self.service, metadata_context=metadata_context)
                 else:
-                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag)
+                    result = self.metadata_func(self.api_key, self.model, image_path, prompt, stop_flag, metadata_context=metadata_context)
                 with self._lock:
                     if not self._should_stop and not (stop_flag and stop_flag.get('stop')):
                         results[idx] = (idx, result)
@@ -330,10 +343,23 @@ class BatchWorker(QThread):
                     image_path = row[1]
                     prompt = None
                     
+                    # Build metadata context from existing row data (title, description, tags)
+                    row_title = row[3] if len(row) > 3 else ''
+                    row_description = row[4] if len(row) > 4 else ''
+                    row_tags = row[5] if len(row) > 5 else ''
+                    metadata_parts = []
+                    if row_title and str(row_title).strip():
+                        metadata_parts.append(f"Title: {str(row_title).strip()}")
+                    if row_description and str(row_description).strip():
+                        metadata_parts.append(f"Description: {str(row_description).strip()}")
+                    if row_tags and str(row_tags).strip():
+                        metadata_parts.append(f"Tags: {str(row_tags).strip()}")
+                    metadata_context = "\n".join(metadata_parts) if metadata_parts else None
+                    
                     # Create service-specific metadata function with timing
                     if current_service == "gemini":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -349,7 +375,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "openai":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -365,7 +391,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "groq":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -381,7 +407,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "blackbox":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -394,7 +420,7 @@ class BatchWorker(QThread):
                         }
                     elif current_service == "maia":
                         t0 = time.perf_counter()
-                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                        title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                         t1 = time.perf_counter()
                         duration_ms = int((t1 - t0) * 1000)
                         gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -434,16 +460,16 @@ class BatchWorker(QThread):
                                 # Use the appropriate helper based on detected type
                                 # These functions are imported at the top of the file
                                 if prov_type == "gemini":
-                                    result_tuple = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                    result_tuple = generate_metadata_gemini(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                                 elif prov_type == "groq":
-                                    result_tuple = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                    result_tuple = generate_metadata_groq(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                                 elif prov_type == "blackbox":
-                                    result_tuple = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                    result_tuple = generate_metadata_blackbox(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                                 elif prov_type == "maia":
-                                    result_tuple = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                    result_tuple = generate_metadata_maia(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                                 else:
                                     # Default to OpenAI (works for most OpenAI-compatible endpoints)
-                                    result_tuple = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint)
+                                    result_tuple = generate_metadata_openai(current_api_key, current_model, image_path, prompt, stop_flag, provider_endpoint=current_provider_endpoint, metadata_context=metadata_context)
                                 
                                 title, description, tags, category, filetype, error_message, token_input, token_output, token_total = result_tuple
                                 result = {
@@ -1090,7 +1116,7 @@ def batch_generate_metadata(window):
     
     # For parallel mode, create a universal metadata function that can handle all services
     if is_parallel_mode:
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
@@ -1107,7 +1133,7 @@ def batch_generate_metadata(window):
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1117,7 +1143,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1128,7 +1154,7 @@ def batch_generate_metadata(window):
                     print(f"[{service_name} ERROR] {error_message}")
             elif target_service == "groq":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1138,7 +1164,7 @@ def batch_generate_metadata(window):
                     print(f"[Groq ERROR] {error_message}")
             elif target_service == "blackbox":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1148,7 +1174,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1182,7 +1208,7 @@ def batch_generate_metadata(window):
             }
     # For rolling mode, create a universal metadata function that can handle all services
     elif is_rolling_mode:
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, service_override=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             
@@ -1199,7 +1225,7 @@ def batch_generate_metadata(window):
             
             if target_service == "gemini":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1209,7 +1235,7 @@ def batch_generate_metadata(window):
                     print(f"[Gemini ERROR] {error_message}")
             elif target_service == "openai" or target_service == "openrouter":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1220,7 +1246,7 @@ def batch_generate_metadata(window):
                     print(f"[{service_name} ERROR] {error_message}")
             elif target_service == "groq":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1230,7 +1256,7 @@ def batch_generate_metadata(window):
                     print(f"[Groq ERROR] {error_message}")
             elif target_service == "blackbox":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1240,7 +1266,7 @@ def batch_generate_metadata(window):
                     print(f"[Blackbox ERROR] {error_message}")
             elif target_service == "maia":
                 t0 = time.perf_counter()
-                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames)
+                title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 t1 = time.perf_counter()
                 duration_ms = int((t1 - t0) * 1000)
                 gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1273,7 +1299,7 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "gemini":
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
@@ -1284,7 +1310,7 @@ def batch_generate_metadata(window):
                 proxy_path = video_proxy_map.get(image_path)
                 video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                 preextracted_frames = video_frame_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_gemini(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_gemini_generation_time(duration_ms)
@@ -1305,7 +1331,7 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "openai" or service == "openrouter":
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
@@ -1316,7 +1342,7 @@ def batch_generate_metadata(window):
                 proxy_path = video_proxy_map.get(image_path)
                 video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                 preextracted_frames = video_frame_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_openai(api_key, model, image_path, prompt, stop_flag, proxy_path=proxy_path, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_openai_generation_time(duration_ms)
@@ -1338,7 +1364,7 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "groq":
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
@@ -1346,7 +1372,7 @@ def batch_generate_metadata(window):
             if hasattr(window, '_batch_processing_state'):
                 video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                 preextracted_frames = video_frame_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_groq(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_groq_generation_time(duration_ms)
@@ -1367,7 +1393,7 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "blackbox":
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
@@ -1375,7 +1401,7 @@ def batch_generate_metadata(window):
             if hasattr(window, '_batch_processing_state'):
                 video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                 preextracted_frames = video_frame_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_blackbox(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_blackbox_generation_time(duration_ms)
@@ -1396,7 +1422,7 @@ def batch_generate_metadata(window):
                 "error_message": error_message
             }
     elif service == "maia":
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             t0 = time.perf_counter()
@@ -1407,7 +1433,7 @@ def batch_generate_metadata(window):
                 proxy_path = video_proxy_map.get(image_path)
                 video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                 preextracted_frames = video_frame_map.get(image_path)
-            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+            title, description, tags, category, filetype, error_message, token_input, token_output, token_total = generate_metadata_maia(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
             t1 = time.perf_counter()
             duration_ms = int((t1 - t0) * 1000)
             gen_time, avg_time, longest_time, last_time = track_maia_generation_time(duration_ms)
@@ -1471,7 +1497,7 @@ def batch_generate_metadata(window):
             # Default to OpenAI (works for most OpenAI-compatible endpoints)
             helper_func = generate_metadata_openai
         
-        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None):
+        def metadata_func(api_key, model, image_path, prompt=None, stop_flag=None, metadata_context=None):
             if stop_flag and stop_flag.get('stop'):
                 return {'title': '', 'description': '', 'tags': '', 'category': {}, 'filetype': '', 'token_input': 0, 'token_output': 0, 'token_total': 0, 'image_path': image_path, 'error_message': ''}
             try:
@@ -1480,7 +1506,7 @@ def batch_generate_metadata(window):
                     video_frame_map = window._batch_processing_state.get('video_frame_map', {})
                     preextracted_frames = video_frame_map.get(image_path)
                 # Use the appropriate helper function with the custom endpoint
-                result = helper_func(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames)
+                result = helper_func(api_key, model, image_path, prompt, stop_flag, provider_endpoint=provider_endpoint, preextracted_frames=preextracted_frames, metadata_context=metadata_context)
                 # Result is a tuple: (title, description, tags, category, filetype, error_message, token_input, token_output, token_total)
                 title, description, tags, category, filetype, error_message, token_input, token_output, token_total = result
                 return {

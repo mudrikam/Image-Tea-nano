@@ -16,6 +16,7 @@ import exiftool
 from config import BASE_PATH
 import time
 import csv
+import subprocess
 from datetime import datetime
 import qtawesome as qta
 
@@ -450,57 +451,82 @@ def write_metadata_pyexiv2(file_path, title, description, tag_list):
 		print(f"[pyexiv2 ERROR] {file_path}: {e}")
 
 def read_metadata_pyexiv2(file_path):
-	try:
-		metadata = pyexiv2.Image(file_path)
-		xmp = metadata.read_xmp()
-		iptc = metadata.read_iptc()
-		exif = metadata.read_exif()
+    try:
+        metadata = pyexiv2.Image(file_path)
+        xmp = metadata.read_xmp()
+        iptc = metadata.read_iptc()
+        exif = metadata.read_exif()
 
-		title = _extract_xmp_value(xmp.get('Xmp.dc.title')) if 'Xmp.dc.title' in xmp else None
-		description = _extract_xmp_value(xmp.get('Xmp.dc.description')) if 'Xmp.dc.description' in xmp else None
-		tags = xmp.get('Xmp.dc.subject') if 'Xmp.dc.subject' in xmp else None
+        title = _extract_xmp_value(xmp.get('Xmp.dc.title')) if 'Xmp.dc.title' in xmp else None
+        description = _extract_xmp_value(xmp.get('Xmp.dc.description')) if 'Xmp.dc.description' in xmp else None
+        tags = xmp.get('Xmp.dc.subject') if 'Xmp.dc.subject' in xmp else None
 
-		if not title:
-			title = iptc.get('Iptc.Application2.ObjectName')
-			if isinstance(title, list):
-				title = title[0] if title else None
-		if not title:
-			title = exif.get('Exif.Image.ImageDescription')
+        if not title:
+            title = iptc.get('Iptc.Application2.ObjectName')
+            if isinstance(title, list):
+                title = title[0] if title else None
+        if not title:
+            title = exif.get('Exif.Image.ImageDescription')
 
-		if not description:
-			description = iptc.get('Iptc.Application2.Caption')
-			if isinstance(description, list):
-				description = description[0] if description else None
-		if not description:
-			description = exif.get('Exif.Image.ImageDescription')
+        if not description:
+            description = iptc.get('Iptc.Application2.Caption')
+            if isinstance(description, list):
+                description = description[0] if description else None
+        if not description:
+            description = exif.get('Exif.Image.ImageDescription')
+        if not description:
+            description = exif.get('Exif.Photo.UserComment')
 
-		if not tags:
-			tags = iptc.get('Iptc.Application2.Keywords')
-		if not tags:
-			user_comment = exif.get('Exif.Photo.UserComment')
-			if user_comment:
-				tags = [t.strip() for t in user_comment.split(',')]
-		if not tags and 'Exif.Image.XPSubject' in exif:
-			try:
-				xpsubject = exif['Exif.Image.XPSubject']
-				if isinstance(xpsubject, bytes):
-					xpsubject = xpsubject.decode('utf-16le').rstrip('\x00')
-				tags = [t.strip() for t in xpsubject.split(',')]
-			except Exception as e:
-				print(f"[pyexiv2] Error decoding Exif.Image.XPSubject for {file_path}: {e}")
-		if isinstance(tags, list):
-			tags_str = ','.join(tags)
-		elif isinstance(tags, str):
-			tags_str = tags
-		else:
-			tags_str = ''
+        if not tags:
+            tags = iptc.get('Iptc.Application2.Keywords')
+        if not tags:
+            user_comment = exif.get('Exif.Photo.UserComment')
+            if user_comment and not description:
+                tags = [t.strip() for t in user_comment.split(',')]
+        if not tags and 'Exif.Image.XPSubject' in exif:
+            try:
+                xpsubject = exif['Exif.Image.XPSubject']
+                if isinstance(xpsubject, bytes):
+                    xpsubject = xpsubject.decode('utf-16le').rstrip('\x00')
+                tags = [t.strip() for t in xpsubject.split(',')]
+            except Exception as e:
+                print(f"[pyexiv2] Error decoding Exif.Image.XPSubject for {file_path}: {e}")
+        
+        # Fallback: For PNG files, try reading Description field via exiftool
+        if not description:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext == '.png':
+                try:
+                    exiftool_path = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
+                    if not os.path.exists(exiftool_path):
+                        system_ex = shutil.which("exiftool")
+                        exiftool_path = system_ex if system_ex else None
+                    
+                    if exiftool_path:
+                        result = subprocess.run(
+                            [exiftool_path, "-Description", "-b", file_path],
+                            capture_output=True,
+                            text=True
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            description = result.stdout.strip()
+                            print(f"[pyexiv2] Got PNG Description via exiftool: {description[:50]}...")
+                except Exception as e:
+                    print(f"[pyexiv2] Error reading PNG Description via exiftool: {e}")
+        
+        if isinstance(tags, list):
+            tags_str = ','.join(tags)
+        elif isinstance(tags, str):
+            tags_str = tags
+        else:
+            tags_str = ''
 
-		metadata.close()
-		print(f"[pyexiv2 READ] {file_path} | title: {title} | description: {description} | tags: {tags_str}")
-		return title, description, tags_str
-	except Exception as e:
-		print(f"[pyexiv2 READ ERROR] {file_path}: {e}")
-		return None, None, None
+        metadata.close()
+        print(f"[pyexiv2 READ] {file_path} | title: {title} | description: {description} | tags: {tags_str}")
+        return title, description, tags_str
+    except Exception as e:
+        print(f"[pyexiv2 READ ERROR] {file_path}: {e}")
+        return None, None, None
 
 def read_metadata_video(file_path):
 	video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'}

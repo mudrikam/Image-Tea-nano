@@ -127,7 +127,7 @@ def create_prompt_generation_request(instructions, requirements, response_format
         if "context" not in prompt_json:
             prompt_json["context"] = {}
         prompt_json["context"]["existing_metadata"] = metadata_context
-        prompt_json["context"]["note"] = "Use this metadata as additional context but focus primarily on what you see in the image"
+        prompt_json["context"]["note"] = "Use as context reference, prioritize image content"
     
     full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
     

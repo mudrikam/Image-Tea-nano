@@ -100,7 +100,8 @@ def format_openai_prompt(
     shutterstock_video_map,
     adobe_map,
     filename=None,
-    is_video=False
+    is_video=False,
+    metadata_context=None
 ):
     title_reqs = title_requirements.replace("_MIN_LEN_", str(min_title_length)).replace("_MAX_LEN_", str(max_title_length))
     desc_reqs = description_requirements.replace("_MAX_DESC_LEN_", str(max_description_length))
@@ -145,6 +146,12 @@ def format_openai_prompt(
     if filename:
         prompt_json["input_filename"] = filename
     
+    if metadata_context:
+        if "context" not in prompt_json:
+            prompt_json["context"] = {}
+        prompt_json["context"]["existing_metadata"] = metadata_context
+        prompt_json["context"]["note"] = "Use as context reference, prioritize image content"
+    
     if custom_prompt and custom_prompt.strip():
         prompt_json["mandatory_instruction"] = custom_prompt.strip()
     
@@ -186,7 +193,7 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None):
+def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None, metadata_context=None):
     if stop_flag and stop_flag.get('stop'):
         return '', '', '', {}, '', '', 0, 0, 0
     start_time = time.perf_counter()
@@ -254,7 +261,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 shutterstock_video_map,
                 adobe_map,
                 filename=filename,
-                is_video=is_video
+                is_video=is_video,
+                metadata_context=metadata_context
             )
         if is_video and is_openrouter and not frame_paths:
             if proxy_path:
