@@ -2,9 +2,18 @@
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(function (error) { console.error(error); });
 
 var SITE_URL = 'https://vectorizer.studio/';
+var SITE_HOST_PATTERN = /^https?:\/\/([^/]+\.)?vectorizer\.studio(\/|$)/i;
 var vectorizerTabId = null;
 
 function log(msg) { console.log('[Vees BG]', msg); }
+
+function isVectorizerUrl(url) {
+  return !!(url && SITE_HOST_PATTERN.test(url));
+}
+
+function clearVectorizerTab() {
+  vectorizerTabId = null;
+}
 
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.type === 'GET_OR_CREATE_TAB') {
@@ -60,7 +69,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 
   if (message.type === 'STOP_PROCESSING') {
     if (vectorizerTabId) {
-      chrome.tabs.sendMessage(vectorizerTabId, { type: 'STOP_PROCESSING' }).catch(function () {});
+      chrome.tabs.sendMessage(vectorizerTabId, { type: 'STOP_PROCESSING' }).catch(function () { clearVectorizerTab(); });
     }
     sendResponse({ stopped: true });
     return true;
@@ -85,11 +94,11 @@ async function getOrCreateVectorizerTab() {
   if (vectorizerTabId) {
     try {
       var tab = await chrome.tabs.get(vectorizerTabId);
-      if (tab && tab.url && tab.url.includes('vectorizer.studio')) {
+      if (tab && isVectorizerUrl(tab.url)) {
         await ensureContentScript(tab.id);
         return vectorizerTabId;
       }
-    } catch (e) { vectorizerTabId = null; }
+    } catch (e) { clearVectorizerTab(); }
   }
 
   var tabs = await chrome.tabs.query({ url: '*://*.vectorizer.studio/*' });
@@ -118,6 +127,17 @@ async function getOrCreateVectorizerTab() {
 }
 
 async function ensureContentScript(tabId) {
+  var tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    clearVectorizerTab();
+    throw new Error('Tab is no longer available.');
+  }
+  if (!isVectorizerUrl(tab.url)) {
+    clearVectorizerTab();
+    throw new Error('No vectorizer.studio tab. Open https://vectorizer.studio/ and try again.');
+  }
   try {
     var results = await chrome.scripting.executeScript({
       target: { tabId: tabId },
@@ -134,9 +154,16 @@ async function ensureContentScript(tabId) {
     }
   } catch (e) {
     log('ensureContentScript error: ' + e.message);
+    throw new Error('Cannot access vectorizer.studio tab: ' + e.message);
   }
 }
 
 chrome.tabs.onRemoved.addListener(function (tabId) {
-  if (tabId === vectorizerTabId) vectorizerTabId = null;
+  if (tabId === vectorizerTabId) clearVectorizerTab();
+});
+
+chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+  if (tabId === vectorizerTabId && changeInfo.url && !isVectorizerUrl(changeInfo.url)) {
+    clearVectorizerTab();
+  }
 });

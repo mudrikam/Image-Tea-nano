@@ -288,9 +288,12 @@
       renderFileList();
       addLog("Processing: " + file.fileName);
       chrome.runtime.sendMessage({ type: "PROCESS_FILE", file: file }, function (resp) {
-        if (!resp || !resp.received) {
-          addLog("Send failed: " + file.fileName, "error");
-          updateFileStatus(file.fileName, "failed", null, null, "Send failed").then(function () { isProcessing = false; renderFileList(); });
+        if (chrome.runtime.lastError) {
+          addLog("Error: " + chrome.runtime.lastError.message, "error");
+          updateFileStatus(file.fileName, "failed", null, null, chrome.runtime.lastError.message).then(function () { isProcessing = false; renderFileList(); });
+        } else if (!resp || !resp.received) {
+          addLog("Send failed: " + file.fileName + (resp && resp.error ? " (" + resp.error + ")" : ""), "error");
+          updateFileStatus(file.fileName, "failed", null, null, (resp && resp.error) || "Send failed").then(function () { isProcessing = false; renderFileList(); });
         }
       });
     });
@@ -505,7 +508,16 @@
         });
       }).catch(function () {});
     } catch (e) {}
-    btnOpenSite.onclick = function () { chrome.tabs.create({ url: SITE_URL }); };
+    btnOpenSite.onclick = function () {
+      chrome.tabs.query({ url: '*://*.vectorizer.studio/*' }, function (tabs) {
+        if (tabs && tabs.length > 0) {
+          chrome.tabs.update(tabs[0].id, { active: true });
+          chrome.windows.update(tabs[0].windowId, { focused: true }).catch(function () {});
+        } else {
+          chrome.tabs.create({ url: SITE_URL });
+        }
+      });
+    };
     openDB().then(function () { addLog("DB ready."); }).catch(function (err) { addLog("DB error: " + err.message, "error"); });
     setupDnD();
     setupButtons();
