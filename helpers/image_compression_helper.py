@@ -743,7 +743,9 @@ def convert_svg_to_jpg(input_path, output_path, quality):
 
     try:
         temp_png = output_path.replace(".jpg", ".png")
-        cairosvg.svg2png(url=input_path, write_to=temp_png)
+        with open(input_path, "rb") as _svg_file:
+            _svg_data = _svg_file.read()
+        cairosvg.svg2png(bytestring=_svg_data, write_to=temp_png)
         if image_has_transparency(temp_png):
             return temp_png
         with Image.open(temp_png) as img:
