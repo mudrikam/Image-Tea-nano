@@ -113,9 +113,10 @@
       font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
       color: var(--text-muted); border-bottom: 1px solid var(--border-color); text-align: left; z-index: 1;
     }
-    .file-table th:nth-child(1) { width: 42%; }
-    .file-table th:nth-child(2) { width: 22%; }
-    .file-table th:nth-child(3) { width: 36%; }
+    .file-table th:nth-child(1) { width: 8%; }
+    .file-table th:nth-child(2) { width: 38%; }
+    .file-table th:nth-child(3) { width: 20%; }
+    .file-table th:nth-child(4) { width: 34%; }
     .file-table td {
       padding: 5px 8px; border-bottom: 1px solid rgba(54,59,69,.4);
       font-size: 12px; vertical-align: middle; overflow: hidden;
@@ -138,10 +139,11 @@
     .file-name {
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; min-width: 0;
     }
-    .file-actions { display: flex; gap: 3px; justify-content: flex-end; }
+    .file-num { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+    .file-actions { display: flex; gap: 4px; justify-content: flex-end; padding-right: 4px; }
     .btn-icon {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; padding: 0; border: none; border-radius: 3px;
+      width: 24px; height: 24px; padding: 0; border: none; border-radius: 3px;
       cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.15s;
     }
     .btn-icon:hover { background: var(--bg-hover); color: var(--text-main); }
@@ -314,6 +316,7 @@
       <table class="file-table">
         <thead>
           <tr>
+            <th style="width: 8%">#</th>
             <th>File</th>
             <th>Status</th>
             <th>Actions</th>
@@ -354,7 +357,7 @@
           <li>Atau klik <b>Run Batch</b> untuk memproses semua file yang Pending/Gagal berurutan dengan jeda (cooldown).</li>
           <li>Setelah status menjadi <b>Done</b>, klik ikon <b>unduh</b> untuk menyimpan SVG-nya.</li>
           <li>Gunakan <b>Download All</b> untuk mengunduh semua file yang sudah selesai sekaligus.</li>
-          <li>File SVG diunduh ke folder <b>Downloads</b> browser Anda.</li>
+          <li>File SVG diunduh ke folder <b>Downloads</b> browser kamu.</li>
         </ol>
         <p style="color:var(--text-muted);font-size:10px;">Blob URL dari vectorizer.studio bersifat sementara. Simpan SVG segera setelah diproses.</p>
       </div>

@@ -241,6 +241,11 @@
             row.className = "status-" + file.status;
             if (selectedFile && selectedFile.fileName === file.fileName) row.classList.add("selected");
 
+            var numC = document.createElement("td");
+            numC.className = "file-num";
+            numC.textContent = (i + 1);
+            row.appendChild(numC);
+
             var nc = document.createElement("td");
             var fc = document.createElement("div"); fc.className = "file-name-cell";
             if (file.originalData) { var th = document.createElement("img"); th.className = "file-thumb"; th.src = file.originalData; fc.appendChild(th); }
