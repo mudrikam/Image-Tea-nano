@@ -232,6 +232,9 @@
         emptyState.classList.add("hidden");
         fileCount.textContent = files.length + " file" + (files.length > 1 ? "s" : "");
 
+        var stillExists = selectedFile && files.some(function (f) { return f.fileName === selectedFile.fileName; });
+        if (!stillExists) { selectedFile = files[0]; }
+
         for (var i = 0; i < files.length; i++) {
           (function (file) {
             var row = document.createElement("tr");
@@ -262,7 +265,8 @@
 
             var dlBtn = document.createElement("button"); dlBtn.className = "btn-icon download"; dlBtn.title = "Download SVG";
             dlBtn.innerHTML = "<svg width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" viewBox=\"0 0 24 24\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg>";
-            if (file.status !== "done") { dlBtn.style.opacity = "0.25"; dlBtn.style.pointerEvents = "none"; }
+            if (file.status === "done" && file.vectorizedData) { dlBtn.classList.add("ready"); dlBtn.title = "Download SVG (ready)"; }
+            else { dlBtn.style.opacity = "0.25"; dlBtn.style.pointerEvents = "none"; }
             dlBtn.onclick = function (e) { e.stopPropagation(); if (file.status === "done" && file.vectorizedData) downloadSVG(file); };
 
             var delBtn = document.createElement("button"); delBtn.className = "btn-icon delete"; delBtn.title = "Delete";
@@ -275,7 +279,7 @@
             fileTableBody.appendChild(row);
           })(files[i]);
         }
-        if (selectedFile && !files.some(function (f) { return f.fileName === selectedFile.fileName; })) showPreview(null);
+        showPreview(selectedFile);
       }
     }).catch(function (err) { addLog("Render error: " + err.message, "error"); });
   }

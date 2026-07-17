@@ -148,6 +148,12 @@
     .btn-icon.play:hover { color: var(--accent); }
     .btn-icon.download:hover { color: var(--success); }
     .btn-icon.delete:hover { color: var(--error); }
+    .btn-icon.download.ready {
+      background: var(--success); color: #fff; cursor: pointer;
+      opacity: 1; pointer-events: auto;
+      box-shadow: 0 0 8px rgba(74,222,128,.4);
+    }
+    .btn-icon.download.ready:hover { background: #22c55e; color: #fff; }
     .spinner {
       display: inline-block; width: 12px; height: 12px;
       border: 2px solid var(--text-muted); border-top-color: var(--accent);
