@@ -27,7 +27,7 @@ class ImportWorkerThread(QThread):
         
     def run(self):
         """Main import processing"""
-        from helpers.metadata_helper.metadata_operation import read_metadata_pyexiv2, read_metadata_video
+        from helpers.metadata_helper.metadata_operation import read_metadata_pyexiv2, read_metadata_video, read_metadata_svg
         try:
             from PIL import Image
             PILLOW_FORMATS = set()
@@ -39,6 +39,7 @@ class ImportWorkerThread(QThread):
         added = 0
         video_exts = {'.mp4', '.mpeg', '.mov', '.avi', '.flv', '.mpg', '.webm', '.wmv', '.3gp', '.3gpp'}
         extra_exts = {'.svg', '.eps', '.pdf', '.ai'}
+        svg_exts = {'.svg'}
         total = len(self.file_paths)
 
         max_workers = min(os.cpu_count() or 2, 8)
@@ -51,6 +52,8 @@ class ImportWorkerThread(QThread):
             try:
                 if ext in video_exts:
                     t, d, tg = read_metadata_video(path)
+                elif ext in svg_exts:
+                    t, d, tg = read_metadata_svg(path)
                 elif ext in PILLOW_FORMATS or ext in extra_exts:
                     t, d, tg = read_metadata_pyexiv2(path)
                 else:

@@ -20,6 +20,28 @@ import subprocess
 from datetime import datetime
 import qtawesome as qta
 
+try:
+	from lxml import etree as _etree
+	_LXML_AVAILABLE = True
+except Exception:
+	_etree = None
+	_LXML_AVAILABLE = False
+
+SVG_EXTS = {'.svg'}
+
+_SVG_NS = 'http://www.w3.org/2000/svg'
+_RDF_NS = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
+_DC_NS = 'http://purl.org/dc/elements/1.1/'
+_CC_NS = 'http://creativecommons.org/ns#'
+
+try:
+	_etree.register_namespace('svg', _SVG_NS)
+	_etree.register_namespace('rdf', _RDF_NS)
+	_etree.register_namespace('dc', _DC_NS)
+	_etree.register_namespace('cc', _CC_NS)
+except Exception:
+	pass
+
 def _get_chunk_size():
 	with open(os.path.join(BASE_PATH, "configs", "app_config.json"), encoding="utf-8") as f:
 		app_config = json.load(f)
@@ -528,6 +550,131 @@ def read_metadata_pyexiv2(file_path):
         print(f"[pyexiv2 READ ERROR] {file_path}: {e}")
         return None, None, None
 
+def _svg_find_metadata_description(root):
+	"""Return the rdf:Description element of an SVG's <metadata> block, or None."""
+	if root is None or not _LXML_AVAILABLE:
+		return None
+	metadata = root.find('{%s}metadata' % _SVG_NS)
+	if metadata is None:
+		return None
+	rdf = metadata.find('{%s}RDF' % _RDF_NS)
+	if rdf is None:
+		return None
+	desc = rdf.find('{%s}Description' % _RDF_NS)
+	return desc
+
+
+def read_metadata_svg(file_path):
+	if not _LXML_AVAILABLE:
+		print(f"[svg READ] lxml not available, cannot read {file_path}")
+		return None, None, None
+	try:
+		parser = _etree.XMLParser(remove_blank_text=False)
+		tree = _etree.parse(file_path, parser)
+		root = tree.getroot()
+		desc = _svg_find_metadata_description(root)
+		if desc is None:
+			return None, None, None
+
+		title_el = desc.find('{%s}title' % _DC_NS)
+		title = title_el.text if title_el is not None and title_el.text else None
+
+		desc_el = desc.find('{%s}description' % _DC_NS)
+		description = desc_el.text if desc_el is not None and desc_el.text else None
+
+		tags = None
+		subject_el = desc.find('{%s}subject' % _DC_NS)
+		if subject_el is not None:
+			bag = subject_el.find('{%s}Bag' % _RDF_NS)
+			if bag is not None:
+				items = []
+				for li in bag.findall('{%s}li' % _RDF_NS):
+					if li.text and li.text.strip():
+						items.append(li.text.strip())
+				if items:
+					tags = ','.join(items)
+
+		print(f"[svg READ] {file_path} | title: {title} | description: {description} | tags: {tags}")
+		return title, description, tags
+	except Exception as e:
+		print(f"[svg READ ERROR] {file_path}: {e}")
+		return None, None, None
+
+
+def write_metadata_svg(file_path, title, description, tag_list):
+	if not _LXML_AVAILABLE:
+		raise RuntimeError("lxml is required to write SVG metadata")
+
+	title = _extract_xmp_value(title)
+	description = _extract_xmp_value(description)
+	if isinstance(tag_list, str):
+		tag_list = [t.strip() for t in tag_list.split(',') if t.strip()]
+	elif not isinstance(tag_list, list):
+		tag_list = []
+	tag_list = [_sanitize_keyword(t) for t in tag_list]
+	tag_list = [t for t in tag_list if t]
+
+	parser = _etree.XMLParser(remove_blank_text=False)
+	if os.path.isfile(file_path):
+		tree = _etree.parse(file_path, parser)
+		root = tree.getroot()
+	else:
+		root = _etree.Element('{%s}svg' % _SVG_NS, nsmap={None: _SVG_NS})
+		tree = _etree.ElementTree(root)
+
+	metadata = root.find('{%s}metadata' % _SVG_NS)
+	if metadata is None:
+		metadata = _etree.SubElement(root, '{%s}metadata' % _SVG_NS)
+
+	rdf = metadata.find('{%s}RDF' % _RDF_NS)
+	if rdf is None:
+		rdf = _etree.SubElement(metadata, '{%s}RDF' % _RDF_NS,
+								nsmap={'rdf': _RDF_NS, 'dc': _DC_NS, 'cc': _CC_NS})
+
+	desc = rdf.find('{%s}Description' % _RDF_NS)
+	if desc is None:
+		desc = _etree.SubElement(rdf, '{%s}Description' % _RDF_NS)
+
+	# title
+	title_el = desc.find('{%s}title' % _DC_NS)
+	if not title:
+		if title_el is not None:
+			desc.remove(title_el)
+	else:
+		if title_el is None:
+			title_el = _etree.SubElement(desc, '{%s}title' % _DC_NS)
+		title_el.text = title
+
+	# description
+	desc_el = desc.find('{%s}description' % _DC_NS)
+	if not description:
+		if desc_el is not None:
+			desc.remove(desc_el)
+	else:
+		if desc_el is None:
+			desc_el = _etree.SubElement(desc, '{%s}description' % _DC_NS)
+		desc_el.text = description
+
+	# subject (tags)
+	subject_el = desc.find('{%s}subject' % _DC_NS)
+	if not tag_list:
+		if subject_el is not None:
+			desc.remove(subject_el)
+	else:
+		if subject_el is None:
+			subject_el = _etree.SubElement(desc, '{%s}subject' % _DC_NS)
+		bag = subject_el.find('{%s}Bag' % _RDF_NS)
+		if bag is None:
+			bag = _etree.SubElement(subject_el, '{%s}Bag' % _RDF_NS)
+		for old_li in bag.findall('{%s}li' % _RDF_NS):
+			bag.remove(old_li)
+		for t in tag_list:
+			li = _etree.SubElement(bag, '{%s}li' % _RDF_NS)
+			li.text = t
+
+	tree.write(file_path, xml_declaration=True, encoding='UTF-8', pretty_print=True)
+
+
 def read_metadata_video(file_path):
 	video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v'}
 	ext = os.path.splitext(file_path)[1].lower()
@@ -642,7 +789,11 @@ class ImageMetadataWriterThread(QThread):
 				
 				try:
 					tag_list = [t.strip() for t in tags.split(',')] if tags else []
-					write_metadata_pyexiv2(filepath, title, description, tag_list)
+					ext = os.path.splitext(filepath)[1].lower()
+					if ext in SVG_EXTS:
+						write_metadata_svg(filepath, title, description, tag_list)
+					else:
+						write_metadata_pyexiv2(filepath, title, description, tag_list)
 					self.success_count += 1
 					self.file_result.emit(idx_in_chunk, True, "")
 				except Exception as e:
