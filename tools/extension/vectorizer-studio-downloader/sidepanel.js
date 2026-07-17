@@ -142,7 +142,11 @@
   var allFiles = [];
   var selectedFile = null;
   var isProcessing = false;
+  var currentProcessingFile = null;
   var isOnSite = false;
+  var previewZoom = 1;
+  var PREVIEW_ZOOM_MIN = 0.2;
+  var PREVIEW_ZOOM_MAX = 5;
   var SITE_URL = "https://vectorizer.studio/";
   var SITE_PATTERN = /:\/\/([^/]+\.)?vectorizer\.studio(\/|$)/i;
 
@@ -213,10 +217,29 @@
       previewImage.src = file.originalData;
       previewImage.classList.remove("hidden");
       previewPlaceholder.classList.add("hidden");
+      resetPreviewZoom();
     } else {
       previewImage.classList.add("hidden");
       previewPlaceholder.classList.remove("hidden");
     }
+  }
+
+  function applyPreviewZoom() {
+    previewImage.style.setProperty("--preview-zoom", previewZoom);
+  }
+
+  function resetPreviewZoom() { previewZoom = 1; applyPreviewZoom(); }
+
+  function setupPreviewZoom() {
+    if (!previewArea) return;
+    previewArea.addEventListener("wheel", function (e) {
+      if (!selectedFile || previewImage.classList.contains("hidden")) return;
+      e.preventDefault();
+      var delta = e.deltaY < 0 ? 1.1 : 0.9;
+      previewZoom = Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, previewZoom * delta));
+      applyPreviewZoom();
+    }, { passive: false });
+    previewImage.addEventListener("dblclick", resetPreviewZoom);
   }
 
   function renderFileList() {
@@ -293,16 +316,17 @@
     if (isProcessing) { addLog("Busy, wait.", "warn"); return; }
     if (file.status === "done") { addLog("Already vectorized.", "warn"); return; }
     isProcessing = true;
+    currentProcessingFile = file.fileName;
     updateFileStatus(file.fileName, "processing").then(function () {
       renderFileList();
       addLog("Processing: " + file.fileName);
       chrome.runtime.sendMessage({ type: "PROCESS_FILE", file: file }, function (resp) {
         if (chrome.runtime.lastError) {
           addLog("Error: " + chrome.runtime.lastError.message, "error");
-          updateFileStatus(file.fileName, "failed", null, null, chrome.runtime.lastError.message).then(function () { isProcessing = false; renderFileList(); });
+          updateFileStatus(file.fileName, "failed", null, null, chrome.runtime.lastError.message).then(function () { isProcessing = false; currentProcessingFile = null; renderFileList(); });
         } else if (!resp || !resp.received) {
           addLog("Send failed: " + file.fileName + (resp && resp.error ? " (" + resp.error + ")" : ""), "error");
-          updateFileStatus(file.fileName, "failed", null, null, (resp && resp.error) || "Send failed").then(function () { isProcessing = false; renderFileList(); });
+          updateFileStatus(file.fileName, "failed", null, null, (resp && resp.error) || "Send failed").then(function () { isProcessing = false; currentProcessingFile = null; renderFileList(); });
         }
       });
     });
@@ -330,16 +354,20 @@
       addLog("Vectorized: " + msg.fileName, "success");
       updateFileStatus(msg.fileName, "done", msg.vectorizedData, msg.blobUrl).then(function () {
         isProcessing = false;
+        currentProcessingFile = null;
         renderFileList();
         if (batchRunning) advanceBatch();
       });
     }
     if (msg.type === "PROCESS_FAILED_SIDEPANEL") {
       addLog("Failed: " + msg.fileName + " (" + msg.reason + ")", "error");
-      updateFileStatus(msg.fileName, "failed", null, null, msg.reason).then(function () {
+      var wasStopped = msg.reason === "stopped";
+      updateFileStatus(msg.fileName, wasStopped ? "pending" : "failed", null, null, msg.reason).then(function () {
+        if (!wasStopped) batchFailed++;
         isProcessing = false;
+        currentProcessingFile = null;
         renderFileList();
-        if (batchRunning) advanceBatch();
+        if (batchRunning && !wasStopped) advanceBatch();
       });
     }
   });
@@ -393,14 +421,26 @@
     });
   }
 
-  function stopBatch() {
+  function stopProcessing() {
+    var stoppedFile = currentProcessingFile;
     batchRunning = false;
     batchQueue = [];
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
     countdownText.textContent = "";
     isProcessing = false;
-    addLog("Batch stopped.", "warn");
-    renderFileList();
+    currentProcessingFile = null;
+
+    chrome.runtime.sendMessage({ type: "STOP_PROCESSING" }).catch(function () {});
+
+    if (stoppedFile) {
+      updateFileStatus(stoppedFile, "pending", null, null, null).then(function () {
+        addLog("Stopped: " + stoppedFile, "warn");
+        renderFileList();
+      });
+    } else {
+      addLog("Stopped.", "warn");
+      renderFileList();
+    }
   }
 
   function setupDnD() {
@@ -479,7 +519,7 @@
       });
     };
     btnBatchStart.onclick = function () { startBatch(); };
-    btnBatchStop.onclick = function () { stopBatch(); };
+    btnBatchStop.onclick = function () { stopProcessing(); };
     btnDownloadAll.onclick = function () { downloadAllDone(); };
 
     var btnHelp = document.getElementById("btnHelp");
@@ -531,6 +571,7 @@
     setupDnD();
     setupButtons();
     setupLogsToggle();
+    setupPreviewZoom();
     setupTabMonitoring();
     updateBatchStats();
     initView().then(function () { renderFileList(); });
