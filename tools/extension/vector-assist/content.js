@@ -326,6 +326,141 @@
     document.addEventListener("click", function () { setTimeout(notifyPageChanged, 0); }, true);
   }
 
+  // Convert data URL (e.g. "data:image/png;base64,AAAA") into a File with a name.
+  function dataUrlToFile(dataUrl, name) {
+    var parts = dataUrl.split(",");
+    var mime = "image/png";
+    var m = parts[0].match(/data:([^;]+)/);
+    if (m) mime = m[1];
+    var bin = atob(parts[1] || "");
+    var u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new File([u8], name, { type: mime });
+  }
+
+  // Inject a File into the page's <input type="file"> and trigger a change.
+  function injectFileIntoInput(input, file) {
+    if (!input || !file) return false;
+    try {
+      var dt;
+      try { dt = new DataTransfer(); dt.items.add(file); }
+      catch (e) {
+        // Older Chrome fallback: set files via __proto__ setter bypass.
+        try {
+          Object.defineProperty(input, "files", { value: [file], writable: true });
+        } catch (e2) { return false; }
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function uploadFile(dataUrl, name) {
+    var file = dataUrlToFile(dataUrl, name || "image.png");
+    // Prefer FileInput-Field, fall back to first image-accepting file input.
+    var input = document.getElementById("FileInput-Field") ||
+                document.querySelector('input[type="file"][accept^="image"]');
+    if (!input) return { ok: false, error: "No file input found on this page" };
+    var ok = injectFileIntoInput(input, file);
+    return { ok: ok, fileName: file.name, fileSize: file.size, fileType: file.type };
+  }
+
+  // Read the three phase bars (0..100). Returns null if pane not in DOM yet.
+  function readProgress() {
+    function pct(id) {
+      var el = document.getElementById(id);
+      if (!el) return null;
+      var w = el.style.width || (el.getAttribute("style") || "");
+      var m = ("" + w).match(/(\d+(?:\.\d+)?)\s*%/);
+      if (m) return Math.max(0, Math.min(100, parseFloat(m[1])));
+      // Some variants use raw numeric width via parent. Fall back: assume present == 100.
+      return el.offsetWidth > 0 ? 100 : 0;
+    }
+    var u = pct("App-Progress-Upload-Bar");
+    var p = pct("App-Progress-Process-Bar");
+    var f = pct("App-Progress-Download-Bar");
+    if (u == null && p == null && f == null) return null;
+    return { upload: u || 0, process: p || 0, fetch: f || 0 };
+  }
+
+  // Detect captcha prompt (#Options-SubmitRecaptcha is dynamically injected).
+  function isCaptchaRequired() {
+    var reCap = document.getElementById("Options-SubmitRecaptcha");
+    if (reCap) return true;
+    // Some captcha iframes show up without our id. Heuristic: any visible captcha iframe.
+    var frames = document.querySelectorAll("iframe");
+    for (var i = 0; i < frames.length; i++) {
+      var src = (frames[i].src || "").toLowerCase();
+      if (src.indexOf("recaptcha") >= 0 || src.indexOf("hcaptcha") >= 0 || src.indexOf("turnstile") >= 0) {
+        var r = frames[i].getBoundingClientRect();
+        if (r.width > 50 && r.height > 50) return true;
+      }
+    }
+    return false;
+  }
+
+  function getCurrentImageId() {
+    var m = location.pathname.match(/\/images\/([0-9a-f-]+)/i);
+    return m ? m[1] : null;
+  }
+
+  function clickDownloadLink() {
+    // /edit page toolbar <a> uses class="App-downloadLink" (lowercase d) and
+    // href="#". The actual target (/images/{token}) is wired by the page JS,
+    // so we click it like a human. If the link isn't visible yet (page still
+    // rendering / image not ready), fall back to navigating to /images/{token}
+    // using the token from window.ResumeImage or the current URL.
+    var a = document.querySelector('a.App-downloadLink[alt="Download"]') ||
+            document.querySelector('a.App-downloadLink') ||
+            document.querySelector('a[alt="Download"]');
+    var resumeToken = (window.ResumeImage && window.ResumeImage.token) || null;
+    if (a) {
+      var visible = a.offsetParent !== null && a.getClientRects().length > 0;
+      if (visible) {
+        a.click();
+        return { ok: true, via: "App-downloadLink.click" };
+      }
+      // Element exists but hidden — wait one tick and retry. For now report.
+      log("debug", "App-downloadLink present but hidden, falling back to direct nav");
+    }
+    // Direct fallback: navigate to /images/{token} (the show / options page).
+    var m = location.pathname.match(/\/images\/([^/]+)/);
+    var token = resumeToken || (m && m[1]);
+    if (token) {
+      location.href = "/images/" + token;
+      return { ok: true, via: "direct-nav", token: token };
+    }
+    return { ok: false, error: "No App-downloadLink and no image token found" };
+  }
+
+  function submitDownload() {
+    // Prefer SubmitTop (it auto-selects between recaptcha and regular submit).
+    var top = document.getElementById("Options-SubmitTop");
+    if (top) {
+      try { top.click(); return { ok: true, via: "Options-SubmitTop" }; } catch (e) {}
+    }
+    var sub = document.getElementById("Options-Submit");
+    if (sub) {
+      try { sub.click(); return { ok: true, via: "Options-Submit" }; } catch (e) {}
+    }
+    return { ok: false, error: "No submit/download button found" };
+  }
+
+  function getPageInfo() {
+    return {
+      url: location.href,
+      pathname: location.pathname,
+      imageId: getCurrentImageId(),
+      progress: readProgress(),
+      captcha: isCaptchaRequired(),
+      hasDownloadLink: !!document.querySelector("a.App-downloadLink"),
+      hasOptionsForm: !!document.getElementById("Options-Form")
+    };
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!msg || !msg.type) return;
     if (msg.type === "VECTOR_ASSIST_GET_SETTINGS") {
@@ -339,9 +474,68 @@
       notifyPageChanged();
       return true;
     }
+    if (msg.type === "VECTOR_ASSIST_UPLOAD_FILE") {
+      sendResponse(uploadFile(msg.dataUrl, msg.name));
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_GET_PROGRESS") {
+      sendResponse({ progress: readProgress(), captcha: isCaptchaRequired(), imageId: getCurrentImageId(), url: location.href });
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_GET_PAGE_INFO") {
+      sendResponse(getPageInfo());
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_CLICK_DOWNLOAD_LINK") {
+      sendResponse(clickDownloadLink());
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_NAVIGATE") {
+      // Same as a human typing a URL and hitting enter. Just go there.
+      location.href = msg && msg.url ? msg.url : location.href;
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_SUBMIT_DOWNLOAD") {
+      sendResponse(submitDownload());
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_HAS_SELECTOR") {
+      sendResponse({ found: !!document.getElementById(msg.id) });
+      return true;
+    }
   });
 
   try { chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_CONTENT_READY" }); } catch (e) {}
   expandAdvanced();
   startWatching();
+})();
+
+(function () {
+  // Page-phase beacon: lets background.js know the latest pathname + ready state.
+  function beacon() {
+    try {
+      chrome.runtime.sendMessage({
+        type: "VECTOR_ASSIST_PAGE_PHASE",
+        pathname: location.pathname,
+        ready: !!document.getElementById("FileInput-Field") ||
+              !!document.getElementById("Options-Form") ||
+              !!document.querySelector("a.App-downloadLink"),
+        ts: Date.now()
+      });
+    } catch (e) {}
+  }
+  // Fire on initial load, on history changes, and a few times in case the SPA
+  // mutates after document_idle (e.g. viewer SPA mounts later).
+  beacon();
+  document.addEventListener("DOMContentLoaded", beacon);
+  window.addEventListener("load", beacon);
+  setTimeout(beacon, 500);
+  setTimeout(beacon, 1500);
+  setTimeout(beacon, 3000);
+  var _pushState = history.pushState;
+  history.pushState = function () { var r = _pushState.apply(this, arguments); beacon(); return r; };
+  var _replaceState = history.replaceState;
+  history.replaceState = function () { var r = _replaceState.apply(this, arguments); beacon(); return r; };
+  window.addEventListener("popstate", beacon);
 })();

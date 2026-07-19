@@ -12,11 +12,12 @@
   "permissions": [
     "sidePanel",
     "tabs",
-    "storage"
+    "storage",
+    "downloads"
   ],
   "host_permissions": [
-    "*://*.vectorizer.ai/*",
-    "https://vectorizer.ai/*"
+    "*://vectorizer.ai/*",
+    "*://*.vectorizer.ai/*"
   ],
   "action": {
     "default_title": "Open Vector Assist",
@@ -33,7 +34,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.vectorizer.ai/*"],
+      "matches": [
+        "*://vectorizer.ai/*",
+        "*://*.vectorizer.ai/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

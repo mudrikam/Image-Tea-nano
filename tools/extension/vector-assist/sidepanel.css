@@ -300,20 +300,56 @@ body {
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
-  gap: 8px;
+  gap: 6px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-section);
+}
+
+.control-icons {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.control-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.control-icon:hover:not(:disabled) {
+  background: var(--bg-section);
+  color: var(--text-main);
+}
+.control-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.control-icon svg {
+  display: block;
 }
 
 .control-start {
   flex: 1 1 0;
   min-width: 0;
   gap: 6px;
-  padding: 10px 12px;
+  padding: 0 12px;
+  height: 36px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
 }
 
 .control-start svg {
@@ -329,17 +365,28 @@ body {
   background: #fcd34d;
 }
 
-.control-stop:not(:disabled) {
+/* When the primary button is paused (waiting for captcha or user pause),
+   switch to a calm accent outline so the user clearly sees the runner is idle. */
+.control-start.paused {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.control-start.paused:hover {
+  background: rgba(0, 194, 162, .12);
+}
+
+/* Stop icon button — red accent when enabled. */
+#btnStopProcess:not(:disabled) {
   border-color: var(--error);
   color: var(--error);
 }
-
-.control-stop:not(:disabled):hover {
+#btnStopProcess:not(:disabled):hover {
   background: rgba(248, 113, 113, .12);
   color: var(--error);
+  border-color: var(--error);
 }
-
-.control-stop:disabled {
+#btnStopProcess:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -558,6 +605,32 @@ body {
   min-height: 0;
 }
 
+.file-countdown {
+  margin: 0 0 6px;
+  padding: 3px 8px;
+  background: var(--bg-section);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  min-height: 18px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.file-countdown.waiting {
+  color: var(--accent);
+  border-color: rgba(0, 194, 162, .4);
+  background: rgba(0, 194, 162, .08);
+}
+.file-countdown .cd-time {
+  color: var(--text-main);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 .file-table {
   width: 100%;
   border-collapse: collapse;
@@ -668,6 +741,27 @@ body {
 .status-processing {
   background: rgba(250, 204, 21, .15);
   color: var(--warning);
+}
+.status-uploading,
+.status-waiting-vectorize,
+.status-loading-options,
+.status-applying {
+  background: rgba(96, 165, 250, .15);
+  color: #60a5fa;
+}
+.status-reapplying {
+  background: rgba(45, 212, 191, .15);
+  color: #2dd4bf;
+}
+.status-redirecting,
+.status-submitting,
+.status-downloading {
+  background: rgba(167, 139, 250, .15);
+  color: #a78bfa;
+}
+.status-failed {
+  background: rgba(239, 68, 68, .15);
+  color: var(--error);
 }
 
 .status-done {
@@ -892,6 +986,10 @@ body {
   gap: 8px;
 }
 
+.set-row:first-of-type {
+  margin-top: 0;
+}
+
 .set-row .set-input-suffix {
   flex: 1;
 }
@@ -981,6 +1079,91 @@ body {
 .set-field input:disabled,
 .set-field select:disabled {
   cursor: not-allowed;
+}
+
+/* Runner: per-phase progress, stats, captcha banner, file table per-row timer. */
+.progress-phases {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-wrap: wrap;
+}
+.progress-phases .phase em {
+  font-style: normal;
+  color: var(--text-main);
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.progress-phases .phase.active em {
+  color: var(--accent);
+}
+.progress-phases .phase.done em {
+  color: var(--success);
+}
+.runner-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.runner-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.runner-stat .lbl {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 9px;
+}
+.runner-stat .val {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.runner-stat.rs-captcha {
+  flex-basis: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(250, 204, 21, .12);
+  color: var(--warning);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-row-timer {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.file-row-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+}
+.file-row-progress .progress-track {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 3px;
+}
+.file-row-progress .progress-percent {
+  font-size: 9px;
+  color: var(--accent);
 }
 
 /* Scale quick-buttons (1:1 with page literal buttons) */

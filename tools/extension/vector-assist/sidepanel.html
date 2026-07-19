@@ -37,14 +37,22 @@
 
   <div id="mainInterface" class="main-content hidden">
     <div class="control-bar">
-      <button id="btnStartProcess" class="btn btn-primary control-btn control-start">
+      <button id="btnStartProcess" class="btn btn-primary control-btn control-start" title="Start batch (or pause when running)">
         <svg class="icon-start" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         <svg class="icon-pause hidden" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
         <span class="control-start-label">Start Process</span>
       </button>
-      <button id="btnStopProcess" class="btn-icon control-stop" title="Stop" disabled>
-        <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
-      </button>
+      <div class="control-icons">
+        <button id="btnStopProcess" class="control-icon" title="Stop batch" disabled>
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+        </button>
+        <button id="btnClearAll" class="control-icon" title="Clear all files from the list">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+        <button id="btnResetApp" class="control-icon" title="Reset app state (runner + preset selection). Files are kept.">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+      </div>
     </div>
 
     <div class="dnd-area">
@@ -90,6 +98,11 @@
             <div class="progress-track">
               <div class="progress-fill" id="fileProgressFill" style="width: 0%"></div>
             </div>
+            <div class="progress-phases" id="fileProgressPhases">
+              <span class="phase" data-phase="upload">Upload <em>0%</em></span>
+              <span class="phase" data-phase="process">Process <em>0%</em></span>
+              <span class="phase" data-phase="fetch">Fetch <em>0%</em></span>
+            </div>
           </div>
           <div class="progress">
             <div class="progress-head">
@@ -99,6 +112,13 @@
             <div class="progress-track">
               <div class="progress-fill" id="overallProgressFill" style="width: 0%"></div>
             </div>
+          </div>
+          <div class="runner-stats" id="runnerStats">
+            <span class="runner-stat"><span class="lbl">Elapsed</span><span class="val" id="rsElapsed">0s</span></span>
+            <span class="runner-stat"><span class="lbl">ETA</span><span class="val" id="rsEta">—</span></span>
+            <span class="runner-stat"><span class="lbl">Done</span><span class="val" id="rsDone">0/0</span></span>
+            <span class="runner-stat"><span class="lbl">Now</span><span class="val" id="rsNow">idle</span></span>
+            <span class="runner-stat rs-captcha hidden" id="rsCaptcha">Solve the captcha on the page, then click Resume</span>
           </div>
           <div class="stats">
             <div class="stat">
@@ -120,6 +140,7 @@
           </div>
         </div>
         <div class="file-list-container">
+          <div id="fileCountdown" class="file-countdown">Ready</div>
           <table class="file-table">
             <thead>
               <tr>
@@ -166,11 +187,11 @@
             <div class="set-grid2">
               <div class="set-field">
                 <label>Delay (ms)</label>
-                <input type="number" name="delayMs" min="0" step="50" value="0">
+                <input type="number" name="delayMs" min="0" step="50" value="5000">
               </div>
               <div class="set-field">
                 <label>Extra random delay (ms)</label>
-                <input type="number" name="delayJitterMs" min="0" step="50" value="0">
+                <input type="number" name="delayJitterMs" min="0" step="50" value="1000">
               </div>
             </div>
           </div>

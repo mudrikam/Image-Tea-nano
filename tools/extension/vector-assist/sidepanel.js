@@ -5,7 +5,7 @@
 
   var landingPage, mainInterface, btnOpenSite;
   var dndZone, fileInput, folderInput, btnSelectFiles, btnSelectFolder;
-  var btnStartProcess, btnStopProcess;
+  var btnStartProcess, btnStopProcess, btnClearAll, btnResetApp;
   var fileTableBody, emptyState;
   var statLoaded, statPending, statFinished, statFailed;
   var isRunning = false;
@@ -439,22 +439,47 @@
       fileCell.appendChild(cellWrap);
       row.appendChild(fileCell);
 
-      // Status column
+      // Status column (with optional timer + inline progress for the current file).
       var statusCell = document.createElement("td");
       var badge = document.createElement("span");
       badge.className = "status-badge status-" + file.status;
-      badge.textContent = file.status.charAt(0).toUpperCase() + file.status.slice(1);
+      badge.textContent = file.statusLabel ||
+        (file.status.charAt(0).toUpperCase() + file.status.slice(1));
       statusCell.appendChild(badge);
+      if (file === runnerCurrent || (file.status === "processing" && runnerCurrent === file.name) ||
+          file.status === "downloading" || file.status === "submitting" ||
+          file.status === "uploading" || file.status === "applying" ||
+          file.status === "redirecting" ||
+          file.status === "waiting-vectorize") {
+        var remaining = 0;
+        if (runnerCountdownTarget && runnerCountdownTarget > Date.now()) {
+          remaining = Math.ceil((runnerCountdownTarget - Date.now()) / 1000);
+        }
+        var t = document.createElement("span");
+        t.className = "file-row-timer";
+        if (remaining > 0) {
+          t.textContent = "waiting " + remaining + "s…";
+        } else if (runnerFileStartTs) {
+          var elapsed = Math.max(0, Math.floor((Date.now() - runnerFileStartTs) / 1000));
+          t.textContent = formatHMS(elapsed) + " elapsed";
+        }
+        statusCell.appendChild(t);
+      }
       row.appendChild(statusCell);
+      row.dataset.name = file.name;
 
-      // Actions column (no functionality yet)
+      // Actions column: Run single + Delete.
       var actionsCell = document.createElement("td");
       var actions = document.createElement("div");
       actions.className = "file-actions";
-      actions.appendChild(makeActionBtn(file, "act-run", "Process",
+      actions.appendChild(makeActionBtn(file, "act-run", "Run this file",
         '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'));
-      actions.appendChild(makeActionBtn(file, "act-download", "Download",
-        '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'));
+      // Skip button — only meaningful while runner is busy; lets the user
+      // jump past a stuck file without aborting the whole batch.
+      if (runnerState !== "idle" && file.status !== "done" && file.status !== "pending") {
+        actions.appendChild(makeActionBtn(file, "act-skip", "Skip this file",
+          '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>'));
+      }
       actions.appendChild(makeActionBtn(file, "act-delete", "Delete",
         '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'));
       actionsCell.appendChild(actions);
@@ -475,8 +500,11 @@
       e.stopPropagation();
       if (cls === "act-delete") {
         deleteFile(file.name);
+      } else if (cls === "act-run") {
+        startOne(file.name);
+      } else if (cls === "act-skip") {
+        skipFile(file.name);
       }
-      // Process / Download: no functionality yet.
     };
     return btn;
   }
@@ -506,38 +534,232 @@
     var iconPause = btnStartProcess.querySelector(".icon-pause");
     var label = btnStartProcess.querySelector(".control-start-label");
 
-    if (isRunning) {
+    var s = runnerState;
+    btnStartProcess.classList.remove("running", "paused");
+
+    if (s === "running") {
+      // Running -> button acts as Pause.
       btnStartProcess.classList.add("running");
       if (iconStart) iconStart.classList.add("hidden");
       if (iconPause) iconPause.classList.remove("hidden");
       if (label) label.textContent = "Pause";
-      if (btnStopProcess) btnStopProcess.disabled = false;
+      btnStartProcess.disabled = false;
+    } else if (s === "paused" || s === "captcha") {
+      // Paused (or awaiting captcha) -> button acts as Resume.
+      btnStartProcess.classList.add("paused");
+      if (iconStart) iconStart.classList.add("hidden");
+      if (iconPause) iconPause.classList.remove("hidden");
+      if (label) label.textContent = "Resume";
+      btnStartProcess.disabled = false;
     } else {
-      btnStartProcess.classList.remove("running");
+      // Idle -> button acts as Start Process.
       if (iconStart) iconStart.classList.remove("hidden");
       if (iconPause) iconPause.classList.add("hidden");
       if (label) label.textContent = "Start Process";
-      if (btnStopProcess) btnStopProcess.disabled = true;
+      btnStartProcess.disabled = false;
     }
+
+    if (btnStopProcess) btnStopProcess.disabled = (s === "idle");
   }
+
+function formatHMS(totalSec) {
+    var h = Math.floor(totalSec / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
+    var s = totalSec % 60;
+    function p(n) { return n < 10 ? "0" + n : "" + n; }
+    return h > 0 ? (h + ":" + p(m) + ":" + p(s)) : (m + ":" + p(s));
+  }
+
+function startOne(name) {
+  var file = files.filter(function (f) { return f.name === name; })[0];
+  if (!file) return;
+
+  // Single-file manual run. Always honors the user's click immediately:
+  //   - if idle: start fresh.
+  //   - if running: abort current batch, then start this file alone.
+  // There's no cooldown between manual runs — that's only for batch mode.
+  if (runnerState !== "idle" || runnerAbortCtrl) {
+    log("info", "Run " + name + ": interrupting current batch");
+    if (runnerAbortCtrl && !runnerAbortSignal && typeof runnerAbortCtrl.abort === "function") {
+      runnerAbortCtrl.abort();
+    }
+    runnerAbortSignal = true;
+    runnerPauseRequested = false;
+    runnerCaptchaPause = false;
+    runnerQueue = [];
+    runnerCurrent = null;
+    runnerSetState("idle");
+    // Mark non-target in-flight files skipped (target file will start fresh).
+    files.forEach(function (f) {
+      if (f.name !== name && f.status !== "done" && f.status !== "pending") {
+        f.status = "pending";
+        f.statusLabel = "Skipped";
+      }
+    });
+    renderFileList();
+    // Give the abort a tick to propagate before starting the new batch.
+    setTimeout(function () {
+      try { runnerStart([name], { single: true }); }
+      catch (e) { logError("startOne failed: " + e); }
+    }, 80);
+    return;
+  }
+  runnerStart([name], { single: true });
+}
+
+function skipFile(name) {
+  // Skip = abort just this file's flow and move to the next. We throw a
+  // STOPPED out of the current runnerProcessFile, then re-queue if it
+  // wasn't the queue head (rare). Simpler: just abort the runner; the
+  // remaining queue items will need a fresh Start, which is fine since
+  // we keep files. If we want truly per-file skip without killing the
+  // batch, we need to abort only the in-flight awaits — that's what
+  // runnerAbortSignal already does (it interrupts runnerSleep, gates,
+  // and the download wait). To preserve "skip = continue to next file",
+  // we abort, drain queue head, then re-pump.
+  if (!runnerAbortCtrl || runnerAbortSignal) {
+    logWarn("Skip ignored: nothing running");
+    return;
+  }
+  log("info", "Skipping " + name);
+  if (typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
+  runnerAbortSignal = true;
+  runnerPauseRequested = false;
+  runnerCaptchaPause = false;
+  // Mark file as skipped.
+  var f = files.filter(function (x) { return x.name === name; })[0];
+  if (f) {
+    f.status = "pending";
+    f.statusLabel = "Skipped";
+    renderFileList();
+  }
+  // Remove from queue if still pending; if it was the head, the pump will
+  // exit because abort throws, and we let the user click Start again.
+  runnerQueue = runnerQueue.filter(function (n) { return n !== name; });
+  runnerCurrent = null;
+  // Re-pump if there are remaining items.
+  if (runnerQueue.length) {
+    runnerSetState("running");
+    runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
+      this.signal = { aborted: false }; var self = this;
+      this.abort = function () { self.signal.aborted = true; };
+    })();
+    runnerAbortSignal = false;
+    runnerPump();
+  } else {
+    runnerSetState("idle");
+  }
+}
+
+function startBatch(names) {
+    if (!names || !names.length) {
+      names = files.filter(function (f) { return f.status !== "done"; }).map(function (f) { return f.name; });
+    }
+    runnerStart(names);
+  }
+
+function clearAllFiles() {
+    if (runnerState !== "idle") {
+      logWarn("Cannot clear while runner is " + runnerState);
+      return;
+    }
+    var names = files.map(function (f) { return f.name; });
+    names.forEach(function (n) { dbDelete(n).catch(function () {}); });
+    files = [];
+    selectedName = null;
+    renderFileList();
+    log("info", "Cleared all files");
+  }
+
+  // Reset runner + UI state without removing files from the list. If the
+  // runner is currently working, we stop it first and then clean up.
+function resetAppState() {
+  // Real reset:
+  //   - Abort any running batch immediately (not "request" — actually stop).
+  //   - Clear all logs.
+  //   - Reset runner stats (elapsed, ETA, done count).
+  //   - Reset all file statuses back to pending.
+  //   - Drop preset selection back to Unsaved.
+  //   - Files PERSIST (user explicitly chose this).
+  if (runnerAbortCtrl && !runnerAbortSignal) {
+    if (typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
+    runnerAbortSignal = true;
+    logWarn("Reset: runner aborted");
+  }
+  runnerQueue = [];
+  runnerCurrent = null;
+  runnerBatchStartTs = 0;
+  runnerFileStartTs = 0;
+  runnerFileDurations = [];
+  runnerPauseRequested = false;
+  runnerCaptchaPause = false;
+  files.forEach(function (f) {
+    f.status = "pending";
+    f.startedAt = 0;
+    f.durationMs = 0;
+    f.error = null;
+  });
+  renderFileList();
+  runnerSetState("idle");
+  // Drop preset selection.
+  if (presetSelect) {
+    currentPresetName = "";
+    presetSelect.value = "";
+    setPresetState("idle");
+  }
+  // Release UI preset lock so the user starts clean after reset.
+  extensionLockedPresetName = "";
+  runnerLockedPresetName = "";
+  // Clear logs entirely (real reset, not just my own page-phase entry).
+  if (typeof logs !== "undefined") {
+    logs.length = 0;
+  }
+  if (typeof renderLogs === "function") renderLogs();
+  updateRunnerUI();
+  updateReadyLine();
+  log("info", "App reset (files kept, logs cleared, runner cleared)");
+}
+
+function doReset() {
+  // Alias kept so older callers still work; just delegates.
+  resetAppState();
+}
 
   function setupControls() {
     if (btnStartProcess) {
       btnStartProcess.onclick = function () {
-        // Basic switching only — no program yet.
-        isRunning = !isRunning;
-        updateControlUI();
+        var s = runnerState;
+        if (s === "running") { runnerPause(); return; }
+        if (s === "paused" || s === "captcha") { runnerResume(); return; }
+        // Idle: start a batch over all non-done files.
+        var names = files.filter(function (f) { return f.status !== "done"; }).map(function (f) { return f.name; });
+        if (!names.length) {
+          logWarn("Start ignored: no files in queue");
+          return;
+        }
+        log("info", "Starting batch: " + names.length + " file(s)");
+        startBatch(names);
       };
     }
     if (btnStopProcess) {
       btnStopProcess.onclick = function () {
         if (btnStopProcess.disabled) return;
-        // Basic switching only — no program yet.
-        isRunning = false;
-        updateControlUI();
+        runnerStop();
       };
     }
+    if (btnClearAll) {
+      btnClearAll.onclick = function () { clearAllFiles(); };
+    }
+    if (btnResetApp) {
+      btnResetApp.onclick = function () { resetAppState(); };
+    }
     updateControlUI();
+    // Refresh per-row timer text every second while running.
+    setInterval(function () {
+      if (runnerState === "running" || runnerState === "paused" || runnerState === "captcha") {
+        renderFileList();
+      }
+    }, 1000);
   }
 
   function setupTabs() {
@@ -563,7 +785,10 @@
     log("mirror", "ext -> page push (" + Object.keys(data).length + " fields, delayMs=" + (data.delayMs || 0) + ")");
     applyingToPage = true;
     try {
-      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data });
+      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data }, function () {
+        // Silence unchecked lastError.
+        void (chrome.runtime && chrome.runtime.lastError);
+      });
     } catch (e) {
       logError("pushSettingsToPage: sendMessage failed — " + e);
     }
@@ -593,6 +818,28 @@
     saveSettings(root);
     setTimeout(function () {
       applyingFromPage = false;
+      // UI preset lock (one-shot per page reset): if the user picked a
+      // preset and the page resetting to defaults demoted the combo to
+      // "Unsaved", re-select the locked preset here so the page mirrors
+      // it back. We then clear the lock so subsequent page echoes don't
+      // loop the cycle. To re-arm, the user must pick the preset again
+      // in the combo (which re-sets extensionLockedPresetName).
+      if (extensionLockedPresetName && presetSelect && presetSelect.value !== extensionLockedPresetName) {
+        var lockedName = extensionLockedPresetName;
+        getPresets().then(function (list) {
+          var preset = list.filter(function (p) { return p.name === lockedName; })[0];
+          if (!preset) return;
+          extensionLockedPresetName = ""; // one-shot: clear before pushing
+          applyingFromPage = true;
+          presetSelect.value = lockedName;
+          applyPresetToUI(preset);
+          setTimeout(function () { applyingFromPage = false; }, 200);
+          setPresetState("loaded");
+          currentPresetName = lockedName;
+          log("preset", "Page reset detected — re-selected locked preset '" + lockedName + "'");
+        });
+        return;
+      }
       // Only re-evaluate preset status if this reflection is NOT an echo of
       // our own push. setupMirror already filters PAGE_CHANGED while
       // applyingToPage is true, but a few may slip through; this guard
@@ -607,6 +854,8 @@
     log("mirror", "Requesting settings from page");
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_GET_SETTINGS" }, function (resp) {
+        // Silence unchecked lastError.
+        void (chrome.runtime && chrome.runtime.lastError);
         if (resp && resp.settings) {
           log("mirror", "Page settings received (" + Object.keys(resp.settings).length + " fields)");
           reflectPageToExtension(document.querySelector(".settings"), resp.settings);
@@ -662,7 +911,15 @@
       applySettingsRules(settingsRoot);
       saveSettings(settingsRoot);
       pushSettingsToPage(settingsRoot);
+      // Keep the ready line (preset + delay) in sync when timings change.
+      updateReadyLine();
     });
+
+    // Live update ready line as the user types in the delay fields.
+    var delayEl = settingsRoot.querySelector('[name="delayMs"]');
+    var jitterEl = settingsRoot.querySelector('[name="delayJitterMs"]');
+    if (delayEl) delayEl.addEventListener("input", updateReadyLine);
+    if (jitterEl) jitterEl.addEventListener("input", updateReadyLine);
 
     // Default scale to 4x if nothing restored yet.
     if (!settingsRoot.dataset.scalePercent) settingsRoot.dataset.scalePercent = "400";
@@ -859,12 +1116,99 @@
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Runner UI helpers
+  // --------------------------------------------------------------------------
+  var rsElapsed, rsEta, rsDone, rsNow, rsCaptcha;
+  var fileProgressPercentEl, fileProgressFillEl, overallProgressPercentEl, overallProgressFillEl;
+  var fileCountdownEl;
+  var fileProgressPhaseEls = {};
+  function setupRunner() {
+    rsElapsed = document.getElementById("rsElapsed");
+    rsEta = document.getElementById("rsEta");
+    rsDone = document.getElementById("rsDone");
+    rsNow = document.getElementById("rsNow");
+    rsCaptcha = document.getElementById("rsCaptcha");
+    fileProgressPercentEl = document.getElementById("fileProgressPercent");
+    fileProgressFillEl = document.getElementById("fileProgressFill");
+    overallProgressPercentEl = document.getElementById("overallProgressPercent");
+    overallProgressFillEl = document.getElementById("overallProgressFill");
+    var phases = document.querySelectorAll("#fileProgressPhases .phase");
+    phases.forEach(function (el) {
+      fileProgressPhaseEls[el.getAttribute("data-phase")] = el;
+    });
+    startRunnerProgressPolling();
+    // Update the runner-stats strip every second when active.
+    setInterval(function () {
+      if (runnerState === "idle") return;
+      // Done count.
+      var done = files.filter(function (f) { return f.status === "done"; }).length;
+      var total = files.length;
+      if (rsDone) rsDone.textContent = done + "/" + total;
+      if (rsNow) {
+        var label = runnerState.charAt(0).toUpperCase() + runnerState.slice(1);
+        if (runnerCurrent) label += " — " + runnerCurrent;
+        rsNow.textContent = label;
+      }
+      if (rsElapsed) {
+        var startTs = runnerCurrent ? runnerFileStartTs : runnerBatchStartTs;
+        if (startTs) {
+          var sec = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+          rsElapsed.textContent = formatHMS(sec);
+        }
+      }
+      if (rsEta) {
+        rsEta.textContent = computeETA();
+      }
+      if (rsCaptcha) rsCaptcha.classList.toggle("hidden", runnerState !== "captcha");
+    }, 500);
+  }
+
+  function computeETA() {
+    if (!runnerFileDurations.length) return "—";
+    var avg = runnerFileDurations.reduce(function (a, b) { return a + b; }, 0) / runnerFileDurations.length;
+    var remaining = runnerQueue.length + (runnerCurrent ? 1 : 0);
+    if (!remaining) return "done";
+    var sec = Math.round((avg * remaining) / 1000);
+    return formatHMS(sec);
+  }
+
+  function updateRunnerUI() {
+    if (typeof updateControlUI === "function") updateControlUI();
+  }
+
+  function updateRunnerProgressUI(p) {
+    if (!p) return;
+    var pg = p.progress || {};
+    var u = pg.upload || 0, pr = pg.process || 0, f = pg.fetch || 0;
+    var overall = Math.round((u + pr + f) / 3);
+    if (fileProgressFillEl) fileProgressFillEl.style.width = overall + "%";
+    if (fileProgressPercentEl) fileProgressPercentEl.textContent = overall + "%";
+    if (overallProgressFillEl) {
+      var total = files.length || 1;
+      var done = files.filter(function (f) { return f.status === "done"; }).length;
+      var pct = Math.round((done / total) * 100);
+      overallProgressFillEl.style.width = pct + "%";
+      if (overallProgressPercentEl) overallProgressPercentEl.textContent = pct + "%";
+    }
+    Object.keys(fileProgressPhaseEls).forEach(function (k) {
+      var el = fileProgressPhaseEls[k];
+      if (!el) return;
+      var v = pg[k] || 0;
+      el.querySelector("em").textContent = Math.round(v) + "%";
+      el.classList.toggle("done", v >= 100);
+      el.classList.toggle("active", v > 0 && v < 100);
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     landingPage = document.getElementById("landingPage");
     mainInterface = document.getElementById("mainInterface");
     btnOpenSite = document.getElementById("btnOpenSite");
     btnStartProcess = document.getElementById("btnStartProcess");
     btnStopProcess = document.getElementById("btnStopProcess");
+    btnClearAll = document.getElementById("btnClearAll");
+    btnResetApp = document.getElementById("btnResetApp");
     dndZone = document.getElementById("dndZone");
     fileInput = document.getElementById("fileInput");
     folderInput = document.getElementById("folderInput");
@@ -872,6 +1216,7 @@
     btnSelectFolder = document.getElementById("btnSelectFolder");
     fileTableBody = document.getElementById("fileTableBody");
     emptyState = document.getElementById("emptyState");
+    fileCountdownEl = document.getElementById("fileCountdown");
     statLoaded = document.getElementById("statLoaded");
     statPending = document.getElementById("statPending");
     statFinished = document.getElementById("statFinished");
@@ -908,7 +1253,11 @@
     setupSettings();
     setupPresets();
     setupMirror();
+    setupRunner();
+    setupPagePhaseListener();
+    setupDownloadListener();
     renderFileList();
+    updateReadyLine();
     setupTabMonitoring();
     initView();
 
@@ -929,8 +1278,782 @@
     });
   });
 
-  // --------------------------------------------------------------------------
-  // Presets: CRUD, saved/unsaved, easy switching. Extension is source of
+// --------------------------------------------------------------------------
+// Runner: batch/single file automation against vectorizer.ai.
+//
+// State machine per file:
+//   queued -> uploading -> (progress) -> processing -> awaiting-captcha?
+//     -> applying-preset -> ready-to-download -> downloading -> done | failed
+//
+// Pause / resume are honored at step boundaries (between delay waits).
+// Captcha pauses until user clicks Resume; runner does not auto-solve.
+// --------------------------------------------------------------------------
+var runnerState = "idle";  // "idle" | "running" | "paused" | "captcha"
+var runnerPauseRequested = false;
+var runnerCaptchaPause = false;
+var runnerQueue = [];      // array of file names in order
+var runnerCurrent = null;  // file currently being processed (name)
+var runnerBatchStartTs = 0;
+var runnerFileStartTs = 0;
+// Live countdown target (ms epoch). While this is in the future, the file
+// row shows "waiting Ns…" instead of "elapsed".
+var runnerCountdownTarget = 0;
+var runnerFileDurations = []; // ms duration of completed files (for ETA)
+var runnerProgressTick = null;
+var runnerStepWait = null;   // setTimeout handle for current wait; cancel on pause.
+// While a runner is active, we lock the preset name so the 2-way mirror
+// (page -> extension) cannot drop us back to "Unsaved" when a freshly
+// mounted /images/{id} page first reports its default settings. The lock
+// is released when the runner goes back to idle.
+var runnerLockedPresetName = "";
+// UI-level preset lock. Set whenever the user picks a preset from the
+// combo. Survives page resets: when /images/{id} remounts and pushes its
+// default settings back to the extension, this lock causes the extension
+// to re-select the same preset (and re-push its settings) instead of
+// silently demoting the combo to "Unsaved". Released on app reset, when
+// the user explicitly picks "Unsaved", or after the re-push completes.
+var extensionLockedPresetName = "";
+
+function runnerSetState(s) {
+  runnerState = s;
+  if (typeof updateRunnerUI === "function") updateRunnerUI();
+}
+
+function runnerCancelWait() {
+  if (runnerStepWait) {
+    clearTimeout(runnerStepWait);
+    runnerStepWait = null;
+  }
+}
+
+// Wait with delay+jitter. Promise resolves when wait completes, or rejects if cancelled.
+function runnerSleep(baseMs, jitterMs, label) {
+  return new Promise(function (resolve, reject) {
+    if (runnerAbortSignal) { reject(new Error("STOPPED")); return; }
+    var b = parseInt(baseMs, 10); if (!isFinite(b) || b < 0) b = 0;
+    var j = parseInt(jitterMs, 10); if (!isFinite(j) || j < 0) j = 0;
+    var wait = b + (j > 0 ? Math.floor(Math.random() * j) : 0);
+    runnerCountdownTarget = Date.now() + wait;
+    runnerCountdownLabel = label || "Waiting";
+    ensureRunnerTick();
+    var id = setTimeout(function () {
+      if (runnerStepWait === id) runnerStepWait = null;
+      if (runnerAbortSignal) { reject(new Error("STOPPED")); return; }
+      resolve();
+    }, wait);
+    runnerStepWait = id;
+  });
+}
+
+// Live tick: every 250ms update the compact status line + file rows.
+var runnerTickHandle = null;
+var runnerCountdownLabel = "";
+// When there's no active countdown, fall back to this label so the user
+// always sees something meaningful (e.g. "Uploading", "Vectorizing").
+var runnerPhaseLabel = "";
+function ensureRunnerTick() {
+  if (runnerTickHandle) return;
+  runnerTickHandle = setInterval(function () {
+    if (runnerState !== "running" && runnerState !== "paused" && runnerState !== "captcha") {
+      clearInterval(runnerTickHandle);
+      runnerTickHandle = null;
+      runnerCountdownTarget = 0;
+      runnerCountdownLabel = "";
+      runnerPhaseLabel = "";
+      updateReadyLine();
+      renderFileList();
+      return;
+    }
+    // Update the compact status line (label stays, value updates).
+    if (fileCountdownEl) {
+      if (runnerCountdownTarget && runnerCountdownTarget > Date.now()) {
+        var remaining = Math.max(0, Math.ceil((runnerCountdownTarget - Date.now()) / 1000));
+        fileCountdownEl.classList.add("waiting");
+        fileCountdownEl.innerHTML = runnerCountdownLabel +
+          ' <span class="cd-time">' + remaining + 's</span>';
+      } else if (runnerCountdownTarget) {
+        fileCountdownEl.classList.add("waiting");
+        fileCountdownEl.innerHTML = runnerCountdownLabel +
+          ' <span class="cd-time">…</span>';
+      } else if (runnerPhaseLabel) {
+        fileCountdownEl.classList.remove("waiting");
+        fileCountdownEl.textContent = runnerPhaseLabel;
+      } else {
+        fileCountdownEl.classList.remove("waiting");
+        fileCountdownEl.textContent = "Running";
+      }
+    }
+    if (typeof renderFileList === "function") renderFileList();
+  }, 250);
+}
+
+function runnerIsPauseRequested() {
+  return runnerPauseRequested || runnerCaptchaPause;
+}
+
+async function runnerGate() {
+  // Awaits while pause / captcha is in effect. Throws on stop.
+  while (runnerPauseRequested && !runnerAbortSignal) {
+    runnerSetState("paused");
+    await new Promise(function (r) { setTimeout(r, 200); });
+  }
+  if (runnerAbortSignal) throw new Error("STOPPED");
+  while (runnerCaptchaPause) {
+    runnerSetState("captcha");
+    await new Promise(function (r) { setTimeout(r, 300); });
+  }
+  if (runnerAbortSignal) throw new Error("STOPPED");
+}
+
+function updateReadyLine() {
+  // Render the compact status line in idle mode. Show what's actually
+  // armed: selected preset name, per-field delay, and per-file cooldown.
+  if (!fileCountdownEl) return;
+  var t = runnerGetTiming();
+  var presetName = (presetSelect && presetSelect.value) || "";
+  var delay = (t.delay || 0) + "+" + (t.jitter || 0);
+  var parts = [];
+  if (presetName) parts.push("preset: " + presetName);
+  else parts.push("preset: none");
+  parts.push("delay: " + delay + "ms");
+  fileCountdownEl.classList.remove("waiting");
+  fileCountdownEl.textContent = "Ready · " + parts.join(" · ");
+}
+
+function runnerGetTiming() {
+  var root = document.querySelector(".settings");
+  var base = parseInt(root && root.querySelector('[name="delayMs"]') && root.querySelector('[name="delayMs"]').value, 10);
+  var jit  = parseInt(root && root.querySelector('[name="delayJitterMs"]') && root.querySelector('[name="delayJitterMs"]').value, 10);
+  if (!isFinite(base) || base < 0) base = 0;
+  if (!isFinite(jit) || jit < 0) jit = 0;
+  return { delay: base, jitter: jit };
+}
+
+function runnerGetPreset(name) {
+  return new Promise(function (resolve) {
+    if (!name) { resolve(null); return; }
+    getPresets().then(function (list) {
+      var p = list.filter(function (x) { return x.name === name; })[0];
+      resolve(p || null);
+    });
+  });
+}
+
+// Apply a preset to the page via literal clicks. Same as user-driven flow.
+// Fire-and-forget: the page-side applyToPage runs its own sequential timing
+// per field; we don't add any extra wait here. The runner's repick step
+// (Unsaved -> preset cycle) is what actually triggers the page mirror on
+// a freshly-mounted /images/{id} form, and it carries its own short delay.
+function runnerApplyPreset(preset, timing) {
+  return new Promise(function (resolve, reject) {
+    if (!preset) { resolve(); return; }
+    var settings = preset.settings || {};
+    settings.delayMs = timing.delay;
+    settings.delayJitterMs = timing.jitter;
+    try {
+      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: settings }, function () {
+        void (chrome.runtime && chrome.runtime.lastError);
+      });
+      log("preset", "Applied preset '" + preset.name + "' for download page (" + Object.keys(settings).length + " fields)");
+      resolve();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// --------------------------------------------------------------------------
+// Page phase beacon: content.js on the active tab reports its URL + readiness.
+// We track the most recent phase so the runner can wait for a fresh content
+// script to come online after a navigation.
+// --------------------------------------------------------------------------
+// Download-complete coordination. background.js uses chrome.downloads to
+// detect when a file has actually been written to disk (which is what we
+// really care about — not the page's progress bar). The runner awaits a
+// DOWNLOAD_COMPLETE event after it has clicked Submit.
+// --------------------------------------------------------------------------
+
+// Force the preset combo to "Unsaved" then back to the picked preset so the
+// change listener fires twice. The Settings mirror then re-pushes the preset
+// to the page, which is what actually updates a freshly-mounted Options form
+// on /images/{id} (the SPA loads defaults until we poke it).
+function runnerRepickPreset(presetName, delayMs, jitterMs) {
+  return new Promise(function (resolve, reject) {
+    if (!presetName || !presetSelect) { resolve(); return; }
+    try {
+      // Step 1: clear -> triggers Unsaved branch in the change listener.
+      presetSelect.value = "";
+      presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      // Step 2: re-select the same preset after a short delay so the page
+      // change listener actually receives a fresh push.
+      setTimeout(function () {
+        if (runnerAbortSignal) { reject(new Error("STOPPED")); return; }
+        presetSelect.value = presetName;
+        presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        // Step 3: wait 1..3s for the page to react before clicking Submit.
+        var wait = 1000 + Math.floor(Math.random() * 2000);
+        runnerCountdownTarget = Date.now() + wait;
+        runnerCountdownLabel = "Reapplying preset";
+        ensureRunnerTick();
+        setTimeout(function () {
+          runnerCountdownTarget = 0;
+          runnerCountdownLabel = "";
+          resolve();
+        }, wait);
+      }, 150);
+    } catch (e) { reject(e); }
+  });
+}
+
+var downloadCompleteWaiters = [];
+
+function setupDownloadListener() {
+  if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.onMessage) return;
+  chrome.runtime.onMessage.addListener(function (msg) {
+    if (!msg) return;
+    if (msg.type === "VECTOR_ASSIST_DOWNLOAD_STARTED") {
+      log("info", "  download started (" + (msg.filename || msg.url || "?") + ")");
+      return;
+    }
+    if (msg.type === "VECTOR_ASSIST_DOWNLOAD_COMPLETE") {
+      var payload = msg;
+      log("info", "  download complete: " + (payload.filename || "?") +
+        " (" + (payload.bytesReceived || 0) + " bytes)");
+      var stale = downloadCompleteWaiters;
+      downloadCompleteWaiters = [];
+      stale.forEach(function (fn) { try { fn(payload); } catch (e) {} });
+    }
+  });
+}
+
+function whenDownloadComplete(timeoutMs) {
+  return new Promise(function (resolve) {
+    var done = false;
+    function finish(payload) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      downloadCompleteWaiters = downloadCompleteWaiters.filter(function (fn) { return fn !== listener; });
+      resolve(payload || null);
+    }
+    var listener = function (payload) { finish(payload); };
+    downloadCompleteWaiters.push(listener);
+    var timer = setTimeout(function () { finish(null); }, timeoutMs);
+  });
+}
+
+var lastPagePhase = { pathname: "", ready: false, ts: 0, tabId: null };
+var pagePhaseListeners = [];
+
+function setupPagePhaseListener() {
+  if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.onMessage) return;
+  chrome.runtime.onMessage.addListener(function (msg) {
+    if (!msg || msg.type !== "VECTOR_ASSIST_PAGE_PHASE") return;
+    lastPagePhase = {
+      pathname: msg.pathname || "",
+      ready: !!msg.ready,
+      ts: msg.ts || Date.now(),
+      tabId: msg.tabId
+    };
+    var stale = pagePhaseListeners;
+    pagePhaseListeners = [];
+    stale.forEach(function (fn) { try { fn(lastPagePhase); } catch (e) {} });
+  });
+}
+
+function whenPagePhaseMatches(predicate, timeoutMs) {
+  // Resolves with the phase payload if predicate(pathname|ready) becomes true
+  // within timeoutMs; resolves with null on timeout.
+  return new Promise(function (resolve) {
+    if (predicate(lastPagePhase)) { resolve(lastPagePhase); return; }
+    var timer = setTimeout(function () {
+      // pop ourselves out of listeners
+      pagePhaseListeners = pagePhaseListeners.filter(function (fn) { return fn !== listener; });
+      resolve(null);
+    }, timeoutMs);
+    var listener = function (p) {
+      if (predicate(p)) {
+        clearTimeout(timer);
+        pagePhaseListeners = pagePhaseListeners.filter(function (fn) { return fn !== listener; });
+        resolve(p);
+      }
+    };
+    pagePhaseListeners.push(listener);
+  });
+}
+
+function runnerSend(type, payload) {
+  // Wraps sendMessage with a short polling retry so messages that arrive while
+  // content.js is reloading after a navigation don't get dropped.
+  // Touches chrome.runtime.lastError inside the callback to suppress the
+  // "Could not establish connection" warning that would otherwise be logged
+  // to DevTools whenever no listener is on the other side.
+  return new Promise(function (resolve) {
+    var tries = 0;
+    function attempt() {
+      if (runnerAbortSignal) { resolve({ ok: false, error: "stopped" }); return; }
+      tries++;
+      try {
+        chrome.runtime.sendMessage(Object.assign({ type: type }, payload || {}), function (resp) {
+          // Suppress unchecked lastError noise without branching on it.
+          var err = chrome.runtime && chrome.runtime.lastError;
+          if (err) {
+            // No listener on the other side — usually because the new tab's
+            // content script hasn't loaded yet. Wait briefly and retry.
+            if (tries < 5) setTimeout(attempt, 400);
+            else resolve({ ok: false, error: err.message || "send failed" });
+            return;
+          }
+          resolve(resp || { ok: false, error: "No response" });
+        });
+      } catch (e) { resolve({ ok: false, error: String(e) }); }
+    }
+    attempt();
+  });
+}
+
+async function runnerProcessFile(name) {
+  var file = files.filter(function (f) { return f.name === name; })[0];
+  if (!file) throw new Error("File not found: " + name);
+
+  runnerFileStartTs = Date.now();
+  runnerCurrent = name;
+  file.status = "pending";
+  renderFileList();
+  log("info", "▶ " + name + ": starting");
+  updateRunnerUI();
+
+  // Helper: set status + log + render.
+  function setStatus(status, label) {
+    file.status = status;
+    file.statusLabel = label;
+    // Mirror phase to the global status line so the tick has a label even
+    // when no countdown is active.
+    runnerPhaseLabel = label || status;
+    ensureRunnerTick();
+    renderFileList();
+  }
+
+  // Make sure there's a Vectorizer tab open. If not, open the home page.
+  var ensured = await new Promise(function (resolve) {
+    try {
+      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_ENSURE_SITE" }, function (resp) {
+        // Silence unchecked lastError.
+        void (chrome.runtime && chrome.runtime.lastError);
+        resolve(resp || { ok: false });
+      });
+    } catch (e) { resolve({ ok: false }); }
+  });
+  if (!ensured || !ensured.ok) {
+    setStatus("failed", "Failed: no site");
+    logError(name + ": cannot open vectorizer.ai");
+    throw new Error("No vectorizer tab and cannot open one");
+  }
+  if (!ensured.alreadyOpen) {
+    log("info", name + ": opened https://vectorizer.ai/ (waiting for it to load)");
+    // Wait until content script reports ready.
+    var ready = false;
+    var readyStart = Date.now();
+    while (Date.now() - readyStart < 30000) {
+      if (runnerAbortSignal) throw new Error("STOPPED");
+      var info = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+      if (info && info.pathname === "/") { ready = true; break; }
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+    if (!ready) {
+      logWarn(name + ": home page didn't fully load yet, proceeding anyway");
+    }
+  }
+
+  var timing = runnerGetTiming();
+
+  // 1) Always start from the home page. If the previous run left us on
+  //    /images/{id} or /edit, the page would still hold that id and our
+  //    upload would either be ignored or overwrite the wrong session.
+  //    Navigate to /, then proceed to upload.
+  setStatus("redirecting", "Opening home");
+  var reImagesAny = /^\/images\//;
+  var initialInfo = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+  if (initialInfo && initialInfo.pathname && reImagesAny.test(initialInfo.pathname)) {
+    log("info", name + ": previous run left us on " + initialInfo.pathname + " → going home");
+    await runnerSend("VECTOR_ASSIST_NAVIGATE", { url: "https://vectorizer.ai/" });
+    var navStart = Date.now();
+    while (Date.now() - navStart < 30000) {
+      if (runnerAbortSignal) throw new Error("STOPPED");
+      var i = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+      if (i && i.pathname === "/") break;
+      await new Promise(function (r) { setTimeout(r, 350); });
+    }
+  }
+
+  // 2) UPLOAD
+  var pageInfo = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+  log("info", name + ": on " + (pageInfo.pathname || "/"));
+
+  if (!pageInfo.imageId) {
+    setStatus("uploading", "Uploading");
+    var up = await runnerSend("VECTOR_ASSIST_UPLOAD_FILE", { dataUrl: file.dataUrl, name: file.name });
+    if (!up || !up.ok) {
+      setStatus("failed", "Failed: upload");
+      logError(name + ": upload failed — " + (up && up.error));
+      throw new Error("Upload failed: " + (up && up.error));
+    }
+    log("info", name + ": upload injected (" + up.fileSize + " bytes)");
+
+    // Wait for image id (URL moves to /processing then /edit).
+    setStatus("waiting-vectorize", "Vectorizing");
+    log("info", name + ": waiting for image id...");
+    var gotId = await runnerWaitForImageId(360000);
+    if (!gotId) {
+      setStatus("failed", "Failed: timeout");
+      logError(name + ": timed out waiting for image id");
+      throw new Error("Image id timeout");
+    }
+    log("info", name + ": image id = " + gotId);
+    // No extra delay here — go straight to the redirect step below.
+  }
+
+  // 2) Redirect: drop /edit, go to /images/{id} (the options page).
+  var reShow = /^\/images\/[^/]+\/?$/;
+  var reEdit = /\/edit\/?$/;
+  var currentInfo = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+  var pathNow = currentInfo.pathname || "";
+  var m = pathNow.match(/\/images\/([^/]+)/);
+  var imageId = currentInfo.imageId || (m && m[1]);
+  if (imageId && reEdit.test(pathNow)) {
+    setStatus("redirecting", "Redirecting");
+    var target = "/images/" + imageId;
+    log("info", name + ": → " + target);
+    await runnerSend("VECTOR_ASSIST_NAVIGATE", { url: target });
+    var pollStart = Date.now();
+    while (Date.now() - pollStart < 30000) {
+      if (runnerAbortSignal) throw new Error("STOPPED");
+      await runnerGate();
+      var info = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+      if (info && info.pathname && reShow.test(info.pathname)) {
+        log("info", name + ": download page ready");
+        break;
+      }
+      await new Promise(function (r) { setTimeout(r, 350); });
+    }
+  } else if (reShow.test(pathNow)) {
+    log("info", name + ": already on download page");
+  }
+
+  // 3) APPLY PRESET. We trust that landing on /images/{id} with a fresh
+  //    page load gives us a fully-mounted Options form — no extra wait.
+  //    Two-way mirror between extension and page means clicks on the page
+  //    toggle immediately; the wait inside runnerApplyPreset covers the
+  //    time needed for the page to react to the literal clicks.
+  // Prefer the locked name captured at Start so the page's default-values
+  // mirror (which demotes the combo to "Unsaved") can't defeat us.
+  var lockedName = runnerLockedPresetName || (presetSelect && presetSelect.value);
+  if (lockedName) {
+    var preset = await runnerGetPreset(lockedName);
+    if (preset) {
+      setStatus("applying", "Applying preset");
+      log("preset", name + ": applying preset '" + preset.name + "'");
+      await runnerApplyPreset(preset, timing);
+      await runnerGate();
+
+      // The /images/{id} SPA mounts the Options form with the page's
+      // default values. After our first push, we cycle the preset combo
+      // (Unsaved -> picked preset) to fire the change listener again and
+      // re-push the Settings mirror to the page, then wait 1-3s for the
+      // page to react before validating.
+      setStatus("reapplying", "Reapplying preset");
+      log("preset", name + ": re-pushing preset '" + preset.name + "' to fresh page form");
+      await runnerRepickPreset(lockedName, timing.delay, timing.jitter);
+      await runnerGate();
+    }
+  }
+
+  // 4) Click Download. Just click and wait for chrome.downloads to fire.
+  setStatus("submitting", "Submitting");
+  log("info", name + ": clicking submit...");
+  var sub = await runnerSend("VECTOR_ASSIST_SUBMIT_DOWNLOAD");
+  if (!sub || !sub.ok) {
+    setStatus("failed", "Failed: submit");
+    logError(name + ": submit failed — " + (sub && sub.error));
+    throw new Error("Submit failed");
+  }
+
+  // Wait for the file to actually land in chrome.downloads.
+  setStatus("downloading", "Downloading");
+  log("info", name + ": waiting for download...");
+  var dlPromise = whenDownloadComplete(180000);
+  var dlPayload = null;
+  while (!dlPayload) {
+    if (runnerAbortSignal) throw new Error("STOPPED");
+    var dl = await Promise.race([
+      dlPromise,
+      new Promise(function (r) { setTimeout(function () { r("__tick__"); }, 6000); })
+    ]);
+    if (dl && dl !== "__tick__") { dlPayload = dl; break; }
+    var pinfo = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (pinfo && pinfo.captcha) {
+      logWarn(name + ": captcha detected — pausing");
+      runnerCaptchaPause = true;
+      runnerSetState("captcha");
+      while (runnerCaptchaPause) {
+        if (runnerAbortSignal) throw new Error("STOPPED");
+        await new Promise(function (r) { setTimeout(r, 300); });
+      }
+      log("info", name + ": resumed after captcha");
+    } else {
+      var prog = pinfo && pinfo.progress;
+      log("info", "  fetching... bar=" + (prog && prog.fetch) + ", url=" + (pinfo && pinfo.url ? pinfo.url : "?"));
+    }
+  }
+  log("info", name + ": file saved: " + (dlPayload.filename || dlPayload.finalUrl || "?"));
+
+  // 6) DONE.
+  setStatus("done", "Done");
+  runnerFileDurations.push(Date.now() - runnerFileStartTs);
+  runnerCurrent = null; // stop the per-file timer for this file.
+  renderFileList();
+  updateRunnerUI();
+  log("info", "✓ " + name + ": done in " + ((Date.now() - runnerFileStartTs) / 1000).toFixed(1) + "s");
+  await runnerSleep(timing.delay, timing.jitter);
+}
+
+// Wait until content.js reports the Options-Form element exists (or its absence is acceptable).
+async function runnerWaitForOptionsForm(timeoutMs) {
+  var start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return false;
+    var p = await runnerSend("VECTOR_ASSIST_HAS_SELECTOR", { id: "Options-Form" });
+    if (p && p.found) return true;
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  return false;
+}
+
+async function runnerWaitForFetchComplete(timeoutMs) {
+  var start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return false;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (p && p.progress && p.progress.fetch >= 100) return true;
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  return false;
+}
+
+async function runnerWaitForImageId(timeoutMs) {
+  // Image id can appear via /images/{id}/edit OR /images/{id} (or any path under /images/).
+  var start = Date.now();
+  var lastLog = 0;
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return null;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (p && p.imageId) return p.imageId;
+    // Heartbeat so the user can see what we're polling.
+    if (Date.now() - lastLog > 6000) {
+      log("info", "  waiting... url=" + (p && p.url ? p.url : "?") +
+        " progress=" + JSON.stringify(p && p.progress));
+      lastLog = Date.now();
+    }
+    await new Promise(function (r) { setTimeout(r, 500); });
+  }
+  return null;
+}
+
+async function runnerWaitForPath(re, timeoutMs) {
+  var start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return false;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+    if (p && p.pathname && re.test(p.pathname)) return true;
+    await new Promise(function (r) { setTimeout(r, 300); });
+  }
+  return false;
+}
+
+// Wait until a phase bar reaches `target` (or stays at target if it already passed).
+// Resolves to true if reached, false on timeout / captcha / stop.
+async function runnerWaitForProgress(phase, target, timeoutMs) {
+  var start = Date.now();
+  var sawPane = false;
+  var lastLog = 0;
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return false;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (p && p.captcha) return false;
+    if (p && p.progress && p.progress[phase] != null) {
+      sawPane = true;
+      if (p.progress[phase] >= target) return true;
+    }
+    if (Date.now() - lastLog > 6000) {
+      log("info", "  waiting for " + phase + "=" + target +
+        "%, now=" + (p && p.progress && p.progress[phase]) + ", url=" + (p && p.url ? p.url : "?"));
+      lastLog = Date.now();
+    }
+    await new Promise(function (r) { setTimeout(r, 350); });
+  }
+  // If pane never appeared and we're already past the target path, treat as ok.
+  return sawPane ? false : true;
+}
+
+async function runnerWaitForPathProgressCombo(re, phase, target, timeoutMs) {
+  // Wait for path AND progress to reach target. Useful when /images/processing
+  // shows the upload/process bars before redirecting to /images/{id}/edit.
+  // Exit early if the URL already moved to /images/{id} (with or without /edit)
+  // — the bars belong to /processing and disappear once navigation happens.
+  var start = Date.now();
+  var reImageId = /^\/images\/[^/]+/;
+  while (Date.now() - start < timeoutMs) {
+    if (runnerAbortSignal) return false;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+    var pathOk = p && p.pathname && re.test(p.pathname);
+    // Early bail-out: once we have an image id (regardless of /edit suffix),
+    // /processing bars are gone — treat target as reached.
+    if (p && p.imageId && reImageId.test(p.pathname || "")) return true;
+    if (pathOk) {
+      var g = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+      if (g && g.progress && g.progress[phase] != null && g.progress[phase] >= target) return true;
+    }
+    await new Promise(function (r) { setTimeout(r, 350); });
+  }
+  return false;
+}
+
+// Duplicate declaration of runnerWaitForProgress removed below — the version
+// above (with sawPane + captcha short-circuit) is the canonical one.
+var runnerAbortSignal = false;
+
+function runnerStart(names, options) {
+  options = options || {};
+  if (!names || !names.length) {
+    logWarn("Start ignored: no files selected");
+    return;
+  }
+  if (runnerAbortCtrl && !runnerAbortCtrl.signal.aborted) {
+    logWarn("Start ignored: runner already active");
+    return;
+  }
+  // Fresh abort handle for this batch.
+  runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
+    this.signal = { aborted: false }; var self = this;
+    this.abort = function () { self.signal.aborted = true; };
+  })();
+  runnerAbortSignal = false;
+  runnerPauseRequested = false;
+  runnerCaptchaPause = false;
+  runnerQueue = names.slice();
+  runnerBatchStartTs = Date.now();
+  runnerFileDurations = [];
+  // Lock the currently-selected preset name so the running 2-way mirror
+  // does not downgrade it to "Unsaved" when the /images/{id} page first
+  // reports its default values. The runner explicitly reapplies the locked
+  // preset to the page once it lands on /images/{id}.
+  runnerLockedPresetName = (presetSelect && presetSelect.value) || "";
+  if (runnerLockedPresetName) {
+    log("preset", "Locked preset for this run: '" + runnerLockedPresetName + "'");
+  }
+  runnerSetState("running");
+  runnerPump();
+}
+
+async function runnerPump() {
+  while (runnerQueue.length) {
+    if (runnerAbortSignal) break;
+    var name = runnerQueue[0];
+    try {
+      await runnerGate();
+      await runnerProcessFile(name);
+    } catch (e) {
+      if (String(e && e.message) === "STOPPED") break;
+    }
+    // Inter-file cooldown: ONLY for batch runs (queue > 1). Single-file /
+    // manual runs skip this — user shouldn't have to wait between manual
+    // clicks. Cooldown is short anyway (0–3s) when it does apply.
+    var isBatch = runnerQueue.length > 1;
+    if (!runnerAbortSignal && isBatch) {
+      log("info", name + ": ✓ done. Cooling 0–3s before next...");
+      try {
+        await runnerSleep(1500, 1500, "Next file in"); // 1.5s ± 1.5s
+      } catch (e) { break; }
+    }
+    runnerQueue.shift();
+    runnerCurrent = null;
+    updateRunnerUI();
+  }
+  runnerCurrent = null;
+  runnerAbortSignal = false;
+  // Release the preset lock now that the runner is done; the user can pick
+  // a different preset (or stay on this one) for the next batch.
+  runnerLockedPresetName = "";
+  runnerSetState("idle");
+  updateRunnerUI();
+  updateReadyLine();
+  if (!runnerAbortSignal && runnerFileDurations.length) {
+    log("info", "Batch finished. " + runnerFileDurations.length + " files in " + ((Date.now() - runnerBatchStartTs) / 1000).toFixed(1) + "s");
+  }
+}
+
+function runnerPause() {
+  if (runnerState === "running") {
+    runnerPauseRequested = true;
+    runnerSetState("paused");
+    log("info", "Runner paused");
+  }
+}
+
+function runnerResume() {
+  if (runnerState === "paused") {
+    runnerPauseRequested = false;
+    runnerSetState("running");
+    log("info", "Runner resumed");
+  } else if (runnerState === "captcha") {
+    runnerCaptchaPause = false;
+    runnerSetState("running");
+    log("info", "Runner resumed after captcha");
+  }
+}
+
+// AbortController-style runner stop. The runner is a long-running loop;
+// user clicks Stop -> we abort the entire thing immediately. All waits
+// (page phase, download, sleep, gate) check this flag.
+var runnerAbortCtrl = null;
+// Convenience boolean readable from anywhere: was runnerAbortCtrl aborted?
+// Updated by runnerStop().
+var runnerAbortSignal = false;
+
+function runnerStop() {
+  // Idempotent: clicking Stop while idle is a no-op (with a short log).
+  if (!runnerAbortCtrl || runnerAbortSignal) {
+    logWarn("Runner stop: nothing running");
+    return;
+  }
+  logWarn("Runner stopped by user");
+  if (typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
+  runnerAbortSignal = true;
+  // Also clear any active pause/captcha wait so the runner exits its gate.
+  runnerPauseRequested = false;
+  runnerCaptchaPause = false;
+  // Cancel any blocking wait that ignores abort signal — best effort.
+  if (typeof runnerCancelWait === "function") {
+    try { runnerCancelWait(); } catch (e) {}
+  }
+  // Tell the operator: button flips to "Start" right away.
+  runnerSetState("idle");
+  // Flush remaining queue so any in-flight per-file work throws on next gate.
+  runnerQueue = [];
+}
+
+// Poll the live progress of the current file for UI bars (throttled).
+function startRunnerProgressPolling() {
+  if (runnerProgressTick) return;
+  runnerProgressTick = setInterval(async function () {
+    if (runnerState !== "running" && runnerState !== "paused" && runnerState !== "captcha") return;
+    var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (p && typeof updateRunnerProgressUI === "function") updateRunnerProgressUI(p);
+  }, 500);
+}
+
+// --------------------------------------------------------------------------
+// Presets: CRUD, saved/unsaved, easy switching. Extension is source of
   // truth -> applying a preset pushes all settings to the page via literal
   // clicks. The page can still change the extension (two-way), but a preset
   // is what drives the page, never the other way around.
@@ -1045,6 +2168,12 @@
     // Called on every settings edit.
     if (presetState === "loaded" || presetState === "dirty") {
       // Drop out of preset: snapshot no longer matches -> dirty/idle.
+      // While the runner is locking a preset for this batch, ignore the
+      // page-driven demotion — the runner is actively pushing the preset
+      // back to the page; treating its mirror echoes as edits would flip
+      // the combo to "Unsaved" and lose the preset name we are about to
+      // reapply after the page lands on /images/{id}.
+      if (typeof runnerLockedPresetName === "string" && runnerLockedPresetName) return;
       currentPresetName = "";
       setPresetState("dirty");
     } else if (presetState === "editing") {
@@ -1091,6 +2220,12 @@
     // Load preset (read-only dropdown -> applies to UI + page).
     presetSelect.addEventListener("change", function () {
       var name = presetSelect.value;
+      updateReadyLine();
+      // User explicitly selected a preset — lock it. Subsequent page
+      // resets will re-select this preset automatically instead of
+      // leaving the combo on "Unsaved". Picking "" (Unsaved) explicitly
+      // clears the lock so a manual adjustment takes effect.
+      extensionLockedPresetName = name || "";
       if (!name) { setPresetState("idle"); return; }
       currentPresetName = name;
       getPresets().then(function (list) {
