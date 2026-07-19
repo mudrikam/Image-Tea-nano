@@ -707,9 +707,6 @@ function resetAppState() {
     presetSelect.value = "";
     setPresetState("idle");
   }
-  // Release UI preset lock so the user starts clean after reset.
-  extensionLockedPresetName = "";
-  runnerLockedPresetName = "";
   // Clear logs entirely (real reset, not just my own page-phase entry).
   if (typeof logs !== "undefined") {
     logs.length = 0;
@@ -782,19 +779,19 @@ function doReset() {
   // --------------------------------------------------------------------------
   function pushSettingsToPage(root) {
     var data = collectSettings(root);
-    log("mirror", "ext -> page push (" + Object.keys(data).length + " fields, delayMs=" + (data.delayMs || 0) + ")");
-    applyingToPage = true;
+    // delayMs / delayJitterMs are runner-internal timing controls, not
+    // page settings. Strip them so the page doesn't see fields it doesn't
+    // know about.
+    delete data.delayMs;
+    delete data.delayJitterMs;
+    log("mirror", "ext -> page push (" + Object.keys(data).length + " fields)");
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data }, function () {
-        // Silence unchecked lastError.
         void (chrome.runtime && chrome.runtime.lastError);
       });
     } catch (e) {
       logError("pushSettingsToPage: sendMessage failed — " + e);
     }
-    // Long enough to cover delayMs + delayJitterMs + page reaction time.
-    // During this window, reflected PAGE_CHANGED is treated as our own echo.
-    setTimeout(function () { applyingToPage = false; }, 2500);
   }
 
   function reflectPageToExtension(root, pageSettings) {
@@ -818,28 +815,6 @@ function doReset() {
     saveSettings(root);
     setTimeout(function () {
       applyingFromPage = false;
-      // UI preset lock (one-shot per page reset): if the user picked a
-      // preset and the page resetting to defaults demoted the combo to
-      // "Unsaved", re-select the locked preset here so the page mirrors
-      // it back. We then clear the lock so subsequent page echoes don't
-      // loop the cycle. To re-arm, the user must pick the preset again
-      // in the combo (which re-sets extensionLockedPresetName).
-      if (extensionLockedPresetName && presetSelect && presetSelect.value !== extensionLockedPresetName) {
-        var lockedName = extensionLockedPresetName;
-        getPresets().then(function (list) {
-          var preset = list.filter(function (p) { return p.name === lockedName; })[0];
-          if (!preset) return;
-          extensionLockedPresetName = ""; // one-shot: clear before pushing
-          applyingFromPage = true;
-          presetSelect.value = lockedName;
-          applyPresetToUI(preset);
-          setTimeout(function () { applyingFromPage = false; }, 200);
-          setPresetState("loaded");
-          currentPresetName = lockedName;
-          log("preset", "Page reset detected — re-selected locked preset '" + lockedName + "'");
-        });
-        return;
-      }
       // Only re-evaluate preset status if this reflection is NOT an echo of
       // our own push. setupMirror already filters PAGE_CHANGED while
       // applyingToPage is true, but a few may slip through; this guard
@@ -868,17 +843,15 @@ function doReset() {
     }
   }
 
+  // One-way mirror: extension edits push to page, page edits are NOT mirrored
+  // back to the extension. The user is free to tweak settings on the web
+  // directly; the runner re-applies the saved preset from the extension
+  // state right before clicking Submit, so the page is always in sync with
+  // the picked preset at the moment of download.
   function setupMirror() {
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (!msg || msg.type !== "VECTOR_ASSIST_PAGE_CHANGED") return;
-      if (applyingToPage) {
-        log("mirror", "page -> ext (suppressed: own-apply echo)");
-        return;
-      }
-      log("mirror", "page -> ext (" + Object.keys(msg.settings || {}).length + " fields)");
-      var root = document.querySelector(".settings");
-      if (root) reflectPageToExtension(root, msg.settings);
-    });
+    // PAGE_CHANGED events from the page are intentionally ignored now
+    // (one-way). We don't need a listener at all, but keep the function
+    // for symmetry with other setup steps.
   }
 
   // --------------------------------------------------------------------------
@@ -1301,18 +1274,6 @@ var runnerCountdownTarget = 0;
 var runnerFileDurations = []; // ms duration of completed files (for ETA)
 var runnerProgressTick = null;
 var runnerStepWait = null;   // setTimeout handle for current wait; cancel on pause.
-// While a runner is active, we lock the preset name so the 2-way mirror
-// (page -> extension) cannot drop us back to "Unsaved" when a freshly
-// mounted /images/{id} page first reports its default settings. The lock
-// is released when the runner goes back to idle.
-var runnerLockedPresetName = "";
-// UI-level preset lock. Set whenever the user picks a preset from the
-// combo. Survives page resets: when /images/{id} remounts and pushes its
-// default settings back to the extension, this lock causes the extension
-// to re-select the same preset (and re-push its settings) instead of
-// silently demoting the combo to "Unsaved". Released on app reset, when
-// the user explicitly picks "Unsaved", or after the re-push completes.
-var extensionLockedPresetName = "";
 
 function runnerSetState(s) {
   runnerState = s;
@@ -1439,26 +1400,23 @@ function runnerGetPreset(name) {
   });
 }
 
-// Apply a preset to the page via literal clicks. Same as user-driven flow.
-// Fire-and-forget: the page-side applyToPage runs its own sequential timing
-// per field; we don't add any extra wait here. The runner's repick step
-// (Unsaved -> preset cycle) is what actually triggers the page mirror on
-// a freshly-mounted /images/{id} form, and it carries its own short delay.
+// Push a preset to the page and resolve immediately. No artificial wait —
+// applyToPage in content.js is synchronous-per-field (literal clicks); the
+// runner clicks Submit right after this returns, which is what a human
+// would do. We don't poll, don't countdown, don't block.
 function runnerApplyPreset(preset, timing) {
   return new Promise(function (resolve, reject) {
     if (!preset) { resolve(); return; }
-    var settings = preset.settings || {};
-    settings.delayMs = timing.delay;
-    settings.delayJitterMs = timing.jitter;
-    try {
-      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: settings }, function () {
-        void (chrome.runtime && chrome.runtime.lastError);
-      });
-      log("preset", "Applied preset '" + preset.name + "' for download page (" + Object.keys(settings).length + " fields)");
-      resolve();
-    } catch (e) {
-      reject(e);
-    }
+    var settings = Object.assign({}, preset.settings || {});
+    // delayMs / delayJitterMs are runner-internal timing controls.
+    delete settings.delayMs;
+    delete settings.delayJitterMs;
+    chrome.runtime.sendMessage(
+      { type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: settings },
+      function () { void (chrome.runtime && chrome.runtime.lastError); }
+    );
+    log("preset", "Applied preset '" + preset.name + "' (" + Object.keys(settings).length + " fields)");
+    resolve();
   });
 }
 
@@ -1472,39 +1430,6 @@ function runnerApplyPreset(preset, timing) {
 // really care about — not the page's progress bar). The runner awaits a
 // DOWNLOAD_COMPLETE event after it has clicked Submit.
 // --------------------------------------------------------------------------
-
-// Force the preset combo to "Unsaved" then back to the picked preset so the
-// change listener fires twice. The Settings mirror then re-pushes the preset
-// to the page, which is what actually updates a freshly-mounted Options form
-// on /images/{id} (the SPA loads defaults until we poke it).
-function runnerRepickPreset(presetName, delayMs, jitterMs) {
-  return new Promise(function (resolve, reject) {
-    if (!presetName || !presetSelect) { resolve(); return; }
-    try {
-      // Step 1: clear -> triggers Unsaved branch in the change listener.
-      presetSelect.value = "";
-      presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-      // Step 2: re-select the same preset after a short delay so the page
-      // change listener actually receives a fresh push.
-      setTimeout(function () {
-        if (runnerAbortSignal) { reject(new Error("STOPPED")); return; }
-        presetSelect.value = presetName;
-        presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-        // Step 3: wait 1..3s for the page to react before clicking Submit.
-        var wait = 1000 + Math.floor(Math.random() * 2000);
-        runnerCountdownTarget = Date.now() + wait;
-        runnerCountdownLabel = "Reapplying preset";
-        ensureRunnerTick();
-        setTimeout(function () {
-          runnerCountdownTarget = 0;
-          runnerCountdownLabel = "";
-          resolve();
-        }, wait);
-      }, 150);
-    } catch (e) { reject(e); }
-  });
-}
-
 var downloadCompleteWaiters = [];
 
 function setupDownloadListener() {
@@ -1740,30 +1665,15 @@ async function runnerProcessFile(name) {
     log("info", name + ": already on download page");
   }
 
-  // 3) APPLY PRESET. We trust that landing on /images/{id} with a fresh
-  //    page load gives us a fully-mounted Options form — no extra wait.
-  //    Two-way mirror between extension and page means clicks on the page
-  //    toggle immediately; the wait inside runnerApplyPreset covers the
-  //    time needed for the page to react to the literal clicks.
-  // Prefer the locked name captured at Start so the page's default-values
-  // mirror (which demotes the combo to "Unsaved") can't defeat us.
-  var lockedName = runnerLockedPresetName || (presetSelect && presetSelect.value);
-  if (lockedName) {
-    var preset = await runnerGetPreset(lockedName);
+  // 3) APPLY PRESET. Push the preset to the page (fire-and-forget); the
+  //    page-side applyToPage runs synchronously and updates all fields.
+  var pickedName = (presetSelect && presetSelect.value) || "";
+  if (pickedName) {
+    var preset = await runnerGetPreset(pickedName);
     if (preset) {
       setStatus("applying", "Applying preset");
       log("preset", name + ": applying preset '" + preset.name + "'");
       await runnerApplyPreset(preset, timing);
-      await runnerGate();
-
-      // The /images/{id} SPA mounts the Options form with the page's
-      // default values. After our first push, we cycle the preset combo
-      // (Unsaved -> picked preset) to fire the change listener again and
-      // re-push the Settings mirror to the page, then wait 1-3s for the
-      // page to react before validating.
-      setStatus("reapplying", "Reapplying preset");
-      log("preset", name + ": re-pushing preset '" + preset.name + "' to fresh page form");
-      await runnerRepickPreset(lockedName, timing.delay, timing.jitter);
       await runnerGate();
     }
   }
@@ -1943,14 +1853,6 @@ function runnerStart(names, options) {
   runnerQueue = names.slice();
   runnerBatchStartTs = Date.now();
   runnerFileDurations = [];
-  // Lock the currently-selected preset name so the running 2-way mirror
-  // does not downgrade it to "Unsaved" when the /images/{id} page first
-  // reports its default values. The runner explicitly reapplies the locked
-  // preset to the page once it lands on /images/{id}.
-  runnerLockedPresetName = (presetSelect && presetSelect.value) || "";
-  if (runnerLockedPresetName) {
-    log("preset", "Locked preset for this run: '" + runnerLockedPresetName + "'");
-  }
   runnerSetState("running");
   runnerPump();
 }
@@ -1981,9 +1883,6 @@ async function runnerPump() {
   }
   runnerCurrent = null;
   runnerAbortSignal = false;
-  // Release the preset lock now that the runner is done; the user can pick
-  // a different preset (or stay on this one) for the next batch.
-  runnerLockedPresetName = "";
   runnerSetState("idle");
   updateRunnerUI();
   updateReadyLine();
@@ -2165,20 +2064,10 @@ function startRunnerProgressPolling() {
   }
 
   function updatePresetStatus() {
-    // Called on every settings edit.
-    if (presetState === "loaded" || presetState === "dirty") {
-      // Drop out of preset: snapshot no longer matches -> dirty/idle.
-      // While the runner is locking a preset for this batch, ignore the
-      // page-driven demotion — the runner is actively pushing the preset
-      // back to the page; treating its mirror echoes as edits would flip
-      // the combo to "Unsaved" and lose the preset name we are about to
-      // reapply after the page lands on /images/{id}.
-      if (typeof runnerLockedPresetName === "string" && runnerLockedPresetName) return;
-      currentPresetName = "";
-      setPresetState("dirty");
-    } else if (presetState === "editing") {
-      renderStatus();
-    }
+    // No-op: the preset name persists in the combo until the user
+    // explicitly picks a different preset (or "Unsaved"). Editing a
+    // field is just an override that gets pushed to the page; it does
+    // not silently demote the combo to "Unsaved".
   }
 
   function applyPresetToUI(preset) {
@@ -2204,7 +2093,7 @@ function startRunnerProgressPolling() {
     applySettingsRules(root);
     saveSettings(root);
     pushSettingsToPage(root);
-    setTimeout(function () { applyingFromPage = false; }, 200);
+    applyingFromPage = false;
   }
 
   var btnPresetNew, btnPresetEdit, btnPresetSave, btnPresetCancel, btnPresetRename, btnPresetDelete;
@@ -2221,11 +2110,6 @@ function startRunnerProgressPolling() {
     presetSelect.addEventListener("change", function () {
       var name = presetSelect.value;
       updateReadyLine();
-      // User explicitly selected a preset — lock it. Subsequent page
-      // resets will re-select this preset automatically instead of
-      // leaving the combo on "Unsaved". Picking "" (Unsaved) explicitly
-      // clears the lock so a manual adjustment takes effect.
-      extensionLockedPresetName = name || "";
       if (!name) { setPresetState("idle"); return; }
       currentPresetName = name;
       getPresets().then(function (list) {

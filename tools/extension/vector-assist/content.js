@@ -13,6 +13,7 @@
     stacking: "shape_stacking",
     groupBy: "group_by",
     simpleShapes: "parameterized_shapes.flatten",
+    curveLines: "curves.allowed.lines",
     curveQuad: "curves.allowed.quadratic_bezier",
     curveCubic: "curves.allowed.cubic_bezier",
     curveCirc: "curves.allowed.circular_arc",
@@ -245,31 +246,29 @@
     if (!settings) return;
     expandAdvanced();
 
-    var baseDelay = parseInt(settings.delayMs, 10);
-    if (!isFinite(baseDelay) || baseDelay < 0) baseDelay = 0;
-    var jitter = parseInt(settings.delayJitterMs, 10);
-    if (!isFinite(jitter) || jitter < 0) jitter = 0;
-    function stepDelay() { return baseDelay + (jitter > 0 ? Math.floor(Math.random() * jitter) : 0); }
+    // Apply format first to reveal dependent sections.
+    if (settings.format !== undefined) setRadio(KEY_NAME.format, pageValueFor("format", settings.format));
 
-    // Collect the keys we will apply (skip format here; apply first separately).
+    // Apply all other keys synchronously, in order. No per-field delay —
+    // the page's own change handlers run on each click, and they handle
+    // their own reactive updates immediately.
     var keys = Object.keys(settings).filter(function (k) {
       return k !== "format" && k !== "scalePercent" && k !== "delayMs" && k !== "delayJitterMs";
     });
-
-    function applyKey(key, cb) {
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
       var ourValue = settings[key];
       if (key === "simpleShapes") {
         var visible = document.getElementById("Options-SimpleShapesField");
         if (visible && visible.type === "checkbox") {
-          var wantChecked = !ourValue; // inverted: represent shapes = !flatten
+          var wantChecked = !ourValue;
           if (visible.checked !== wantChecked) clickLabel(visible);
         }
-        cb && cb();
-        return;
+        continue;
       }
       var pageName = KEY_NAME[key];
       var els = getInputs(pageName);
-      if (!els.length) { cb && cb(); return; }
+      if (!els.length) continue;
       var first = els[0];
       if (first.type === "checkbox") {
         var checked = ourValue;
@@ -280,26 +279,12 @@
       } else {
         setTextField(pageName, ourValue);
       }
-      cb && cb();
     }
 
-    function runSequential(i) {
-      if (i >= keys.length) {
-        // After all keys, apply scale if needed (last so it doesn't override).
-        var targetMode = pageValueFor("outputSize", settings.outputSize);
-        if (settings.scalePercent !== undefined && targetMode === "scale") setScale(settings.scalePercent);
-        return;
-      }
-      applyKey(keys[i], function () {
-        var wait = stepDelay();
-        if (wait <= 0) runSequential(i + 1);
-        else setTimeout(function () { runSequential(i + 1); }, wait);
-      });
-    }
-
-    // Apply format first to reveal dependent sections, then the rest sequentially.
-    if (settings.format !== undefined) setRadio(KEY_NAME.format, pageValueFor("format", settings.format));
-    setTimeout(function () { runSequential(0); }, Math.max(150, baseDelay));
+    // After all keys, apply scale last so it doesn't get overridden by
+    // the outputSize radio change above.
+    var targetMode = pageValueFor("outputSize", settings.outputSize);
+    if (settings.scalePercent !== undefined && targetMode === "scale") setScale(settings.scalePercent);
   }
 
   function expandAdvanced() {
