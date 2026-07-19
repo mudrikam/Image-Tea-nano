@@ -393,6 +393,155 @@
     });
   }
 
+  // --------------------------------------------------------------------------
+  // Settings tab (GUI clone of Vectorizer.AI output options)
+  // --------------------------------------------------------------------------
+  function setupSettings() {
+    var settingsRoot = document.querySelector(".settings");
+    if (!settingsRoot) return;
+
+    // React to any change -> re-apply enable/disable rules + persist
+    settingsRoot.addEventListener("change", function () {
+      applySettingsRules(settingsRoot);
+      saveSettings(settingsRoot);
+    });
+
+    // Restore saved values, then apply rules.
+    loadSettings(settingsRoot).then(function () {
+      applySettingsRules(settingsRoot);
+    });
+  }
+
+  // Mirror Vectorizer.AI: enable/disable + show/hide options per selected format,
+  // draw style, and output size.
+  function applySettingsRules(root) {
+    var format = getRadioValue(root, "format") || "svg";
+    var drawStyle = getRadioValue(root, "drawStyle") || "filled";
+    var outputSize = getRadioValue(root, "outputSize") || "unchanged";
+
+    // Format-specific groups (SVG version / DXF compat).
+    root.querySelectorAll("[data-show]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-show") !== format;
+    });
+
+    // Output-size dependent field grids (custom / scaled).
+    root.querySelectorAll("[data-show-size]").forEach(function (el) {
+      el.hidden = el.getAttribute("data-show-size") !== outputSize;
+    });
+
+    // --- Group By ---
+    // SVG: full. DXF: layers (all allowed). EPS/PDF: no grouping. PNG: raster.
+    var groupSupported = (format === "svg" || format === "dxf");
+    setGroupEnabled(root, "groupBy", groupSupported);
+    if (!groupSupported) forceRadio(root, "groupBy", "none");
+
+    // --- Allowed Curve Types ---
+    // EPS/PDF: only Lines + Cubic Bézier. SVG/DXF/PNG: all types.
+    var restrictedCurves = (format === "eps" || format === "pdf");
+    setCheckEnabled(root, "curveLines", true);   // always
+    setCheckEnabled(root, "curveCubic", true);   // supported by all formats
+    setCheckEnabled(root, "curveQuad", !restrictedCurves);
+    setCheckEnabled(root, "curveCirc", !restrictedCurves);
+    setCheckEnabled(root, "curveEllip", !restrictedCurves);
+    if (restrictedCurves) {
+      forceCheck(root, "curveQuad", false);
+      forceCheck(root, "curveCirc", false);
+      forceCheck(root, "curveEllip", false);
+    }
+
+    // --- Stroke Style ---
+    // Only applies when draw style strokes outlines/edges.
+    var strokes = (drawStyle === "strokedOutline" || drawStyle === "strokedEdge");
+    setGroupEnabled(root, "strokeStyle", strokes);
+  }
+
+  // ---- helpers for enable/disable ----
+  function setGroupEnabled(root, groupName, enabled) {
+    var group = root.querySelector('[data-group="' + groupName + '"]');
+    if (!group) return;
+    group.classList.toggle("disabled", !enabled);
+    group.querySelectorAll("input, select").forEach(function (el) {
+      el.disabled = !enabled;
+    });
+    group.querySelectorAll(".set-opt, .set-check, .set-field").forEach(function (el) {
+      el.classList.toggle("disabled", !enabled);
+    });
+  }
+
+  function setCheckEnabled(root, name, enabled) {
+    var el = root.querySelector('input[name="' + name + '"]');
+    if (!el) return;
+    el.disabled = !enabled;
+    var label = el.closest(".set-check");
+    if (label) label.classList.toggle("disabled", !enabled);
+  }
+
+  function forceRadio(root, name, value) {
+    var el = root.querySelector('input[name="' + name + '"][value="' + value + '"]');
+    if (el && !el.checked) el.checked = true;
+  }
+
+  function forceCheck(root, name, checked) {
+    var el = root.querySelector('input[name="' + name + '"]');
+    if (el) el.checked = checked;
+  }
+
+  function getRadioValue(root, name) {
+    var checked = root.querySelector('input[name="' + name + '"]:checked');
+    return checked ? checked.value : null;
+  }
+
+  function collectSettings(root) {
+    var data = {};
+    var inputs = root.querySelectorAll("input, select");
+    inputs.forEach(function (el) {
+      if (!el.name) return;
+      if (el.type === "radio") {
+        if (el.checked) data[el.name] = el.value;
+      } else if (el.type === "checkbox") {
+        data[el.name] = el.checked;
+      } else {
+        data[el.name] = el.value;
+      }
+    });
+    return data;
+  }
+
+  function saveSettings(root) {
+    try {
+      var data = collectSettings(root);
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ vectorAssistSettings: data });
+      }
+    } catch (e) {}
+  }
+
+  function loadSettings(root) {
+    return new Promise(function (resolve) {
+      try {
+        if (!chrome.storage || !chrome.storage.local) { resolve(); return; }
+        chrome.storage.local.get(["vectorAssistSettings"], function (res) {
+          var data = res && res.vectorAssistSettings;
+          if (!data) { resolve(); return; }
+          Object.keys(data).forEach(function (name) {
+            var val = data[name];
+            var els = root.querySelectorAll('[name="' + name + '"]');
+            els.forEach(function (el) {
+              if (el.type === "radio") {
+                el.checked = (el.value === val);
+              } else if (el.type === "checkbox") {
+                el.checked = !!val;
+              } else {
+                el.value = val;
+              }
+            });
+          });
+          resolve();
+        });
+      } catch (e) { resolve(); }
+    });
+  }
+
   function setupTabMonitoring() {
     chrome.tabs.onActivated.addListener(function () { initView(); });
     chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
@@ -448,6 +597,7 @@
     setupControls();
     setupTabs();
     setupDnD();
+    setupSettings();
     renderFileList();
     setupTabMonitoring();
     initView();

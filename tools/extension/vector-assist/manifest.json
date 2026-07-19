@@ -11,7 +11,8 @@
   },
   "permissions": [
     "sidePanel",
-    "tabs"
+    "tabs",
+    "storage"
   ],
   "host_permissions": [
     "*://*.vectorizer.ai/*",

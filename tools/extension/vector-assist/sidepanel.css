@@ -738,6 +738,213 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   Settings
+   -------------------------------------------------------------------------- */
+.settings {
+  padding: 10px 12px;
+}
+
+.set-group {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.set-group[hidden] {
+  display: none;
+}
+
+.set-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Radio option "pills" */
+.set-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.set-opt {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-section);
+  color: var(--text-main);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.set-opt:hover {
+  border-color: var(--text-muted);
+}
+
+.set-opt input {
+  display: none;
+}
+
+.set-opt input:checked + span {
+  color: #000;
+}
+
+.set-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* Checkbox rows */
+.set-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.set-row {
+  margin-top: 6px;
+}
+
+.set-row:first-child {
+  margin-top: 0;
+}
+
+.set-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.set-check input {
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Fields (label + input) */
+.set-field {
+  margin-top: 8px;
+}
+
+.set-field > label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.set-field input,
+.set-field select {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.set-field input:focus,
+.set-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.set-field input[type="color"] {
+  height: 28px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+/* Input with trailing unit (e.g. "px") */
+.set-input-suffix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-input-suffix input {
+  flex: 1;
+}
+
+.set-input-suffix > span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* Multi-column field grids */
+.set-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.set-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.set-grid .set-field:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.set-grid[hidden] {
+  display: none;
+}
+
+/* Advanced heading */
+.set-adv-heading {
+  margin: 4px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.set-advanced .set-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* Disabled state (format/draw-style dependent) */
+.set-group.disabled .set-title {
+  opacity: 0.4;
+}
+
+.set-opt.disabled,
+.set-check.disabled,
+.set-field.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.set-opt input:disabled,
+.set-check input:disabled,
+.set-field input:disabled,
+.set-field select:disabled {
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
    Help Modal
    -------------------------------------------------------------------------- */
 .modal-overlay {

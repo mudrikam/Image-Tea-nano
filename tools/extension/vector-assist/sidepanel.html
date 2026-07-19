@@ -139,7 +139,225 @@
         </div>
       </div>
       <div class="tab-panel" data-panel="settings">
-        <div class="panel-placeholder">Settings</div>
+        <div class="settings">
+
+          <!-- File format -->
+          <div class="set-group">
+            <div class="set-title">File Format</div>
+            <div class="set-options" data-opt="format">
+              <label class="set-opt"><input type="radio" name="format" value="svg" checked><span>SVG</span></label>
+              <label class="set-opt"><input type="radio" name="format" value="pdf"><span>PDF</span></label>
+              <label class="set-opt"><input type="radio" name="format" value="dxf"><span>DXF</span></label>
+              <label class="set-opt"><input type="radio" name="format" value="eps"><span>EPS</span></label>
+              <label class="set-opt"><input type="radio" name="format" value="png"><span>PNG</span></label>
+            </div>
+          </div>
+
+          <!-- SVG version -->
+          <div class="set-group" data-show="svg">
+            <div class="set-title">SVG Version</div>
+            <div class="set-options" data-opt="svgVersion">
+              <label class="set-opt"><input type="radio" name="svgVersion" value="1.1" checked><span>SVG 1.0 / 1.1</span></label>
+              <label class="set-opt"><input type="radio" name="svgVersion" value="tiny"><span>SVG Tiny 1.2</span></label>
+              <label class="set-opt"><input type="radio" name="svgVersion" value="adobe"><span>Adobe*</span></label>
+            </div>
+            <div class="set-row">
+              <label class="set-check"><input type="checkbox" name="svgFixedSize" checked><span>Fixed Size</span></label>
+            </div>
+          </div>
+
+          <!-- DXF compatibility -->
+          <div class="set-group" data-show="dxf">
+            <div class="set-title">DXF Compatibility</div>
+            <div class="set-options" data-opt="dxfCompat">
+              <label class="set-opt"><input type="radio" name="dxfCompat" value="lines" checked><span>Lines Only</span></label>
+              <label class="set-opt"><input type="radio" name="dxfCompat" value="arcs"><span>Lines &amp; Arcs</span></label>
+              <label class="set-opt"><input type="radio" name="dxfCompat" value="splines"><span>Lines, Arcs &amp; Splines</span></label>
+            </div>
+          </div>
+
+          <!-- Advanced (always shown) -->
+          <div class="set-adv-heading">Advanced</div>
+
+          <div id="advancedBody" class="set-advanced">
+
+            <!-- Output size -->
+            <div class="set-group">
+              <div class="set-title">Output Size</div>
+              <div class="set-options" data-opt="outputSize">
+                <label class="set-opt"><input type="radio" name="outputSize" value="unchanged" checked><span>Unchanged</span></label>
+                <label class="set-opt"><input type="radio" name="outputSize" value="custom"><span>Custom</span></label>
+                <label class="set-opt"><input type="radio" name="outputSize" value="scaled"><span>Scaled</span></label>
+              </div>
+              <div class="set-grid" data-show-size="custom">
+                <div class="set-field">
+                  <label>Width</label>
+                  <div class="set-input-suffix">
+                    <input type="number" name="outWidth" value="" placeholder="Auto">
+                    <span>px</span>
+                  </div>
+                </div>
+                <div class="set-field">
+                  <label>Height</label>
+                  <div class="set-input-suffix">
+                    <input type="number" name="outHeight" value="" placeholder="Auto">
+                    <span>px</span>
+                  </div>
+                </div>
+                <div class="set-field">
+                  <label>Unit</label>
+                  <select name="outUnit">
+                    <option value="px">px</option>
+                    <option value="in">in</option>
+                    <option value="cm">cm</option>
+                    <option value="mm">mm</option>
+                    <option value="pt">pt</option>
+                  </select>
+                </div>
+              </div>
+              <div class="set-grid" data-show-size="scaled">
+                <div class="set-field">
+                  <label>Scale</label>
+                  <select name="outScale">
+                    <option value="1">1x</option>
+                    <option value="2">2x</option>
+                    <option value="4" selected>4x</option>
+                    <option value="8">8x</option>
+                  </select>
+                </div>
+              </div>
+              <div class="set-field">
+                <label>If shapes differ</label>
+                <select name="outFit">
+                  <option value="fit">Fit inside</option>
+                  <option value="crop">Crop to fill</option>
+                  <option value="stretch">Stretch</option>
+                </select>
+              </div>
+              <div class="set-grid2">
+                <div class="set-field">
+                  <label>Horizontal</label>
+                  <input type="number" name="outH" step="0.1" min="0" max="1" value="0.5">
+                </div>
+                <div class="set-field">
+                  <label>Vertical</label>
+                  <input type="number" name="outV" step="0.1" min="0" max="1" value="0.5">
+                </div>
+              </div>
+              <div class="set-field">
+                <label>Output DPI</label>
+                <input type="number" name="outDpi" value="">
+              </div>
+            </div>
+
+            <!-- Draw style -->
+            <div class="set-group">
+              <div class="set-title">Draw Style</div>
+              <div class="set-options" data-opt="drawStyle">
+                <label class="set-opt"><input type="radio" name="drawStyle" value="filled" checked><span>Filled shapes</span></label>
+                <label class="set-opt"><input type="radio" name="drawStyle" value="strokedOutline"><span>Stroked outlines</span></label>
+                <label class="set-opt"><input type="radio" name="drawStyle" value="strokedEdge"><span>Stroked edges</span></label>
+              </div>
+            </div>
+
+            <!-- Shape stacking -->
+            <div class="set-group">
+              <div class="set-title">Shape Stacking</div>
+              <div class="set-options" data-opt="stacking">
+                <label class="set-opt"><input type="radio" name="stacking" value="cutouts" checked><span>Cut-outs</span></label>
+                <label class="set-opt"><input type="radio" name="stacking" value="stacked"><span>Stacked</span></label>
+              </div>
+            </div>
+
+            <!-- Group by -->
+            <div class="set-group" data-group="groupBy">
+              <div class="set-title">Group By</div>
+              <div class="set-options" data-opt="groupBy">
+                <label class="set-opt"><input type="radio" name="groupBy" value="none" checked><span>None</span></label>
+                <label class="set-opt"><input type="radio" name="groupBy" value="color"><span>Color</span></label>
+                <label class="set-opt"><input type="radio" name="groupBy" value="parent"><span>Parent</span></label>
+                <label class="set-opt"><input type="radio" name="groupBy" value="layer"><span>Layer</span></label>
+              </div>
+            </div>
+
+            <!-- Simple shapes -->
+            <div class="set-group">
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="simpleShapes" checked><span>Represent simple shapes as circles, ellipses, and rectangles</span></label>
+              </div>
+            </div>
+
+            <!-- Allowed curve types -->
+            <div class="set-group" data-group="curves">
+              <div class="set-title">Allowed Curve Types</div>
+              <div class="set-checks" data-opt="curves">
+                <label class="set-check"><input type="checkbox" name="curveLines" checked><span>Lines</span></label>
+                <label class="set-check"><input type="checkbox" name="curveQuad" checked><span>Quadratic Bézier curves</span></label>
+                <label class="set-check"><input type="checkbox" name="curveCubic" checked><span>Cubic Bézier curves</span></label>
+                <label class="set-check"><input type="checkbox" name="curveCirc" checked><span>Circular arcs</span></label>
+                <label class="set-check"><input type="checkbox" name="curveEllip" checked><span>Elliptical arcs</span></label>
+              </div>
+            </div>
+
+            <!-- Line fit -->
+            <div class="set-group">
+              <div class="set-title">Line Fit Quality</div>
+              <div class="set-options" data-opt="lineFit">
+                <label class="set-opt"><input type="radio" name="lineFit" value="coarse"><span>Coarse</span></label>
+                <label class="set-opt"><input type="radio" name="lineFit" value="medium" checked><span>Medium</span></label>
+                <label class="set-opt"><input type="radio" name="lineFit" value="fine"><span>Fine</span></label>
+                <label class="set-opt"><input type="radio" name="lineFit" value="superfine"><span>Super Fine</span></label>
+              </div>
+            </div>
+
+            <!-- Gap filler -->
+            <div class="set-group">
+              <div class="set-title">Gap Filler</div>
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="gapFill" checked><span>Fill gaps</span></label>
+              </div>
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="gapClip" checked><span>Clip strokes to the image bounds</span></label>
+              </div>
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="gapConstant" checked><span>Keep stroke width constant when scaled</span></label>
+              </div>
+              <div class="set-field">
+                <label>Stroke width</label>
+                <div class="set-input-suffix">
+                  <input type="number" name="gapWidth" step="0.1" value="1">
+                  <span>px</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stroke style -->
+            <div class="set-group" data-group="strokeStyle">
+              <div class="set-title">Stroke Style</div>
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="strokeConstant" checked><span>Keep stroke width constant when scaled</span></label>
+              </div>
+              <div class="set-field">
+                <label>Stroke width</label>
+                <div class="set-input-suffix">
+                  <input type="number" name="strokeWidth" step="0.1" value="1">
+                  <span>px</span>
+                </div>
+              </div>
+              <div class="set-row">
+                <label class="set-check"><input type="checkbox" name="strokeOneColor" checked><span>Use one color for all strokes</span></label>
+              </div>
+              <div class="set-field">
+                <label>Stroke color</label>
+                <div class="set-input-suffix">
+                  <input type="color" name="strokeColor" value="#000000">
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /advanced -->
+
+        </div>
       </div>
       <div class="tab-panel" data-panel="logs">
         <div class="panel-placeholder">Logs</div>
