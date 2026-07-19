@@ -449,7 +449,7 @@
       if (file === runnerCurrent || (file.status === "processing" && runnerCurrent === file.name) ||
           file.status === "downloading" || file.status === "submitting" ||
           file.status === "uploading" || file.status === "applying" ||
-          file.status === "redirecting" ||
+          file.status === "delaying" || file.status === "redirecting" ||
           file.status === "waiting-vectorize") {
         var remaining = 0;
         if (runnerCountdownTarget && runnerCountdownTarget > Date.now()) {
@@ -1273,18 +1273,27 @@ var runnerFileStartTs = 0;
 var runnerCountdownTarget = 0;
 var runnerFileDurations = []; // ms duration of completed files (for ETA)
 var runnerProgressTick = null;
-var runnerStepWait = null;   // setTimeout handle for current wait; cancel on pause.
+var runnerStepWait = null;   // {id, resolve, reject} for current wait; cancel on pause.
 
 function runnerSetState(s) {
   runnerState = s;
   if (typeof updateRunnerUI === "function") updateRunnerUI();
 }
 
-function runnerCancelWait() {
+function runnerCancelWait(reason) {
+  // Clear the current wait, if any. If a Promise is stored, resolve it
+  // with a "paused" marker so the awaiting code can fall through into
+  // runnerGate (which will then block until the user resumes).
   if (runnerStepWait) {
-    clearTimeout(runnerStepWait);
+    if (runnerStepWait.id) clearTimeout(runnerStepWait.id);
+    if (typeof runnerStepWait.resolve === "function") {
+      runnerStepWait.resolve(reason || "cancelled");
+    }
     runnerStepWait = null;
   }
+  // Drop the live countdown so the tick doesn't keep rendering a stale
+  // target. The tick will fall back to the current phase label.
+  runnerCountdownTarget = 0;
 }
 
 // Wait with delay+jitter. Promise resolves when wait completes, or rejects if cancelled.
@@ -1294,15 +1303,24 @@ function runnerSleep(baseMs, jitterMs, label) {
     var b = parseInt(baseMs, 10); if (!isFinite(b) || b < 0) b = 0;
     var j = parseInt(jitterMs, 10); if (!isFinite(j) || j < 0) j = 0;
     var wait = b + (j > 0 ? Math.floor(Math.random() * j) : 0);
+    // If user wants zero delay, resolve immediately so we don't block.
+    if (wait <= 0) { resolve(); return; }
     runnerCountdownTarget = Date.now() + wait;
     runnerCountdownLabel = label || "Waiting";
     ensureRunnerTick();
+    var cancelled = false;
     var id = setTimeout(function () {
-      if (runnerStepWait === id) runnerStepWait = null;
-      if (runnerAbortSignal) { reject(new Error("STOPPED")); return; }
+      if (runnerStepWait && runnerStepWait.id === id) runnerStepWait = null;
+      if (runnerAbortSignal && !cancelled) { reject(new Error("STOPPED")); return; }
       resolve();
     }, wait);
-    runnerStepWait = id;
+    runnerStepWait = { id: id, resolve: function (reason) {
+      cancelled = true;
+      clearTimeout(id);
+      if (runnerStepWait && runnerStepWait.id === id) runnerStepWait = null;
+      // Resume path: the next runnerGate() will block until pause lifts.
+      resolve(reason);
+    }, reject: reject };
   });
 }
 
@@ -1678,6 +1696,23 @@ async function runnerProcessFile(name) {
     }
   }
 
+  // 3b) PRE-SUBMIT DELAY. Give the page time to settle on the new settings
+  //     before clicking Submit. Uses the "Delay (ms)" + "Extra random delay
+  //     (ms)" fields from the Settings tab. Live countdown is rendered on
+  //     the compact status line. Honoured: abort -> throw STOPPED, pause
+  //     -> runnerGate blocks via the existing cancel mechanism.
+  var preDelay = (timing && timing.delay > 0) || (timing && timing.jitter > 0);
+  if (preDelay) {
+    setStatus("delaying", "Delay before submit");
+    log("info", name + ": waiting " + (timing.delay || 0) + "+" + (timing.jitter || 0) + "ms before submit");
+    try {
+      await runnerSleep(timing.delay, timing.jitter, "Pre-submit delay");
+    } catch (e) {
+      throw e;
+    }
+    await runnerGate();
+  }
+
   // 4) Click Download. Just click and wait for chrome.downloads to fire.
   setStatus("submitting", "Submitting");
   log("info", name + ": clicking submit...");
@@ -1895,6 +1930,11 @@ function runnerPause() {
   if (runnerState === "running") {
     runnerPauseRequested = true;
     runnerSetState("paused");
+    // Cancel any blocking pre-submit (or inter-file) wait so pause is
+    // instant — runnerGate will block subsequent code from advancing.
+    if (typeof runnerCancelWait === "function") {
+      try { runnerCancelWait(); } catch (e) {}
+    }
     log("info", "Runner paused");
   }
 }
