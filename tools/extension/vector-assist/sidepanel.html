@@ -81,6 +81,35 @@
 
     <div class="tab-panels">
       <div class="tab-panel active" data-panel="files">
+        <div class="files-summary">
+          <div class="progress">
+            <div class="progress-head">
+              <span class="progress-label">Progress</span>
+              <span class="progress-percent" id="progressPercent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <span class="stat-value" id="statLoaded">0</span>
+              <span class="stat-label">Loaded</span>
+            </div>
+            <div class="stat stat-pending">
+              <span class="stat-value" id="statPending">0</span>
+              <span class="stat-label">Pending</span>
+            </div>
+            <div class="stat stat-finished">
+              <span class="stat-value" id="statFinished">0</span>
+              <span class="stat-label">Finished</span>
+            </div>
+            <div class="stat stat-failed">
+              <span class="stat-value" id="statFailed">0</span>
+              <span class="stat-label">Failed</span>
+            </div>
+          </div>
+        </div>
         <div class="panel-placeholder">No files loaded</div>
       </div>
       <div class="tab-panel" data-panel="settings">
