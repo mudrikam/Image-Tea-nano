@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vector Assist</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <img class="header-logo" src="icons/logo_128.png" alt="Vector Assist logo">
+      <div class="title-group">
+        <h1>Vector Assist</h1>
+        <span class="version" id="extensionVersion"></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <a href="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3" target="_blank" class="badge-link">
+        <span class="badge">Desainia Studio</span>
+      </a>
+      <button id="btnHelp" class="btn-help" title="Cara penggunaan">?</button>
+    </div>
+  </header>
+
+  <div id="landingPage" class="landing-page hidden">
+    <div class="landing-content">
+      <div class="landing-logo"><img src="icons/logo_128.png" alt="Vector Assist logo"></div>
+      <h2 class="landing-title">Vector Assist</h2>
+      <p class="landing-subtitle" id="landingVersion"></p>
+      <button id="btnOpenSite" class="btn btn-primary">
+        <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        Open Vectorizer
+      </button>
+    </div>
+  </div>
+
+  <div id="mainInterface" class="main-content hidden">
+    <div class="control-bar">
+      <button id="btnStartProcess" class="btn btn-primary control-btn control-start">
+        <svg class="icon-start" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="icon-pause hidden" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+        <span class="control-start-label">Start Process</span>
+      </button>
+      <button id="btnStopProcess" class="btn-icon control-stop" title="Stop" disabled>
+        <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+      </button>
+    </div>
+
+    <div class="dnd-area">
+      <div id="dndZone" class="dnd-zone">
+        <div class="dnd-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div class="dnd-text">Drop, paste, or browse your image</div>
+        <div class="dnd-hint">PNG, JPG, WebP, GIF, BMP &middot; Max 10MB</div>
+        <div class="dnd-buttons">
+          <button id="btnSelectFiles" class="btn btn-secondary btn-major dnd-btn">
+            <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Load Files
+          </button>
+          <button id="btnSelectFolder" class="btn btn-secondary btn-major dnd-btn">
+            <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Load Folder
+          </button>
+        </div>
+      </div>
+      <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+      <input type="file" id="folderInput" webkitdirectory directory class="hidden">
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="files" role="tab">Files</button>
+      <button class="tab" data-tab="settings" role="tab">Settings</button>
+      <button class="tab" data-tab="logs" role="tab">Logs</button>
+    </div>
+
+    <div class="tab-panels">
+      <div class="tab-panel active" data-panel="files">
+        <div class="panel-placeholder">No files loaded</div>
+      </div>
+      <div class="tab-panel" data-panel="settings">
+        <div class="panel-placeholder">Settings</div>
+      </div>
+      <div class="tab-panel" data-panel="logs">
+        <div class="panel-placeholder">Logs</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="helpModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>Cara Penggunaan</span>
+        <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-muted);">Placeholder — petunjuk penggunaan akan ditambahkan di sini.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
