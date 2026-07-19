@@ -1084,6 +1084,103 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   Logs
+   -------------------------------------------------------------------------- */
+.logs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-section);
+  flex-shrink: 0;
+}
+.log-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 11px;
+}
+.log-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.log-autoscroll {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.log-autoscroll input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-y: auto;
+}
+.log-list li {
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(54, 59, 69, .35);
+  color: var(--text-main);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.log-list li .log-time {
+  color: var(--text-muted);
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.log-list li .log-level {
+  display: inline-block;
+  min-width: 44px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+.log-list li.log-info  .log-level { background: rgba(0, 194, 162, .15); color: var(--accent); }
+.log-list li.log-warn  .log-level { background: rgba(250, 204, 21, .15); color: var(--warning); }
+.log-list li.log-error .log-level { background: rgba(248, 113, 113, .15); color: var(--error); }
+.log-list li.log-debug .log-level { background: rgba(124, 130, 141, .18); color: var(--text-muted); }
+.log-list li.log-page  .log-level { background: rgba(0, 194, 162, .25); color: var(--accent); }
+.log-list li.log-mirror .log-level { background: rgba(124, 130, 141, .15); color: var(--text-muted); }
+.log-list li.log-preset .log-level { background: rgba(74, 222, 128, .15); color: var(--success); }
+.log-list li.hidden-by-filter {
+  display: none;
+}
+.log-empty {
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
    Help Modal
    -------------------------------------------------------------------------- */
 .modal-overlay {

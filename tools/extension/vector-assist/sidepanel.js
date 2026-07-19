@@ -20,6 +20,153 @@
   var selectedName = null;
 
   // --------------------------------------------------------------------------
+  // Logger: ring-buffered activity log for the Logs tab.
+  //   - Max lines (cap FIFO once exceeded).
+  //   - Entries older than LOG_TTL_MS are pruned on add() and on focus.
+  //   - Levels: debug | info | warn | error | mirror | page | preset.
+  // --------------------------------------------------------------------------
+  var LOG_MAX = 500;        // ~ newest 500 lines
+  var LOG_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+  var logEntries = [];      // { ts, level, msg }
+  var logFilterText = "";
+  var logAutoscroll = true;
+  var logListEl, logEmptyEl, logFilterEl, logAutoscrollEl, btnLogClear;
+
+  function log(level, msg) {
+    var entry = { ts: Date.now(), level: level || "info", msg: String(msg == null ? "" : msg) };
+    logEntries.push(entry);
+    // Cap
+    if (logEntries.length > LOG_MAX) {
+      logEntries.splice(0, logEntries.length - LOG_MAX);
+    }
+    // TTL prune
+    var cutoff = Date.now() - LOG_TTL_MS;
+    while (logEntries.length && logEntries[0].ts < cutoff) {
+      logEntries.shift();
+    }
+    appendLogLine(entry);
+    updateLogEmptyState();
+  }
+  function logDebug(m) { log("debug", m); }
+  function logInfo(m)  { log("info",  m); }
+  function logWarn(m)  { log("warn",  m); }
+  function logError(m) { log("error", m); }
+
+  function formatLogTime(ts) {
+    var d = new Date(ts);
+    function p(n) { return n < 10 ? "0" + n : "" + n; }
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function appendLogLine(entry) {
+    if (!logListEl) return;
+    if (!matchesLogFilter(entry)) return; // filtered out -> skip render
+    var li = document.createElement("li");
+    li.className = "log-" + entry.level;
+    li.dataset.time = String(entry.ts);
+    li.innerHTML =
+      '<span class="log-time">' + escapeHtml(formatLogTime(entry.ts)) + '</span>' +
+      '<span class="log-level">' + escapeHtml(entry.level) + '</span>' +
+      escapeHtml(entry.msg);
+    logListEl.appendChild(li);
+    // Respect active filter even if added via batch
+    applyLogFilter();
+    if (logAutoscroll) {
+      try { logListEl.parentElement && logListEl.parentElement.scrollTop; } catch (e) {}
+      // Scroll the log list's scroll container (.tab-panels contains it).
+      var panel = logListEl.closest(".tab-panel");
+      if (panel) panel.scrollTop = panel.scrollHeight;
+    }
+  }
+
+  function updateLogEmptyState() {
+    if (!logEmptyEl || !logListEl) return;
+    var hasVisible = logListEl.querySelectorAll("li:not(.hidden-by-filter)").length > 0;
+    logEmptyEl.classList.toggle("hidden", hasVisible || logEntries.length === 0);
+    if (logEntries.length === 0) {
+      logEmptyEl.textContent = "No log entries yet.";
+    } else if (!hasVisible) {
+      logEmptyEl.textContent = "No entries match the filter.";
+    } else {
+      logEmptyEl.textContent = "";
+    }
+  }
+
+  function matchesLogFilter(entry) {
+    if (!logFilterText) return true;
+    var f = logFilterText.toLowerCase();
+    return entry.msg.toLowerCase().indexOf(f) >= 0 || entry.level.toLowerCase().indexOf(f) >= 0;
+  }
+
+  function applyLogFilter() {
+    if (!logListEl) return;
+    var f = (logFilterText || "").toLowerCase();
+    var nodes = logListEl.querySelectorAll("li");
+    for (var i = 0; i < nodes.length; i++) {
+      var li = nodes[i];
+      var t = li.textContent.toLowerCase();
+      li.classList.toggle("hidden-by-filter", f && t.indexOf(f) < 0);
+    }
+    updateLogEmptyState();
+  }
+
+  function rebuildLogList() {
+    if (!logListEl) return;
+    logListEl.innerHTML = "";
+    for (var i = 0; i < logEntries.length; i++) appendLogLine(logEntries[i]);
+    updateLogEmptyState();
+  }
+
+  function pruneExpiredLogs() {
+    var cutoff = Date.now() - LOG_TTL_MS;
+    var before = logEntries.length;
+    logEntries = logEntries.filter(function (e) { return e.ts >= cutoff; });
+    if (logEntries.length !== before) {
+      rebuildLogList();
+    }
+  }
+
+  function setupLogs() {
+    logListEl = document.getElementById("logList");
+    logEmptyEl = document.getElementById("logEmpty");
+    logFilterEl = document.getElementById("logFilter");
+    logAutoscrollEl = document.getElementById("logAutoscroll");
+    btnLogClear = document.getElementById("btnLogClear");
+    if (!logListEl) return;
+
+    if (logFilterEl) {
+      logFilterEl.addEventListener("input", function () {
+        logFilterText = logFilterEl.value || "";
+        applyLogFilter();
+      });
+    }
+    if (logAutoscrollEl) {
+      logAutoscrollEl.checked = logAutoscroll;
+      logAutoscrollEl.addEventListener("change", function () {
+        logAutoscroll = !!logAutoscrollEl.checked;
+      });
+    }
+    if (btnLogClear) {
+      btnLogClear.onclick = function () {
+        logEntries = [];
+        rebuildLogList();
+        logInfo("Logs cleared");
+      };
+    }
+    // Prune on focus (sidebar reopened) + every minute.
+    pruneExpiredLogs();
+    setInterval(pruneExpiredLogs, 60 * 1000);
+    window.addEventListener("focus", pruneExpiredLogs);
+  }
+
+  // --------------------------------------------------------------------------
   // IndexedDB persistence
   // --------------------------------------------------------------------------
   var DB_NAME = "VectorAssist";
@@ -127,11 +274,13 @@
       if (onSite) {
         landingPage.classList.add("hidden");
         mainInterface.classList.remove("hidden");
+        log("page", "On vectorizer.ai — main interface shown");
         // The result page exposes the export options; mirror them in.
         pullPageSettings();
       } else {
         mainInterface.classList.add("hidden");
         landingPage.classList.remove("hidden");
+        log("page", "Not on vectorizer.ai — landing page shown");
       }
     });
   }
@@ -223,6 +372,8 @@
     var fresh = images.filter(function (f) { return !existing[f.name]; });
     if (!fresh.length) return;
 
+    log("info", "Loading " + fresh.length + " file(s)...");
+
     var jobs = fresh.map(function (f) {
       return readFileAsDataURL(f).then(function (dataUrl) {
         var record = {
@@ -233,12 +384,16 @@
           status: "pending"
         };
         files.push(record);
+        logDebug("Loaded file '" + f.name + "' (" + f.size + " bytes)");
         return dbPut(record).catch(function () {});
-      }).catch(function () {});
+      }).catch(function (e) {
+        logError("Failed to read '" + f.name + "': " + e);
+      });
     });
 
     Promise.all(jobs).then(function () {
       renderFileList();
+      log("info", "File list now has " + files.length + " item(s)");
     });
   }
 
@@ -331,6 +486,7 @@
     if (selectedName === name) selectedName = null;
     dbDelete(name).catch(function () {});
     renderFileList();
+    log("info", "Deleted file '" + name + "'");
   }
 
   function updateStats() {
@@ -404,10 +560,13 @@
   // --------------------------------------------------------------------------
   function pushSettingsToPage(root) {
     var data = collectSettings(root);
+    log("mirror", "ext -> page push (" + Object.keys(data).length + " fields, delayMs=" + (data.delayMs || 0) + ")");
     applyingToPage = true;
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data });
-    } catch (e) {}
+    } catch (e) {
+      logError("pushSettingsToPage: sendMessage failed — " + e);
+    }
     // Long enough to cover delayMs + delayJitterMs + page reaction time.
     // During this window, reflected PAGE_CHANGED is treated as our own echo.
     setTimeout(function () { applyingToPage = false; }, 2500);
@@ -445,18 +604,29 @@
   }
 
   function pullPageSettings() {
+    log("mirror", "Requesting settings from page");
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_GET_SETTINGS" }, function (resp) {
-        if (resp && resp.settings) reflectPageToExtension(document.querySelector(".settings"), resp.settings);
+        if (resp && resp.settings) {
+          log("mirror", "Page settings received (" + Object.keys(resp.settings).length + " fields)");
+          reflectPageToExtension(document.querySelector(".settings"), resp.settings);
+        } else {
+          log("mirror", "No settings returned by page");
+        }
       });
-    } catch (e) {}
+    } catch (e) {
+      logError("pullPageSettings: " + e);
+    }
   }
 
   function setupMirror() {
     chrome.runtime.onMessage.addListener(function (msg) {
       if (!msg || msg.type !== "VECTOR_ASSIST_PAGE_CHANGED") return;
-      if (applyingToPage) return; // ignore echo of our own push
-      console.log("[VectorAssist] page -> extension", JSON.stringify(msg.settings));
+      if (applyingToPage) {
+        log("mirror", "page -> ext (suppressed: own-apply echo)");
+        return;
+      }
+      log("mirror", "page -> ext (" + Object.keys(msg.settings || {}).length + " fields)");
       var root = document.querySelector(".settings");
       if (root) reflectPageToExtension(root, msg.settings);
     });
@@ -658,6 +828,7 @@
         chrome.storage.local.get(["vectorAssistSettings"], function (res) {
           var data = res && res.vectorAssistSettings;
           if (!data) { resolve(); return; }
+          log("info", "Restored " + Object.keys(data).length + " saved settings");
           if (data.scalePercent) setScalePercent(root, data.scalePercent);
           Object.keys(data).forEach(function (name) {
             var val = data[name];
@@ -733,12 +904,15 @@
     setupControls();
     setupTabs();
     setupDnD();
+    setupLogs();
     setupSettings();
     setupPresets();
     setupMirror();
     renderFileList();
     setupTabMonitoring();
     initView();
+
+    logInfo("Vector Assist initialized");
 
     // Pull any settings the result page already exposes.
     pullPageSettings();
@@ -748,8 +922,11 @@
       if (records && records.length) {
         files = records;
         renderFileList();
+        log("info", "Restored " + records.length + " file(s) from IndexedDB");
       }
-    }).catch(function () {});
+    }).catch(function (e) {
+      logError("Failed to read IndexedDB: " + e);
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -921,13 +1098,15 @@
         if (preset) {
           applyPresetToUI(preset);
           setPresetState("loaded");
+          log("preset", "Loaded preset '" + name + "' (" + Object.keys(preset.settings || {}).length + " fields)");
         } else {
           setPresetState("idle");
+          logWarn("Preset '" + name + "' not found after selection");
         }
       });
     });
 
-    if (btnPresetNew) btnPresetNew.onclick = function () {
+        if (btnPresetNew) btnPresetNew.onclick = function () {
       var name = prompt("New preset name:", "My Preset");
       if (!name) return;
       name = name.trim();
@@ -935,6 +1114,7 @@
       getPresets().then(function (list) {
         if (list.some(function (p) { return p.name === name; })) {
           alert("A preset named \"" + name + "\" already exists.");
+          logWarn("Preset create blocked: '" + name + "' already exists");
           return;
         }
         list.push({ name: name, settings: currentSettingsSnapshot() });
@@ -942,6 +1122,7 @@
           currentPresetName = name;
           refreshPresetList(savedList);
           setPresetState("loaded");
+          log("preset", "Created preset '" + name + "' (" + savedList.length + " total)");
         });
       });
     };
@@ -952,6 +1133,7 @@
         var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
         if (!preset) return;
         setPresetState("editing", { original: preset.settings });
+        log("preset", "Editing preset '" + currentPresetName + "'");
       });
     };
 
@@ -964,8 +1146,13 @@
         getPresets().then(function (list) {
           var snap = currentSettingsSnapshot();
           var existing = list.filter(function (p) { return p.name === currentPresetName; })[0];
-          if (existing) existing.settings = snap;
-          else list.push({ name: currentPresetName, settings: snap });
+          if (existing) {
+            existing.settings = snap;
+            log("preset", "Overwrote preset '" + name + "'");
+          } else {
+            list.push({ name: currentPresetName, settings: snap });
+            log("preset", "Saved new preset '" + name + "'");
+          }
           setPresets(list).then(function (savedList) {
             refreshPresetList(savedList);
             setPresetState("loaded");
@@ -986,12 +1173,14 @@
     if (btnPresetDelete) btnPresetDelete.onclick = function () {
       if (!currentPresetName) { alert("Select a preset to delete first."); return; }
       if (!confirm("Delete preset \"" + currentPresetName + "\"?")) return;
+      var deletedName = currentPresetName;
       getPresets().then(function (list) {
         list = list.filter(function (p) { return p.name !== currentPresetName; });
         setPresets(list).then(function (savedList) {
           currentPresetName = "";
           setPresetState("idle");
           refreshPresetList(savedList);
+          log("preset", "Deleted preset '" + deletedName + "' (" + savedList.length + " remain)");
         });
       });
     };

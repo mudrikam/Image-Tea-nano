@@ -409,7 +409,16 @@
         </div>
       </div>
       <div class="tab-panel" data-panel="logs">
-        <div class="panel-placeholder">Logs</div>
+        <div class="logs-toolbar">
+          <input type="text" id="logFilter" class="log-filter" placeholder="Filter logs (text or level)...">
+          <button id="btnLogClear" class="btn btn-secondary btn-mini" title="Clear all logs">Clear</button>
+          <label class="log-autoscroll" title="Auto-scroll to newest entry">
+            <input type="checkbox" id="logAutoscroll" checked>
+            <span>Auto</span>
+          </label>
+        </div>
+        <ul id="logList" class="log-list" aria-live="polite"></ul>
+        <div id="logEmpty" class="log-empty">No log entries yet.</div>
       </div>
     </div>
   </div>
