@@ -552,6 +552,192 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   File Table
+   -------------------------------------------------------------------------- */
+.file-list-container {
+  min-height: 0;
+}
+
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.file-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-section);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.file-table .col-num {
+  width: 8%;
+}
+
+.file-table .col-file {
+  width: 44%;
+}
+
+.file-table .col-status {
+  width: 22%;
+}
+
+.file-table .col-actions {
+  width: 26%;
+}
+
+.file-table td {
+  padding: 5px 8px;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(54, 59, 69, .4);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.file-table tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.file-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.file-table tr.selected {
+  background: rgba(0, 194, 162, .08);
+}
+
+.file-num {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-thumb {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--bg-input);
+}
+
+.file-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-pending {
+  background: rgba(124, 130, 141, .15);
+  color: var(--text-muted);
+}
+
+.status-processing {
+  background: rgba(250, 204, 21, .15);
+  color: var(--warning);
+}
+
+.status-done {
+  background: rgba(0, 194, 162, .12);
+  color: var(--accent);
+}
+
+.status-failed {
+  background: rgba(248, 113, 113, .12);
+  color: var(--error);
+}
+
+/* Row action buttons */
+.file-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.btn-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-row:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.btn-row.act-run:hover {
+  color: var(--accent);
+}
+
+.btn-row.act-download:hover {
+  color: var(--success);
+}
+
+.btn-row.act-delete:hover {
+  color: var(--error);
+}
+
+/* Empty state */
+.empty-state {
+  padding: 28px 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.empty-state svg {
+  margin-bottom: 6px;
+  color: var(--border-color);
+}
+
+.empty-state .empty-hint {
+  margin-top: 3px;
+  font-size: 9px;
+}
+
+/* --------------------------------------------------------------------------
    Help Modal
    -------------------------------------------------------------------------- */
 .modal-overlay {

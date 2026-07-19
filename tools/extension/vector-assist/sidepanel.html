@@ -84,11 +84,20 @@
         <div class="files-summary">
           <div class="progress">
             <div class="progress-head">
-              <span class="progress-label">Progress</span>
-              <span class="progress-percent" id="progressPercent">0%</span>
+              <span class="progress-label">Current File</span>
+              <span class="progress-percent" id="fileProgressPercent">0%</span>
             </div>
             <div class="progress-track">
-              <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+              <div class="progress-fill" id="fileProgressFill" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="progress">
+            <div class="progress-head">
+              <span class="progress-label">Overall</span>
+              <span class="progress-percent" id="overallProgressPercent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="overallProgressFill" style="width: 0%"></div>
             </div>
           </div>
           <div class="stats">
@@ -110,7 +119,24 @@
             </div>
           </div>
         </div>
-        <div class="panel-placeholder">No files loaded</div>
+        <div class="file-list-container">
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th class="col-file">File</th>
+                <th class="col-status">Status</th>
+                <th class="col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="fileTableBody"></tbody>
+          </table>
+          <div id="emptyState" class="empty-state">
+            <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <div>No files loaded</div>
+            <div class="empty-hint">Drag &amp; drop images or use the buttons above</div>
+          </div>
+        </div>
       </div>
       <div class="tab-panel" data-panel="settings">
         <div class="panel-placeholder">Settings</div>
