@@ -408,7 +408,9 @@
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data });
     } catch (e) {}
-    setTimeout(function () { applyingToPage = false; }, 200);
+    // Long enough to cover delayMs + delayJitterMs + page reaction time.
+    // During this window, reflected PAGE_CHANGED is treated as our own echo.
+    setTimeout(function () { applyingToPage = false; }, 2500);
   }
 
   function reflectPageToExtension(root, pageSettings) {
@@ -430,7 +432,16 @@
     if (pageSettings.scalePercent) setScalePercent(root, pageSettings.scalePercent);
     applySettingsRules(root);
     saveSettings(root);
-    setTimeout(function () { applyingFromPage = false; }, 200);
+    setTimeout(function () {
+      applyingFromPage = false;
+      // Only re-evaluate preset status if this reflection is NOT an echo of
+      // our own push. setupMirror already filters PAGE_CHANGED while
+      // applyingToPage is true, but a few may slip through; this guard
+      // prevents a freshly-loaded preset from immediately dropping to Unsaved.
+      if (!applyingToPage) {
+        updatePresetStatus();
+      }
+    }, 200);
   }
 
   function pullPageSettings() {
@@ -763,29 +774,43 @@
   function setPresets(list) {
     try {
       if (chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({ vectorAssistPresets: list });
+        return new Promise(function (resolve) {
+          chrome.storage.local.set({ vectorAssistPresets: list }, function () { resolve(list); });
+        });
       }
     } catch (e) {}
+    return Promise.resolve(list);
   }
 
   function settingsEqual(a, b) {
     return JSON.stringify(a || {}) === JSON.stringify(b || {});
   }
 
-  function refreshPresetList() {
-    getPresets().then(function (list) {
-      if (!presetSelect) return;
-      var selected = currentPresetName;
-      presetSelect.innerHTML = '<option value="">— Presets —</option>';
-      list.forEach(function (p) {
-        var opt = document.createElement("option");
-        opt.value = p.name;
-        opt.textContent = p.name;
-        if (p.name === selected) opt.selected = true;
-        presetSelect.appendChild(opt);
-      });
-      updatePresetStatus();
+  function refreshPresetList(list) {
+    if (!presetSelect) return;
+    var data = list;
+    if (!data) {
+      getPresets().then(function (l) { refreshPresetList(l); });
+      return;
+    }
+    var selected = currentPresetName;
+    presetSelect.innerHTML = '<option value="">Unsaved</option>';
+    data.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.name;
+      if (p.name === selected) opt.selected = true;
+      presetSelect.appendChild(opt);
     });
+    // Make sure the select actually shows the current selection
+    // (innerHTML rebuild can leave the wrong option selected in some browsers).
+    if (selected && data.some(function (p) { return p.name === selected; })) {
+      presetSelect.value = selected;
+    } else {
+      presetSelect.value = "";
+    }
+    updatePresetStatus();
+    syncPresetButtons();
   }
 
   function currentSettingsSnapshot() {
@@ -796,31 +821,64 @@
     return data;
   }
 
-  function updatePresetStatus() {
+  // Preset state machine: "idle" | "loaded" | "dirty" | "editing"
+  var presetState = "idle";
+  // Cache of the preset's original settings while in edit mode (for Cancel).
+  var editingOriginal = null;
+
+  function setStatusText(text, kind) {
     if (!presetStatus) return;
-    if (!currentPresetName) {
-      presetStatus.textContent = "";
-      presetStatus.classList.remove("unsaved");
-      return;
+    presetStatus.textContent = text || "";
+    presetStatus.classList.remove("unsaved", "editing", "saved");
+    if (kind) presetStatus.classList.add(kind);
+  }
+
+  function syncPresetButtons() {
+    var hasPreset = !!currentPresetName;
+    if (btnPresetEdit) btnPresetEdit.hidden = !hasPreset || presetState === "editing";
+    if (btnPresetDelete) btnPresetDelete.disabled = !hasPreset;
+  }
+
+  function setPresetState(newState, opts) {
+    presetState = newState;
+    opts = opts || {};
+    if (presetSelect) {
+      presetSelect.value = (newState === "idle" || newState === "dirty") ? "" : currentPresetName;
     }
-    getPresets().then(function (list) {
-      var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
-      if (!preset) { presetStatus.textContent = ""; return; }
-      var cur = currentSettingsSnapshot();
-      if (settingsEqual(cur, preset.settings)) {
-        presetStatus.textContent = "Saved";
-        presetStatus.classList.remove("unsaved");
-      } else {
-        presetStatus.textContent = "Unsaved changes";
-        presetStatus.classList.add("unsaved");
-      }
-    });
+    if (newState === "editing") {
+      editingOriginal = opts.original ? JSON.parse(JSON.stringify(opts.original)) : null;
+    } else if (newState !== "editing") {
+      editingOriginal = null;
+    }
+    renderStatus();
+    syncPresetButtons();
+  }
+
+  function renderStatus() {
+    if (!presetStatus) return;
+    if (presetState === "idle") { setStatusText(""); return; }
+    if (presetState === "loaded") { setStatusText("Saved: " + currentPresetName, "saved"); return; }
+    if (presetState === "dirty") { setStatusText("Unsaved", "unsaved"); return; }
+    if (presetState === "editing") {
+      setStatusText("Editing: " + currentPresetName, "editing");
+    }
+  }
+
+  function updatePresetStatus() {
+    // Called on every settings edit.
+    if (presetState === "loaded" || presetState === "dirty") {
+      // Drop out of preset: snapshot no longer matches -> dirty/idle.
+      currentPresetName = "";
+      setPresetState("dirty");
+    } else if (presetState === "editing") {
+      renderStatus();
+    }
   }
 
   function applyPresetToUI(preset) {
     var root = document.querySelector(".settings");
     if (!root || !preset) return;
-    applyingFromPage = true; // don't echo as page change
+    applyingFromPage = true;
     var data = preset.settings || {};
     Object.keys(data).forEach(function (name) {
       var val = data[name];
@@ -839,43 +897,37 @@
     if (data.scalePercent) setScalePercent(root, data.scalePercent);
     applySettingsRules(root);
     saveSettings(root);
-    pushSettingsToPage(root); // drive the page with literal clicks
+    pushSettingsToPage(root);
     setTimeout(function () { applyingFromPage = false; }, 200);
-    // The form now matches the preset exactly; skip the equality check.
-    if (presetStatus && currentPresetName === (preset.name || "")) {
-      presetStatus.textContent = "Saved";
-      presetStatus.classList.remove("unsaved");
-    }
   }
 
+  var btnPresetNew, btnPresetEdit, btnPresetSave, btnPresetCancel, btnPresetRename, btnPresetDelete;
   function setupPresets() {
     presetSelect = document.getElementById("presetSelect");
     presetStatus = document.getElementById("presetStatus");
-    var btnNew = document.getElementById("btnPresetNew");
-    var btnSave = document.getElementById("btnPresetSave");
-    var btnRename = document.getElementById("btnPresetRename");
-    var btnDelete = document.getElementById("btnPresetDelete");
+    btnPresetNew = document.getElementById("btnPresetNew");
+    btnPresetEdit = document.getElementById("btnPresetEdit");
+    btnPresetSave = document.getElementById("btnPresetSave");
+    btnPresetDelete = document.getElementById("btnPresetDelete");
     if (!presetSelect) return;
 
-    // Switching preset applies it (source of truth drives the page).
+    // Load preset (read-only dropdown -> applies to UI + page).
     presetSelect.addEventListener("change", function () {
-      currentPresetName = presetSelect.value;
-      if (!currentPresetName) { updatePresetStatus(); return; }
-      // After apply, reflect "Saved" without re-comparing (snapshot vs preset
-      // can drift if defaults shift between sessions).
-      setTimeout(function () {
-        if (presetStatus && currentPresetName) {
-          presetStatus.textContent = "Saved";
-          presetStatus.classList.remove("unsaved");
-        }
-      }, 250);
+      var name = presetSelect.value;
+      if (!name) { setPresetState("idle"); return; }
+      currentPresetName = name;
       getPresets().then(function (list) {
-        var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
-        if (preset) applyPresetToUI(preset);
+        var preset = list.filter(function (p) { return p.name === name; })[0];
+        if (preset) {
+          applyPresetToUI(preset);
+          setPresetState("loaded");
+        } else {
+          setPresetState("idle");
+        }
       });
     });
 
-    if (btnNew) btnNew.onclick = function () {
+    if (btnPresetNew) btnPresetNew.onclick = function () {
       var name = prompt("New preset name:", "My Preset");
       if (!name) return;
       name = name.trim();
@@ -886,13 +938,24 @@
           return;
         }
         list.push({ name: name, settings: currentSettingsSnapshot() });
-        setPresets(list);
-        currentPresetName = name;
-        refreshPresetList();
+        setPresets(list).then(function (savedList) {
+          currentPresetName = name;
+          refreshPresetList(savedList);
+          setPresetState("loaded");
+        });
       });
     };
 
-    if (btnSave) btnSave.onclick = function () {
+    if (btnPresetEdit) btnPresetEdit.onclick = function () {
+      if (!currentPresetName) return;
+      getPresets().then(function (list) {
+        var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
+        if (!preset) return;
+        setPresetState("editing", { original: preset.settings });
+      });
+    };
+
+    if (btnPresetSave) btnPresetSave.onclick = function () {
       var doSave = function (name) {
         if (!name) return;
         name = name.trim();
@@ -901,67 +964,55 @@
         getPresets().then(function (list) {
           var snap = currentSettingsSnapshot();
           var existing = list.filter(function (p) { return p.name === currentPresetName; })[0];
-          if (existing) {
-            existing.settings = snap;
-          } else {
-            list.push({ name: currentPresetName, settings: snap });
-          }
-          setPresets(list);
-          refreshPresetList();
-          // Immediately reflect saved state (storage write is synchronous).
-          updatePresetStatus();
+          if (existing) existing.settings = snap;
+          else list.push({ name: currentPresetName, settings: snap });
+          setPresets(list).then(function (savedList) {
+            refreshPresetList(savedList);
+            setPresetState("loaded");
+          });
         });
       };
-      if (!currentPresetName) {
-        var name = prompt("Save preset as:", "My Preset");
-        doSave(name);
-      } else {
+      if (presetState === "editing" && currentPresetName) {
+        // Edit mode: directly overwrite the active preset.
         doSave(currentPresetName);
+      } else {
+        // Idle/dirty/loaded: prompt for a name. Same name as existing = overwrite;
+        // different name = create new.
+        var name = prompt("Save preset as:", currentPresetName || "My Preset");
+        doSave(name);
       }
     };
 
-    if (btnRename) btnRename.onclick = function () {
-      if (!currentPresetName) { alert("Select a preset to rename first."); return; }
-      var name = prompt("Rename preset to:", currentPresetName);
-      if (!name) return;
-      name = name.trim();
-      if (!name || name === currentPresetName) return;
-      getPresets().then(function (list) {
-        if (list.some(function (p) { return p.name === name; })) {
-          alert("A preset named \"" + name + "\" already exists.");
-          return;
-        }
-        var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
-        if (preset) {
-          preset.name = name;
-          currentPresetName = name;
-          setPresets(list);
-          refreshPresetList();
-        }
-      });
-    };
-
-    if (btnDelete) btnDelete.onclick = function () {
+    if (btnPresetDelete) btnPresetDelete.onclick = function () {
       if (!currentPresetName) { alert("Select a preset to delete first."); return; }
       if (!confirm("Delete preset \"" + currentPresetName + "\"?")) return;
       getPresets().then(function (list) {
         list = list.filter(function (p) { return p.name !== currentPresetName; });
-        setPresets(list);
-        currentPresetName = "";
-        refreshPresetList();
+        setPresets(list).then(function (savedList) {
+          currentPresetName = "";
+          setPresetState("idle");
+          refreshPresetList(savedList);
+        });
       });
     };
 
     // Mark unsaved whenever the user edits settings.
     var root = document.querySelector(".settings");
     if (root) {
-      root.addEventListener("change", function () { updatePresetStatus(); });
+      root.addEventListener("change", function () {
+        if (applyingFromPage) return;
+        updatePresetStatus();
+      });
     }
     var scaleWrap = root && root.querySelector('[data-opt="scalePercent"]');
     if (scaleWrap) {
-      scaleWrap.addEventListener("click", function () { updatePresetStatus(); });
+      scaleWrap.addEventListener("click", function () {
+        if (applyingFromPage) return;
+        updatePresetStatus();
+      });
     }
 
     refreshPresetList();
+    setPresetState("idle");
   }
 })();

@@ -244,45 +244,62 @@
   function applyToPage(settings) {
     if (!settings) return;
     expandAdvanced();
-    // Apply format  To reveal dependent sections, then the rest
-    // after a brief delay so the page has time to render them.
-    if (settings.format !== undefined) setRadio(KEY_NAME.format, pageValueFor("format", settings.format));
-    setTimeout(function () {
-      Object.keys(settings).forEach(function (key) {
-        if (key === "format" || key === "scalePercent") return;
-        var pageName = KEY_NAME[key];
-        var ourValue = settings[key];
 
-        // Special-case: simpleShapes is wired through a hidden companion
-        // (name="parameterized_shapes.flatten") + a visible checkbox
-        // (id="Options-SimpleShapesField", no name). Click the visible one.
-        if (key === "simpleShapes") {
-          var visible = document.getElementById("Options-SimpleShapesField");
-          if (visible && visible.type === "checkbox") {
-            var wantChecked = !ourValue; // inverted: represent shapes = !flatten
-            if (visible.checked !== wantChecked) clickLabel(visible);
-          }
-          return;
-        }
+    var baseDelay = parseInt(settings.delayMs, 10);
+    if (!isFinite(baseDelay) || baseDelay < 0) baseDelay = 0;
+    var jitter = parseInt(settings.delayJitterMs, 10);
+    if (!isFinite(jitter) || jitter < 0) jitter = 0;
+    function stepDelay() { return baseDelay + (jitter > 0 ? Math.floor(Math.random() * jitter) : 0); }
 
-        var els = getInputs(pageName);
-        if (!els.length) return;
-        var first = els[0];
-        if (first.type === "checkbox") {
-          var checked = ourValue;
-          if (INVERTED[key]) checked = !checked;
-          setCheckbox(pageName, !!checked);
-        } else if (first.type === "radio") {
-          setRadio(pageName, pageValueFor(key, ourValue));
-        } else {
-          setTextField(pageName, ourValue);
+    // Collect the keys we will apply (skip format here; apply first separately).
+    var keys = Object.keys(settings).filter(function (k) {
+      return k !== "format" && k !== "scalePercent" && k !== "delayMs" && k !== "delayJitterMs";
+    });
+
+    function applyKey(key, cb) {
+      var ourValue = settings[key];
+      if (key === "simpleShapes") {
+        var visible = document.getElementById("Options-SimpleShapesField");
+        if (visible && visible.type === "checkbox") {
+          var wantChecked = !ourValue; // inverted: represent shapes = !flatten
+          if (visible.checked !== wantChecked) clickLabel(visible);
         }
+        cb && cb();
+        return;
+      }
+      var pageName = KEY_NAME[key];
+      var els = getInputs(pageName);
+      if (!els.length) { cb && cb(); return; }
+      var first = els[0];
+      if (first.type === "checkbox") {
+        var checked = ourValue;
+        if (INVERTED[key]) checked = !checked;
+        setCheckbox(pageName, !!checked);
+      } else if (first.type === "radio") {
+        setRadio(pageName, pageValueFor(key, ourValue));
+      } else {
+        setTextField(pageName, ourValue);
+      }
+      cb && cb();
+    }
+
+    function runSequential(i) {
+      if (i >= keys.length) {
+        // After all keys, apply scale if needed (last so it doesn't override).
+        var targetMode = pageValueFor("outputSize", settings.outputSize);
+        if (settings.scalePercent !== undefined && targetMode === "scale") setScale(settings.scalePercent);
+        return;
+      }
+      applyKey(keys[i], function () {
+        var wait = stepDelay();
+        if (wait <= 0) runSequential(i + 1);
+        else setTimeout(function () { runSequential(i + 1); }, wait);
       });
-      // Only set scale if the target mode is "scale"; otherwise clicking a
-      // quick-button would re-trigger Scaled mode and override Custom.
-      var targetMode = pageValueFor("outputSize", settings.outputSize);
-      if (settings.scalePercent !== undefined && targetMode === "scale") setScale(settings.scalePercent);
-    }, 150);
+    }
+
+    // Apply format first to reveal dependent sections, then the rest sequentially.
+    if (settings.format !== undefined) setRadio(KEY_NAME.format, pageValueFor("format", settings.format));
+    setTimeout(function () { runSequential(0); }, Math.max(150, baseDelay));
   }
 
   function expandAdvanced() {

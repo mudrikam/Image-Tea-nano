@@ -914,6 +914,13 @@ body {
   margin: 0;
 }
 
+.set-help {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
 [data-show-no-auto][hidden] {
   display: none;
 }
@@ -1034,6 +1041,18 @@ body {
   font-size: 11px;
   border-radius: 8px;
 }
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.btn-icon svg {
+  display: block;
+}
 .btn-danger {
   color: var(--error);
   border-color: var(--border-color);
@@ -1046,6 +1065,17 @@ body {
 .preset-status {
   flex-basis: 100%;
   font-size: 11px;
+  color: var(--text-muted);
+}
+.preset-status.unsaved {
+  color: var(--warning, #d4a017);
+  font-weight: 500;
+}
+.preset-status.editing {
+  color: var(--accent, #00c2a2);
+  font-weight: 500;
+}
+.preset-status.saved {
   color: var(--text-muted);
 }
 .preset-status.unsaved {
