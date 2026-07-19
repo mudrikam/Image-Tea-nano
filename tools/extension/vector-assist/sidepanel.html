@@ -141,6 +141,18 @@
       <div class="tab-panel" data-panel="settings">
         <div class="settings">
 
+          <!-- Presets -->
+          <div class="presets-bar">
+            <select id="presetSelect" class="preset-select">
+              <option value="">— Presets —</option>
+            </select>
+            <button id="btnPresetNew" class="btn btn-secondary btn-mini" title="New preset">New</button>
+            <button id="btnPresetSave" class="btn btn-secondary btn-mini" title="Save / Update preset">Save</button>
+            <button id="btnPresetRename" class="btn btn-secondary btn-mini" title="Rename preset">Rename</button>
+            <button id="btnPresetDelete" class="btn btn-secondary btn-mini btn-danger" title="Delete preset">Delete</button>
+            <span id="presetStatus" class="preset-status"></span>
+          </div>
+
           <!-- File format -->
           <div class="set-group">
             <div class="set-title">File Format</div>
@@ -192,16 +204,28 @@
               <div class="set-grid" data-show-size="custom">
                 <div class="set-field">
                   <label>Width</label>
-                  <div class="set-input-suffix">
-                    <input type="number" name="outWidth" value="" placeholder="Auto">
-                    <span>px</span>
+                  <div class="set-row">
+                    <div class="set-input-suffix">
+                      <input type="number" name="outWidth" value="" placeholder="Auto">
+                      <span>px</span>
+                    </div>
+                    <label class="set-toggle">
+                      <input type="checkbox" name="widthAuto" checked>
+                      <span>Auto</span>
+                    </label>
                   </div>
                 </div>
                 <div class="set-field">
                   <label>Height</label>
-                  <div class="set-input-suffix">
-                    <input type="number" name="outHeight" value="" placeholder="Auto">
-                    <span>px</span>
+                  <div class="set-row">
+                    <div class="set-input-suffix">
+                      <input type="number" name="outHeight" value="" placeholder="Auto">
+                      <span>px</span>
+                    </div>
+                    <label class="set-toggle">
+                      <input type="checkbox" name="heightAuto" checked>
+                      <span>Auto</span>
+                    </label>
                   </div>
                 </div>
                 <div class="set-field">
@@ -214,40 +238,43 @@
                     <option value="pt">pt</option>
                   </select>
                 </div>
+                <div data-show-no-auto="1">
+                  <div class="set-field">
+                    <label>If shapes differ</label>
+                    <select name="outFit">
+                      <option value="fit">Fit inside</option>
+                      <option value="crop">Crop to fill</option>
+                      <option value="stretch">Stretch</option>
+                    </select>
+                  </div>
+                  <div class="set-grid2">
+                    <div class="set-field">
+                      <label>Horizontal</label>
+                      <input type="number" name="outH" step="0.1" min="0" max="1" value="0.5">
+                    </div>
+                    <div class="set-field">
+                      <label>Vertical</label>
+                      <input type="number" name="outV" step="0.1" min="0" max="1" value="0.5">
+                    </div>
+                  </div>
+                  <div class="set-field">
+                    <label>Output DPI</label>
+                    <input type="number" name="outDpi" value="">
+                  </div>
+                </div>
               </div>
               <div class="set-grid" data-show-size="scaled">
-                <div class="set-field">
+                <div class="set-field set-field-full">
                   <label>Scale</label>
-                  <select name="outScale">
-                    <option value="1">1x</option>
-                    <option value="2">2x</option>
-                    <option value="4" selected>4x</option>
-                    <option value="8">8x</option>
-                  </select>
+                  <div class="set-scale-quick" data-opt="scalePercent">
+                    <button type="button" class="set-scale-btn" data-scale="100">1x</button>
+                    <button type="button" class="set-scale-btn" data-scale="200">2x</button>
+                    <button type="button" class="set-scale-btn active" data-scale="400">4x</button>
+                    <button type="button" class="set-scale-btn" data-scale="800">8x</button>
+                  </div>
                 </div>
               </div>
-              <div class="set-field">
-                <label>If shapes differ</label>
-                <select name="outFit">
-                  <option value="fit">Fit inside</option>
-                  <option value="crop">Crop to fill</option>
-                  <option value="stretch">Stretch</option>
-                </select>
-              </div>
-              <div class="set-grid2">
-                <div class="set-field">
-                  <label>Horizontal</label>
-                  <input type="number" name="outH" step="0.1" min="0" max="1" value="0.5">
-                </div>
-                <div class="set-field">
-                  <label>Vertical</label>
-                  <input type="number" name="outV" step="0.1" min="0" max="1" value="0.5">
-                </div>
-              </div>
-              <div class="set-field">
-                <label>Output DPI</label>
-                <input type="number" name="outDpi" value="">
-              </div>
+
             </div>
 
             <!-- Draw style -->
@@ -261,7 +288,7 @@
             </div>
 
             <!-- Shape stacking -->
-            <div class="set-group">
+            <div class="set-group" data-group="stacking">
               <div class="set-title">Shape Stacking</div>
               <div class="set-options" data-opt="stacking">
                 <label class="set-opt"><input type="radio" name="stacking" value="cutouts" checked><span>Cut-outs</span></label>

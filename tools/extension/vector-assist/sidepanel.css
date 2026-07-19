@@ -886,6 +886,38 @@ body {
   font-size: 10px;
 }
 
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.set-row .set-input-suffix {
+  flex: 1;
+}
+
+.set-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.set-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+[data-show-no-auto][hidden] {
+  display: none;
+}
+
 /* Multi-column field grids */
 .set-grid {
   display: grid;
@@ -942,6 +974,83 @@ body {
 .set-field input:disabled,
 .set-field select:disabled {
   cursor: not-allowed;
+}
+
+/* Scale quick-buttons (1:1 with page literal buttons) */
+.set-scale-quick {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.set-scale-btn {
+  flex: 1 1 0;
+  min-width: 44px;
+  padding: 7px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.set-scale-btn:hover {
+  border-color: var(--accent);
+}
+.set-scale-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.set-field-full {
+  grid-column: 1 / -1;
+}
+
+/* Presets bar */
+.presets-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-section);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+.preset-select {
+  flex: 1 1 140px;
+  min-width: 120px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-main);
+  font-size: 12px;
+}
+.btn-mini {
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+.btn-danger {
+  color: var(--error);
+  border-color: var(--border-color);
+}
+.btn-danger:hover {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+.preset-status {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.preset-status.unsaved {
+  color: var(--warning);
+  font-weight: 600;
 }
 
 /* --------------------------------------------------------------------------

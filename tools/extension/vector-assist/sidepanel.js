@@ -10,6 +10,10 @@
   var statLoaded, statPending, statFinished, statFailed;
   var isRunning = false;
 
+  // Realtime two-way mirror state.
+  var applyingFromPage = false;   // true while we reflect page -> extension
+  var applyingToPage = false;     // true while we push extension -> page
+
   // In-memory file list. Each item:
   // { name, type, size, dataUrl, status: "pending"|"processing"|"done"|"failed" }
   var files = [];
@@ -123,6 +127,8 @@
       if (onSite) {
         landingPage.classList.add("hidden");
         mainInterface.classList.remove("hidden");
+        // The result page exposes the export options; mirror them in.
+        pullPageSettings();
       } else {
         mainInterface.classList.add("hidden");
         landingPage.classList.remove("hidden");
@@ -394,22 +400,113 @@
   }
 
   // --------------------------------------------------------------------------
+  // Realtime two-way mirror with the vectorizer.ai result page
+  // --------------------------------------------------------------------------
+  function pushSettingsToPage(root) {
+    var data = collectSettings(root);
+    applyingToPage = true;
+    try {
+      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data });
+    } catch (e) {}
+    setTimeout(function () { applyingToPage = false; }, 200);
+  }
+
+  function reflectPageToExtension(root, pageSettings) {
+    if (!pageSettings) return;
+    applyingFromPage = true;
+    Object.keys(pageSettings).forEach(function (name) {
+      var val = pageSettings[name];
+      var els = root.querySelectorAll('[name="' + name + '"]');
+      els.forEach(function (el) {
+        if (el.type === "radio") {
+          if (el.value === val) el.checked = true;
+        } else if (el.type === "checkbox") {
+          el.checked = !!val;
+        } else {
+          el.value = val;
+        }
+      });
+    });
+    if (pageSettings.scalePercent) setScalePercent(root, pageSettings.scalePercent);
+    applySettingsRules(root);
+    saveSettings(root);
+    setTimeout(function () { applyingFromPage = false; }, 200);
+  }
+
+  function pullPageSettings() {
+    try {
+      chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_GET_SETTINGS" }, function (resp) {
+        if (resp && resp.settings) reflectPageToExtension(document.querySelector(".settings"), resp.settings);
+      });
+    } catch (e) {}
+  }
+
+  function setupMirror() {
+    chrome.runtime.onMessage.addListener(function (msg) {
+      if (!msg || msg.type !== "VECTOR_ASSIST_PAGE_CHANGED") return;
+      if (applyingToPage) return; // ignore echo of our own push
+      console.log("[VectorAssist] page -> extension", JSON.stringify(msg.settings));
+      var root = document.querySelector(".settings");
+      if (root) reflectPageToExtension(root, msg.settings);
+    });
+  }
+
+  // --------------------------------------------------------------------------
   // Settings tab (GUI clone of Vectorizer.AI output options)
   // --------------------------------------------------------------------------
   function setupSettings() {
     var settingsRoot = document.querySelector(".settings");
     if (!settingsRoot) return;
 
-    // React to any change -> re-apply enable/disable rules + persist
+    // Scale quick-buttons (1:1 with page's literal buttons, not a dropdown).
+    var scaleWrap = settingsRoot.querySelector('[data-opt="scalePercent"]');
+    if (scaleWrap) {
+      var scaleBtns = scaleWrap.querySelectorAll(".set-scale-btn");
+      scaleBtns.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          if (applyingFromPage) return;
+          scaleBtns.forEach(function (b) { b.classList.remove("active"); });
+          btn.classList.add("active");
+          settingsRoot.dataset.scalePercent = btn.getAttribute("data-scale");
+          applySettingsRules(settingsRoot);
+          saveSettings(settingsRoot);
+          pushSettingsToPage(settingsRoot);
+        });
+      });
+    }
+
+    // React to any change -> re-apply enable/disable rules + persist + push to page
     settingsRoot.addEventListener("change", function () {
+      if (applyingFromPage) return; // don't echo page-originated updates
       applySettingsRules(settingsRoot);
       saveSettings(settingsRoot);
+      pushSettingsToPage(settingsRoot);
     });
+
+    // Default scale to 4x if nothing restored yet.
+    if (!settingsRoot.dataset.scalePercent) settingsRoot.dataset.scalePercent = "400";
 
     // Restore saved values, then apply rules.
     loadSettings(settingsRoot).then(function () {
       applySettingsRules(settingsRoot);
     });
+  }
+
+  function getScalePercent(root) {
+    return root.dataset.scalePercent || null;
+  }
+
+  function setScalePercent(root, percent) {
+    var wrap = root.querySelector('[data-opt="scalePercent"]');
+    if (!wrap) return;
+    var btns = wrap.querySelectorAll(".set-scale-btn");
+    var matched = null;
+    btns.forEach(function (b) {
+      if (b.getAttribute("data-scale") === String(percent)) matched = b;
+    });
+    btns.forEach(function (b) { b.classList.remove("active"); });
+    if (matched) matched.classList.add("active");
+    root.dataset.scalePercent = matched ? String(percent) : (percent || "");
   }
 
   // Mirror Vectorizer.AI: enable/disable + show/hide options per selected format,
@@ -429,16 +526,40 @@
       el.hidden = el.getAttribute("data-show-size") !== outputSize;
     });
 
+    // "If shapes differ / H / V / DPI" only show in Custom mode when at
+    // least one dimension is NOT Auto (matches the page's literal Auto toggle).
+    var aw = root.querySelector('[name="widthAuto"]');
+    var ah = root.querySelector('[name="heightAuto"]');
+    var autoW = aw ? aw.checked : true;
+    var autoH = ah ? ah.checked : true;
+    root.querySelectorAll("[data-show-no-auto]").forEach(function (el) {
+      el.hidden = outputSize !== "custom" || (autoW && autoH);
+    });
+
     // --- Group By ---
     // SVG: full. DXF: layers (all allowed). EPS/PDF: no grouping. PNG: raster.
-    var groupSupported = (format === "svg" || format === "dxf");
+    // Stroked edges: Group By is meaningless (edges are stroked once).
+    // Preserve value when disabled; page doesn't render Group By in disabled modes.
+    var groupSupported = (format === "svg" || format === "dxf") && drawStyle !== "strokedEdge";
     setGroupEnabled(root, "groupBy", groupSupported);
-    if (!groupSupported) forceRadio(root, "groupBy", "none");
+
+    // --- Simple Shapes ---
+    // Disabled when draw style is stroked edges. Preserve checkbox value
+    // (don't force uncheck) so it round-trips when switching back.
+    setCheckEnabled(root, "simpleShapes", drawStyle !== "strokedEdge");
+
+    // --- Shape Stacking ---
+    // The page disables Shape Stacking when draw style is stroked edges
+    // because edge-stroking renders stacking meaningless (every edge is
+    // stroked exactly once regardless of stacking mode).
+    var stackingEnabled = (drawStyle !== "strokedEdge");
+    setGroupEnabled(root, "stacking", stackingEnabled);
+    if (!stackingEnabled) forceRadio(root, "stacking", "cutouts");
 
     // --- Allowed Curve Types ---
-    // EPS/PDF: only Lines + Cubic Bézier. SVG/DXF/PNG: all types.
+    // EPS/PDF: only Cubic Bézier (+ implicit Lines). SVG/DXF/PNG: all types.
+    // (The page has no explicit "Lines" toggle, so we omit it to stay 1:1.)
     var restrictedCurves = (format === "eps" || format === "pdf");
-    setCheckEnabled(root, "curveLines", true);   // always
     setCheckEnabled(root, "curveCubic", true);   // supported by all formats
     setCheckEnabled(root, "curveQuad", !restrictedCurves);
     setCheckEnabled(root, "curveCirc", !restrictedCurves);
@@ -450,9 +571,10 @@
     }
 
     // --- Stroke Style ---
-    // Only applies when draw style strokes outlines/edges.
-    var strokes = (drawStyle === "strokedOutline" || drawStyle === "strokedEdge");
-    setGroupEnabled(root, "strokeStyle", strokes);
+    // The page keeps Stroke Style always visible (with a note that it only
+    // applies when the draw style strokes outlines/edges). Mirror that 1:1:
+    // always enabled, do not disable.
+    setGroupEnabled(root, "strokeStyle", true);
   }
 
   // ---- helpers for enable/disable ----
@@ -504,6 +626,8 @@
         data[el.name] = el.value;
       }
     });
+    var sp = getScalePercent(root);
+    if (sp) data.scalePercent = sp;
     return data;
   }
 
@@ -523,6 +647,7 @@
         chrome.storage.local.get(["vectorAssistSettings"], function (res) {
           var data = res && res.vectorAssistSettings;
           if (!data) { resolve(); return; }
+          if (data.scalePercent) setScalePercent(root, data.scalePercent);
           Object.keys(data).forEach(function (name) {
             var val = data[name];
             var els = root.querySelectorAll('[name="' + name + '"]');
@@ -598,9 +723,14 @@
     setupTabs();
     setupDnD();
     setupSettings();
+    setupPresets();
+    setupMirror();
     renderFileList();
     setupTabMonitoring();
     initView();
+
+    // Pull any settings the result page already exposes.
+    pullPageSettings();
 
     // Restore previously loaded files from IndexedDB.
     dbGetAll().then(function (records) {
@@ -610,4 +740,228 @@
       }
     }).catch(function () {});
   });
+
+  // --------------------------------------------------------------------------
+  // Presets: CRUD, saved/unsaved, easy switching. Extension is source of
+  // truth -> applying a preset pushes all settings to the page via literal
+  // clicks. The page can still change the extension (two-way), but a preset
+  // is what drives the page, never the other way around.
+  // --------------------------------------------------------------------------
+  var presetSelect, presetStatus, currentPresetName = "";
+
+  function getPresets() {
+    return new Promise(function (resolve) {
+      try {
+        if (!chrome.storage || !chrome.storage.local) { resolve([]); return; }
+        chrome.storage.local.get(["vectorAssistPresets"], function (res) {
+          resolve((res && res.vectorAssistPresets) || []);
+        });
+      } catch (e) { resolve([]); }
+    });
+  }
+
+  function setPresets(list) {
+    try {
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ vectorAssistPresets: list });
+      }
+    } catch (e) {}
+  }
+
+  function settingsEqual(a, b) {
+    return JSON.stringify(a || {}) === JSON.stringify(b || {});
+  }
+
+  function refreshPresetList() {
+    getPresets().then(function (list) {
+      if (!presetSelect) return;
+      var selected = currentPresetName;
+      presetSelect.innerHTML = '<option value="">— Presets —</option>';
+      list.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.name;
+        opt.textContent = p.name;
+        if (p.name === selected) opt.selected = true;
+        presetSelect.appendChild(opt);
+      });
+      updatePresetStatus();
+    });
+  }
+
+  function currentSettingsSnapshot() {
+    var root = document.querySelector(".settings");
+    var data = collectSettings(root);
+    var sp = getScalePercent(root);
+    if (sp) data.scalePercent = sp;
+    return data;
+  }
+
+  function updatePresetStatus() {
+    if (!presetStatus) return;
+    if (!currentPresetName) {
+      presetStatus.textContent = "";
+      presetStatus.classList.remove("unsaved");
+      return;
+    }
+    getPresets().then(function (list) {
+      var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
+      if (!preset) { presetStatus.textContent = ""; return; }
+      var cur = currentSettingsSnapshot();
+      if (settingsEqual(cur, preset.settings)) {
+        presetStatus.textContent = "Saved";
+        presetStatus.classList.remove("unsaved");
+      } else {
+        presetStatus.textContent = "Unsaved changes";
+        presetStatus.classList.add("unsaved");
+      }
+    });
+  }
+
+  function applyPresetToUI(preset) {
+    var root = document.querySelector(".settings");
+    if (!root || !preset) return;
+    applyingFromPage = true; // don't echo as page change
+    var data = preset.settings || {};
+    Object.keys(data).forEach(function (name) {
+      var val = data[name];
+      if (name === "scalePercent") return;
+      var els = root.querySelectorAll('[name="' + name + '"]');
+      els.forEach(function (el) {
+        if (el.type === "radio") {
+          if (el.value === val) el.checked = true;
+        } else if (el.type === "checkbox") {
+          el.checked = !!val;
+        } else {
+          el.value = val;
+        }
+      });
+    });
+    if (data.scalePercent) setScalePercent(root, data.scalePercent);
+    applySettingsRules(root);
+    saveSettings(root);
+    pushSettingsToPage(root); // drive the page with literal clicks
+    setTimeout(function () { applyingFromPage = false; }, 200);
+    // The form now matches the preset exactly; skip the equality check.
+    if (presetStatus && currentPresetName === (preset.name || "")) {
+      presetStatus.textContent = "Saved";
+      presetStatus.classList.remove("unsaved");
+    }
+  }
+
+  function setupPresets() {
+    presetSelect = document.getElementById("presetSelect");
+    presetStatus = document.getElementById("presetStatus");
+    var btnNew = document.getElementById("btnPresetNew");
+    var btnSave = document.getElementById("btnPresetSave");
+    var btnRename = document.getElementById("btnPresetRename");
+    var btnDelete = document.getElementById("btnPresetDelete");
+    if (!presetSelect) return;
+
+    // Switching preset applies it (source of truth drives the page).
+    presetSelect.addEventListener("change", function () {
+      currentPresetName = presetSelect.value;
+      if (!currentPresetName) { updatePresetStatus(); return; }
+      // After apply, reflect "Saved" without re-comparing (snapshot vs preset
+      // can drift if defaults shift between sessions).
+      setTimeout(function () {
+        if (presetStatus && currentPresetName) {
+          presetStatus.textContent = "Saved";
+          presetStatus.classList.remove("unsaved");
+        }
+      }, 250);
+      getPresets().then(function (list) {
+        var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
+        if (preset) applyPresetToUI(preset);
+      });
+    });
+
+    if (btnNew) btnNew.onclick = function () {
+      var name = prompt("New preset name:", "My Preset");
+      if (!name) return;
+      name = name.trim();
+      if (!name) return;
+      getPresets().then(function (list) {
+        if (list.some(function (p) { return p.name === name; })) {
+          alert("A preset named \"" + name + "\" already exists.");
+          return;
+        }
+        list.push({ name: name, settings: currentSettingsSnapshot() });
+        setPresets(list);
+        currentPresetName = name;
+        refreshPresetList();
+      });
+    };
+
+    if (btnSave) btnSave.onclick = function () {
+      var doSave = function (name) {
+        if (!name) return;
+        name = name.trim();
+        if (!name) return;
+        currentPresetName = name;
+        getPresets().then(function (list) {
+          var snap = currentSettingsSnapshot();
+          var existing = list.filter(function (p) { return p.name === currentPresetName; })[0];
+          if (existing) {
+            existing.settings = snap;
+          } else {
+            list.push({ name: currentPresetName, settings: snap });
+          }
+          setPresets(list);
+          refreshPresetList();
+          // Immediately reflect saved state (storage write is synchronous).
+          updatePresetStatus();
+        });
+      };
+      if (!currentPresetName) {
+        var name = prompt("Save preset as:", "My Preset");
+        doSave(name);
+      } else {
+        doSave(currentPresetName);
+      }
+    };
+
+    if (btnRename) btnRename.onclick = function () {
+      if (!currentPresetName) { alert("Select a preset to rename first."); return; }
+      var name = prompt("Rename preset to:", currentPresetName);
+      if (!name) return;
+      name = name.trim();
+      if (!name || name === currentPresetName) return;
+      getPresets().then(function (list) {
+        if (list.some(function (p) { return p.name === name; })) {
+          alert("A preset named \"" + name + "\" already exists.");
+          return;
+        }
+        var preset = list.filter(function (p) { return p.name === currentPresetName; })[0];
+        if (preset) {
+          preset.name = name;
+          currentPresetName = name;
+          setPresets(list);
+          refreshPresetList();
+        }
+      });
+    };
+
+    if (btnDelete) btnDelete.onclick = function () {
+      if (!currentPresetName) { alert("Select a preset to delete first."); return; }
+      if (!confirm("Delete preset \"" + currentPresetName + "\"?")) return;
+      getPresets().then(function (list) {
+        list = list.filter(function (p) { return p.name !== currentPresetName; });
+        setPresets(list);
+        currentPresetName = "";
+        refreshPresetList();
+      });
+    };
+
+    // Mark unsaved whenever the user edits settings.
+    var root = document.querySelector(".settings");
+    if (root) {
+      root.addEventListener("change", function () { updatePresetStatus(); });
+    }
+    var scaleWrap = root && root.querySelector('[data-opt="scalePercent"]');
+    if (scaleWrap) {
+      scaleWrap.addEventListener("click", function () { updatePresetStatus(); });
+    }
+
+    refreshPresetList();
+  }
 })();
