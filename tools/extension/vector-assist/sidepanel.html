@@ -445,26 +445,58 @@
   </div>
 
 <div id="helpModal" class="modal-overlay hidden">
-     <div class="modal-box">
-       <div class="modal-header">
-         <span>Cara Penggunaan Vector Assist</span>
-         <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
-       </div>
-       <div class="modal-body" style="line-height:1.5;">
-         <ol style="margin:0;padding-left:1.2em;">
-           <li><strong>Buka vectorizer.ai</strong> di tab Chrome. Extension otomatis terbuka di side panel.</li>
-           <li><strong>Atur pengaturan</strong> di tab Settings. Perubahan langsung dikirim ke halaman.</li>
-           <li><strong>Simpan preset</strong> dengan klik tombol simpan. Preset tersimpan untuk sesi selanjutnya.</li>
-           <li><strong>Tambah file</strong> di tab Runner via drag-drop atau tombol Add Files.</li>
-           <li><strong>Atur timing</strong> (Delay &amp; Random) kalau perlu jeda sebelum download.</li>
-           <li><strong>Klik Start</strong> untuk jalankan batch. Setiap file otomatis upload, terapkan preset, tunggu delay, lalu klik Submit dan download.</li>
-           <li><strong>Pause/Resume</strong> untuk hentikan sementara; <strong>Stop</strong> untuk batalkan semua.</li>
-           <li><strong>Status line</strong> menampilkan fase aktif dan countdown (detik).</li>
-           <li>Jika muncul captcha, runner otomatis pause. Selesaikan captcha lalu klik Resume.</li>
-         </ol>
-       </div>
-     </div>
-   </div>
+      <div class="modal-box">
+        <div class="modal-header">
+          <span>Cara Pakai Vector Assist</span>
+          <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
+        </div>
+        <div class="modal-body" style="line-height:1.5;">
+          <div class="help-section">
+            <div class="help-step">
+              <span class="step-num">1</span>
+              <span class="step-text"><strong>Buka vectorizer.ai</strong> di tab Chrome. Side panel terbuka otomatis.</span>
+            </div>
+            <div class="help-step">
+              <span class="step-num">2</span>
+              <span class="step-text"><strong>Pilih preset</strong> atau atur pengaturan di tab Settings.</span>
+            </div>
+            <div class="help-step">
+              <span class="step-num">3</span>
+              <span class="step-text"><strong>Upload gambar</strong> dengan drag-drop ke panel atau tombol Load Files.</span>
+            </div>
+            <div class="help-step">
+              <span class="step-num">4</span>
+              <span class="step-text"><strong>Klik Start Process</strong>. Semua gambar diproses otomatis.</span>
+            </div>
+          </div>
+          <div class="help-section" style="margin-top:12px;">
+            <div class="help-tip" style="margin-bottom:8px;">
+              <span style="color:var(--warning);">&bull;</span> Jika muncul captcha, selesaikan lalu klik Resume.
+            </div>
+            <div class="help-tip">
+              <span style="color:var(--success);">&bull;</span> Gambar selesai di-download otomatis.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+        <div class="modal-body" style="line-height:1.5;">
+          <h4 style="margin-top:0;">Langkah Mudah</h4>
+          <ol style="margin:0;padding-left:1.2em;">
+            <li><strong>Buka vectorizer.ai</strong> di tab Chrome. Side panel terbuka otomatis.</li>
+            <li><strong>Pilih preset</strong> atau atur pengaturan satu kali (format, ukuran, dsb).</li>
+            <li><strong>Upload gambar</strong> dengan drag-drop ke panel atau tombol "Load Files".</li>
+            <li><strong>Klik Start Process</strong>. Semua gambar akan diproses otomatis.</li>
+          </ol>
+          <h4 style="margin-top:1em;">Catatan</h4>
+          <ul style="margin:0;padding-left:1.2em;">
+            <li>Jika muncul captcha, selesaikan lalu klik Resume.</li>
+            <li>Gambar selesai di-download otomatis ke folder default.</li>
+            <li>Gunakan Delay jika ingin jeda antar file (opsional).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
   <script src="sidepanel.js"></script>
 </body>

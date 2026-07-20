@@ -1426,3 +1426,37 @@ body {
 #btnCloseHelp:hover {
   color: var(--error);
 }
+
+.help-section {
+  padding: 4px 0;
+}
+
+.help-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.help-step:last-child {
+  margin-bottom: 0;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.step-text {
+  color: var(--text-main);
+  font-size: 12px;
+}
