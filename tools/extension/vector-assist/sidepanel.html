@@ -168,7 +168,7 @@
               <option value="">Unsaved</option>
             </select>
             <button id="btnPresetNew" class="btn btn-secondary btn-icon" title="New preset">
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5a.5.5 0 0 1 .5.5v5.5H14a.5.5 0 0 1 0 1H8.5V14a.5.5 0 0 1-1 0V8.5H2a.5.5 0 0 1 0-1h5.5V2a.5.5 0 0 1 .5-.5z"/><path fill="currentColor" d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11zM3.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-9z"/></svg>
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 1.5a.5.5 0 0 1 .5.5v5.5H14a.5.5 0 0 1 0 1H8.5V14a.5.5 0 0 1-1 0V8.5H2a.5.5 0 0 1 0-1h5.5V2a.5.5 0 0 1 .5-.5z"/><path fill="currentColor" d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11zM3.5 2a.5.5 0 0 0-.5.5V13.5a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-9z"/></svg>
             </button>
             <button id="btnPresetEdit" class="btn btn-secondary btn-icon" title="Edit selected preset">
               <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064l6.286-6.286z"/></svg>
@@ -444,59 +444,42 @@
     </div>
   </div>
 
-<div id="helpModal" class="modal-overlay hidden">
-      <div class="modal-box">
-        <div class="modal-header">
-          <span>Cara Pakai Vector Assist</span>
-          <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
-        </div>
-        <div class="modal-body" style="line-height:1.5;">
-          <div class="help-section">
-            <div class="help-step">
-              <span class="step-num">1</span>
-              <span class="step-text"><strong>Buka vectorizer.ai</strong> di tab Chrome. Side panel terbuka otomatis.</span>
-            </div>
-            <div class="help-step">
-              <span class="step-num">2</span>
-              <span class="step-text"><strong>Pilih preset</strong> atau atur pengaturan di tab Settings.</span>
-            </div>
-            <div class="help-step">
-              <span class="step-num">3</span>
-              <span class="step-text"><strong>Upload gambar</strong> dengan drag-drop ke panel atau tombol Load Files.</span>
-            </div>
-            <div class="help-step">
-              <span class="step-num">4</span>
-              <span class="step-text"><strong>Klik Start Process</strong>. Semua gambar diproses otomatis.</span>
-            </div>
+  <div id="helpModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>Cara Pakai Vector Assist</span>
+        <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="line-height:1.5;">
+        <div class="help-section">
+          <div class="help-step">
+            <span class="step-num">1</span>
+            <span class="step-text"><strong>Buka vectorizer.ai</strong> di tab Chrome. Side panel terbuka otomatis.</span>
           </div>
-          <div class="help-section" style="margin-top:12px;">
-            <div class="help-tip" style="margin-bottom:8px;">
-              <span style="color:var(--warning);">&bull;</span> Jika muncul captcha, selesaikan lalu klik Resume.
-            </div>
-            <div class="help-tip">
-              <span style="color:var(--success);">&bull;</span> Gambar selesai di-download otomatis.
-            </div>
+          <div class="help-step">
+            <span class="step-num">2</span>
+            <span class="step-text"><strong>Pilih preset</strong> atau atur pengaturan di tab Settings.</span>
+          </div>
+          <div class="help-step">
+            <span class="step-num">3</span>
+            <span class="step-text"><strong>Upload gambar</strong> dengan drag-drop ke panel atau tombol Load Files.</span>
+          </div>
+          <div class="help-step">
+            <span class="step-num">4</span>
+            <span class="step-text"><strong>Klik Start Process</strong>. Semua gambar diproses otomatis.</span>
+          </div>
+        </div>
+        <div class="help-section" style="margin-top:12px;">
+          <div class="help-tip" style="margin-bottom:8px;">
+            <span style="color:var(--warning);">&bull;</span> Jika muncul captcha, selesaikan lalu klik Resume.
+          </div>
+          <div class="help-tip">
+            <span style="color:var(--success);">&bull;</span> Gambar selesai di-download otomatis.
           </div>
         </div>
       </div>
     </div>
-        <div class="modal-body" style="line-height:1.5;">
-          <h4 style="margin-top:0;">Langkah Mudah</h4>
-          <ol style="margin:0;padding-left:1.2em;">
-            <li><strong>Buka vectorizer.ai</strong> di tab Chrome. Side panel terbuka otomatis.</li>
-            <li><strong>Pilih preset</strong> atau atur pengaturan satu kali (format, ukuran, dsb).</li>
-            <li><strong>Upload gambar</strong> dengan drag-drop ke panel atau tombol "Load Files".</li>
-            <li><strong>Klik Start Process</strong>. Semua gambar akan diproses otomatis.</li>
-          </ol>
-          <h4 style="margin-top:1em;">Catatan</h4>
-          <ul style="margin:0;padding-left:1.2em;">
-            <li>Jika muncul captcha, selesaikan lalu klik Resume.</li>
-            <li>Gambar selesai di-download otomatis ke folder default.</li>
-            <li>Gunakan Delay jika ingin jeda antar file (opsional).</li>
-          </ul>
-        </div>
-      </div>
-    </div>
+  </div>
 
   <script src="sidepanel.js"></script>
 </body>

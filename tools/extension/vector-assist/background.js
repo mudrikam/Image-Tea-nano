@@ -1,6 +1,14 @@
+var SITE_PATTERN = /:\/\/([^/]+\.)?vectorizer\.ai(\/|$)/i;
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch(function (error) { console.error(error); });
+
+chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+  if (changeInfo.status !== "complete" || !tab.url) return;
+  if (SITE_PATTERN.test(tab.url)) {
+    chrome.sidePanel.open({ tabId: tabId }).catch(function () {});
+  }
+});
 
 var siteTabId = null;
 
