@@ -79,8 +79,8 @@ SHARED_FORMATS = {
     },
     "MiriCanvas": {
         "delimiter": ',',
-        "header": ['fileName', 'uniqueId', 'elementName', 'keywords', 'tier', 'contentType'],
-        "fields": ['filename', 'uniqueId', 'elementName', 'keywords', 'tier', 'contentType'],
+        "header": ['fileName', 'elementName', 'keywords', 'tier', 'contentType'],
+        "fields": ['filename', 'elementName', 'keywords', 'tier', 'contentType'],
         "quote_fields": "all",
         "quote_header": True
     }
@@ -336,7 +336,6 @@ def _miricanvas_format(file):
     filename_no_ext = re.sub(r'\.[^.]+$', '', filename)
     return {
         'filename': filename_no_ext,
-        'uniqueId': '',
         'elementName': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
         'tier': '',
