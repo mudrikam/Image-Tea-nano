@@ -445,13 +445,19 @@
   }
 
   function hasErrorDialog() {
-    var el = document.getElementById("App-Error-Message");
-    if (!el) return false;
-    if (el.offsetParent === null) return false;
-    var txt = (el.textContent || "").trim().toLowerCase();
-    if (txt.indexOf("too many rapid-fire") >= 0) return true;
-    if (txt.indexOf("slow down") >= 0) return true;
-    return false;
+    try {
+      var btn = document.getElementById("App-Error-RetryButton");
+      if (btn && btn.offsetParent !== null) {
+        var modal = btn.closest(".modal-content");
+        if (modal) return true;
+      }
+      var modal = document.querySelector(".modal-content");
+      if (!modal || modal.offsetParent === null) return false;
+      var txt = (modal.textContent || "").trim().toLowerCase();
+      if (txt.indexOf("too many rapid-fire") >= 0) return true;
+      if (txt.indexOf("slow down") >= 0) return true;
+      return false;
+    } catch (e) { return false; }
   }
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
