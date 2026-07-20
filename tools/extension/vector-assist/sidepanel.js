@@ -27,7 +27,7 @@
   // --------------------------------------------------------------------------
   var LOG_MAX = 500;        // ~ newest 500 lines
   var LOG_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-  var logEntries = [];      // { ts, level, msg }
+  var logEntries = [];
   var logFilterText = "";
   var logAutoscroll = true;
   var logListEl, logEmptyEl, logFilterEl, logAutoscrollEl, btnLogClear;
@@ -35,11 +35,9 @@
   function log(level, msg) {
     var entry = { ts: Date.now(), level: level || "info", msg: String(msg == null ? "" : msg) };
     logEntries.push(entry);
-    // Cap
     if (logEntries.length > LOG_MAX) {
       logEntries.splice(0, logEntries.length - LOG_MAX);
     }
-    // TTL prune
     var cutoff = Date.now() - LOG_TTL_MS;
     while (logEntries.length && logEntries[0].ts < cutoff) {
       logEntries.shift();
@@ -76,7 +74,6 @@
       '<span class="log-level">' + escapeHtml(entry.level) + '</span>' +
       escapeHtml(entry.msg);
     logListEl.appendChild(li);
-    // Respect active filter even if added via batch
     applyLogFilter();
     if (logAutoscroll) {
       try { logListEl.parentElement && logListEl.parentElement.scrollTop; } catch (e) {}
@@ -166,9 +163,6 @@
     window.addEventListener("focus", pruneExpiredLogs);
   }
 
-  // --------------------------------------------------------------------------
-  // IndexedDB persistence
-  // --------------------------------------------------------------------------
   var DB_NAME = "VectorAssist";
   var STORE_NAME = "files";
   var DB_VERSION = 1;
@@ -336,7 +330,6 @@
     });
   }
 
-  // Recursively read a dropped file/directory entry.
   function walkEntry(entry, out) {
     if (entry.isFile) {
       return new Promise(function (resolve) {
@@ -416,13 +409,11 @@
         renderFileList();
       };
 
-      // # column
       var numCell = document.createElement("td");
       numCell.className = "file-num";
       numCell.textContent = index + 1;
       row.appendChild(numCell);
 
-      // File column (thumb + name)
       var fileCell = document.createElement("td");
       var cellWrap = document.createElement("div");
       cellWrap.className = "file-name-cell";
@@ -439,7 +430,6 @@
       fileCell.appendChild(cellWrap);
       row.appendChild(fileCell);
 
-      // Status column (with optional timer + inline progress for the current file).
       var statusCell = document.createElement("td");
       var badge = document.createElement("span");
       badge.className = "status-badge status-" + file.status;
@@ -468,14 +458,12 @@
       row.appendChild(statusCell);
       row.dataset.name = file.name;
 
-      // Actions column: Run single + Delete.
       var actionsCell = document.createElement("td");
       var actions = document.createElement("div");
       actions.className = "file-actions";
       actions.appendChild(makeActionBtn(file, "act-run", "Run this file",
         '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'));
-      // Skip button — only meaningful while runner is busy; lets the user
-      // jump past a stuck file without aborting the whole batch.
+      // Skip: jump past a stuck file without aborting the whole batch.
       if (runnerState !== "idle" && file.status !== "done" && file.status !== "pending") {
         actions.appendChild(makeActionBtn(file, "act-skip", "Skip this file",
           '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>'));
@@ -538,21 +526,18 @@
     btnStartProcess.classList.remove("running", "paused");
 
     if (s === "running") {
-      // Running -> button acts as Pause.
       btnStartProcess.classList.add("running");
       if (iconStart) iconStart.classList.add("hidden");
       if (iconPause) iconPause.classList.remove("hidden");
       if (label) label.textContent = "Pause";
       btnStartProcess.disabled = false;
     } else if (s === "paused" || s === "captcha") {
-      // Paused (or awaiting captcha) -> button acts as Resume.
       btnStartProcess.classList.add("paused");
       if (iconStart) iconStart.classList.add("hidden");
       if (iconPause) iconPause.classList.remove("hidden");
       if (label) label.textContent = "Resume";
       btnStartProcess.disabled = false;
     } else {
-      // Idle -> button acts as Start Process.
       if (iconStart) iconStart.classList.remove("hidden");
       if (iconPause) iconPause.classList.add("hidden");
       if (label) label.textContent = "Start Process";
@@ -574,10 +559,9 @@ function startOne(name) {
   var file = files.filter(function (f) { return f.name === name; })[0];
   if (!file) return;
 
-  // Single-file manual run. Always honors the user's click immediately:
-  //   - if idle: start fresh.
-  //   - if running: abort current batch, then start this file alone.
-  // There's no cooldown between manual runs — that's only for batch mode.
+  // Manual single-file run: honors the click immediately. If a batch is
+  // running, it interrupts the batch and starts this file alone (no cooldown
+  // between manual runs — that only applies to batch mode).
   if (runnerState !== "idle" || runnerAbortCtrl) {
     log("info", "Run " + name + ": interrupting current batch");
     if (runnerAbortCtrl && !runnerAbortSignal && typeof runnerAbortCtrl.abort === "function") {
@@ -608,15 +592,8 @@ function startOne(name) {
 }
 
 function skipFile(name) {
-  // Skip = abort just this file's flow and move to the next. We throw a
-  // STOPPED out of the current runnerProcessFile, then re-queue if it
-  // wasn't the queue head (rare). Simpler: just abort the runner; the
-  // remaining queue items will need a fresh Start, which is fine since
-  // we keep files. If we want truly per-file skip without killing the
-  // batch, we need to abort only the in-flight awaits — that's what
-  // runnerAbortSignal already does (it interrupts runnerSleep, gates,
-  // and the download wait). To preserve "skip = continue to next file",
-  // we abort, drain queue head, then re-pump.
+  // Skip aborts the in-flight file's awaits (via runnerAbortSignal), drains
+  // it from the queue, then re-pumps for the remaining items.
   if (!runnerAbortCtrl || runnerAbortSignal) {
     logWarn("Skip ignored: nothing running");
     return;
@@ -626,18 +603,14 @@ function skipFile(name) {
   runnerAbortSignal = true;
   runnerPauseRequested = false;
   runnerCaptchaPause = false;
-  // Mark file as skipped.
   var f = files.filter(function (x) { return x.name === name; })[0];
   if (f) {
     f.status = "pending";
     f.statusLabel = "Skipped";
     renderFileList();
   }
-  // Remove from queue if still pending; if it was the head, the pump will
-  // exit because abort throws, and we let the user click Start again.
   runnerQueue = runnerQueue.filter(function (n) { return n !== name; });
   runnerCurrent = null;
-  // Re-pump if there are remaining items.
   if (runnerQueue.length) {
     runnerSetState("running");
     runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
@@ -671,17 +644,11 @@ function clearAllFiles() {
     log("info", "Cleared all files");
   }
 
-  // Reset runner + UI state without removing files from the list. If the
-  // runner is currently working, we stop it first and then clean up.
-function resetAppState() {
-  // Real reset:
-  //   - Abort any running batch immediately (not "request" — actually stop).
-  //   - Clear all logs.
-  //   - Reset runner stats (elapsed, ETA, done count).
-  //   - Reset all file statuses back to pending.
-  //   - Drop preset selection back to Unsaved.
-  //   - Files PERSIST (user explicitly chose this).
-  if (runnerAbortCtrl && !runnerAbortSignal) {
+  // Reset runner + UI state without removing files from the list.
+ function resetAppState() {
+   // Real reset: abort any running batch, clear logs, reset stats and file
+   // statuses to pending, drop preset selection back to Unsaved. Files PERSIST.
+   if (runnerAbortCtrl && !runnerAbortSignal) {
     if (typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
     runnerAbortSignal = true;
     logWarn("Reset: runner aborted");
@@ -701,13 +668,11 @@ function resetAppState() {
   });
   renderFileList();
   runnerSetState("idle");
-  // Drop preset selection.
   if (presetSelect) {
     currentPresetName = "";
     presetSelect.value = "";
     setPresetState("idle");
   }
-  // Clear logs entirely (real reset, not just my own page-phase entry).
   if (typeof logs !== "undefined") {
     logs.length = 0;
   }
@@ -728,7 +693,6 @@ function doReset() {
         var s = runnerState;
         if (s === "running") { runnerPause(); return; }
         if (s === "paused" || s === "captcha") { runnerResume(); return; }
-        // Idle: start a batch over all non-done files.
         var names = files.filter(function (f) { return f.status !== "done"; }).map(function (f) { return f.name; });
         if (!names.length) {
           logWarn("Start ignored: no files in queue");
@@ -751,7 +715,6 @@ function doReset() {
       btnResetApp.onclick = function () { resetAppState(); };
     }
     updateControlUI();
-    // Refresh per-row timer text every second while running.
     setInterval(function () {
       if (runnerState === "running" || runnerState === "paused" || runnerState === "captcha") {
         renderFileList();
@@ -878,26 +841,21 @@ function doReset() {
       });
     }
 
-    // React to any change -> re-apply enable/disable rules + persist + push to page
     settingsRoot.addEventListener("change", function () {
       if (applyingFromPage) return; // don't echo page-originated updates
       applySettingsRules(settingsRoot);
       saveSettings(settingsRoot);
       pushSettingsToPage(settingsRoot);
-      // Keep the ready line (preset + delay) in sync when timings change.
       updateReadyLine();
     });
 
-    // Live update ready line as the user types in the delay fields.
     var delayEl = settingsRoot.querySelector('[name="delayMs"]');
     var jitterEl = settingsRoot.querySelector('[name="delayJitterMs"]');
     if (delayEl) delayEl.addEventListener("input", updateReadyLine);
     if (jitterEl) jitterEl.addEventListener("input", updateReadyLine);
 
-    // Default scale to 4x if nothing restored yet.
     if (!settingsRoot.dataset.scalePercent) settingsRoot.dataset.scalePercent = "400";
 
-    // Restore saved values, then apply rules.
     loadSettings(settingsRoot).then(function () {
       applySettingsRules(settingsRoot);
     });
@@ -988,7 +946,6 @@ function doReset() {
     setGroupEnabled(root, "strokeStyle", true);
   }
 
-  // ---- helpers for enable/disable ----
   function setGroupEnabled(root, groupName, enabled) {
     var group = root.querySelector('[data-group="' + groupName + '"]');
     if (!group) return;
@@ -1111,10 +1068,8 @@ function doReset() {
       fileProgressPhaseEls[el.getAttribute("data-phase")] = el;
     });
     startRunnerProgressPolling();
-    // Update the runner-stats strip every second when active.
     setInterval(function () {
       if (runnerState === "idle") return;
-      // Done count.
       var done = files.filter(function (f) { return f.status === "done"; }).length;
       var total = files.length;
       if (rsDone) rsDone.textContent = done + "/" + total;
@@ -1236,10 +1191,8 @@ function doReset() {
 
     logInfo("Vector Assist initialized");
 
-    // Pull any settings the result page already exposes.
     pullPageSettings();
 
-    // Restore previously loaded files from IndexedDB.
     dbGetAll().then(function (records) {
       if (records && records.length) {
         files = records;
@@ -1577,7 +1530,6 @@ async function runnerProcessFile(name) {
     renderFileList();
   }
 
-  // Make sure there's a Vectorizer tab open. If not, open the home page.
   var ensured = await new Promise(function (resolve) {
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_ENSURE_SITE" }, function (resp) {
@@ -1594,7 +1546,6 @@ async function runnerProcessFile(name) {
   }
   if (!ensured.alreadyOpen) {
     log("info", name + ": opened https://vectorizer.ai/ (waiting for it to load)");
-    // Wait until content script reports ready.
     var ready = false;
     var readyStart = Date.now();
     while (Date.now() - readyStart < 30000) {
@@ -1877,7 +1828,6 @@ function runnerStart(names, options) {
     logWarn("Start ignored: runner already active");
     return;
   }
-  // Fresh abort handle for this batch.
   runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
     this.signal = { aborted: false }; var self = this;
     this.abort = function () { self.signal.aborted = true; };
@@ -2244,7 +2194,6 @@ function startRunnerProgressPolling() {
       });
     };
 
-    // Mark unsaved whenever the user edits settings.
     var root = document.querySelector(".settings");
     if (root) {
       root.addEventListener("change", function () {

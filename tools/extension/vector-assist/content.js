@@ -139,7 +139,6 @@
     return el.type === "checkbox" || el.type === "radio" ? el.checked : !!el.checked;
   }
 
-  // Set a radio group by clicking  Once, via the label.
   function setRadio(pageName, pageValue) {
     var els = getInputs(pageName);
     els.forEach(function (el) {
@@ -171,8 +170,6 @@
     }
   }
 
-  // Set a checkbox by clicking  Once, via the label. Let the SPA handle
-  // any hidden companion inputs or model updates.
   function setCheckbox(pageName, targetChecked) {
     var els = getInputs(pageName);
     els.forEach(function (el) {
@@ -213,7 +210,7 @@
       if (key === "simpleShapes") {
         var visible = document.getElementById("Options-SimpleShapesField");
         if (visible && visible.type === "checkbox") {
-          // Inverted: extension's simpleShapes=true == visible.checked
+          // Direct mapping: extension's simpleShapes=true == visible.checked=true
           data[key] = !!visible.checked;
         }
         return;
@@ -261,7 +258,7 @@
       if (key === "simpleShapes") {
         var visible = document.getElementById("Options-SimpleShapesField");
         if (visible && visible.type === "checkbox") {
-          var wantChecked = !ourValue;
+          var wantChecked = ourValue;
           if (visible.checked !== wantChecked) clickLabel(visible);
         }
         continue;
@@ -476,7 +473,6 @@
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_NAVIGATE") {
-      // Same as a human typing a URL and hitting enter. Just go there.
       location.href = msg && msg.url ? msg.url : location.href;
       sendResponse({ ok: true });
       return true;

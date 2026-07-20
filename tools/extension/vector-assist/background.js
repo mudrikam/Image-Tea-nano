@@ -1,4 +1,3 @@
-// Vector Assist - Background Script
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch(function (error) { console.error(error); });
@@ -55,12 +54,10 @@ if (chrome.downloads && chrome.downloads.onChanged) {
   chrome.downloads.onChanged.addListener(function (delta) {
     if (!delta || !delta.state || !delta.state.current) return;
     if (delta.state.current !== "complete") return;
-    // Look up the download item so we can check startTime.
     chrome.downloads.search({ id: delta.id }, function (items) {
       var item = items && items[0];
       if (!item) return;
       var startedAt = Date.parse(item.startTime || "") || 0;
-      // Only react to downloads that started after we submitted.
       if (startedAt + 1500 < lastSubmitTs) return;
       chrome.runtime.sendMessage({
         type: "VECTOR_ASSIST_DOWNLOAD_COMPLETE",
@@ -77,7 +74,6 @@ if (chrome.downloads && chrome.downloads.onChanged) {
 }
 
 if (chrome.downloads && chrome.downloads.onCreated) {
-  // Useful to know when a download starts.
   chrome.downloads.onCreated.addListener(function (item) {
     if (!item) return;
     chrome.runtime.sendMessage({
@@ -98,7 +94,6 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return;
   }
 
-  // Forward page-phase beacons from content -> side panel.
   if (msg.type === "VECTOR_ASSIST_PAGE_PHASE") {
     chrome.runtime.sendMessage({
       type: "VECTOR_ASSIST_PAGE_PHASE",
@@ -143,13 +138,10 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return;
   }
 
-  // Stamp the submit timestamp right before forwarding so the downloads API
-  // listener knows when the user clicked Download.
   if (msg.type === "VECTOR_ASSIST_SUBMIT_DOWNLOAD") {
     lastSubmitTs = Date.now();
   }
 
-  // Forward runner actions from the side panel to the active site tab.
   var FORWARD_TYPES = {
     VECTOR_ASSIST_UPLOAD_FILE: true,
     VECTOR_ASSIST_GET_PROGRESS: true,

@@ -444,17 +444,27 @@
     </div>
   </div>
 
-  <div id="helpModal" class="modal-overlay hidden">
-    <div class="modal-box">
-      <div class="modal-header">
-        <span>Cara Penggunaan</span>
-        <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p style="color:var(--text-muted);">Placeholder — petunjuk penggunaan akan ditambahkan di sini.</p>
-      </div>
-    </div>
-  </div>
+<div id="helpModal" class="modal-overlay hidden">
+     <div class="modal-box">
+       <div class="modal-header">
+         <span>Cara Penggunaan Vector Assist</span>
+         <button id="btnCloseHelp" class="btn-icon" style="color:var(--text-muted);">&times;</button>
+       </div>
+       <div class="modal-body" style="line-height:1.5;">
+         <ol style="margin:0;padding-left:1.2em;">
+           <li><strong>Buka vectorizer.ai</strong> di tab Chrome. Extension otomatis terbuka di side panel.</li>
+           <li><strong>Atur pengaturan</strong> di tab Settings. Perubahan langsung dikirim ke halaman.</li>
+           <li><strong>Simpan preset</strong> dengan klik tombol simpan. Preset tersimpan untuk sesi selanjutnya.</li>
+           <li><strong>Tambah file</strong> di tab Runner via drag-drop atau tombol Add Files.</li>
+           <li><strong>Atur timing</strong> (Delay &amp; Random) kalau perlu jeda sebelum download.</li>
+           <li><strong>Klik Start</strong> untuk jalankan batch. Setiap file otomatis upload, terapkan preset, tunggu delay, lalu klik Submit dan download.</li>
+           <li><strong>Pause/Resume</strong> untuk hentikan sementara; <strong>Stop</strong> untuk batalkan semua.</li>
+           <li><strong>Status line</strong> menampilkan fase aktif dan countdown (detik).</li>
+           <li>Jika muncul captcha, runner otomatis pause. Selesaikan captcha lalu klik Resume.</li>
+         </ol>
+       </div>
+     </div>
+   </div>
 
   <script src="sidepanel.js"></script>
 </body>
