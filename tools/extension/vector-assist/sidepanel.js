@@ -1756,23 +1756,10 @@ async function runnerWaitForImageId(timeoutMs) {
     if (runnerAbortSignal) return null;
     var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
     if (p && p.imageId) return p.imageId;
-    // Error dialog detected: click retry, wait, check state, resume monitoring.
     if (p && p.errorDialog) {
-      var timing = runnerGetTiming();
-      var jit = (timing && timing.jitter > 0) ? timing.jitter : 5000;
-      var wait = jit > 0 ? Math.floor(Math.random() * jit) : 3000;
-      setStatus("waiting-vectorize", "Retry (" + Math.ceil(wait / 1000) + "s)");
-      runnerCountdownTarget = Date.now() + wait;
-      runnerCountdownLabel = "Retry in";
-      ensureRunnerTick();
-      log("info", "error dialog, clicking retry, waiting " + wait + "ms");
-      await runnerSend("VECTOR_ASSIST_CLICK_RETRY");
-      runnerCountdownTarget = 0;
-      await new Promise(function (r) { setTimeout(r, wait); });
-      // After retry, check if we're on home (page reset) - if so, we'll re-upload via caller.
-      continue;
+      logWarn("error dialog detected, marking file failed");
+      return null; // Let the caller handle the failure.
     }
-    // Transient error: keep polling.
     if (!p || !p.ok) {
       await new Promise(function (r) { setTimeout(r, 600); });
       continue;
