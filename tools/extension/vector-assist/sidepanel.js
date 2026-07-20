@@ -912,10 +912,14 @@ function doReset() {
     var groupSupported = (format === "svg" || format === "dxf") && drawStyle !== "strokedEdge";
     setGroupEnabled(root, "groupBy", groupSupported);
 
-    // --- Simple Shapes ---
-    // Disabled when draw style is stroked edges. Preserve checkbox value
-    // (don't force uncheck) so it round-trips when switching back.
-    setCheckEnabled(root, "simpleShapes", drawStyle !== "strokedEdge");
+// --- Simple Shapes ---
+     // Disabled when draw style is stroked edges. Preserve checkbox value
+     // (don't force uncheck) so it round-trips when switching back.
+     setCheckEnabled(root, "simpleShapes", drawStyle !== "strokedEdge");
+ 
+     // --- Gap Filler ---
+     // Disabled when draw style is stroked outlines (lines only, no shapes to fill).
+     setGroupEnabled(root, "gapFiller", drawStyle !== "strokedOutline");
 
     // --- Shape Stacking ---
     // The page disables Shape Stacking when draw style is stroked edges
