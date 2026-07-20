@@ -1,5 +1,6 @@
 PySide6
 qtawesome
+lxml
 openai
 google-genai
 groq
