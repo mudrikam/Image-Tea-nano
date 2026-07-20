@@ -1887,6 +1887,7 @@ async function runnerPump() {
   }
   runnerCurrent = null;
   runnerAbortSignal = false;
+  runnerAbortCtrl = null;
   runnerSetState("idle");
   updateRunnerUI();
   updateReadyLine();
@@ -1948,6 +1949,7 @@ function runnerStop() {
   runnerSetState("idle");
   // Flush remaining queue so any in-flight per-file work throws on next gate.
   runnerQueue = [];
+  runnerAbortCtrl = null;
 }
 
 // Poll the live progress of the current file for UI bars (throttled).
