@@ -155,14 +155,27 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     VECTOR_ASSIST_GET_PROGRESS: true,
     VECTOR_ASSIST_GET_PAGE_INFO: true,
     VECTOR_ASSIST_CLICK_DOWNLOAD_LINK: true,
-    VECTOR_ASSIST_SUBMIT_DOWNLOAD: true,
-    VECTOR_ASSIST_NAVIGATE: true
+    VECTOR_ASSIST_SUBMIT_DOWNLOAD: true
   };
   if (FORWARD_TYPES[msg.type]) {
     findActiveSiteTab(function (tabId) {
       if (tabId == null) { sendResponse({ ok: false, error: "No vectorizer.ai tab" }); return; }
       sendTabMessage(tabId, msg, function (resp) {
         sendResponse(resp || { ok: false, error: "No response" });
+      });
+    });
+    return true;
+  }
+
+  if (msg.type === "VECTOR_ASSIST_NAVIGATE") {
+    findActiveSiteTab(function (tabId) {
+      if (tabId == null) { sendResponse({ ok: false, error: "No vectorizer.ai tab" }); return; }
+      var url = msg.url;
+      if (url && url.startsWith("/")) {
+        url = "https://vectorizer.ai" + url;
+      }
+      chrome.tabs.update(tabId, { url: url }, function () {
+        sendResponse({ ok: true });
       });
     });
     return true;

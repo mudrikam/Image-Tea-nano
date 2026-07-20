@@ -269,8 +269,9 @@
         landingPage.classList.add("hidden");
         mainInterface.classList.remove("hidden");
         log("page", "On vectorizer.ai — main interface shown");
-        // The result page exposes the export options; mirror them in.
-        pullPageSettings();
+        // Push saved settings to page so extension always overrides the web.
+        var root = document.querySelector(".settings");
+        if (root) pushSettingsToPage(root);
       } else {
         mainInterface.classList.add("hidden");
         landingPage.classList.remove("hidden");
@@ -1195,7 +1196,9 @@ function doReset() {
 
     logInfo("Vector Assist initialized");
 
-    pullPageSettings();
+    // Push saved settings to page so extension always overrides the web.
+    var root = document.querySelector(".settings");
+    if (root) pushSettingsToPage(root);
 
     dbGetAll().then(function (records) {
       if (records && records.length) {
@@ -1483,11 +1486,6 @@ function whenPagePhaseMatches(predicate, timeoutMs) {
 }
 
 function runnerSend(type, payload) {
-  // Wraps sendMessage with a short polling retry so messages that arrive while
-  // content.js is reloading after a navigation don't get dropped.
-  // Touches chrome.runtime.lastError inside the callback to suppress the
-  // "Could not establish connection" warning that would otherwise be logged
-  // to DevTools whenever no listener is on the other side.
   return new Promise(function (resolve) {
     var tries = 0;
     function attempt() {
@@ -1495,13 +1493,9 @@ function runnerSend(type, payload) {
       tries++;
       try {
         chrome.runtime.sendMessage(Object.assign({ type: type }, payload || {}), function (resp) {
-          // Suppress unchecked lastError noise without branching on it.
           var err = chrome.runtime && chrome.runtime.lastError;
           if (err) {
-            // No listener on the other side — usually because the new tab's
-            // content script hasn't loaded yet. Wait briefly and retry.
-            if (tries < 5) setTimeout(attempt, 400);
-            else resolve({ ok: false, error: err.message || "send failed" });
+            resolve({ ok: false, error: err.message || "send failed" });
             return;
           }
           resolve(resp || { ok: false, error: "No response" });
@@ -1592,8 +1586,25 @@ async function runnerProcessFile(name) {
     setStatus("uploading", "Uploading");
     var up = await runnerSend("VECTOR_ASSIST_UPLOAD_FILE", { dataUrl: file.dataUrl, name: file.name });
     if (!up || !up.ok) {
+      logWarn(name + ": upload failed — " + (up && up.error) + ", reloading page");
+      for (var retry = 0; retry < 3; retry++) {
+        setStatus("redirecting", "Reloading (" + (retry + 1) + "/3)");
+        await runnerSend("VECTOR_ASSIST_NAVIGATE", { url: "https://vectorizer.ai/" });
+        var reloadStart = Date.now();
+        while (Date.now() - reloadStart < 30000) {
+          if (runnerAbortSignal) throw new Error("STOPPED");
+          var ri = await runnerSend("VECTOR_ASSIST_GET_PAGE_INFO");
+          if (ri && ri.pathname === "/") break;
+          await new Promise(function (r) { setTimeout(r, 400); });
+        }
+        up = await runnerSend("VECTOR_ASSIST_UPLOAD_FILE", { dataUrl: file.dataUrl, name: file.name });
+        if (up && up.ok) break;
+        logWarn(name + ": retry " + (retry + 1) + " failed — " + (up && up.error));
+      }
+    }
+    if (!up || !up.ok) {
       setStatus("failed", "Failed: upload");
-      logError(name + ": upload failed — " + (up && up.error));
+      logError(name + ": upload failed after retries");
       throw new Error("Upload failed: " + (up && up.error));
     }
     log("info", name + ": upload injected (" + up.fileSize + " bytes)");
