@@ -751,7 +751,7 @@ function doReset() {
     log("mirror", "ext -> page push (" + Object.keys(data).length + " fields)");
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: data }, function () {
-        void (chrome.runtime && chrome.runtime.lastError);
+        if (chrome.runtime && chrome.runtime.lastError) {}
       });
     } catch (e) {
       logError("pushSettingsToPage: sendMessage failed — " + e);
@@ -793,8 +793,7 @@ function doReset() {
     log("mirror", "Requesting settings from page");
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_GET_SETTINGS" }, function (resp) {
-        // Silence unchecked lastError.
-        void (chrome.runtime && chrome.runtime.lastError);
+        if (chrome.runtime && chrome.runtime.lastError) { return; }
         if (resp && resp.settings) {
           log("mirror", "Page settings received (" + Object.keys(resp.settings).length + " fields)");
           reflectPageToExtension(document.querySelector(".settings"), resp.settings);
@@ -1391,7 +1390,7 @@ function runnerApplyPreset(preset, timing) {
     delete settings.delayJitterMs;
     chrome.runtime.sendMessage(
       { type: "VECTOR_ASSIST_APPLY_SETTINGS", settings: settings },
-      function () { void (chrome.runtime && chrome.runtime.lastError); }
+      function () { if (chrome.runtime && chrome.runtime.lastError) {} }
     );
     log("preset", "Applied preset '" + preset.name + "' (" + Object.keys(settings).length + " fields)");
     resolve();
@@ -1531,8 +1530,7 @@ async function runnerProcessFile(name) {
   var ensured = await new Promise(function (resolve) {
     try {
       chrome.runtime.sendMessage({ type: "VECTOR_ASSIST_ENSURE_SITE" }, function (resp) {
-        // Silence unchecked lastError.
-        void (chrome.runtime && chrome.runtime.lastError);
+        if (chrome.runtime && chrome.runtime.lastError) { resolve({ ok: false }); return; }
         resolve(resp || { ok: false });
       });
     } catch (e) { resolve({ ok: false }); }

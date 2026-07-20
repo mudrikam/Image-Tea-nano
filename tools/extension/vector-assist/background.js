@@ -32,8 +32,10 @@ function findActiveSiteTab(callback) {
 function sendTabMessage(tabId, msg, callback) {
   try {
     chrome.tabs.sendMessage(tabId, msg, function (resp) {
-      // Touch lastError so Chrome doesn't log it as an unchecked error.
-      void (chrome.runtime && chrome.runtime.lastError);
+      if (chrome.runtime && chrome.runtime.lastError) {
+        callback(null);
+        return;
+      }
       callback(resp);
     });
   } catch (e) {
@@ -76,7 +78,7 @@ if (chrome.downloads && chrome.downloads.onChanged) {
         bytesReceived: item.bytesReceived || 0,
         totalBytes: item.totalBytes || 0,
         ts: Date.now()
-      }, function () {});
+      }, function () { if (chrome.runtime && chrome.runtime.lastError) {} });
     });
   });
 }
@@ -90,7 +92,7 @@ if (chrome.downloads && chrome.downloads.onCreated) {
       url: item.url || "",
       filename: item.filename || item.suggestedFilename || "",
       ts: Date.now()
-    }, function () {});
+    }, function () { if (chrome.runtime && chrome.runtime.lastError) {} });
   });
 }
 
@@ -109,14 +111,14 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       ready: msg.ready,
       tabId: sender.tab && sender.tab.id,
       ts: msg.ts
-    }, function () {});
+    }, function () { if (chrome.runtime && chrome.runtime.lastError) {} });
     return;
   }
 
   if (msg.type === "VECTOR_ASSIST_PAGE_CHANGED") {
     chrome.runtime.sendMessage(
       { type: "VECTOR_ASSIST_PAGE_CHANGED", settings: msg.settings },
-      function () {}
+      function () { if (chrome.runtime && chrome.runtime.lastError) {} }
     );
     return;
   }
