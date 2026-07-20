@@ -439,8 +439,19 @@
       progress: readProgress(),
       captcha: isCaptchaRequired(),
       hasDownloadLink: !!document.querySelector("a.App-downloadLink"),
-      hasOptionsForm: !!document.getElementById("Options-Form")
+      hasOptionsForm: !!document.getElementById("Options-Form"),
+      errorDialog: hasErrorDialog()
     };
+  }
+
+  function hasErrorDialog() {
+    var el = document.getElementById("App-Error-Message");
+    if (!el) return false;
+    if (el.offsetParent === null) return false;
+    var txt = (el.textContent || "").trim().toLowerCase();
+    if (txt.indexOf("too many rapid-fire") >= 0) return true;
+    if (txt.indexOf("slow down") >= 0) return true;
+    return false;
   }
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
@@ -461,7 +472,7 @@
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_GET_PROGRESS") {
-      sendResponse({ progress: readProgress(), captcha: isCaptchaRequired(), imageId: getCurrentImageId(), url: location.href });
+      sendResponse({ progress: readProgress(), captcha: isCaptchaRequired(), imageId: getCurrentImageId(), url: location.href, errorDialog: hasErrorDialog() });
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_GET_PAGE_INFO") {
@@ -483,6 +494,12 @@
     }
     if (msg.type === "VECTOR_ASSIST_HAS_SELECTOR") {
       sendResponse({ found: !!document.getElementById(msg.id) });
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_CLICK_RETRY") {
+      var btn = document.getElementById("App-Error-RetryButton");
+      if (btn) { try { btn.click(); } catch (e) {} sendResponse({ ok: true }); return true; }
+      sendResponse({ ok: false, error: "No retry button" });
       return true;
     }
   });

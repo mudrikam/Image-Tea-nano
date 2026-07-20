@@ -1750,14 +1750,26 @@ async function runnerWaitForFetchComplete(timeoutMs) {
 }
 
 async function runnerWaitForImageId(timeoutMs) {
-  // Image id can appear via /images/{id}/edit OR /images/{id} (or any path under /images/).
   var start = Date.now();
   var lastLog = 0;
   while (Date.now() - start < timeoutMs) {
     if (runnerAbortSignal) return null;
     var p = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
     if (p && p.imageId) return p.imageId;
-    // Heartbeat so the user can see what we're polling.
+    if (p && p.errorDialog) {
+      var timing = runnerGetTiming();
+      var jit = (timing && timing.jitter > 0) ? timing.jitter : 5000;
+      var wait = jit > 0 ? Math.floor(Math.random() * jit) : 3000;
+      setStatus("waiting-vectorize", "Retry in " + Math.ceil(wait / 1000) + "s");
+      runnerCountdownTarget = Date.now() + wait;
+      runnerCountdownLabel = "Retry in";
+      ensureRunnerTick();
+      log("info", "error dialog detected, clicking retry, waiting " + wait + "ms");
+      await runnerSend("VECTOR_ASSIST_CLICK_RETRY");
+      await new Promise(function (r) { setTimeout(r, wait); });
+      runnerCountdownTarget = 0;
+      continue;
+    }
     if (Date.now() - lastLog > 6000) {
       log("info", "  waiting... url=" + (p && p.url ? p.url : "?") +
         " progress=" + JSON.stringify(p && p.progress));
