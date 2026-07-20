@@ -83,6 +83,45 @@ if (chrome.downloads && chrome.downloads.onChanged) {
   });
 }
 
+var downloadFolderCache = "vectorized-images";
+
+function sanitizeFolderName(raw) {
+  var folder = (raw ? String(raw).trim() : "") || "vectorized-images";
+  folder = folder.replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+|\.+$/g, "").trim();
+  if (!folder) folder = "vectorized-images";
+  return folder;
+}
+
+function refreshDownloadFolderCache() {
+  try {
+    if (chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["vectorAssistSettings"], function (res) {
+        var data = res && res.vectorAssistSettings;
+        downloadFolderCache = sanitizeFolderName(data && data.downloadFolder);
+      });
+    }
+  } catch (e) {}
+}
+
+refreshDownloadFolderCache();
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener(function (changes, area) {
+    if (area === "local" && changes.vectorAssistSettings) {
+      refreshDownloadFolderCache();
+    }
+  });
+}
+
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener(function (item, suggest) {
+    if (!item) return;
+    var folder = downloadFolderCache || "vectorized-images";
+    var base = item.filename || item.suggestedFilename || "vectorized-image";
+    base = base.replace(/^.*[\\/]/, "");
+    suggest({ filename: folder + "/" + base, conflictAction: "uniquify" });
+  });
+}
+
 if (chrome.downloads && chrome.downloads.onCreated) {
   chrome.downloads.onCreated.addListener(function (item) {
     if (!item) return;
