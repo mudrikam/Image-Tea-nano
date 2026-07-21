@@ -460,6 +460,30 @@
     } catch (e) { return false; }
   }
 
+  function hasPrecropDialog() {
+    try {
+      var app = document.getElementById("PreCrop-App");
+      if (!app) return false;
+      var style = (app.getAttribute("style") || "").replace(/\s/g, "").toLowerCase();
+      if (style.indexOf("display:block") === -1) return false;
+      var cropBtn = document.querySelector(".PreCrop-Sidebar-crop_button");
+      return !!cropBtn;
+    } catch (e) { return false; }
+  }
+
+  function clickPrecropOk() {
+    try {
+      var btn = document.querySelector(".PreCrop-Sidebar-crop_button");
+      if (btn) {
+        btn.click();
+        return { ok: true };
+      }
+      return { ok: false, error: "No pre-crop button" };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!msg || !msg.type) return;
     if (msg.type === "VECTOR_ASSIST_GET_SETTINGS") {
@@ -478,7 +502,7 @@
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_GET_PROGRESS") {
-      sendResponse({ progress: readProgress(), captcha: isCaptchaRequired(), imageId: getCurrentImageId(), url: location.href, errorDialog: hasErrorDialog() });
+      sendResponse({ progress: readProgress(), captcha: isCaptchaRequired(), imageId: getCurrentImageId(), url: location.href, errorDialog: hasErrorDialog(), precropDialog: hasPrecropDialog() });
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_GET_PAGE_INFO") {
@@ -506,6 +530,10 @@
       var btn = document.getElementById("App-Error-RetryButton");
       if (btn) { try { btn.click(); } catch (e) {} sendResponse({ ok: true }); return true; }
       sendResponse({ ok: false, error: "No retry button" });
+      return true;
+    }
+    if (msg.type === "VECTOR_ASSIST_CLICK_PRECROP_OK") {
+      sendResponse(clickPrecropOk());
       return true;
     }
   });

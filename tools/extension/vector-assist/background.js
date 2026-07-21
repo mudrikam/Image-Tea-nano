@@ -197,7 +197,8 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     VECTOR_ASSIST_GET_PAGE_INFO: true,
     VECTOR_ASSIST_CLICK_DOWNLOAD_LINK: true,
     VECTOR_ASSIST_SUBMIT_DOWNLOAD: true,
-    VECTOR_ASSIST_CLICK_RETRY: true
+    VECTOR_ASSIST_CLICK_RETRY: true,
+    VECTOR_ASSIST_CLICK_PRECROP_OK: true
   };
   if (FORWARD_TYPES[msg.type]) {
     findActiveSiteTab(function (tabId) {

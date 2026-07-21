@@ -1607,6 +1607,13 @@ async function runnerProcessFile(name) {
     }
     log("info", name + ": upload injected (" + up.fileSize + " bytes)");
 
+    var pc = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
+    if (pc && pc.precropDialog) {
+      log("info", name + ": pre-crop dialog detected after upload, clicking Ok");
+      await runnerSend("VECTOR_ASSIST_CLICK_PRECROP_OK");
+      await new Promise(function (r) { setTimeout(r, 800); });
+    }
+
     // Wait for image id (URL moves to /processing then /edit).
     setStatus("waiting-vectorize", "Vectorizing");
     log("info", name + ": waiting for image id...");
@@ -1709,6 +1716,10 @@ async function runnerProcessFile(name) {
         await new Promise(function (r) { setTimeout(r, 300); });
       }
       log("info", name + ": resumed after captcha");
+    } else if (pinfo && pinfo.precropDialog) {
+      log("info", name + ": pre-crop dialog detected, clicking Ok");
+      await runnerSend("VECTOR_ASSIST_CLICK_PRECROP_OK");
+      await new Promise(function (r) { setTimeout(r, 800); });
     } else {
       var prog = pinfo && pinfo.progress;
       log("info", "  fetching... bar=" + (prog && prog.fetch) + ", url=" + (pinfo && pinfo.url ? pinfo.url : "?"));
@@ -1759,6 +1770,11 @@ async function runnerWaitForImageId(timeoutMs) {
     if (p && p.errorDialog) {
       logWarn("error dialog detected, marking file failed");
       return null; // Let the caller handle the failure.
+    }
+    if (p && p.precropDialog) {
+      log("info", "pre-crop dialog detected, clicking Ok");
+      await runnerSend("VECTOR_ASSIST_CLICK_PRECROP_OK");
+      await new Promise(function (r) { setTimeout(r, 800); });
     }
     if (!p || !p.ok) {
       await new Promise(function (r) { setTimeout(r, 600); });
