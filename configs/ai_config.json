@@ -715,6 +715,7 @@
     "requirements": {
       "image_generation": [
         "Each prompt should be approximately {prompt_length} characters long",
+        "Generate exactly {prompts_per_file} unique, detailed prompts",
         "Prompts must be unique and detailed, based on visual content",
         "Specify subject, setting, mood, style, and relevant details",
         "Include aspect ratio specification: {aspect_ratio}",
@@ -730,6 +731,7 @@
       ],
       "video_generation": [
         "Each prompt should be approximately {prompt_length} characters long",
+        "Generate exactly {prompts_per_file} unique, detailed prompts",
         "Prompts must describe dynamic scenes with motion and temporal elements",
         "Include camera movements, transitions, and cinematic techniques",
         "Specify aspect ratio for video: {aspect_ratio}",
@@ -779,10 +781,10 @@
     },
     "settings": {
       "prompt_length": 200,
-      "prompts_per_file": 1,
-      "prompt_type": "image_generation",
+      "prompts_per_file": 3,
+      "prompt_type": "video_generation",
       "aspect_ratio": "1:1",
-      "variation_level": 9,
+      "variation_level": 3,
       "custom_instruction": ""
     },
     "variation_levels": {

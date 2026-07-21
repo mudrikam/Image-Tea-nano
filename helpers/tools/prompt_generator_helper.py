@@ -202,6 +202,9 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
                 'model': model
             })
         
+        if prompts_per_file is not None and prompts_per_file >= 0:
+            result = result[:prompts_per_file]
+        
         return result
     except Exception as e:
         print(f"Error generating prompts for file {filename}: {e}")
