@@ -1910,6 +1910,18 @@ async function runnerPump() {
   if (!runnerAbortSignal && runnerFileDurations.length) {
     log("info", "Batch finished. " + runnerFileDurations.length + " files in " + ((Date.now() - runnerBatchStartTs) / 1000).toFixed(1) + "s");
   }
+  var failedCount = files.filter(function (f) { return f.status === "failed"; }).length;
+  if (failedCount > 0) {
+    var t = runnerGetTiming();
+    var retryDelay = (t.delay || 0) + (t.jitter ? Math.floor(Math.random() * t.jitter) : 0);
+    log("info", "Found " + failedCount + " failed file(s). Auto-retrying in " + retryDelay + "ms...");
+    setTimeout(function () {
+      if (btnStartProcess && runnerState === "idle") {
+        log("info", "Auto-clicking Start Process to retry failed files");
+        btnStartProcess.click();
+      }
+    }, retryDelay);
+  }
 }
 
 function runnerPause() {
