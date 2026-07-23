@@ -559,7 +559,7 @@ class PropertiesWidget(QWidget):
         self.label_widgets = []
         field_names = [
             "Filepath", "Filename", "Title", "Description", "Tags", "Status", "File Type", "Original Filename",
-            "Shutterstock Category", "Adobe Stock Category"
+            "Shutterstock Category", "Adobe Stock Category", "Prompt"
         ]
 
         icon_map = {
@@ -572,7 +572,8 @@ class PropertiesWidget(QWidget):
             "File Type": "fa6s.file-lines",
             "Original Filename": "fa6s.file-signature",
             "Shutterstock Category": "fa6s.image",
-            "Adobe Stock Category": "fa6s.pencil"
+            "Adobe Stock Category": "fa6s.pencil",
+            "Prompt": "fa6s.scroll"
         }
 
         self.tags_pill_widget = TagsPillWidget()
@@ -663,10 +664,11 @@ class PropertiesWidget(QWidget):
                 title = row_data[3] if len(row_data) > 3 and row_data[3] is not None else ""
                 tags = row_data[5] if len(row_data) > 5 and row_data[5] is not None else ""
                 description = row_data[4] if len(row_data) > 4 and row_data[4] is not None else ""
+                file_prompt = row_data[8] if len(row_data) > 8 and row_data[8] is not None else ""
                 title_length = len(title)
                 tag_count = len([t for t in tags.split(",") if t.strip()]) if tags else 0
                 desc_length = len(description)
-                row_data = [row_data[0]] + list(row_data[1:7]) + [row_data[7] if len(row_data) > 7 else ""] + [str(title_length), str(tag_count), str(desc_length)]
+                row_data = [row_data[0]] + list(row_data[1:7]) + [row_data[7] if len(row_data) > 7 else ""] + [str(title_length), str(tag_count), str(file_prompt)]
                 self.set_properties(row_data)
                 break
 
@@ -682,7 +684,7 @@ class PropertiesWidget(QWidget):
             reset_label_texts = [
                 "Filepath", "Filename", "Title", "Description", "Tags",
                 "Status", "File Type", "Original Filename",
-                "Shutterstock Category", "Adobe Stock Category"
+                "Shutterstock Category", "Adobe Stock Category", "Prompt"
             ]
             for label_widget, label_text in zip(self.label_widgets, reset_label_texts):
                 label_widget.setText(f"<b>{label_text}:</b>")
@@ -693,10 +695,11 @@ class PropertiesWidget(QWidget):
                     title = first_row[3] if len(first_row) > 3 and first_row[3] is not None else ""
                     tags = first_row[5] if len(first_row) > 5 and first_row[5] is not None else ""
                     description = first_row[4] if len(first_row) > 4 and first_row[4] is not None else ""
+                    file_prompt = first_row[8] if len(first_row) > 8 and first_row[8] is not None else ""
                     title_length = len(title)
                     tag_count = len([t for t in tags.split(",") if t.strip()]) if tags else 0
                     desc_length = len(description)
-                    row_data = [first_row[0]] + list(first_row[1:7]) + [first_row[7] if len(first_row) > 7 else ""] + [str(title_length), str(tag_count), str(desc_length)]
+                    row_data = [first_row[0]] + list(first_row[1:7]) + [first_row[7] if len(first_row) > 7 else ""] + [str(title_length), str(tag_count), str(file_prompt)]
                     self.set_properties(row_data)
             return
 
@@ -706,6 +709,16 @@ class PropertiesWidget(QWidget):
         title_length = int(row_data[8]) if len(row_data) > 8 and str(row_data[8]).isdigit() else len(title)
         tag_count = int(row_data[9]) if len(row_data) > 9 and str(row_data[9]).isdigit() else len([t for t in tags.split(",") if t.strip()]) if tags else 0
         desc_length = len(description)
+        file_prompt = ""
+        if len(row_data) > 10:
+            file_prompt = str(row_data[10]) if row_data[10] is not None else ""
+        elif self.db is not None and row_data[0]:
+            try:
+                _row = self.db.get_file_by_path(row_data[1]) if len(row_data) > 1 else None
+                if _row and len(_row) > 8:
+                    file_prompt = str(_row[8]) if _row[8] is not None else ""
+            except Exception:
+                file_prompt = ""
 
         label_texts = [
             "Filepath",
@@ -717,7 +730,8 @@ class PropertiesWidget(QWidget):
             "File Type",
             "Original Filename",
             "Shutterstock Category",
-            "Adobe Stock Category"
+            "Adobe Stock Category",
+            "Prompt"
         ]
 
         shutterstock_cat_text = ""
@@ -774,7 +788,8 @@ class PropertiesWidget(QWidget):
             filetype_text,                                 # File Type
             str(row_data[7]) if len(row_data) > 7 else "",  # Original Filename
             shutterstock_cat_text,                         # Shutterstock Category
-            adobe_cat_text                                 # Adobe Stock Category
+            adobe_cat_text,                                # Adobe Stock Category
+            file_prompt                                    # Prompt
         ]
 
         for label_widget, label_text in zip(self.label_widgets, label_texts):

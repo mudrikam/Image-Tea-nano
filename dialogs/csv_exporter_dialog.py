@@ -325,9 +325,10 @@ class CSVExporterDialog(QDialog):
         self.custom_layout.addWidget(format_group)
 
         # Available source fields must match the actual Image Tea files table/get_all_files() row.
-        # files columns: id, filepath, filename, title, description, tags, status, original_filename
+        # files columns: id, filepath, filename, title, description, tags, status,
+        # original_filename, file_prompt
         self.available_fields = [
-            "EMPTY", "id", "filepath", "filename", "title", "description", "tags", "status", "original_filename"
+            "EMPTY", "id", "filepath", "filename", "title", "description", "tags", "status", "original_filename", "file_prompt"
         ]
 
         # Transform options
@@ -457,7 +458,8 @@ class CSVExporterDialog(QDialog):
                         "description": "Sample description text",
                         "tags": "keyword1, keyword2, keyword3",
                         "status": "success",
-                        "original_filename": "IMG_0001.jpg"
+                        "original_filename": "IMG_0001.jpg",
+                        "file_prompt": "Sample image generation prompt describing the subject, composition, lighting, and style."
                     }
                     
                     preview_value = "" if source_field == "EMPTY" else sample_data.get(source_field, f"<{source_field}>")
@@ -577,7 +579,11 @@ class CSVExporterDialog(QDialog):
                     "file name": "filename",
                     "oldfilename": "filename",
                     "originalfilename": "filename",
-                    "file_name": "filename"
+                    "file_name": "filename",
+                    "prompt": "file_prompt",
+                    "file_prompt": "file_prompt",
+                    "image prompt": "file_prompt",
+                    "ai prompt": "file_prompt",
                 }
                 
                 mapped_field = field_mapping.get(field.lower(), "EMPTY")
@@ -1100,6 +1106,7 @@ class CSVExporterDialog(QDialog):
             "tags": file_data[5] if len(file_data) > 5 and file_data[5] is not None else "",
             "status": file_data[6] if len(file_data) > 6 and file_data[6] is not None else "",
             "original_filename": file_data[7] if len(file_data) > 7 and file_data[7] is not None else "",
+            "file_prompt": file_data[8] if len(file_data) > 8 and file_data[8] is not None else "",
         }
         if field == "EMPTY":
             return ""

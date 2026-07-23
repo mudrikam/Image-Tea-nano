@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QLineEdit, QTextEdit, QHBoxLayout, QFormLayout, QSpacerItem, QSizePolicy, QToolTip, QComboBox, QListView
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QLineEdit, QTextEdit, QHBoxLayout, QFormLayout, QSpacerItem, QSizePolicy, QToolTip, QComboBox, QListView, QTabWidget, QWidget
 from PySide6.QtGui import QPixmap, QImage, QGuiApplication
 from PySide6.QtCore import Qt, QTimer
 import qtawesome as qta
@@ -20,13 +20,18 @@ class FileMetadataDialog(QDialog):
                     file_data = row
                     break
         if not file_data:
-            file_data = (None, filepath, "", "", "", "", "", "")
+            # Default tuple includes a placeholder for file_prompt (index 8)
+            file_data = (None, filepath, "", "", "", "", "", "", "")
 
-        _, filepath, filename, title, description, tags, status, original_filename = file_data
+        # file_data row layout:
+        # 0=id, 1=filepath, 2=filename, 3=title, 4=description,
+        # 5=tags, 6=status, 7=original_filename, 8=file_prompt
+        _, filepath, filename, title, description, tags, status, original_filename, file_prompt = file_data
         title = title or ""
         description = description or ""
         tags = tags or ""
         filename = filename or ""
+        file_prompt = file_prompt or ""
 
         layout = QVBoxLayout(self)
 
@@ -63,7 +68,13 @@ class FileMetadataDialog(QDialog):
             img_label.setText("Image/Video not found")
         layout.addWidget(img_label)
 
-        form = QFormLayout()
+        # Tabbed editor: Metadata (existing fields) + Prompt (new)
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+
+        # --- Metadata tab ---
+        metadata_tab = QWidget()
+        form = QFormLayout(metadata_tab)
 
         title_row = QHBoxLayout()
         self.title_edit = QLineEdit(title)
@@ -190,21 +201,53 @@ class FileMetadataDialog(QDialog):
         self.filetype_combo.addItem("-", "")
         self.filetype_combo.addItem("Photo", "Photo")
         self.filetype_combo.addItem("Illustration", "Illustration")
-        
+
         current_filetype = ""
         if self.db and file_data[0] is not None:
             file_types = self.db.get_file_types(file_data[0])
             if file_types:
                 current_filetype = file_types[0][1]
-        
+
         if current_filetype:
             idx = self.filetype_combo.findData(current_filetype)
             if idx >= 0:
                 self.filetype_combo.setCurrentIndex(idx)
-                
+
         form.addRow("File Type:", self.filetype_combo)
 
-        layout.addLayout(form)
+        tabs.addTab(metadata_tab, qta.icon("fa6s.list"), "Metadata")
+
+        # --- Prompt tab ---
+        prompt_tab = QWidget()
+        prompt_layout = QVBoxLayout(prompt_tab)
+        prompt_layout.setContentsMargins(8, 8, 8, 8)
+
+        prompt_header = QLabel(
+            "Image-generation prompt associated with this asset.\n"
+            "Populated automatically when 'Generate Prompt Metadata' is enabled in the Metadata menu."
+        )
+        prompt_header.setWordWrap(True)
+        prompt_header.setStyleSheet("color: gray; font-size: 9pt;")
+        prompt_layout.addWidget(prompt_header)
+
+        prompt_row = QHBoxLayout()
+        self.file_prompt_edit = QTextEdit(file_prompt)
+        self.file_prompt_edit.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.file_prompt_edit.setAcceptRichText(False)
+        self.file_prompt_edit.setMinimumHeight(220)
+        prompt_row.addWidget(self.file_prompt_edit)
+        copy_prompt_btn = QPushButton()
+        copy_prompt_btn.setIcon(qta.icon("fa6s.copy"))
+        copy_prompt_btn.setToolTip("Copy Prompt")
+        copy_prompt_btn.setFlat(True)
+        copy_prompt_btn.setFixedWidth(28)
+        copy_prompt_btn.clicked.connect(lambda: self.copy_with_tooltip(self.file_prompt_edit.toPlainText(), copy_prompt_btn, "Prompt"))
+        prompt_row.addWidget(copy_prompt_btn)
+        prompt_layout.addLayout(prompt_row)
+
+        tabs.addTab(prompt_tab, qta.icon("fa6s.scroll"), "Prompt")
+
+        layout.addWidget(tabs)
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         btn_layout = QHBoxLayout()
@@ -235,6 +278,8 @@ class FileMetadataDialog(QDialog):
             tooltip = f"Copied: {shorten(text)}" if text else "Copied: (empty)"
         elif label == "Description":
             tooltip = f"Copied: {shorten(text)}" if text else "Copied: (empty)"
+        elif label == "Prompt":
+            tooltip = f"Copied: {shorten(text)}" if text else "Copied: (empty)"
         else:
             tooltip = "Copied"
         old_tooltip = btn.toolTip()
@@ -249,7 +294,8 @@ class FileMetadataDialog(QDialog):
         title = self.title_edit.text()
         description = self.description_edit.toPlainText()
         tags = self.tags_edit.toPlainText()
-        self.db.update_metadata(self.filepath, title, description, tags)
+        prompt_text = self.file_prompt_edit.toPlainText() if hasattr(self, 'file_prompt_edit') else None
+        self.db.update_metadata(self.filepath, title, description, tags, prompt=prompt_text)
         file_id = None
         for row in self.db.get_all_files():
             if row[1] == self.filepath:
@@ -269,7 +315,7 @@ class FileMetadataDialog(QDialog):
             if adobe_val:
                 cat_dict["adobe_stock"] = int(adobe_val)
             self.db.save_category_mapping(file_id, cat_dict)
-            
+
             filetype_val = self.filetype_combo.currentData()
             if filetype_val:
                 self.db.delete_file_types_for_file(file_id)
@@ -283,9 +329,10 @@ class FileMetadataDialog(QDialog):
                 if row[1] == self.filepath:
                     title = row[3] if len(row) > 3 and row[3] is not None else ""
                     tags = row[5] if len(row) > 5 and row[5] is not None else ""
+                    file_prompt = row[8] if len(row) > 8 and row[8] is not None else ""
                     title_length = len(title)
                     tag_count = len([t for t in tags.split(",") if t.strip()]) if tags else 0
-                    row_data = [row[0]] + list(row[1:7]) + [row[7] if len(row) > 7 else ""] + [str(title_length), str(tag_count)]
+                    row_data = [row[0]] + list(row[1:7]) + [row[7] if len(row) > 7 else ""] + [str(title_length), str(tag_count), str(file_prompt)]
                     self._properties_widget.set_properties(row_data)
                     break
         parent = self.parent()

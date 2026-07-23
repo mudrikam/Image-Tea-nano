@@ -738,6 +738,12 @@ class GridManager:
             copy_tags_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(tags, "Keyword", event))
             menu.addAction(copy_tags_action)
 
+            prompt_text = backend_row[8] if len(backend_row) > 8 and backend_row[8] is not None else ""
+            copy_prompt_action = QAction(qta.icon("fa6s.scroll"), "Copy Prompt", widget)
+            copy_prompt_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(prompt_text, "Prompt", event))
+            copy_prompt_action.setEnabled(bool(prompt_text))
+            menu.addAction(copy_prompt_action)
+
             menu.exec(event.globalPos() if hasattr(event, "globalPos") else widget.mapToGlobal(event.pos()))
         except Exception as e:
             print(f"Error showing context menu in grid: {e}")
@@ -2147,6 +2153,7 @@ class ImageTableWidget(QWidget):
         menu.addSeparator()
 
         row_idx = index.row()
+        filepath_item = self.table.item(row_idx, 1)
         filename_item = self.table.item(row_idx, 2)
         title_item = self.table.item(row_idx, 3)
         desc_item = self.table.item(row_idx, 4)
@@ -2167,6 +2174,16 @@ class ImageTableWidget(QWidget):
         copy_tags_action = QAction(qta.icon("fa6s.copy"), "Copy Keyword", self)
         copy_tags_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(tags_item.text() if tags_item else "", "Keyword", pos))
         menu.addAction(copy_tags_action)
+
+        copy_prompt_action = QAction(qta.icon("fa6s.scroll"), "Copy Prompt", self)
+        row_prompt = ""
+        for _row in self._current_rows:
+            if len(_row) > 1 and _row[1] == (filepath_item.data(Qt.UserRole) if filepath_item else ""):
+                row_prompt = _row[8] if len(_row) > 8 and _row[8] is not None else ""
+                break
+        copy_prompt_action.triggered.connect(lambda: self._copy_to_clipboard_with_tooltip(row_prompt, "Prompt", pos))
+        copy_prompt_action.setEnabled(bool(row_prompt))
+        menu.addAction(copy_prompt_action)
 
         menu.exec(self.table.viewport().mapToGlobal(pos))
 

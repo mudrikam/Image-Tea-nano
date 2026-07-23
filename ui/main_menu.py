@@ -768,6 +768,50 @@ def setup_main_menu(window):
     chunk_size_action.triggered.connect(show_chunk_size_dialog)
     metadata_menu.addAction(chunk_size_action)
 
+    prompt_gen_submenu = QMenu("Generate Prompt Metadata", metadata_menu)
+    prompt_gen_submenu.setIcon(qta.icon('fa6s.scroll'))
+    prompt_gen_submenu.setToolTipsVisible(True)
+
+    def _get_prompt_gen_enabled():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg.get("prompt_generation_enabled", False)
+
+    def _set_prompt_gen_enabled(value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["prompt_generation_enabled"] = bool(value)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        load_prompt_gen_menu()
+
+    def load_prompt_gen_menu():
+        prompt_gen_submenu.clear()
+        current = _get_prompt_gen_enabled()
+
+        enabled_action = QAction("Enabled", window)
+        enabled_action.setCheckable(True)
+        enabled_action.setChecked(current)
+        enabled_action.setIcon(qta.icon('fa6s.check') if current else qta.icon('fa6s.scroll'))
+        enabled_action.setToolTip("Ask the AI to also generate an image-generation prompt alongside the metadata")
+        enabled_action.setStatusTip("Ask the AI to also generate an image-generation prompt alongside the metadata")
+        enabled_action.triggered.connect(lambda: _set_prompt_gen_enabled(True))
+        prompt_gen_submenu.addAction(enabled_action)
+
+        disabled_action = QAction("Disabled", window)
+        disabled_action.setCheckable(True)
+        disabled_action.setChecked(not current)
+        disabled_action.setIcon(qta.icon('fa6s.check') if not current else qta.icon('fa6s.scroll'))
+        disabled_action.setToolTip("Skip image-generation prompt generation during metadata generation")
+        disabled_action.setStatusTip("Skip image-generation prompt generation during metadata generation")
+        disabled_action.triggered.connect(lambda: _set_prompt_gen_enabled(False))
+        prompt_gen_submenu.addAction(disabled_action)
+
+    load_prompt_gen_menu()
+    metadata_menu.addMenu(prompt_gen_submenu)
+
     prompt_menu = QMenu("Prompt", edit_menu)
     prompt_menu.setIcon(qta.icon('fa6s.comment-dots'))
     prompt_menu.setToolTipsVisible(True)
