@@ -195,7 +195,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Step 9: Toolbar Overview',
-                    'description': 'The toolbar provides quick actions: Import, Clear, Delete, Edit, Write (images/videos), Export, Prompt editing, Custom prompt, API Key management, Relaunch, Update, Donate, and Help. Use these buttons to manage files, edit or write metadata, and access utilities.',
+                    'description': 'The toolbar provides quick actions: Import, Clear, Delete, Edit, Write (images/videos), Export, Prompt editing, Custom prompt, API Key management, Relaunch, Update, and Help. Use these buttons to manage files, edit or write metadata, and access utilities. The prominent green Donate button appears at the end of the toolbar to support development.',
                     'target': 'main_toolbar'
                 },
                 {
@@ -229,17 +229,12 @@ class GuideOverlay(QWidget):
                     'targets': ['find:wrapper_toolbar_whatsapp']
                 },
                 {
-                    'title': 'Step 16: Community Channels (TikTok, Repo)',
-                    'description': 'Click the TikTok button to find short tutorials. Click Repo to open the project repository for source code and issue tracking.',
-                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_repo']
-                },
-                {
-                    'title': 'Step 17: Donate',
-                    'description': "If you've found Image Tea helpful, consider donating to support ongoing development. This project is developed using the developer's personal funds; donations help cover development time, hosting, and improvements.",
+                    'title': 'Step 16: Donate',
+                    'description': "If you've found Image Tea helpful, consider donating to support ongoing development. The prominent green Donate button is located in the toolbar. This project is developed using the developer's personal funds; donations help cover development time, hosting, and improvements.",
                     'targets': ['find:wrapper_toolbar_donate']
                 },
                 {
-                    'title': 'Step 18: Help & Documentation',
+                    'title': 'Step 17: Help & Documentation',
                     'description': 'All essential information about Image Tea is available in the documentation. Click Help to open guides, troubleshooting information, and usage notes.',
                     'targets': ['find:wrapper_toolbar_help']
                 },
@@ -292,7 +287,7 @@ class GuideOverlay(QWidget):
                 },
                 {
                     'title': 'Langkah 9: Ringkasan Toolbar',
-                    'description': 'Toolbar menyediakan aksi cepat: Import, Clear, Delete, Edit, Write (gambar/video), Export, Edit Prompt, Custom Prompt, Manajemen API Key, Relaunch, Update, Donate, dan Help. Gunakan tombol-tombol ini untuk mengelola file, mengedit atau menulis metadata, dan mengakses utilitas lainnya.',
+                    'description': 'Toolbar menyediakan aksi cepat: Import, Clear, Delete, Edit, Write (gambar/video), Export, Edit Prompt, Custom Prompt, Manajemen API Key, Relaunch, Update, dan Help. Gunakan tombol-tombol ini untuk mengelola file, mengedit atau menulis metadata, dan mengakses utilitas lainnya. Tombol Donasi berwarna hijau mencolok tersedia di akhir toolbar untuk mendukung pengembangan.',
                     'target': 'main_toolbar'
                 },
                 {
@@ -327,17 +322,12 @@ class GuideOverlay(QWidget):
                     'targets': ['find:wrapper_toolbar_whatsapp']
                 },
                 {
-                    'title': 'Langkah 16: Kanal Komunitas (TikTok, Repo)',
-                    'description': 'Klik tombol TikTok untuk melihat tutorial singkat dan diskusi komunitas. Klik Repo untuk membuka repositori proyek dan pelacakan isu.',
-                    'targets': ['find:wrapper_toolbar_website', 'find:wrapper_toolbar_repo']
-                },
-                {
-                    'title': 'Langkah 17: Donasi',
-                    'description': 'Jika kamu merasa Image Tea bermanfaat, pertimbangkan untuk berdonasi untuk mendukung pengembangan berkelanjutan. Aplikasi ini dikembangkan menggunakan dana pribadi developer; donasi membantu menutupi biaya hosting, perbaikan, dan waktu pengembangan.',
+                    'title': 'Langkah 16: Donasi',
+                    'description': 'Jika kamu merasa Image Tea bermanfaat, pertimbangkan untuk berdonasi untuk mendukung pengembangan berkelanjutan. Tombol Donasi berwarna hijau mencolok terletak di toolbar. Aplikasi ini dikembangkan menggunakan dana pribadi developer; donasi membantu menutupi biaya hosting, perbaikan, dan waktu pengembangan.',
                     'targets': ['find:wrapper_toolbar_donate']
                 },
                 {
-                    'title': 'Langkah 18: Bantuan & Dokumentasi',
+                    'title': 'Langkah 17: Bantuan & Dokumentasi',
                     'description': 'Semua informasi penting tentang Image Tea tersedia di dokumentasi. Klik Help untuk membuka panduan, informasi pemecahan masalah, dan catatan penggunaan.',
                     'targets': ['find:wrapper_toolbar_help']
                 },
