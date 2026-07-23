@@ -122,32 +122,45 @@ class ImageTeaDB:
             c.execute('DELETE FROM api_keys')
             conn.commit()
 
-    def add_file(self, filepath, filename, title=None, description=None, tags=None, status=None, original_filename=None):
+    def add_file(self, filepath, filename, title=None, description=None, tags=None, status=None, original_filename=None, file_prompt=None):
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
         tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
-        
+
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
             if original_filename is None:
                 original_filename = filename
-            c.execute('''INSERT OR IGNORE INTO files (filepath, filename, title, description, tags, status, original_filename) VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                      (filepath, filename, title_clean, description_clean, tags_clean, status, original_filename))
+            c.execute('''INSERT OR IGNORE INTO files (filepath, filename, title, description, tags, status, original_filename, file_prompt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                      (filepath, filename, title_clean, description_clean, tags_clean, status, original_filename, file_prompt))
             conn.commit()
 
-    def update_metadata(self, filepath, title, description, tags, status=None):
+    def update_metadata(self, filepath, title, description, tags, status=None, prompt=None):
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
         tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
-        
+
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            if status is not None:
+            if status is not None and prompt is not None:
+                c.execute('''UPDATE files SET title=?, description=?, tags=?, status=?, file_prompt=? WHERE filepath=?''',
+                          (title_clean, description_clean, tags_clean, status, prompt, filepath))
+            elif status is not None:
                 c.execute('''UPDATE files SET title=?, description=?, tags=?, status=? WHERE filepath=?''',
                           (title_clean, description_clean, tags_clean, status, filepath))
+            elif prompt is not None:
+                c.execute('''UPDATE files SET title=?, description=?, tags=?, file_prompt=? WHERE filepath=?''',
+                          (title_clean, description_clean, tags_clean, prompt, filepath))
             else:
                 c.execute('''UPDATE files SET title=?, description=?, tags=? WHERE filepath=?''',
                           (title_clean, description_clean, tags_clean, filepath))
+            conn.commit()
+
+    def update_file_prompt(self, filepath, prompt):
+        """Update only the file_prompt column for a given filepath."""
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            c.execute('UPDATE files SET file_prompt=? WHERE filepath=?', (prompt, filepath))
             conn.commit()
 
     def update_file_status(self, filepath, status):
@@ -189,13 +202,13 @@ class ImageTeaDB:
     def get_all_files(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files ORDER BY filename COLLATE NOCASE ASC, filepath ASC')
+            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename, file_prompt FROM files ORDER BY filename COLLATE NOCASE ASC, filepath ASC')
             return c.fetchall()
 
     def get_file_by_path(self, filepath):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files WHERE filepath=? LIMIT 1', (filepath,))
+            c.execute('SELECT id, filepath, filename, title, description, tags, status, original_filename, file_prompt FROM files WHERE filepath=? LIMIT 1', (filepath,))
             return c.fetchone()
 
     def get_files_count(self, search_text=None, status_filter=None):
@@ -241,7 +254,7 @@ class ImageTeaDB:
                 conditions.append('LOWER(status) = ?')
                 params.append(status_filter.lower())
             
-            query = 'SELECT id, filepath, filename, title, description, tags, status, original_filename FROM files'
+            query = 'SELECT id, filepath, filename, title, description, tags, status, original_filename, file_prompt FROM files'
             if conditions:
                 query += f" WHERE {' AND '.join(conditions)}"
             query += ' ORDER BY filename COLLATE NOCASE ASC, filepath ASC'
@@ -343,7 +356,7 @@ class ImageTeaDB:
     def clear_all_metadata(self):
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
-            c.execute('UPDATE files SET title=NULL, description=NULL, tags=NULL, status="draft"')
+            c.execute('UPDATE files SET title=NULL, description=NULL, tags=NULL, status="draft", file_prompt=NULL')
             c.execute('DELETE FROM category_mapping WHERE file_id IN (SELECT id FROM files)')
             c.execute('DELETE FROM files_type_assign WHERE file_id IN (SELECT id FROM files)')
             conn.commit()

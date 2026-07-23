@@ -71,22 +71,27 @@ def format_gemini_prompt(
     adobe_map,
     filename=None,
     is_video=False,
-    metadata_context=None
+    metadata_context=None,
+    generate_prompt=False
 ):
     title_reqs = title_requirements.replace("_MIN_LEN_", str(min_title_length)).replace("_MAX_LEN_", str(max_title_length))
     desc_reqs = description_requirements.replace("_MAX_DESC_LEN_", str(max_description_length))
     keywords_reqs = keywords_requirements.replace("_TAGS_COUNT_", str(required_tag_count))
     uniqueness = unique_token.replace("_TIMESTAMP_", generate_timestamp()).replace("_TOKEN_", generate_token())
-    
+
     shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
     shutterstock_categories = {num: name for num, name in shutterstock_map.items()}
     adobe_categories = {num: name for num, name in adobe_map.items()}
-    
+
+    output_keys = ["title", "description", "tags", "category", "filetype"]
+    if generate_prompt:
+        output_keys.append("file_prompt")
+
     prompt_json = {
         "task": "Create high-quality image or video digital assets metadata",
         "output_format": {
             "type": "JSON",
-            "keys": ["title", "description", "tags", "category", "filetype"],
+            "keys": output_keys,
             "category_structure": {
                 "shutterstock": {"primary": "number", "secondary": "number"},
                 "adobe_stock": "number"
@@ -112,30 +117,38 @@ def format_gemini_prompt(
             }
         }
     }
-    
+
+    if generate_prompt:
+        prompt_json["requirements"]["file_prompt"] = [
+            "Generate a detailed, single-paragraph prompt suitable for an AI image-generation model.",
+            "The prompt must describe the subject, composition, lighting, style, mood, and other visible details of the asset.",
+            "Use natural English prose without bullet points, JSON, or meta references to the source.",
+            "Keep the prompt under 1200 characters and avoid brand names, trademarks, or copyrighted references."
+        ]
+
     if filename:
         prompt_json["input_filename"] = filename
-    
+
     if metadata_context:
         if "context" not in prompt_json:
             prompt_json["context"] = {}
         prompt_json["context"]["existing_metadata"] = metadata_context
         prompt_json["context"]["note"] = "Use as context reference, prioritize image content"
-    
+
     if custom_prompt and custom_prompt.strip():
         prompt_json["mandatory_instruction"] = custom_prompt.strip()
-    
+
     prompt_json["negative_prompt"] = [line for line in negative_prompt.split('\n') if line.strip()]
     prompt_json["system_instruction"] = [line for line in system_prompt.split('\n') if line.strip()]
-    
+
     full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
-    
+
     print("="*80)
     print("GEMINI FULL PROMPT (JSON FORMAT):")
     print("="*80)
     print(full_prompt)
     print("="*80)
-    
+
     return full_prompt
 
 def title_case_except(text):
@@ -163,9 +176,9 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None, metadata_context=None):
+def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None, metadata_context=None, generate_prompt=False):
     if stop_flag and stop_flag.get('stop'):
-        return '', '', '', '', '', 0, 0, 0
+        return '', '', '', '', '', 0, 0, 0, ''
     start_time = time.perf_counter()
     uploaded_file_id = None
     try:
@@ -211,7 +224,8 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 adobe_map,
                 filename=filename,
                 is_video=is_video,
-                metadata_context=metadata_context
+                metadata_context=metadata_context,
+                generate_prompt=generate_prompt
             )
         # if a provider_endpoint is supplied, use the universal HTTP helper (works for text and data-URL images)
         used_custom_endpoint = False
@@ -229,9 +243,9 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                     endpoint_frame_paths = compressed_frames if compressed_frames else None
                 elif not is_video:
                     endpoint_image_path = compress_and_save_image(image_path)
-                    if not endpoint_image_path:
-                        print(f"[Gemini ERROR] Failed to compress image for custom endpoint: {image_path}")
-                        return '', '', '', {}, '', f"[Gemini ERROR] Failed to compress image: {image_path}", 0, 0, 0
+                if not endpoint_image_path:
+                    print(f"[Gemini ERROR] Failed to compress image for custom endpoint: {image_path}")
+                    return '', '', '', {}, '', f"[Gemini ERROR] Failed to compress image: {image_path}", 0, 0, 0, ''
                 text, token_input, token_output, token_total = CustomEndpointHelper.call_endpoint_with_usage(api_key, provider_endpoint, 'gemini', model, prompt, endpoint_image_path, timeout=180, frame_paths=endpoint_frame_paths)
                 used_custom_endpoint = True
             except Exception as e:
@@ -252,7 +266,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                         uploaded_frames.append(fobj)
                 if not uploaded_frames:
                     print(f"[Gemini ERROR] No frames could be uploaded for {image_path}")
-                    return '', '', '', {}, '', f"[Gemini ERROR] Failed to upload frames for video: {image_path}", 0, 0, 0
+                    return '', '', '', {}, '', f"[Gemini ERROR] Failed to upload frames for video: {image_path}", 0, 0, 0, ''
                 video_context = (
                     f"[VIDEO FRAME CONTEXT] The {len(uploaded_frames)} images below are evenly-spaced frames "
                     f"extracted from the video file '{filename}'. "
@@ -332,15 +346,15 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                         invoked = invoke_in_main_thread(dialog_factory, (image_path, proxy_setting, stop_flag, result_container, finished_event))
                         if not invoked:
                             print(f"[Gemini ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered.")
-                            return '', '', '', {}, '', '[Gemini ERROR] Video proxy dialog invocation failed', 0, 0, 0
+                            return '', '', '', {}, '', '[Gemini ERROR] Video proxy dialog invocation failed', 0, 0, 0, ''
                         else:
                             if not finished_event.wait(600):
                                 print("[Gemini ERROR] Video proxy dialog timeout")
-                                return '', '', '', {}, '', '[Gemini ERROR] Video proxy timeout', 0, 0, 0
+                                return '', '', '', {}, '', '[Gemini ERROR] Video proxy timeout', 0, 0, 0, ''
                             proxy_result, proxy_err = result_container[0]
                             if proxy_err:
                                 print(f"[Gemini ERROR] Video proxy failed: {proxy_err}")
-                                return '', '', '', {}, '', f"[Gemini ERROR] Video proxy failed: {proxy_err}", 0, 0, 0
+                                return '', '', '', {}, '', f"[Gemini ERROR] Video proxy failed: {proxy_err}", 0, 0, 0, ''
                             video_to_upload = proxy_result or image_path
 
                 myfile = client.files.upload(file=video_to_upload)
@@ -351,7 +365,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 waited = 0
                 while waited < max_wait_seconds:
                     if stop_flag and stop_flag.get('stop'):
-                        return '', '', '', '', '', 0, 0, 0
+                        return '', '', '', '', '', 0, 0, 0, ''
                     fileinfo = client.files.get(name=uploaded_file_id)
                     status = getattr(fileinfo, 'state', None) or getattr(fileinfo, 'status', None)
                     if status == 'ACTIVE':
@@ -360,18 +374,18 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                     waited += poll_interval
                 if status != 'ACTIVE':
                     print(f"[Gemini ERROR] File {uploaded_file_id} not ACTIVE after upload, status: {status}")
-                    return '', '', '', '', '', 0, 0, 0
+                    return '', '', '', '', '', 0, 0, 0, ''
                 contents = [myfile, prompt]
         else:
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
                 print(f"[Gemini ERROR] Failed to compress image: {image_path}")
-                return '', '', '', '', '', 0, 0, 0
+                return '', '', '', '', '', 0, 0, 0, ''
             myfile = client.files.upload(file=compressed_path)
             uploaded_file_id = myfile.name if hasattr(myfile, 'name') else getattr(myfile, 'id', None)
             contents = [myfile, prompt]
         if stop_flag and stop_flag.get('stop'):
-            return '', '', '', '', '', 0, 0, 0
+            return '', '', '', '', '', 0, 0, 0, ''
         if not used_custom_endpoint:
             response = client.models.generate_content(
                 model=model,
@@ -445,19 +459,22 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
             tags = tags.lower()
             category = meta.get('category', {})
             filetype = meta.get('filetype', '')
+            file_prompt = meta.get('file_prompt', '') or ''
+            file_prompt = str(file_prompt).strip()
             error_message = ''
         except Exception as e:
             print(f"[Gemini JSON PARSE ERROR] {e}")
             title = description = tags = ''
             category = {}
             filetype = ''
+            file_prompt = ''
             error_message = f"[Gemini JSON PARSE ERROR] {e}"
         if title:
             title = title_case_except(title)
             title = sanitize_text(title)
         if description:
             description = sanitize_text(description)
-        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total
+        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total, file_prompt
     except Exception as e:
         err_str = str(e)
         print(f"[Gemini ERROR] {err_str}")
@@ -496,7 +513,7 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
         except Exception as e2:
             print(f"[Gemini] Error during error-dialog notification: {e2}")
             traceback.print_exc()
-        return '', '', '', {}, '', f"[Gemini ERROR] {err_str}", 0, 0, 0
+        return '', '', '', {}, '', f"[Gemini ERROR] {err_str}", 0, 0, 0, ''
     finally:
         if uploaded_file_id:
             ids_to_delete = uploaded_file_id if isinstance(uploaded_file_id, list) else [uploaded_file_id]

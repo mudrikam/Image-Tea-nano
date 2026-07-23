@@ -101,22 +101,27 @@ def format_openai_prompt(
     adobe_map,
     filename=None,
     is_video=False,
-    metadata_context=None
+    metadata_context=None,
+    generate_prompt=False
 ):
     title_reqs = title_requirements.replace("_MIN_LEN_", str(min_title_length)).replace("_MAX_LEN_", str(max_title_length))
     desc_reqs = description_requirements.replace("_MAX_DESC_LEN_", str(max_description_length))
     keywords_reqs = keywords_requirements.replace("_TAGS_COUNT_", str(required_tag_count))
     uniqueness = unique_token.replace("_TIMESTAMP_", generate_timestamp()).replace("_TOKEN_", generate_token())
-    
+
     shutterstock_map = shutterstock_video_map if is_video else shutterstock_image_map
     shutterstock_categories = {num: name for num, name in shutterstock_map.items()}
     adobe_categories = {num: name for num, name in adobe_map.items()}
-    
+
+    output_keys = ["title", "description", "tags", "category", "filetype"]
+    if generate_prompt:
+        output_keys.append("file_prompt")
+
     prompt_json = {
         "task": "Create high-quality image or video digital assets metadata",
         "output_format": {
             "type": "JSON",
-            "keys": ["title", "description", "tags", "category", "filetype"],
+            "keys": output_keys,
             "category_structure": {
                 "shutterstock": {"primary": "number", "secondary": "number"},
                 "adobe_stock": "number"
@@ -142,30 +147,38 @@ def format_openai_prompt(
             }
         }
     }
-    
+
+    if generate_prompt:
+        prompt_json["requirements"]["file_prompt"] = [
+            "Generate a detailed, single-paragraph prompt suitable for an AI image-generation model.",
+            "The prompt must describe the subject, composition, lighting, style, mood, and other visible details of the asset.",
+            "Use natural English prose without bullet points, JSON, or meta references to the source.",
+            "Keep the prompt under 1200 characters and avoid brand names, trademarks, or copyrighted references."
+        ]
+
     if filename:
         prompt_json["input_filename"] = filename
-    
+
     if metadata_context:
         if "context" not in prompt_json:
             prompt_json["context"] = {}
         prompt_json["context"]["existing_metadata"] = metadata_context
         prompt_json["context"]["note"] = "Use as context reference, prioritize image content"
-    
+
     if custom_prompt and custom_prompt.strip():
         prompt_json["mandatory_instruction"] = custom_prompt.strip()
-    
+
     prompt_json["negative_prompt"] = [line for line in negative_prompt.split('\n') if line.strip()]
     prompt_json["system_instruction"] = [line for line in system_prompt.split('\n') if line.strip()]
-    
+
     full_prompt = json.dumps(prompt_json, indent=2, ensure_ascii=False)
-    
+
     print("="*80)
     print("OPENAI FULL PROMPT (JSON FORMAT):")
     print("="*80)
     print(full_prompt)
     print("="*80)
-    
+
     return full_prompt
 
 def title_case_except(text):
@@ -193,9 +206,9 @@ def sanitize_text(text):
     text = text.strip()
     return text
 
-def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None, metadata_context=None):
+def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=None, proxy_path=None, provider_endpoint=None, preextracted_frames=None, metadata_context=None, generate_prompt=False):
     if stop_flag and stop_flag.get('stop'):
-        return '', '', '', {}, '', '', 0, 0, 0
+        return '', '', '', {}, '', '', 0, 0, 0, ''
     start_time = time.perf_counter()
     try:
         ext = os.path.splitext(image_path)[1].lower()
@@ -217,7 +230,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                         "Please ensure FFmpeg is installed and the video file is valid."
                     )
                     print(error_message)
-                    return '', '', '', {}, '', error_message, 0, 0, 0
+                    return '', '', '', {}, '', error_message, 0, 0, 0, ''
                 print(f"[OpenAI] Extracted {len(frame_paths)} frames from video")
         elif is_video and is_openrouter and preextracted_frames:
             frame_paths = preextracted_frames
@@ -262,7 +275,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 adobe_map,
                 filename=filename,
                 is_video=is_video,
-                metadata_context=metadata_context
+                metadata_context=metadata_context,
+                generate_prompt=generate_prompt
             )
         if is_video and is_openrouter and not frame_paths:
             if proxy_path:
@@ -336,17 +350,17 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                     if not invoked:
                         error_message = f"[OpenAI ERROR] Video proxy dialog could not be invoked for {image_path}; no GUI or invoker not registered."
                         print(error_message)
-                        return '', '', '', {}, '', error_message, 0, 0, 0
+                        return '', '', '', {}, '', error_message, 0, 0, 0, ''
                     else:
                         if not finished_event.wait(600):
                             error_message = f"[OpenAI ERROR] Video proxy dialog timeout"
                             print(error_message)
-                            return '', '', '', {}, '', error_message, 0, 0, 0
+                            return '', '', '', {}, '', error_message, 0, 0, 0, ''
                         proxy_result, proxy_err = result_container[0]
                         if proxy_err:
                             error_message = f"[OpenAI ERROR] Video proxy failed: {proxy_err}"
                             print(error_message)
-                            return '', '', '', {}, '', error_message, 0, 0, 0
+                            return '', '', '', {}, '', error_message, 0, 0, 0, ''
                         video_to_upload = proxy_result or image_path
             video_mime_map = {
                 '.mp4': 'video/mp4',
@@ -399,7 +413,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             compressed_path = compress_and_save_image(image_path)
             if not compressed_path:
                 error_message = f"[OpenAI ERROR] Failed to compress image: {image_path}"
-                return '', '', '', {}, '', error_message, 0, 0, 0
+                return '', '', '', {}, '', error_message, 0, 0, 0, ''
             with open(compressed_path, "rb") as f:
                 image_bytes = f.read()
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -473,7 +487,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                     "Please ensure FFmpeg is installed and the video file is valid."
                 )
                 print(error_message)
-                return '', '', '', {}, '', error_message, 0, 0, 0
+                return '', '', '', {}, '', error_message, 0, 0, 0, ''
             
             content_items = [{"type": "text", "text": prompt}]
             for frame_path in fallback_frame_paths:
@@ -570,19 +584,22 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             tags = tags.lower()
             category = meta.get('category', {})
             filetype = meta.get('filetype', '')
+            file_prompt = meta.get('file_prompt', '') or ''
+            file_prompt = str(file_prompt).strip()
             error_message = ''
         except Exception as e:
             print(f"[OpenAI JSON PARSE ERROR] {e}")
             title = description = tags = ''
             category = {}
             filetype = ''
+            file_prompt = ''
             error_message = f"[OpenAI JSON PARSE ERROR] {e}"
         if title:
             title = title_case_except(title)
             title = sanitize_text(title)
         if description:
             description = sanitize_text(description)
-        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total
+        return title, description, tags, category, filetype, error_message, token_input, token_output, token_total, file_prompt
     except Exception as e:
         err_str = str(e)
         error_message = f"[OpenAI ERROR] {err_str}"
@@ -623,7 +640,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
         except Exception as e2:
             print(f"[OpenAI] Error during error-dialog notification: {e2}")
             traceback.print_exc()
-        return '', '', '', {}, '', error_message, 0, 0, 0
+        return '', '', '', {}, '', error_message, 0, 0, 0, ''
     finally:
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         track_openai_generation_time(duration_ms)

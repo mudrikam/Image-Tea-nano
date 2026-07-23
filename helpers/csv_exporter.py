@@ -157,7 +157,7 @@ def _magnific_format(file):
         'filename': file[2],
         'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
         'keywords': file[5] if file[5] is not None else "",
-        'prompt': "",
+        'prompt': file[8] if len(file) > 8 and file[8] is not None else "",
         'model': ""
     }
 

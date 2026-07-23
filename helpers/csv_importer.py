@@ -147,8 +147,16 @@ def import_csv_metadata(csv_path):
                 if keyname in fmt['fields']:
                     tags = row[fmt['fields'].index(keyname)].strip()
                     break
+            file_prompt = ''
+            for keyname in ['file_prompt', 'prompt', 'image prompt', 'ai prompt']:
+                if keyname in fmt['fields']:
+                    try:
+                        file_prompt = row[fmt['fields'].index(keyname)].strip()
+                    except Exception:
+                        file_prompt = ''
+                    break
             try:
-                db.update_metadata(filepath, title, description, tags)
+                db.update_metadata(filepath, title, description, tags, prompt=file_prompt or None)
                 stats['successful'] += 1
                 if len(stats['success_examples']) < 3:
                     stats['success_examples'].append(filename)

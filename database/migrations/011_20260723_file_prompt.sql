@@ -1,0 +1,43 @@
+-- Migration ID: 011_20260723_file_prompt
+-- Date: 2026-07-23
+-- Author: Image Tea
+-- Purpose: Add file_prompt column to files table for AI image-generation prompts
+-- Description:
+--   Adds a nullable TEXT column file_prompt to the files table. The column
+--   stores an AI image-generation prompt associated with each file. Existing
+--   rows are left untouched (NULL). The application reads/writes this column
+--   via database/db_operation.py.
+-- Affected Files:
+--   - database/database.db (SQLite target)
+--   - database/migrations/011_20260723_file_prompt.sql
+--   - database/db_operation.py
+--   - helpers/batch_processing_helper.py
+--   - dialogs/file_metadata_dialog.py
+--   - helpers/csv_exporter.py
+--   - helpers/csv_importer.py
+-- DDL Summary:
+--   - ALTER TABLE files ADD COLUMN file_prompt TEXT
+-- Data Migration: None
+-- Rollback Steps:
+--   SQLite < 3.35 cannot DROP COLUMN directly. To roll back, restore the
+--   database from the migration backup file created automatically by the
+--   migration runner:
+--     backup_{TIMESTAMP}_migration_011_20260723_file_prompt.db
+-- Backups:
+--   Migration process will create a backup file named like:
+--     backup_{TIMESTAMP}_migration_011_20260723_file_prompt.db
+-- Prerequisites:
+--   - Ensure no concurrent writers are operating on the database while
+--     applying migrations.
+--   - Recommended to stop the application or perform migration in maintenance
+--     mode for production deployments.
+-- Testing:
+--   1) Verify schema was applied:
+--        sqlite3 database/database.db "PRAGMA table_info('files');"
+--      Expect a row named "file_prompt" with type "TEXT".
+--   2) Insert and read a small sample row to confirm basic CRUD.
+-- Notes:
+--   - SQLite ALTER TABLE ADD COLUMN is metadata-only when no DEFAULT is
+--     supplied, so this migration is fast on large files tables.
+
+ALTER TABLE files ADD COLUMN file_prompt TEXT;
