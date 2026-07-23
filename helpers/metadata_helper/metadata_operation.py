@@ -391,7 +391,7 @@ class ImageTeaGeneratorThread(QThread):
 		for idx, row in enumerate(self.rows):
 			if self.isInterruptionRequested():
 				break
-			id_, filepath, filename, title, description, tags, status, _ = row
+			id_, filepath, filename, title, description, tags, status, *_ = row
 			visual_idx = self.row_map.get(id_, idx)
 			self.row_status.emit(visual_idx, "processing")
 			try:
@@ -781,7 +781,7 @@ class ImageMetadataWriterThread(QThread):
 				
 				global_idx = chunk_start + idx_in_chunk
 				chunk_pos = idx_in_chunk + 1
-				id_, filepath, filename, title, description, tags, status, _ = row
+				id_, filepath, filename, title, description, tags, status, *_ = row
 				
 				# emit now includes chunk_pos
 				self.progress.emit(global_idx + 1, total, filename, chunk_pos, chunk_idx + 1, chunk_total, 
@@ -873,7 +873,7 @@ class VideoMetadataWriterThread(QThread):
 				
 				global_idx = chunk_start + idx_in_chunk
 				chunk_pos = idx_in_chunk + 1
-				id_, filepath, filename, title, description, tags, status, _ = row
+				id_, filepath, filename, title, description, tags, status, *_ = row
 				
 				self.progress.emit(global_idx + 1, total, filename, chunk_pos, chunk_idx + 1, chunk_total, 
 								 self.success_count, self.failed_count)

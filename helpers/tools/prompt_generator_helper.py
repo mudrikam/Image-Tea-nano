@@ -144,7 +144,8 @@ def generate_prompts_for_file(api_key, service, model, file_info, instructions, 
     if stop_flag and stop_flag.get('stop'):
         return []
     
-    file_id, filepath, filename, title, description, tags, status, original_filename = file_info
+    # Database returns 9 columns: id, filepath, filename, title, description, tags, status, original_filename, file_prompt
+    file_id, filepath, filename, title, description, tags, status, original_filename = file_info[:8]  # tolerant for legacy 8-tuple callers
     
     if not filepath or not os.path.exists(filepath):
         print(f"File not found: {filepath}")
@@ -744,7 +745,8 @@ def generate_prompts_from_folder(db, api_key, service, model, folder_files, stop
         if progress_callback:
             progress_callback(f"Generating prompts for {filename}... ({i+1}/{total})", progress_percent)
 
-        file_info = (None, filepath, filename, '', '', '', 'active', filename)
+        # Database shape: (id, filepath, filename, title, description, tags, status, original_filename, file_prompt)
+        file_info = (None, filepath, filename, '', '', '', 'active', filename, '')
 
         prompts_data = generate_prompts_for_file(
             api_key, service, model, file_info,

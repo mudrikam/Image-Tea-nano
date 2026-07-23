@@ -901,7 +901,7 @@ class BatchRenameDialog(QDialog):
     def do_undo_rename(self):
         mode = self.combo_mode.currentText()
         if mode == "Rename All":
-            # get_all_files() returns: (id, filepath, filename, title, description, tags, status, original_filename)
+            # get_all_files() returns: (id, filepath, filename, title, description, tags, status, original_filename, file_prompt)
             all_files = self.db.get_all_files()
             files = [file_tuple[1] for file_tuple in all_files if file_tuple[1]]
         else:
