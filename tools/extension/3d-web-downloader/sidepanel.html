@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>3D Web Downloader</title>
+<link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+<header class="twd-header">
+  <div class="twd-header-left">
+    <img class="twd-logo" src="icons/logo_32.png" alt="" />
+    <div>
+      <h1>3D WEB DOWNLOADER</h1>
+      <span class="twd-version" id="twd-version">v1.0.0</span>
+    </div>
+  </div>
+  <div class="twd-header-right">
+    <span class="twd-badge" id="twd-count">0 found</span>
+    <button class="twd-icon-btn" id="twd-help-btn" title="Help">?</button>
+  </div>
+</header>
+
+<nav class="twd-tabs">
+  <button class="twd-tab active" data-tab="files">Assets</button>
+  <button class="twd-tab" data-tab="preview">Preview</button>
+  <button class="twd-tab" data-tab="settings">Settings</button>
+  <button class="twd-tab" data-tab="logs">Logs</button>
+</nav>
+
+<main>
+  <!-- Assets tab -->
+  <section class="twd-pane active" data-pane="files">
+    <div class="twd-toolbar">
+      <button class="twd-btn twd-btn-accent" id="twd-download-all">
+        <span class="twd-btn-icon">↓</span> Download all
+      </button>
+      <button class="twd-btn twd-btn-ghost" id="twd-clear">Clear</button>
+      <input type="text" class="twd-input twd-search" id="twd-search" placeholder="Filter by name, host, format…" />
+    </div>
+
+    <div class="twd-stats">
+      <div class="twd-stat"><span class="twd-stat-label">Total</span><span class="twd-stat-value" id="twd-stat-total">0</span></div>
+      <div class="twd-stat" data-fmt="glb"><span class="twd-stat-label">GLB</span><span class="twd-stat-value" id="twd-stat-glb">0</span></div>
+      <div class="twd-stat" data-fmt="gltf"><span class="twd-stat-label">glTF</span><span class="twd-stat-value" id="twd-stat-gltf">0</span></div>
+      <div class="twd-stat" data-fmt="usdz"><span class="twd-stat-label">USDZ</span><span class="twd-stat-value" id="twd-stat-usdz">0</span></div>
+      <div class="twd-stat twd-stat-success"><span class="twd-stat-label">Downloaded</span><span class="twd-stat-value" id="twd-stat-done">0</span></div>
+    </div>
+
+    <div class="twd-empty" id="twd-empty">
+      <div class="twd-empty-icon">⌬</div>
+      <div class="twd-empty-title">No 3D assets detected yet</div>
+      <div class="twd-empty-hint">Open a page that contains GLB, glTF, or USDZ models and they will appear here.</div>
+    </div>
+
+    <ul class="twd-list" id="twd-list"></ul>
+  </section>
+
+  <!-- Preview tab -->
+  <section class="twd-pane" data-pane="preview">
+    <div class="twd-preview-toolbar">
+      <select class="twd-select" id="twd-preview-picker"></select>
+      <button class="twd-btn twd-btn-ghost" id="twd-preview-reset" title="Reset camera">Reset</button>
+    </div>
+    <div class="twd-preview-stage" id="twd-preview-stage">
+      <div class="twd-preview-placeholder" id="twd-preview-placeholder">
+        <div class="twd-preview-placeholder-icon">⌖</div>
+        <div>Select an asset to preview</div>
+      </div>
+      <canvas id="twd-preview-canvas" hidden></canvas>
+      <div class="twd-preview-hint" id="twd-preview-hint" hidden>Click and drag to orbit · Scroll to zoom · Right-click drag to pan</div>
+    </div>
+    <div class="twd-preview-info" id="twd-preview-info"></div>
+  </section>
+
+  <!-- Settings tab -->
+  <section class="twd-pane" data-pane="settings">
+    <div class="twd-settings">
+      <div class="twd-setting">
+        <label for="twd-folder">Download subfolder</label>
+        <input id="twd-folder" class="twd-input" type="text" placeholder="3D-Web-Downloader" />
+        <small>Files are saved inside this folder in your Downloads directory.</small>
+      </div>
+      <div class="twd-setting">
+        <label>Detection</label>
+        <div class="twd-checks">
+          <label><input type="checkbox" id="twd-det-glb" checked /> GLB (.glb)</label>
+          <label><input type="checkbox" id="twd-det-gltf" checked /> glTF (.gltf)</label>
+          <label><input type="checkbox" id="twd-det-usdz" checked /> USDZ (.usdz)</label>
+        </div>
+      </div>
+      <div class="twd-setting">
+        <label>Auto-preview</label>
+        <label class="twd-switch">
+          <input type="checkbox" id="twd-auto-preview" checked />
+          <span class="twd-switch-slider"></span>
+          <span>Show inline preview for supported assets</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- Logs tab -->
+  <section class="twd-pane" data-pane="logs">
+    <div class="twd-toolbar">
+      <input type="text" class="twd-input twd-search" id="twd-log-filter" placeholder="Filter logs…" />
+      <label class="twd-switch"><input type="checkbox" id="twd-log-autoscroll" checked /><span class="twd-switch-slider"></span><span>Autoscroll</span></label>
+      <button class="twd-btn twd-btn-ghost" id="twd-log-clear">Clear</button>
+    </div>
+    <div class="twd-logs" id="twd-logs"></div>
+  </section>
+</main>
+
+<!-- Help modal -->
+<div class="twd-modal" id="twd-help-modal" hidden>
+  <div class="twd-modal-card">
+    <header><h3>How to use</h3><button class="twd-modal-close" id="twd-help-close" aria-label="Close">×</button></header>
+    <ul class="twd-help-list">
+      <li>Open any web page that embeds or links to a GLB, glTF, or USDZ file.</li>
+      <li>The extension automatically scans the page on load and as you interact.</li>
+      <li>Each detected asset appears in the list with format, host, and source hint.</li>
+      <li>Switch to the <b>Preview</b> tab to interact with GLB/glTF models (click + drag to orbit).</li>
+      <li>Click <b>Download</b> to save the file into your configured subfolder.</li>
+      <li>USDZ previews are not supported in Chrome — the file will be downloaded instead.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Asset row template -->
+<template id="twd-item-template">
+  <li class="twd-item" data-id="" data-format="glb">
+    <div class="twd-item-thumb">
+      <div class="twd-thumb-placeholder">
+        <span class="twd-thumb-icon"></span>
+        <span class="twd-thumb-fmt">GLB</span>
+      </div>
+    </div>
+    <div class="twd-item-body">
+      <div class="twd-item-title">
+        <span class="twd-item-name"></span>
+        <span class="twd-item-badge"></span>
+      </div>
+      <div class="twd-item-meta">
+        <span class="twd-meta-ext"></span>
+        <span class="twd-meta-host"></span>
+        <span class="twd-meta-source"></span>
+      </div>
+      <div class="twd-item-url"></div>
+    </div>
+    <div class="twd-item-actions">
+      <button class="twd-btn twd-btn-ghost twd-btn-sm" data-action="preview">Preview</button>
+      <button class="twd-btn twd-btn-accent twd-btn-sm" data-action="download">Download</button>
+    </div>
+  </li>
+</template>
+
+<script type="module" src="sidepanel.js"></script>
+</body>
+</html>
