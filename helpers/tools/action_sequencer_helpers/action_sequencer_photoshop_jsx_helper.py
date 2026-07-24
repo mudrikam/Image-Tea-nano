@@ -269,9 +269,13 @@ class PhotoshopJSXGenerator:
             jsx.append("    for (var i = 0; i < sourceFiles.length; i++) {")
             jsx.append("        var doc = safeOpen(sourceFiles[i]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
         else:
             jsx.append("    var doc = app.activeDocument;")
             jsx.append("    var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("    originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("    originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
         jsx.append("")
         
         indent = "        " if is_first_segment else "    "
@@ -320,10 +324,14 @@ class PhotoshopJSXGenerator:
             jsx.append("    if (sourceFiles.length > 0) {")
             jsx.append("        var doc = safeOpen(sourceFiles[0]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
             jsx.append("    }")
         else:
             jsx.append("    var doc = app.activeDocument;")
             jsx.append("    var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("    originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("    originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
         jsx.append("")
         
         for step in non_export_steps:
@@ -371,6 +379,8 @@ class PhotoshopJSXGenerator:
         
         jsx.append("        var doc = app.activeDocument;")
         jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+        jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+        jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
         jsx.append("")
         
         for step in non_export_steps:
@@ -464,6 +474,8 @@ class PhotoshopJSXGenerator:
             jsx.append("    for (var i = 0; i < sourceFiles.length; i++) {")
             jsx.append("        var doc = safeOpen(sourceFiles[i]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
             jsx.append("")
             jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="        ")
             jsx.append("        doc.close(SaveOptions.DONOTSAVECHANGES);")
@@ -472,6 +484,8 @@ class PhotoshopJSXGenerator:
             jsx.append("    if (sourceFiles.length > 0) {")
             jsx.append("        var doc = safeOpen(sourceFiles[0]);")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
             jsx.append("    }")
             jsx.append("")
             jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="    ")
@@ -484,6 +498,8 @@ class PhotoshopJSXGenerator:
             jsx.append("    } else {")
             jsx.append("        var doc = app.activeDocument;")
             jsx.append("        var originalFileName = doc.name.replace(/\\.[^.]+$/, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[converted\\]/i, '');")
+            jsx.append("        originalFileName = originalFileName.replace(/[-_ ]?\\[modified\\]/i, '');")
             jsx.append("")
             jsx = self._add_steps_to_jsx(jsx, non_export_steps, export_steps, indent="        ")
             jsx.append("    }")

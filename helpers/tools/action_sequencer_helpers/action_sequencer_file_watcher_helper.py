@@ -191,11 +191,11 @@ class ActionSequencerFileWatcher:
 
     def build_expected_filename(self, source_filename, export_format=None):
         """Build expected output filename based on config
-        
+
         Args:
             source_filename: Source file name (without path)
             export_format: Export format if Export action (PNG, EPS, etc), None to use source extension
-        
+
         Returns:
             str: Expected output filename with prefix/suffix applied
         """
@@ -203,6 +203,9 @@ class ActionSequencerFileWatcher:
         suffix = self.config.get('output_suffix', '')
 
         name_without_ext = os.path.splitext(source_filename)[0]
+        # Strip Photoshop/Illustrator markers like [converted] and [modified] from document name
+        name_without_ext = re.sub(r'[-_ ]?\[converted\]', '', name_without_ext, flags=re.IGNORECASE)
+        name_without_ext = re.sub(r'[-_ ]?\[modified\]', '', name_without_ext, flags=re.IGNORECASE)
 
         if export_format:
             ext = '.' + export_format.lower()
@@ -217,10 +220,10 @@ class ActionSequencerFileWatcher:
     def build_expected_variants(self, source_filename, export_format=None):
         """Return a list of plausible expected output filename variants to match exporter behavior.
 
-        The exporter (Photoshop/Illustrator) may sanitize the document name when saving
-        (e.g., replacing spaces/punctuation with hyphens). This helper returns the original
-        expected name plus simple sanitized variants to improve detection reliability.
-        
+        The exporter (Photoshop/Illustrator) uses the document name as-is (after stripping
+        [converted]/[modified] markers) with prefix/suffix applied. No additional sanitization
+        (hyphens, underscores, etc.) is performed by the exporter.
+
         Smart collision handling: checks existing files to predict next numbering (_001, _002, etc.)
 
         Returns:
@@ -231,37 +234,15 @@ class ActionSequencerFileWatcher:
 
         candidates = [base]
 
-        core = os.path.splitext(source_filename)[0]
-        prefix = self.config.get('output_prefix', '')
-        suffix = self.config.get('output_suffix', '')
-        core_full = f"{prefix}{core}{suffix}"
-
-        hyphen = re.sub(r"[^\w]+", '-', core_full)
-        hyphen = re.sub(r"-+", '-', hyphen).strip('-')
-        candidates.append(f"{hyphen}{ext}")
-
-        spaces_to_hyphen = re.sub(r"\s+", '-', core_full)
-        spaces_to_hyphen = re.sub(r"-+", '-', spaces_to_hyphen).strip('-')
-        candidates.append(f"{spaces_to_hyphen}{ext}")
-
-        removed = re.sub(r"[\,\.;:]+", '', core_full)
-        removed = re.sub(r"\s+", ' ', removed).strip()
-        candidates.append(f"{removed}{ext}")
-
-        under = re.sub(r"[^\w]+", '_', core_full)
-        under = re.sub(r"_+", '_', under).strip('_')
-        candidates.append(f"{under}{ext}")
-
-        lower_candidates = [c.lower() for c in candidates]
-        for lc in lower_candidates:
-            candidates.append(lc)
+        # Lowercase variant for case-insensitive filesystems
+        candidates.append(base.lower())
 
         # Smart collision detection: check existing files to predict next numbering
         base_candidates = candidates.copy()
         collision_variants = self._get_smart_collision_variants(base_candidates, ext)
-        
+
         all_variants = candidates + collision_variants
-        
+
         seen = set()
         uniques = []
         for c in all_variants:
@@ -269,7 +250,7 @@ class ActionSequencerFileWatcher:
                 seen.add(c)
                 uniques.append(c)
 
-        self._log(f"Generated filename variants (smart collision): {uniques}")
+        self._log(f"Generated filename variants: {uniques}")
         return uniques
         
     def _get_smart_collision_variants(self, base_names, extension):
