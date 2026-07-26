@@ -335,6 +335,36 @@ body {
   opacity: 0.35;
   cursor: not-allowed;
 }
+#btnClearAll:hover:not(:disabled) {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+#btnResetApp:hover:not(:disabled) {
+  background: var(--warning, #d4a017);
+  color: #fff;
+  border-color: var(--warning, #d4a017);
+}
+#btnCloseHelp,
+#btnCancelRestart {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--error);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  margin: 0;
+}
+#btnCloseHelp:hover,
+#btnCancelRestart:hover {
+  background: #dc2626;
+  transform: scale(1.15);
+}
 .control-icon svg {
   display: block;
 }
