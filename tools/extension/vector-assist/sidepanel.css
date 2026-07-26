@@ -1426,19 +1426,6 @@ body {
   color: var(--accent);
 }
 
-#btnCloseHelp {
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-#btnCloseHelp:hover {
-  color: var(--error);
-}
-
 .help-section {
   padding: 4px 0;
 }

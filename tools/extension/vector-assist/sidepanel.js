@@ -6,6 +6,7 @@
   var landingPage, mainInterface, btnOpenSite;
   var dndZone, fileInput, folderInput, btnSelectFiles, btnSelectFolder;
   var btnStartProcess, btnStopProcess, btnClearAll, btnResetApp;
+  var restartDoneModal, btnCancelRestart, btnRestartCancel, btnRestartConfirm;
   var fileTableBody, emptyState;
   var statLoaded, statPending, statFinished, statFailed;
   var isRunning = false;
@@ -634,6 +635,26 @@ function startBatch(names) {
     runnerStart(names);
   }
 
+function setAllFilesPending() {
+  files.forEach(function (f) {
+    f.status = "pending";
+    f.statusLabel = "Pending";
+    f.startedAt = 0;
+    f.durationMs = 0;
+    f.error = null;
+    dbPut(f).catch(function () {});
+  });
+  renderFileList();
+}
+
+function closeRestartDoneModal() {
+  if (restartDoneModal) restartDoneModal.classList.add("hidden");
+}
+
+function openRestartDoneModal() {
+  if (restartDoneModal) restartDoneModal.classList.remove("hidden");
+}
+
 function clearAllFiles() {
     if (runnerState !== "idle") {
       logWarn("Cannot clear while runner is " + runnerState);
@@ -709,6 +730,11 @@ function doReset() {
         var s = runnerState;
         if (s === "running") { runnerPause(); return; }
         if (s === "paused" || s === "captcha") { runnerResume(); return; }
+        var allDone = files.length > 0 && files.every(function (f) { return f.status === "done"; });
+        if (allDone) {
+          openRestartDoneModal();
+          return;
+        }
         var names = files.filter(function (f) { return f.status !== "done"; }).map(function (f) { return f.name; });
         if (!names.length) {
           logWarn("Start ignored: no files in queue");
@@ -730,6 +756,20 @@ function doReset() {
     if (btnResetApp) {
       btnResetApp.onclick = function () { resetAppState(); };
     }
+    if (restartDoneModal) {
+      restartDoneModal.addEventListener("click", function (e) {
+        if (e.target === restartDoneModal) closeRestartDoneModal();
+      });
+    }
+    if (btnCancelRestart) btnCancelRestart.onclick = closeRestartDoneModal;
+    if (btnRestartCancel) btnRestartCancel.onclick = closeRestartDoneModal;
+    if (btnRestartConfirm) btnRestartConfirm.onclick = function () {
+      closeRestartDoneModal();
+      setAllFilesPending();
+      var names = files.map(function (f) { return f.name; });
+      log("info", "Restarting batch from the beginning: " + names.length + " file(s)");
+      startBatch(names);
+    };
     updateControlUI();
     setInterval(function () {
       if (runnerState === "running" || runnerState === "paused" || runnerState === "captcha") {
@@ -1155,7 +1195,11 @@ function doReset() {
     btnStartProcess = document.getElementById("btnStartProcess");
     btnStopProcess = document.getElementById("btnStopProcess");
     btnClearAll = document.getElementById("btnClearAll");
-    btnResetApp = document.getElementById("btnResetApp");
+     btnResetApp = document.getElementById("btnResetApp");
+     restartDoneModal = document.getElementById("restartDoneModal");
+     btnCancelRestart = document.getElementById("btnCancelRestart");
+     btnRestartCancel = document.getElementById("btnRestartCancel");
+     btnRestartConfirm = document.getElementById("btnRestartConfirm");
     dndZone = document.getElementById("dndZone");
     fileInput = document.getElementById("fileInput");
     folderInput = document.getElementById("folderInput");
