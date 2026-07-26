@@ -576,10 +576,11 @@ function startOne(name) {
     runnerSetState("idle");
     // Mark non-target in-flight files skipped (target file will start fresh).
     files.forEach(function (f) {
-      if (f.name !== name && f.status !== "done" && f.status !== "pending") {
-        f.status = "pending";
-        f.statusLabel = "Skipped";
-      }
+       if (f.name !== name && f.status !== "done" && f.status !== "pending") {
+         f.status = "pending";
+         f.statusLabel = "Skipped";
+         dbPut(f).catch(function () {});
+       }
     });
     renderFileList();
     // Give the abort a tick to propagate before starting the new batch.
@@ -605,10 +606,11 @@ function skipFile(name) {
   runnerPauseRequested = false;
   runnerCaptchaPause = false;
   var f = files.filter(function (x) { return x.name === name; })[0];
-  if (f) {
-    f.status = "pending";
-    f.statusLabel = "Skipped";
-    renderFileList();
+   if (f) {
+     f.status = "pending";
+     f.statusLabel = "Skipped";
+     dbPut(f).catch(function () {});
+     renderFileList();
   }
   runnerQueue = runnerQueue.filter(function (n) { return n !== name; });
   runnerCurrent = null;
@@ -619,7 +621,7 @@ function skipFile(name) {
       this.abort = function () { self.signal.aborted = true; };
     })();
     runnerAbortSignal = false;
-    runnerPump();
+    runnerPump(runnerSessionId);
   } else {
     runnerSetState("idle");
   }
@@ -649,6 +651,13 @@ function clearAllFiles() {
  function resetAppState() {
    // Real reset: abort any running batch, clear logs, reset stats and file
    // statuses to pending, drop preset selection back to Unsaved. Files PERSIST.
+   if (runnerAutoRetryTimer) {
+     clearTimeout(runnerAutoRetryTimer);
+     runnerAutoRetryTimer = null;
+   }
+   runnerStopGeneration++;
+   runnerSessionId++;
+   runnerStoppedByUser = true;
    if (runnerAbortCtrl && !runnerAbortSignal) {
     if (typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
     runnerAbortSignal = true;
@@ -661,12 +670,18 @@ function clearAllFiles() {
   runnerFileDurations = [];
   runnerPauseRequested = false;
   runnerCaptchaPause = false;
-  files.forEach(function (f) {
-    f.status = "pending";
-    f.startedAt = 0;
-    f.durationMs = 0;
-    f.error = null;
-  });
+   files.forEach(function (f) {
+     f.status = "pending";
+     f.statusLabel = "Pending";
+     f.startedAt = 0;
+     f.durationMs = 0;
+     f.error = null;
+     // Persist the reset state so a reopened side panel does not restore the
+     // old done/failed status from IndexedDB.
+     dbPut(f).catch(function (e) {
+       logWarn("Reset: failed to persist '" + f.name + "': " + e);
+     });
+   });
   renderFileList();
   runnerSetState("idle");
   if (presetSelect) {
@@ -1218,7 +1233,8 @@ function doReset() {
 //     -> applying-preset -> ready-to-download -> downloading -> done | failed
 //
 // Pause / resume are honored at step boundaries (between delay waits).
-// Captcha pauses until user clicks Resume; runner does not auto-solve.
+// Captcha pauses until user clicks Resume, or fails automatically when the
+// configured Delay (ms) expires so the queue can continue.
 // --------------------------------------------------------------------------
 var runnerState = "idle";  // "idle" | "running" | "paused" | "captcha"
 var runnerPauseRequested = false;
@@ -1367,6 +1383,51 @@ function runnerGetTiming() {
   return { delay: base, jitter: jit };
 }
 
+function runnerWaitForCaptchaResume(timeoutMs, name, setStatus) {
+  return new Promise(function (resolve, reject) {
+    var timeout = parseInt(timeoutMs, 10);
+    if (!isFinite(timeout) || timeout < 0) timeout = 0;
+    var deadline = Date.now() + timeout;
+    var timer = null;
+
+    runnerCountdownTarget = deadline;
+    runnerCountdownLabel = "Captcha timeout";
+    ensureRunnerTick();
+
+    function finish() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      runnerCountdownTarget = 0;
+      runnerCountdownLabel = "";
+    }
+
+    function check() {
+      if (runnerAbortSignal) {
+        finish();
+        reject(new Error("STOPPED"));
+        return;
+      }
+      if (!runnerCaptchaPause) {
+        finish();
+        resolve();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        finish();
+        runnerCaptchaPause = false;
+        if (typeof setStatus === "function") setStatus("failed", "Failed: captcha timeout");
+        logWarn(name + ": captcha timeout after " + timeout + "ms — marking failed and continuing");
+        runnerSetState("running");
+        reject(new Error("CAPTCHA_TIMEOUT"));
+        return;
+      }
+      timer = setTimeout(check, 300);
+    }
+
+    check();
+  });
+}
+
 function runnerGetPreset(name) {
   return new Promise(function (resolve) {
     if (!name) { resolve(null); return; }
@@ -1429,7 +1490,8 @@ function setupDownloadListener() {
 }
 
 function whenDownloadComplete(timeoutMs) {
-  return new Promise(function (resolve) {
+  var cancelWaiter = null;
+  var promise = new Promise(function (resolve) {
     var done = false;
     function finish(payload) {
       if (done) return;
@@ -1441,7 +1503,10 @@ function whenDownloadComplete(timeoutMs) {
     var listener = function (payload) { finish(payload); };
     downloadCompleteWaiters.push(listener);
     var timer = setTimeout(function () { finish(null); }, timeoutMs);
+    cancelWaiter = function () { finish(null); };
   });
+  promise.cancel = function () { if (cancelWaiter) cancelWaiter(); };
+  return promise;
 }
 
 var lastPagePhase = { pathname: "", ready: false, ts: 0, tabId: null };
@@ -1512,15 +1577,20 @@ async function runnerProcessFile(name) {
   runnerFileStartTs = Date.now();
   runnerCurrent = name;
   file.status = "pending";
+  file.statusLabel = "Pending";
+  dbPut(file).catch(function () {});
   renderFileList();
   log("info", "▶ " + name + ": starting");
   updateRunnerUI();
 
   // Helper: set status + log + render.
-  function setStatus(status, label) {
-    file.status = status;
-    file.statusLabel = label;
-    // Mirror phase to the global status line so the tick has a label even
+   function setStatus(status, label) {
+     file.status = status;
+     file.statusLabel = label;
+     // Keep the latest status in IndexedDB so closing/reopening the panel
+     // preserves progress. Reset is the only operation that resets statuses.
+     dbPut(file).catch(function () {});
+     // Mirror phase to the global status line so the tick has a label even
     // when no countdown is active.
     runnerPhaseLabel = label || status;
     ensureRunnerTick();
@@ -1708,12 +1778,18 @@ async function runnerProcessFile(name) {
     if (dl && dl !== "__tick__") { dlPayload = dl; break; }
     var pinfo = await runnerSend("VECTOR_ASSIST_GET_PROGRESS");
     if (pinfo && pinfo.captcha) {
-      logWarn(name + ": captcha detected — pausing");
+      var captchaTiming = runnerGetTiming();
+      var captchaTimeout = captchaTiming.delay;
+      logWarn(name + ": captcha detected — waiting up to " + captchaTimeout + "ms for Resume");
       runnerCaptchaPause = true;
       runnerSetState("captcha");
-      while (runnerCaptchaPause) {
-        if (runnerAbortSignal) throw new Error("STOPPED");
-        await new Promise(function (r) { setTimeout(r, 300); });
+      try {
+        await runnerWaitForCaptchaResume(captchaTimeout, name, setStatus);
+      } catch (captchaError) {
+        if (captchaError && captchaError.message === "CAPTCHA_TIMEOUT" && dlPromise.cancel) {
+          dlPromise.cancel();
+        }
+        throw captchaError;
       }
       log("info", name + ": resumed after captcha");
     } else if (pinfo && pinfo.precropDialog) {
@@ -1852,6 +1928,10 @@ async function runnerWaitForPathProgressCombo(re, phase, target, timeoutMs) {
 // Duplicate declaration of runnerWaitForProgress removed below — the version
 // above (with sawPane + captcha short-circuit) is the canonical one.
 var runnerAbortSignal = false;
+var runnerStoppedByUser = false;
+var runnerAutoRetryTimer = null;
+var runnerSessionId = 0;
+var runnerStopGeneration = 0;
 
 function runnerStart(names, options) {
   options = options || {};
@@ -1863,23 +1943,34 @@ function runnerStart(names, options) {
     logWarn("Start ignored: runner already active");
     return;
   }
+  if (options.autoRetry && options.stopGeneration !== runnerStopGeneration) {
+    logInfo("Automatic retry ignored: runner was stopped by user");
+    return;
+  }
+  if (runnerAutoRetryTimer) {
+    clearTimeout(runnerAutoRetryTimer);
+    runnerAutoRetryTimer = null;
+  }
   runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
     this.signal = { aborted: false }; var self = this;
     this.abort = function () { self.signal.aborted = true; };
   })();
   runnerAbortSignal = false;
+  if (!options.autoRetry) runnerStoppedByUser = false;
+  runnerSessionId++;
+  var sessionId = runnerSessionId;
   runnerPauseRequested = false;
   runnerCaptchaPause = false;
   runnerQueue = names.slice();
   runnerBatchStartTs = Date.now();
   runnerFileDurations = [];
   runnerSetState("running");
-  runnerPump();
+  runnerPump(sessionId);
 }
 
-async function runnerPump() {
+async function runnerPump(sessionId) {
   while (runnerQueue.length) {
-    if (runnerAbortSignal) break;
+    if (runnerAbortSignal || sessionId !== runnerSessionId) break;
     var name = runnerQueue[0];
     try {
       await runnerGate();
@@ -1901,24 +1992,43 @@ async function runnerPump() {
     runnerCurrent = null;
     updateRunnerUI();
   }
+  // Preserve the reason the pump stopped before clearing the abort flag.
+  // A user stop must not be treated as a normally completed batch with
+  // failed files eligible for automatic retry.
+  var stoppedByUser = runnerStoppedByUser || runnerAbortSignal || sessionId !== runnerSessionId;
+  // An older pump can resume after Stop or after a new manual Start. It must
+  // not clear the newer run's controller, queue, or UI state.
+  if (sessionId !== runnerSessionId) return;
   runnerCurrent = null;
   runnerAbortSignal = false;
   runnerAbortCtrl = null;
   runnerSetState("idle");
   updateRunnerUI();
   updateReadyLine();
-  if (!runnerAbortSignal && runnerFileDurations.length) {
+  if (!stoppedByUser && runnerFileDurations.length) {
     log("info", "Batch finished. " + runnerFileDurations.length + " files in " + ((Date.now() - runnerBatchStartTs) / 1000).toFixed(1) + "s");
   }
   var failedCount = files.filter(function (f) { return f.status === "failed"; }).length;
-  if (failedCount > 0) {
+  if (!stoppedByUser && failedCount > 0) {
     var t = runnerGetTiming();
     var retryDelay = (t.delay || 0) + (t.jitter ? Math.floor(Math.random() * t.jitter) : 0);
     log("info", "Found " + failedCount + " failed file(s). Auto-retrying in " + retryDelay + "ms...");
-    setTimeout(function () {
-      if (btnStartProcess && runnerState === "idle") {
+    var retrySessionId = sessionId;
+    var retryStopGeneration = runnerStopGeneration;
+    runnerAutoRetryTimer = setTimeout(function () {
+      runnerAutoRetryTimer = null;
+      if (!runnerStoppedByUser &&
+          retrySessionId === runnerSessionId &&
+          retryStopGeneration === runnerStopGeneration &&
+          btnStartProcess && runnerState === "idle") {
         log("info", "Auto-clicking Start Process to retry failed files");
-        btnStartProcess.click();
+        var retryNames = files.filter(function (f) {
+          return f.status === "failed";
+        }).map(function (f) { return f.name; });
+        runnerStart(retryNames, {
+          autoRetry: true,
+          stopGeneration: retryStopGeneration
+        });
       }
     }, retryDelay);
   }
@@ -1958,7 +2068,20 @@ var runnerAbortCtrl = null;
 var runnerAbortSignal = false;
 
 function runnerStop() {
-  // Idempotent: clicking Stop while idle is a no-op (with a short log).
+  // Stop also cancels a pending failed-file auto-retry. Failed items and a
+  // user-requested stop are separate decisions; the latter always wins.
+  if (runnerAutoRetryTimer) {
+    clearTimeout(runnerAutoRetryTimer);
+    runnerAutoRetryTimer = null;
+    runnerStoppedByUser = true;
+    logWarn("Automatic retry cancelled by user");
+  }
+  // Invalidate every callback belonging to the current run, including a
+  // retry timer whose handle may already have been cleared or consumed.
+  runnerStopGeneration++;
+  runnerSessionId++;
+  runnerStoppedByUser = true;
+  // Idempotent: clicking Stop while idle and without a retry timer is a no-op.
   if (!runnerAbortCtrl || runnerAbortSignal) {
     logWarn("Runner stop: nothing running");
     return;
