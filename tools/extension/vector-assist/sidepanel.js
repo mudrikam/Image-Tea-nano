@@ -1249,6 +1249,13 @@ var runnerCountdownTarget = 0;
 var runnerFileDurations = []; // ms duration of completed files (for ETA)
 var runnerProgressTick = null;
 var runnerStepWait = null;   // {id, resolve, reject} for current wait; cancel on pause.
+var runnerFileTimeoutTimer = null;
+var runnerFileTimedOut = false;
+var runnerFileTimeoutResolve = null;
+var runnerFileTimeoutPromise = null;
+var runnerFileTimeoutHandler = null;
+var runnerFileRunId = 0;
+var RUNNER_FILE_TIMEOUT_MS = 3 * 60 * 1000;
 
 function runnerSetState(s) {
   runnerState = s;
@@ -1269,6 +1276,51 @@ function runnerCancelWait(reason) {
   // Drop the live countdown so the tick doesn't keep rendering a stale
   // target. The tick will fall back to the current phase label.
   runnerCountdownTarget = 0;
+}
+
+function runnerStartFileWatchdog(name, setStatus) {
+  if (runnerFileTimeoutTimer) clearTimeout(runnerFileTimeoutTimer);
+  runnerFileTimedOut = false;
+  runnerFileTimeoutPromise = new Promise(function (resolve) {
+    runnerFileTimeoutResolve = resolve;
+  });
+  runnerFileTimeoutHandler = function () {
+    runnerFileTimeoutTimer = null;
+    runnerFileTimedOut = true;
+    if (runnerFileTimeoutResolve) runnerFileTimeoutResolve({ ok: false, error: "file-timeout" });
+    runnerFileTimeoutResolve = null;
+    if (typeof setStatus === "function") setStatus("failed", "Failed: global timeout");
+    runnerFileRunId++;
+    logWarn(name + ": global idle timeout after " + RUNNER_FILE_TIMEOUT_MS + "ms — continuing queue");
+    // Abort only the current file. runnerPump clears this signal after the
+    // timeout so the next queued file can start normally.
+    runnerAbortSignal = true;
+    if (runnerAbortCtrl && typeof runnerAbortCtrl.abort === "function") runnerAbortCtrl.abort();
+    runnerPauseRequested = false;
+    runnerCaptchaPause = false;
+    runnerCancelWait("file-timeout");
+  };
+  runnerFileTimeoutTimer = setTimeout(runnerFileTimeoutHandler, RUNNER_FILE_TIMEOUT_MS);
+}
+
+function runnerStopFileWatchdog() {
+  if (runnerFileTimeoutTimer) {
+    clearTimeout(runnerFileTimeoutTimer);
+    runnerFileTimeoutTimer = null;
+  }
+  runnerFileTimeoutResolve = null;
+  runnerFileTimeoutPromise = null;
+  runnerFileTimeoutHandler = null;
+}
+
+function runnerFailCurrentFileOnTimeout(name) {
+  var file = files.filter(function (f) { return f.name === name; })[0];
+  if (!file || file.status === "failed") return;
+  file.status = "failed";
+  file.statusLabel = "Failed: global timeout";
+  file.error = "Global idle timeout";
+  dbPut(file).catch(function () {});
+  renderFileList();
 }
 
 // Wait with delay+jitter. Promise resolves when wait completes, or rejects if cancelled.
@@ -1551,12 +1603,17 @@ function whenPagePhaseMatches(predicate, timeoutMs) {
 
 function runnerSend(type, payload) {
   return new Promise(function (resolve) {
+    var requestRunId = runnerFileRunId;
     var tries = 0;
     function attempt() {
       if (runnerAbortSignal) { resolve({ ok: false, error: "stopped" }); return; }
       tries++;
       try {
         chrome.runtime.sendMessage(Object.assign({ type: type }, payload || {}), function (resp) {
+          if (requestRunId !== runnerFileRunId) {
+            resolve({ ok: false, error: "stopped" });
+            return;
+          }
           var err = chrome.runtime && chrome.runtime.lastError;
           if (err) {
             resolve({ ok: false, error: err.message || "send failed" });
@@ -1571,6 +1628,7 @@ function runnerSend(type, payload) {
 }
 
 async function runnerProcessFile(name) {
+  var fileRunId = runnerFileRunId;
   var file = files.filter(function (f) { return f.name === name; })[0];
   if (!file) throw new Error("File not found: " + name);
 
@@ -1584,8 +1642,9 @@ async function runnerProcessFile(name) {
   updateRunnerUI();
 
   // Helper: set status + log + render.
-   function setStatus(status, label) {
-     file.status = status;
+    function setStatus(status, label) {
+      if (fileRunId !== runnerFileRunId) return;
+      file.status = status;
      file.statusLabel = label;
      // Keep the latest status in IndexedDB so closing/reopening the panel
      // preserves progress. Reset is the only operation that resets statuses.
@@ -1595,7 +1654,9 @@ async function runnerProcessFile(name) {
     runnerPhaseLabel = label || status;
     ensureRunnerTick();
     renderFileList();
-  }
+   }
+
+  runnerStartFileWatchdog(name, setStatus);
 
   var ensured = await new Promise(function (resolve) {
     try {
@@ -1974,10 +2035,28 @@ async function runnerPump(sessionId) {
     var name = runnerQueue[0];
     try {
       await runnerGate();
-      await runnerProcessFile(name);
+      var filePromise = runnerProcessFile(name);
+      await Promise.race([filePromise, runnerFileTimeoutPromise]);
     } catch (e) {
       if (String(e && e.message) === "STOPPED") break;
     }
+    if (runnerFileTimedOut && sessionId === runnerSessionId) {
+      runnerFailCurrentFileOnTimeout(name);
+      runnerStopFileWatchdog();
+      runnerQueue.shift();
+      runnerCurrent = null;
+      // The timed-out file aborted the batch controller. Create a fresh
+      // controller for the next file while preserving the current session.
+      runnerAbortSignal = false;
+      runnerAbortCtrl = new (typeof AbortController !== "undefined" ? AbortController : function () {
+        this.signal = { aborted: false }; var self = this;
+        this.abort = function () { self.signal.aborted = true; };
+      })();
+      runnerFileTimedOut = false;
+      updateRunnerUI();
+      continue;
+    }
+    runnerStopFileWatchdog();
     // Inter-file cooldown: ONLY for batch runs (queue > 1). Single-file /
     // manual runs skip this — user shouldn't have to wait between manual
     // clicks. Cooldown is short anyway (0–3s) when it does apply.
@@ -2080,6 +2159,7 @@ function runnerStop() {
   // retry timer whose handle may already have been cleared or consumed.
   runnerStopGeneration++;
   runnerSessionId++;
+  runnerStopFileWatchdog();
   runnerStoppedByUser = true;
   // Idempotent: clicking Stop while idle and without a retry timer is a no-op.
   if (!runnerAbortCtrl || runnerAbortSignal) {
