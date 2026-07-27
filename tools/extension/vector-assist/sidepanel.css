@@ -1298,8 +1298,8 @@ body {
   color: var(--text-muted);
 }
 .preset-status.unsaved {
-  color: var(--warning, #d4a017);
-  font-weight: 500;
+  color: var(--warning);
+  font-weight: 600;
 }
 .preset-status.editing {
   color: var(--accent, #00c2a2);
@@ -1307,10 +1307,6 @@ body {
 }
 .preset-status.saved {
   color: var(--text-muted);
-}
-.preset-status.unsaved {
-  color: var(--warning);
-  font-weight: 600;
 }
 
 /* --------------------------------------------------------------------------
