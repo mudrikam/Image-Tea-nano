@@ -525,10 +525,15 @@ def read_metadata_pyexiv2(file_path):
                         exiftool_path = system_ex if system_ex else None
                     
                     if exiftool_path:
+                        si = subprocess.STARTUPINFO()
+                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        si.wShowWindow = subprocess.SW_HIDE
                         result = subprocess.run(
                             [exiftool_path, "-Description", "-b", file_path],
                             capture_output=True,
-                            text=True
+                            text=True,
+                            startupinfo=si,
+                            creationflags=subprocess.CREATE_NO_WINDOW
                         )
                         if result.returncode == 0 and result.stdout.strip():
                             description = result.stdout.strip()
