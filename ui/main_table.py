@@ -10,6 +10,7 @@ from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from ui.file_dnd_widget import DragDropWidget
 from ui.DragDropPathMixin import DragDropPathMixin
+from ui.feedback_widget import FeedbackWidget
 import qtawesome as qta
 import os
 import html
@@ -950,7 +951,9 @@ class ImageTableWidget(QWidget):
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        search_layout = QHBoxLayout()
+        self.file_controls_container = QWidget(self)
+        search_layout = QHBoxLayout(self.file_controls_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
         self.search_edit = QLineEdit(self)
         self.search_edit.setPlaceholderText("Search...")
         self.search_edit.setClearButtonEnabled(False)
@@ -1042,7 +1045,7 @@ class ImageTableWidget(QWidget):
         search_layout.addWidget(self.next_btn)
         search_layout.addWidget(self.page_size_combo)
         search_layout.addWidget(self.sort_filter_combo)
-        self.layout.addLayout(search_layout)
+        self.layout.addWidget(self.file_controls_container)
         self.tab_widget = QTabWidget(self)
         self.layout.addWidget(self.tab_widget)
         
@@ -1113,6 +1116,8 @@ class ImageTableWidget(QWidget):
         self.flow_mode_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.flow_mode_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.flow_mode_tab_layout.addWidget(self.flow_mode_table)
+
+        self.feedback_tab = FeedbackWidget(self)
         
         table_container = QWidget()
         table_container_layout = QVBoxLayout(table_container)
@@ -1242,11 +1247,13 @@ class ImageTableWidget(QWidget):
         self.tab_widget.addTab(self.details_tab, qta.icon("fa6s.list"), "Details")
         self.tab_widget.addTab(self.add_files_tab, qta.icon("fa6s.folder-plus"), "Add Files")
         self.tab_widget.addTab(self.flow_mode_tab, qta.icon("fa6s.diagram-project"), "Flow Mode")
+        self.tab_widget.addTab(self.feedback_tab, qta.icon("fa6s.comment-dots"), "Feedback")
         self.tab_widget.currentChanged.connect(self._update_tab_icons)
         self._update_tab_icons(self.tab_widget.currentIndex())
         
                                                                                
-        progress_layout = QVBoxLayout()
+        self.file_progress_container = QWidget(self)
+        progress_layout = QVBoxLayout(self.file_progress_container)
         progress_layout.setContentsMargins(4, 4, 4, 4)
         progress_layout.setSpacing(2)
         
@@ -1266,7 +1273,7 @@ class ImageTableWidget(QWidget):
         self.progress_bar.setStyleSheet("QProgressBar { margin-left: 2px; margin-right: 2px; }")
         progress_layout.addWidget(self.progress_bar)
         
-        self.layout.addLayout(progress_layout)
+        self.layout.addWidget(self.file_progress_container)
         
         self.details_card_cache = {}
         self._donation_dialog_shown = False
@@ -1473,7 +1480,7 @@ class ImageTableWidget(QWidget):
     def _update_tab_icons(self, current_index=None):
         if current_index is None:
             current_index = self.tab_widget.currentIndex()
-        icon_names = ["fa6s.table", "fa6s.images", "fa6s.list", "fa6s.folder-plus", "fa6s.diagram-project"]
+        icon_names = ["fa6s.table", "fa6s.images", "fa6s.list", "fa6s.folder-plus", "fa6s.diagram-project", "fa6s.comment-dots"]
         for idx, name in enumerate(icon_names):
             if idx == current_index:
                 icon = qta.icon(name, color=theme.get_color('primary'))
@@ -1875,6 +1882,11 @@ class ImageTableWidget(QWidget):
                 QTimer.singleShot(0, self._run_typewriter_queue)
 
     def _on_tab_changed(self, idx):
+        feedback_active = idx == 5
+        self.file_controls_container.setVisible(not feedback_active)
+        self.file_controls_container.setEnabled(not feedback_active)
+        self.file_progress_container.setVisible(not feedback_active)
+        self.file_progress_container.setEnabled(not feedback_active)
         if self.tab_widget.tabText(idx) == "Thumbnail":
                                                                             
             QTimer.singleShot(0, self._force_thumbnail_layout_refresh)

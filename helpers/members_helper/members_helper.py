@@ -38,6 +38,11 @@ def _load_supabase_config() -> dict:
     return {"url": _d(raw["u"]), "anon_key": _d(raw["k"])}
 
 
+def get_supabase_public_config() -> dict:
+    """Return only the public Supabase URL and desktop anon key."""
+    return _load_supabase_config().copy()
+
+
 def _fetch_calendarific_key(email: str, license_key: str) -> str:
     try:
         cfg = _load_supabase_config()
