@@ -233,6 +233,10 @@ body {
   cursor: pointer;
   transition: all 0.15s;
 }
+.btn-icon:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg-main);
+}
 
 /* --------------------------------------------------------------------------
    Main Content

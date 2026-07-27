@@ -773,7 +773,7 @@ function doReset() {
     updateControlUI();
     setInterval(function () {
       if (runnerState === "running" || runnerState === "paused" || runnerState === "captcha") {
-        renderFileList();
+        updateFileListTimers();
       }
     }, 1000);
   }
@@ -1401,6 +1401,53 @@ var runnerCountdownLabel = "";
 // When there's no active countdown, fall back to this label so the user
 // always sees something meaningful (e.g. "Uploading", "Vectorizing").
 var runnerPhaseLabel = "";
+function updateFileListTimers() {
+  if (!fileTableBody) return;
+  var rows = fileTableBody.querySelectorAll("tr");
+  rows.forEach(function (row) {
+    var name = row.dataset.name;
+    if (!name) return;
+    var f = files.filter(function (x) { return x.name === name; })[0];
+    if (!f) return;
+    var isActive = f === runnerCurrent || (f.status === "processing" && runnerCurrent === f.name) ||
+      f.status === "downloading" || f.status === "submitting" || f.status === "uploading" ||
+      f.status === "applying" || f.status === "delaying" || f.status === "redirecting" ||
+      f.status === "waiting-vectorize";
+    var timerEl = row.querySelector(".file-row-timer");
+    if (isActive) {
+      var remaining = 0;
+      if (runnerCountdownTarget && runnerCountdownTarget > Date.now()) {
+        remaining = Math.max(0, Math.ceil((runnerCountdownTarget - Date.now()) / 1000));
+      }
+      if (timerEl) {
+        if (remaining > 0) {
+          timerEl.textContent = "waiting " + remaining + "s…";
+        } else if (runnerFileStartTs) {
+          var elapsed = Math.max(0, Math.floor((Date.now() - runnerFileStartTs) / 1000));
+          timerEl.textContent = formatHMS(elapsed) + " elapsed";
+        } else {
+          timerEl.textContent = "";
+        }
+      } else if (remaining > 0 || runnerFileStartTs) {
+        var statusCell = row.querySelector("td:nth-child(3)");
+        if (statusCell) {
+          var t = document.createElement("span");
+          t.className = "file-row-timer";
+          if (remaining > 0) {
+            t.textContent = "waiting " + remaining + "s…";
+          } else {
+            var elapsed = Math.max(0, Math.floor((Date.now() - runnerFileStartTs) / 1000));
+            t.textContent = formatHMS(elapsed) + " elapsed";
+          }
+          statusCell.appendChild(t);
+        }
+      }
+    } else if (timerEl) {
+      timerEl.remove();
+    }
+  });
+}
+
 function ensureRunnerTick() {
   if (runnerTickHandle) return;
   runnerTickHandle = setInterval(function () {
@@ -1414,7 +1461,6 @@ function ensureRunnerTick() {
       renderFileList();
       return;
     }
-    // Update the compact status line (label stays, value updates).
     if (fileCountdownEl) {
       if (runnerCountdownTarget && runnerCountdownTarget > Date.now()) {
         var remaining = Math.max(0, Math.ceil((runnerCountdownTarget - Date.now()) / 1000));
@@ -1433,7 +1479,7 @@ function ensureRunnerTick() {
         fileCountdownEl.textContent = "Running";
       }
     }
-    if (typeof renderFileList === "function") renderFileList();
+    updateFileListTimers();
   }, 250);
 }
 
