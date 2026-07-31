@@ -3,11 +3,24 @@ import os
 import datetime
 import re
 import csv
+import json
+from config import BASE_PATH
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 
 def _sanitize_text_for_csv(text):
     if not text:
         return text
+    
+    # Check if sanitization is enabled in config
+    try:
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            ai_cfg = json.load(f)
+        if not ai_cfg.get("metadata_sanitization_enabled", True):
+            return text  # Skip sanitization
+    except Exception:
+        pass  # Default to sanitizing on error
+    
     pattern = r'[^a-zA-Z0-9\s]'
     sanitized = re.sub(pattern, '', text)
     sanitized = re.sub(r'\s+', ' ', sanitized).strip()

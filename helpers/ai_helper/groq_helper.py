@@ -168,6 +168,17 @@ def title_case_except(text):
 def sanitize_text(text):
     if not text:
         return text
+    
+    # Check if sanitization is enabled in config
+    try:
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            ai_cfg = json.load(f)
+        if not ai_cfg.get("metadata_sanitization_enabled", True):
+            return text  # Skip sanitization
+    except Exception:
+        pass  # Default to sanitizing on error
+    
     text = text.replace('"', '').replace("'", "")
     text = re.sub(r'[^\w\s,]', ' ', text)
     text = re.sub(r'\s+', ' ', text)

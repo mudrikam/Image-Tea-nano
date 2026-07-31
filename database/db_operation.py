@@ -12,9 +12,22 @@ def sanitize_metadata_text(text, allow_commas=False):
     Sanitize metadata text by removing special characters.
     Only allows: letters, numbers, spaces.
     For tags, also allows commas if allow_commas=True
+    
+    Respects the metadata_sanitization_enabled setting in ai_config.json.
+    If disabled, returns the text unchanged.
     """
     if not text:
         return text
+    
+    # Check if sanitization is enabled in config
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            ai_cfg = json.load(f)
+        if not ai_cfg.get("metadata_sanitization_enabled", True):
+            return text  # Skip sanitization
+    except Exception:
+        pass  # Default to sanitizing on error
     
     if allow_commas:
         pattern = r'[^a-zA-Z0-9\s,]'

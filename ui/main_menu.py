@@ -812,6 +812,65 @@ def setup_main_menu(window):
     load_prompt_gen_menu()
     metadata_menu.addMenu(prompt_gen_submenu)
 
+    metadata_sanitize_submenu = QMenu("Metadata Sanitization", metadata_menu)
+    metadata_sanitize_submenu.setIcon(qta.icon('fa6s.broom'))
+    metadata_sanitize_submenu.setToolTipsVisible(True)
+
+    def _get_metadata_sanitize_enabled():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg.get("metadata_sanitization_enabled", True)
+
+    def _set_metadata_sanitize_enabled(value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["metadata_sanitization_enabled"] = bool(value)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        load_metadata_sanitize_menu()
+
+    def load_metadata_sanitize_menu():
+        metadata_sanitize_submenu.clear()
+        current = _get_metadata_sanitize_enabled()
+
+        enabled_action = QAction("Enabled", window)
+        enabled_action.setCheckable(True)
+        enabled_action.setChecked(current)
+        enabled_action.setIcon(qta.icon('fa6s.check') if current else qta.icon('fa6s.broom'))
+        enabled_action.setToolTip("Automatically sanitize special characters from title, description, and tags")
+        enabled_action.setStatusTip("Automatically sanitize special characters from title, description, and tags")
+        enabled_action.triggered.connect(lambda: _set_metadata_sanitize_enabled(True))
+        metadata_sanitize_submenu.addAction(enabled_action)
+
+        disabled_action = QAction("Disabled", window)
+        disabled_action.setCheckable(True)
+        disabled_action.setChecked(not current)
+        disabled_action.setIcon(qta.icon('fa6s.check') if not current else qta.icon('fa6s.broom'))
+        disabled_action.setToolTip("Preserve special characters in metadata fields (may affect CSV formatting)")
+        disabled_action.setStatusTip("Preserve special characters in metadata fields (may affect CSV formatting)")
+        disabled_action.triggered.connect(lambda: _confirm_disable_metadata_sanitize())
+        metadata_sanitize_submenu.addAction(disabled_action)
+
+    def _confirm_disable_metadata_sanitize():
+        reply = QMessageBox.warning(
+            window,
+            "Metadata Sanitization Warning",
+            "Disabling metadata sanitization means special characters (commas, quotes, symbols, etc.) will be preserved in your metadata fields.\n\n"
+            "This may affect CSV exports because some characters like commas and quotes are used as formatting/delimiters in CSV files. "
+            "You may need to adjust your CSV output accordingly.\n\n"
+            "Are you sure you want to disable metadata sanitization?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            _set_metadata_sanitize_enabled(False)
+        else:
+            load_metadata_sanitize_menu()
+
+    load_metadata_sanitize_menu()
+    metadata_menu.addMenu(metadata_sanitize_submenu)
+
     prompt_menu = QMenu("Prompt", edit_menu)
     prompt_menu.setIcon(qta.icon('fa6s.comment-dots'))
     prompt_menu.setToolTipsVisible(True)
