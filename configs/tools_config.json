@@ -84,12 +84,19 @@
       "icon": "fa6s.code-compare",
       "color": "#5C6BC0"
     },
-    {
+{
       "id": "image_converter",
       "name": "Image Converter",
       "description": "Convert images between PNG, JPG, BMP, TIFF, WEBP formats in batch",
       "icon": "fa6s.rotate",
       "color": "#4CAF50"
+    },
+    {
+      "id": "background_remover",
+      "name": "Background Remover",
+      "description": "Remove image backgrounds using AI with ONNX models (rembg)",
+      "icon": "fa6s.eraser",
+      "color": "#2196F3"
     }
   ],
   "video_processing": [
@@ -117,14 +124,6 @@
   ],
   "extensions": [],
   "others": [
-    {
-      "id": "background_remover",
-      "name": "Background Remover",
-      "description": "Remove image backgrounds using AI (external tool)",
-      "icon": "fa6s.eraser",
-      "color": "#2196F3",
-      "url": "https://lynk.id/desainiajob/px5yyovk31pr"
-    },
     {
       "id": "archieve_manager",
       "name": "Rak Arsip 3",
@@ -182,6 +181,7 @@
     "psd_to_img": "documentation/lang_EN/3. Additional Tools/13. psd_to_img_tool.md",
     "folder_comparator": "documentation/lang_EN/3. Additional Tools/14. folder_comparator_tool.md",
     "batch_image_resizer": "documentation/lang_EN/3. Additional Tools/15. batch_image_resizer_tool.md",
-    "image_converter": "documentation/lang_EN/3. Additional Tools/16. image_converter_tool.md"
+    "image_converter": "documentation/lang_EN/3. Additional Tools/16. image_converter_tool.md",
+    "background_remover": "documentation/lang_EN/3. Additional Tools/background_remover_tool.md"
   }
 }

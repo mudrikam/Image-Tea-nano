@@ -202,7 +202,8 @@ class ImageTeaMainWindow(QMainWindow):
             "psd_to_img": self._open_psd_to_img,
             "folder_comparator": self._open_folder_comparator,
             "batch_image_resizer": self._open_batch_image_resizer,
-            "image_converter": self._open_image_converter
+            "image_converter": self._open_image_converter,
+            "background_remover": self._open_background_remover
         }
 
         handler = tool_handlers.get(tool_id)
@@ -345,6 +346,18 @@ class ImageTeaMainWindow(QMainWindow):
         self._image_converter_dialog.show()
         self._image_converter_dialog.raise_()
         self._image_converter_dialog.activateWindow()
+
+    def _open_background_remover(self):
+        from helpers.tools_dependency_helper import check_tools_available
+        if not check_tools_available(["rembg"], parent=self):
+            return
+        from dialogs.tools.background_remover.background_remover_dialog import BackgroundRemoverDialog
+        if not hasattr(self, '_background_remover_dialog') or not self._background_remover_dialog:
+            self._background_remover_dialog = BackgroundRemoverDialog(None)
+            self._background_remover_dialog.destroyed.connect(lambda: setattr(self, '_background_remover_dialog', None))
+        self._background_remover_dialog.show()
+        self._background_remover_dialog.raise_()
+        self._background_remover_dialog.activateWindow()
     
     def _open_prompt_generator(self):
         from dialogs.tools.prompt_generator_tool import PromptGeneratorDialog
@@ -473,6 +486,12 @@ class ImageTeaMainWindow(QMainWindow):
                 if self._image_converter_dialog.worker_thread.isRunning():
                     running_tools.append("Image Converter")
 
+        # Check Background Remover
+        if hasattr(self, '_background_remover_dialog') and self._background_remover_dialog:
+            if hasattr(self._background_remover_dialog, 'worker_thread') and self._background_remover_dialog.worker_thread:
+                if self._background_remover_dialog.worker_thread.isRunning():
+                    running_tools.append("Background Remover")
+
         # If any tools are running, show confirmation dialog
         if running_tools:
             from PySide6.QtWidgets import QMessageBox
@@ -534,6 +553,8 @@ class ImageTeaMainWindow(QMainWindow):
             self._batch_image_resizer_dialog.close()
         if hasattr(self, '_image_converter_dialog') and self._image_converter_dialog:
             self._image_converter_dialog.close()
+        if hasattr(self, '_background_remover_dialog') and self._background_remover_dialog:
+            self._background_remover_dialog.close()
 
         if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
             try:

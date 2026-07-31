@@ -218,6 +218,7 @@ tools/ghostscript/
 tools/cairo/
 tools/ffmpeg/
 tools/realesrgan/
+tools/rembg/
 tools/waifu2x/
 tools/rife/
 tools/nodejs/
