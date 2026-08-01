@@ -12,8 +12,10 @@ from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream
 
 _generation_times_openai = []
+
 
 def track_openai_generation_time(duration_ms):
     _generation_times_openai.append(duration_ms)
@@ -475,7 +477,8 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             try:
                 response = client.chat.completions.create(
                     model=model,
-                    messages=messages
+                    messages=messages,
+                    stream=True,
                 )
             except Exception as video_err:
                 video_err_str = str(video_err).lower()
@@ -521,15 +524,20 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             ]
             response = client.chat.completions.create(
                 model=model,
-                messages=messages
+                messages=messages,
+                stream=True,
             )
         elif not used_custom_endpoint and not video_error_occurred:
             response = client.chat.completions.create(
                 model=model,
-                messages=messages
+                messages=messages,
+                stream=True,
             )
         
         if not used_custom_endpoint:
+            text, stream_usage = consume_openai_stream(response)
+            if any(stream_usage):
+                token_input, token_output, token_total = stream_usage
             print("="*80)
             print("OPENAI RAW RESPONSE:")
             print("="*80)
@@ -544,8 +552,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
                 token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
                 token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
                 token_total = getattr(usage, "total_tokens", 0)
-            text = None
-            if hasattr(response, "choices") and response.choices:
+            if not text and hasattr(response, "choices") and response.choices:
                 choice = response.choices[0]
                 if hasattr(choice, "message") and hasattr(choice.message, "content"):
                     text = choice.message.content

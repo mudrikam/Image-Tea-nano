@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream
 
 _generation_times_blackbox = []
 
@@ -323,19 +324,14 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
         if not used_custom_endpoint:
             response = client.chat.completions.create(
                 model=model,
-                messages=messages
+                messages=messages,
+                stream=True,
             )
         else:
             # custom endpoint path: `text` already provided by helper
             response = None
         
         if not used_custom_endpoint:
-            print("="*80)
-            print("BLACKBOX RAW RESPONSE:")
-            print("="*80)
-            print(response)
-            print("="*80)
-
             token_input = 0
             token_output = 0
             token_total = 0
@@ -345,11 +341,9 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
                 token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
                 token_total = getattr(usage, "total_tokens", 0)
 
-            text = None
-            if hasattr(response, "choices") and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                    text = choice.message.content
+            text, stream_usage = consume_openai_stream(response)
+            if any(stream_usage):
+                token_input, token_output, token_total = stream_usage
             if not text:
                 text = str(response)
         else:

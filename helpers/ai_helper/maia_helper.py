@@ -10,6 +10,7 @@ from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from helpers.image_compression_helper import compress_and_save_image
 from helpers.video_proxy_helper import extract_video_frames
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream
 
 try:
     _cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
@@ -321,18 +322,13 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
         if not used_custom_endpoint:
             response = client.chat.completions.create(
                 model=model,
-                messages=messages
+                messages=messages,
+                stream=True,
             )
         else:
             response = None
         
         if not used_custom_endpoint:
-            print("="*80)
-            print("MAIA ROUTER RAW RESPONSE:")
-            print("="*80)
-            print(response)
-            print("="*80)
-
             token_input = 0
             token_output = 0
             token_total = 0
@@ -342,11 +338,9 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
                 token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
                 token_total = getattr(usage, "total_tokens", 0)
 
-            text = None
-            if hasattr(response, "choices") and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                    text = choice.message.content
+            text, stream_usage = consume_openai_stream(response)
+            if any(stream_usage):
+                token_input, token_output, token_total = stream_usage
             if not text:
                 text = str(response)
         else:
