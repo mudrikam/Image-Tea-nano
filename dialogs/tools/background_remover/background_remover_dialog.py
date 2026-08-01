@@ -26,6 +26,7 @@ from dialogs.tools.background_remover.background_remover_config import Backgroun
 from dialogs.tools.background_remover.background_remover_worker import BackgroundRemoverWorker, SUPPORTED_EXTENSIONS
 from dialogs.tools.background_remover.widgets.multi_handle_slider import MultiHandleSlider
 from dialogs.tools.background_remover import models_manager
+from dialogs.tools.background_remover.background_remover_worker import create_rembg_session
 from helpers.tools.background_remover_helper import apply_levels_to_mask
 
 IMAGE_EXTENSIONS = SUPPORTED_EXTENSIONS
@@ -557,10 +558,10 @@ class MaskWorker(QObject):
             input_img.save(ori_temp)
 
             self.progress.emit(5, "Preparing model...")
-            try:
-                prepared = models_manager.prepare_model(model_name=self.model_name)
-            except Exception:
-                prepared = None
+            models_manager.set_model_path()
+            model_name = self.model_name or models_manager.DEFAULT_MODEL
+            if not models_manager.prepare_model(model_name=model_name):
+                raise RuntimeError(f"Unable to prepare rembg model: {model_name}")
 
             if self.abort:
                 self.progress.emit(0, "Cancelled")
@@ -569,17 +570,8 @@ class MaskWorker(QObject):
             import rembg
             self.progress.emit(20, "Processing: Removing background (mask)...")
 
-            session = None
-            try:
-                if self.model_name:
-                    session = rembg.new_session(self.model_name)
-                elif prepared:
-                    session = rembg.new_session(prepared)
-            except Exception:
-                try:
-                    session = rembg.new_session()
-                except Exception:
-                    session = None
+            model_path = models_manager.get_model_path(model_name)
+            session = create_rembg_session(rembg, model_name, model_path)
 
             mask = rembg.remove(input_img, only_mask=True, session=session)
             if self.abort:

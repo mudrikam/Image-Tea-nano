@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from PIL import Image
 from PySide6.QtCore import QThread, Signal
-from config import BASE_PATH
+from dialogs.tools.background_remover import models_manager
 
 from helpers.tools.background_remover_helper import (
     enhance_transparency_with_levels, crop_transparent_image,
@@ -11,6 +11,63 @@ from helpers.tools.background_remover_helper import (
 )
 
 SUPPORTED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif', '.avif', '.heic', '.heif'}
+
+
+def get_onnx_providers():
+    """Return available ONNX Runtime providers in GPU-first order."""
+    try:
+        import onnxruntime as ort
+        available = set(ort.get_available_providers())
+    except Exception as exc:
+        print(f"ONNX Runtime provider detection failed: {exc}")
+        return []
+
+    preferred = ('CUDAExecutionProvider', 'DmlExecutionProvider',
+                 'ROCMExecutionProvider', 'CPUExecutionProvider')
+    providers = [provider for provider in preferred if provider in available]
+    if providers and providers[-1] != 'CPUExecutionProvider' and 'CPUExecutionProvider' in available:
+        providers.append('CPUExecutionProvider')
+    print(f"ONNX Runtime providers available: {providers or sorted(available)}")
+    return providers
+
+
+def create_rembg_session(rembg, model_name, model_path=None):
+    """Create a rembg session with GPU preference and safe model fallbacks."""
+    providers = get_onnx_providers()
+    provider_sets = []
+    if providers:
+        provider_sets.append(providers)
+    if 'CPUExecutionProvider' in providers:
+        provider_sets.append(['CPUExecutionProvider'])
+    if not provider_sets:
+        provider_sets.append([])
+    attempts = []
+    if model_name:
+        attempts.append(('model name', model_name))
+    if model_path and os.path.exists(model_path):
+        attempts.append(('model file', model_path))
+    for family in ('isnet-general-use', 'u2net', 'u2netp', 'u2net_human_seg', 'u2net_cloth_seg'):
+        if family != model_name:
+            attempts.append(('fallback model', family))
+
+    errors = []
+    for provider_set in provider_sets:
+        provider_kwargs = {'providers': provider_set} if provider_set else {}
+        for description, candidate in attempts:
+            try:
+                session = rembg.new_session(candidate, **provider_kwargs)
+                print(f"rembg session created using {description}: {candidate}; providers={provider_set or 'default'}")
+                return session
+            except Exception as exc:
+                errors.append(f"{description}={candidate}, providers={provider_set or 'default'}: {exc}")
+
+    try:
+        session = rembg.new_session()
+        print("rembg session created using default model and runtime defaults")
+        return session
+    except Exception as exc:
+        errors.append(f"default model: {exc}")
+        raise RuntimeError("Unable to create rembg session. " + " | ".join(errors[-3:])) from exc
 
 
 class BackgroundRemoverWorker(QThread):
@@ -82,8 +139,8 @@ class BackgroundRemoverWorker(QThread):
         if not png_path:
             return False
 
-        self.step_progress.emit(5, "Loading model...")
-        model_name = self.options.get('model_name', 'isnet-general-use')
+        self.step_progress.emit(5, "Preparing model...")
+        model_name = self.options.get('model_name') or models_manager.DEFAULT_MODEL
 
         try:
             with Image.open(png_path) as img:
@@ -92,21 +149,19 @@ class BackgroundRemoverWorker(QThread):
             return False
 
         try:
-            import rembg
-        except Exception:
-            self.error_occurred.emit("rembg not installed. Install via Tools Manager.")
-            return False
-
-        models_dir = os.path.join(BASE_PATH, 'tools', 'rembg', 'models')
-        os.environ['U2NET_HOME'] = models_dir
-
-        try:
-            session = rembg.new_session(model_name)
-        except Exception:
-            try:
-                session = rembg.new_session()
-            except Exception:
+            models_manager.set_model_path()
+            if not models_manager.prepare_model(model_name):
+                self.error_occurred.emit(f"Unable to prepare rembg model: {model_name}")
                 return False
+            model_path = models_manager.get_model_path(model_name)
+            import rembg
+            session = create_rembg_session(rembg, model_name, model_path)
+        except ImportError:
+            self.error_occurred.emit("rembg or ONNX Runtime is not installed. Install via Tools Manager.")
+            return False
+        except Exception as exc:
+            self.error_occurred.emit(f"Unable to initialize rembg: {str(exc)[:160]}")
+            return False
 
         self.step_progress.emit(10, "Removing background...")
         alpha_params = recommend_alpha_matting_params(input_img)

@@ -193,9 +193,16 @@ def download_model(model_name, callback=None):
 
 def prepare_model(model_name, callback=None):
     """Ensure a model is downloaded and ready. Returns True if ready."""
+    model_name = model_name or DEFAULT_MODEL
+    if model_name not in MODELS:
+        fetch_models_from_github()
+    if model_name not in MODELS:
+        return False
     model_path = get_model_path(model_name)
     if model_path:
+        print(f"Model {model_name} already available at {model_path}")
         return True
+    print(f"Model {model_name} not found in {MODEL_DIR}; downloading once")
     return download_model(model_name, callback)
 
 
