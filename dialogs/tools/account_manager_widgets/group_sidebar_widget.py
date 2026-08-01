@@ -11,6 +11,12 @@ from database.db_account_manager_operations import AccountManagerDB
 from dialogs.tools.account_manager_widgets.delete_confirmation_dialog import DeleteConfirmationDialog
 
 
+def _safe_color(value, fallback='#3b82f6'):
+    """Return a stylesheet-safe color from group/database data."""
+    color = QColor(str(value)) if value is not None else QColor()
+    return color.name() if color.isValid() else fallback
+
+
 class ClearableLineEdit(QLineEdit):
     """QLineEdit that clears on Delete key when focused"""
     def keyPressEvent(self, event):
@@ -42,7 +48,7 @@ class GroupItemWidget(QWidget):
     
     def _setup_ui(self):
         icon_name = self.group_data.get('group_icon', 'users')
-        color = self.group_data.get('group_color', '#3b82f6')
+        color = _safe_color(self.group_data.get('group_color'))
         name = self.group_data.get('group_name', 'Unnamed')
         desc = self.group_data.get('group_description', '')
 

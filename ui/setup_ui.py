@@ -154,7 +154,8 @@ def setup_ui(self):
 
     self.gen_btn.setFixedSize(240, 36)
     font = self.gen_btn.font()
-    font.setPointSize(font.pointSize() + 4)
+    point_size = font.pointSize()
+    font.setPointSize((point_size if point_size > 0 else 9) + 4)
     font.setBold(True)
     self.gen_btn.setFont(font)
 

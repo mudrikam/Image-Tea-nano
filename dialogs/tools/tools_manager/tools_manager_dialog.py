@@ -131,7 +131,10 @@ class ToolCard(QFrame):
             default_badge.setStyleSheet(f"color: {theme.get_color('success')}; font-weight: bold;")
             default_badge.setToolTip("Auto-installed on startup if missing")
             badge_font = default_badge.font()
-            badge_font.setPointSize(badge_font.pointSize() - 1)
+            badge_point_size = badge_font.pointSize()
+            badge_font.setPointSize(
+                badge_point_size - 1 if badge_point_size > 1 else 8
+            )
             default_badge.setFont(badge_font)
             name_row.addWidget(default_badge)
 
@@ -141,7 +144,10 @@ class ToolCard(QFrame):
         # Description
         desc_label = QLabel(tool_info.get('description', ''))
         desc_font = desc_label.font()
-        desc_font.setPointSize(desc_font.pointSize() - 1)
+        desc_point_size = desc_font.pointSize()
+        desc_font.setPointSize(
+            desc_point_size - 1 if desc_point_size > 1 else 8
+        )
         desc_label.setFont(desc_font)
         desc_label.setWordWrap(True)
         info_layout.addWidget(desc_label)
