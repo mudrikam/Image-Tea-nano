@@ -26,7 +26,8 @@ expected = [
     "waifu2x",
     "rife",
     "nodejs",
-    "remotion"
+    "remotion",
+    "rembg"
 ]
 expected_full = [os.path.join(BASE_PATH, "tools", f) for f in expected]
 
@@ -1554,6 +1555,16 @@ def is_vulkan_available() -> bool:
 
 
 def is_executable_available(tool_name, tool_folder):
+    if tool_name == "rembg":
+        marker = os.path.join(tool_folder, ".installed")
+        if not os.path.exists(marker):
+            return False
+        models_dir = os.path.join(tool_folder, "models")
+        if not os.path.isdir(models_dir):
+            return False
+        model_files = [f for f in os.listdir(models_dir) if f.endswith('.onnx')]
+        return len(model_files) > 0
+
     if tool_name == "cairo":
         for root, dirs, files in os.walk(tool_folder):
             for f in files:
@@ -1888,6 +1899,7 @@ _TOOL_ICON_MAP = {
     "exiftool": "fa6s.camera",
     "ghostscript": "fa6s.file-pdf",
     "cairo": "fa6s.palette",
+    "rembg": "fa6s.eraser",
 }
 
 
@@ -1949,6 +1961,79 @@ def get_available_tools() -> list:
     return tools
 
 
+def install_rembg(target_folder, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
+    """Install rembg package and download default ONNX models."""
+    python_exe = get_embedded_python_path()
+
+    _emit(reporter, "Installing rembg package via pip...")
+    try:
+        # Try latest version first, fall back to any version
+        res = subprocess.run(
+            [python_exe, "-m", "pip", "install", "rembg", "--no-warn-script-location"],
+            capture_output=True, timeout=300
+        )
+        if res.returncode != 0:
+            _emit(reporter, f"pip install failed: {res.stderr.decode('utf-8', errors='ignore')[:200]}")
+            return False
+    except Exception as e:
+        _emit(reporter, f"pip install error: {e}")
+        return False
+
+    _emit(reporter, "Installing ONNX Runtime...")
+    try:
+        # Try GPU version first, fall back to CPU
+        res_gpu = subprocess.run(
+            [python_exe, "-m", "pip", "install", "onnxruntime-gpu", "--no-warn-script-location"],
+            capture_output=True, timeout=300
+        )
+        if res_gpu.returncode != 0:
+            _emit(reporter, "GPU runtime not available, installing CPU runtime...")
+            res_cpu = subprocess.run(
+                [python_exe, "-m", "pip", "install", "onnxruntime", "--no-warn-script-location"],
+                capture_output=True, timeout=300
+            )
+            if res_cpu.returncode != 0:
+                _emit(reporter, f"CPU runtime install failed: {res_cpu.stderr.decode('utf-8', errors='ignore')[:200]}")
+                return False
+    except Exception as e:
+        _emit(reporter, f"ONNX Runtime install error: {e}")
+        return False
+
+    # Download default model
+    models_dir = os.path.join(target_folder, "models")
+    os.makedirs(models_dir, exist_ok=True)
+
+    model_urls = {
+        "isnet-general-use.onnx": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+    }
+
+    _emit(reporter, "Downloading default model (isnet-general-use)...")
+    for model_name, url in model_urls.items():
+        model_path = os.path.join(models_dir, model_name)
+        if os.path.exists(model_path):
+            _emit(reporter, f"  {model_name} already exists, skipping")
+            continue
+        try:
+            _emit(reporter, f"  Downloading {model_name}...")
+            import urllib.request
+            urllib.request.urlretrieve(url, model_path)
+            _emit(reporter, f"  {model_name} downloaded successfully")
+        except Exception as e:
+            _emit(reporter, f"  Failed to download {model_name}: {e}")
+            return False
+
+    # Create marker
+    marker = os.path.join(target_folder, ".installed")
+    try:
+        with open(marker, 'w') as f:
+            f.write("installed")
+    except Exception:
+        pass
+
+    _emit(reporter, "rembg installed successfully")
+    return True
+
+
 def install_tool(tool_name: str, reporter=None, progress_reporter=None, unit_callback=None) -> bool:
     """Install a single tool by name. Returns True on success."""
     folder = os.path.join(BASE_PATH, 'tools', tool_name)
@@ -1964,6 +2049,7 @@ def install_tool(tool_name: str, reporter=None, progress_reporter=None, unit_cal
         "exiftool": download_and_extract_exiftool,
         "ghostscript": download_and_extract_ghostscript,
         "cairo": download_and_extract_cairo,
+        "rembg": install_rembg,
     }
 
     handler = dispatch.get(tool_name)

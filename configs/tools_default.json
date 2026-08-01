@@ -14,6 +14,7 @@
     "remotion": "Remotion - Video generation from code",
     "exiftool": "ExifTool - Metadata reading/writing for images",
     "ghostscript": "Ghostscript - PDF and PostScript processing for Cairo",
-    "cairo": "Cairo - 2D graphics library for metadata rendering"
+    "cairo": "Cairo - 2D graphics library for metadata rendering",
+    "rembg": "Rembg - AI background removal using ONNX models (u2net, isnet, etc.)"
   }
 }

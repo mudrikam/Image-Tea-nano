@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream
 
 _generation_times_groq = []
 
@@ -323,7 +324,8 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
             try:
                 response = client.chat.completions.create(
                     model=model,
-                    messages=messages
+                    messages=messages,
+                    stream=True,
                 )
             except Exception as e:
                 err_str = str(e)
@@ -335,27 +337,17 @@ def generate_metadata_groq(api_key, model, image_path, prompt=None, stop_flag=No
                         simpler_messages = [{"role": "user", "content": prompt}]
                         response = client.chat.completions.create(
                             model=model,
-                            messages=simpler_messages
+                            messages=simpler_messages,
+                            stream=True,
                         )
-                        print("[Groq] Retry response:", response)
                     except Exception as e2:
                         print(f"[Groq] Retry failed: {e2}")
                         raise
                 else:
                     raise
-            print("="*80)
-            print(response)
-            print("="*80)
-            usage = getattr(response, "usage", None)
-            if usage:
-                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
-                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
-                token_total = getattr(usage, "total_tokens", 0)
-            text = None
-            if hasattr(response, "choices") and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                    text = choice.message.content
+            text, stream_usage = consume_openai_stream(response)
+            if any(stream_usage):
+                token_input, token_output, token_total = stream_usage
             if not text:
                 text = str(response)
         else:

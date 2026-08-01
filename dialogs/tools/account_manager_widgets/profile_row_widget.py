@@ -7,6 +7,12 @@ import qtawesome as qta
 from ui.theme_system import theme
 
 
+def _safe_color(value, fallback='#3b82f6'):
+    """Return a stylesheet-safe color from profile/database data."""
+    color = QColor(str(value)) if value is not None else QColor()
+    return color.name() if color.isValid() else fallback
+
+
 def format_human_datetime(dt_string):
     """Format datetime string to compact d/m/y format"""
     if not dt_string:
@@ -46,7 +52,7 @@ class ProfileRowWidget(QFrame):
 
     def _setup_ui(self):
         icon_value = self.profile_data.get('profile_icon', 'user')
-        color = self.profile_data.get('profile_color', '#3b82f6')
+        color = _safe_color(self.profile_data.get('profile_color'))
         name = self.profile_data.get('profile_name', 'Unnamed')
         desc = self.profile_data.get('profile_description', '')
 
@@ -76,7 +82,7 @@ class ProfileRowWidget(QFrame):
         layout.addWidget(self.launch_btn)
 
         # Close button (X) - visible when launched, icon-only square button
-        error_color = theme.get_color('error')
+        error_color = _safe_color(theme.get_color('error'), '#ff3131')
         r, g, b = int(error_color[1:3], 16), int(error_color[3:5], 16), int(error_color[5:7], 16)
         error_hover_brighter = QColor(min(255, r + 30), min(255, g + 30), min(255, b + 30)).name()
 
@@ -274,7 +280,7 @@ class ProfileRowWidget(QFrame):
         self._update_style()
 
     def _update_style(self):
-        color = self.profile_data.get('profile_color', '#3b82f6')
+        color = _safe_color(self.profile_data.get('profile_color'))
         gray = QColor(theme.get_color('gray'))
         r_hex, g_hex, b_hex = color.lstrip('#')[0:2], color.lstrip('#')[2:4], color.lstrip('#')[4:6]
         r, g, b = int(r_hex, 16), int(g_hex, 16), int(b_hex, 16)

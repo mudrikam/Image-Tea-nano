@@ -158,6 +158,111 @@ class CustomEndpointHelper:
         return 0, 0, 0
 
     @staticmethod
+    @staticmethod
+    def _parse_openai_stream(response) -> tuple[str, tuple]:
+        """Consume an OpenAI-compatible response, streamed or regular.
+
+        Reasoning and answer content are deliberately accumulated separately.
+        Some reasoning models emit all reasoning first and only then emit content;
+        a reasoning event must therefore never terminate this loop.
+        """
+        content_parts = []
+        usage = (0, 0, 0)
+        saw_sse = False
+        pending_data = []
+        reasoning_events = 0
+        reasoning_chars = 0
+        content_events = 0
+        content_chars = 0
+        finish_reasons = []
+        saw_done = False
+
+        def process_payload(payload):
+            nonlocal usage, saw_sse, reasoning_events, reasoning_chars
+            nonlocal content_events, content_chars
+            if not isinstance(payload, dict):
+                return
+            saw_sse = True
+            payload_usage = CustomEndpointHelper._extract_usage_from_response(payload)
+            if any(payload_usage):
+                usage = payload_usage
+            choices = payload.get("choices") or []
+            choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+            delta = choice.get("delta") or {}
+            if not isinstance(delta, dict):
+                delta = {}
+
+            reasoning = delta.get("reasoning")
+            if reasoning is None:
+                reasoning = delta.get("reasoning_content")
+            if reasoning:
+                reasoning_events += 1
+                reasoning_chars += len(str(reasoning))
+
+            content = delta.get("content")
+            if content:
+                content_parts.append(str(content))
+                content_events += 1
+                content_chars += len(str(content))
+
+            finish_reason = choice.get("finish_reason")
+            if finish_reason is not None:
+                if finish_reason not in finish_reasons:
+                    finish_reasons.append(finish_reason)
+
+            # Non-streaming OpenAI-compatible responses are also accepted.
+            message = choice.get("message") or {}
+            if isinstance(message, dict) and message.get("content"):
+                content_parts.append(str(message["content"]))
+
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if raw_line is None:
+                continue
+            line = raw_line.strip()
+            if not line:
+                if pending_data:
+                    data = "\n".join(pending_data).strip()
+                    pending_data = []
+                    if data == "[DONE]":
+                        saw_done = True
+                        break
+                    try:
+                        process_payload(json.loads(data))
+                    except json.JSONDecodeError:
+                        print(f"[SSE] Ignoring non-JSON event: {data[:500]}")
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data = line[5:].lstrip()
+                if data == "[DONE]":
+                    saw_done = True
+                    break
+                pending_data.append(data)
+            elif not saw_sse and not pending_data:
+                # A server may ignore stream=true and return one JSON document.
+                pending_data.append(line)
+
+        if pending_data:
+            data = "\n".join(pending_data).strip()
+            if data == "[DONE]":
+                saw_done = True
+            else:
+                try:
+                    process_payload(json.loads(data))
+                except json.JSONDecodeError:
+                    pass
+
+        print(
+            "[SSE] completed: "
+            f"reasoning_events={reasoning_events}, reasoning_chars={reasoning_chars}, "
+            f"content_events={content_events}, content_chars={content_chars}, "
+            f"finish_reason={','.join(map(str, finish_reasons)) or 'none'}, "
+            f"done={saw_done}"
+        )
+        return "".join(content_parts), usage
+
+    @staticmethod
     def call_endpoint_with_usage(api_key: str, endpoint: str, provider: str | None, model: str | None, prompt: str, image_path: str | None = None, timeout: int = 180, frame_paths: list | None = None) -> tuple:
         """Same as call_endpoint but returns (text, token_input, token_output, token_total)."""
         # Normalize endpoint URL
@@ -183,11 +288,11 @@ class CustomEndpointHelper:
             if use_chat_messages or not use_chat_messages:
                 if frame_paths:
                     content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
-                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}], "stream": True}
                 elif image_path:
-                    payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}], "stream": True}
                 else:
-                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}], "stream": True}
         elif prov == "gemini":
             contents = [prompt]
             if frame_paths:
@@ -206,14 +311,14 @@ class CustomEndpointHelper:
         else:
             if frame_paths:
                 content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
-                payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}], "stream": True}
             elif image_path:
-                payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]}
+                payload = {"model": model or "", "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}], "stream": True}
             else:
-                payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+                payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}], "stream": True}
 
         try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout, stream=True)
         except Exception as e:
             raise RuntimeError(f"Request to custom endpoint failed: {e}")
 
@@ -222,9 +327,11 @@ class CustomEndpointHelper:
             raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
 
         try:
-            j = resp.json()
-            text = CustomEndpointHelper._extract_text_from_response(j)
-            token_input, token_output, token_total = CustomEndpointHelper._extract_usage_from_response(j)
+            text, usage = CustomEndpointHelper._parse_openai_stream(resp)
+            token_input, token_output, token_total = usage
+            if not text:
+                j = resp.json()
+                text = CustomEndpointHelper._extract_text_from_response(j)
             return text, token_input, token_output, token_total
         except Exception:
             return resp.text or "", 0, 0, 0
@@ -255,16 +362,17 @@ class CustomEndpointHelper:
             if use_chat_messages:
                 if frame_paths:
                     content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
-                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}]}
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": content_items}], "stream": True}
                 elif image_path:
                     payload = {
                         "model": model or "",
                         "messages": [
                             {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}
-                        ]
+                        ],
+                        "stream": True,
                     }
                 else:
-                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}]}
+                    payload = {"model": model or "", "messages": [{"role": "user", "content": prompt}], "stream": True}
             else:
                 if frame_paths:
                     content_items = CustomEndpointHelper._build_multi_frame_content(prompt, frame_paths)
@@ -306,7 +414,7 @@ class CustomEndpointHelper:
                     messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]
                 else:
                     messages = [{"role": "user", "content": prompt}]
-                payload = {"model": model or "", "messages": messages}
+                payload = {"model": model or "", "messages": messages, "stream": True}
             else:
                 # Legacy completions-style endpoint (uses 'prompt' or 'input')
                 if frame_paths or image_path:
@@ -314,7 +422,7 @@ class CustomEndpointHelper:
                 payload = {"model": model or "", "prompt": prompt}
 
         try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout, stream=True)
         except Exception as e:
             raise RuntimeError(f"Request to custom endpoint failed: {e}")
 
@@ -323,8 +431,10 @@ class CustomEndpointHelper:
             raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
 
         try:
-            j = resp.json()
-            return CustomEndpointHelper._extract_text_from_response(j)
+            text, _ = CustomEndpointHelper._parse_openai_stream(resp)
+            if text:
+                return text
+            return CustomEndpointHelper._extract_text_from_response(resp.json())
         except Exception:
             return resp.text or ""
 
