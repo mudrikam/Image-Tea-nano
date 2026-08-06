@@ -2,6 +2,8 @@ import os
 import json
 import base64
 import threading
+import queue
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from PIL import Image
 from PySide6.QtWidgets import (
@@ -53,6 +55,127 @@ class ImageProcessor(QThread):
             self.error_occurred.emit(error if error else "Unknown error")
 
 
+class ExtensionBridge:
+    """Local HTTP bridge used by the Chrome extension."""
+
+    def __init__(self, port, event_callback):
+        self.port = int(port)
+        self.event_callback = event_callback
+        self.commands = queue.Queue()
+        self.connections = {}
+        self.connection_lock = threading.Lock()
+        self.server = None
+        self.thread = None
+
+    def start(self):
+        bridge = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _send(self, payload, status=200):
+                body = json.dumps(payload).encode('utf-8')
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.end_headers()
+
+            def do_GET(self):
+                if self.path == '/health':
+                    self._send({'ok': True, 'service': 'image-tea-envato-bridge'})
+                    return
+                if self.path.startswith('/next-command'):
+                    connection_id = self.headers.get('X-EEMT-Connection', '')
+                    with bridge.connection_lock:
+                        if connection_id not in bridge.connections:
+                            self._send({'ok': False, 'error': 'Not connected'}, 401)
+                            return
+                    try:
+                        command = bridge.commands.get_nowait()
+                    except queue.Empty:
+                        command = None
+                    self._send({'ok': True, 'command': command})
+                    return
+                self._send({'ok': False, 'error': 'Not found'}, 404)
+
+            def do_POST(self):
+                if self.path == '/connect':
+                    try:
+                        length = int(self.headers.get('Content-Length', '0'))
+                        request = json.loads(self.rfile.read(length) or b'{}')
+                        connection_id = request.get('connection_id', '')
+                        if not connection_id:
+                            self._send({'ok': False, 'error': 'Missing connection id'}, 400)
+                            return
+                        with bridge.connection_lock:
+                            is_new_connection = connection_id not in bridge.connections
+                            bridge.connections[connection_id] = request
+                        if is_new_connection:
+                            bridge.event_callback({'type': 'connection', 'message': 'Extension connected.', **request})
+                        self._send({'ok': True, 'connection_id': connection_id})
+                    except Exception as error:
+                        self._send({'ok': False, 'error': str(error)}, 400)
+                    return
+                if self.path == '/disconnect':
+                    try:
+                        length = int(self.headers.get('Content-Length', '0'))
+                        request = json.loads(self.rfile.read(length) or b'{}')
+                        connection_id = request.get('connection_id', '')
+                        with bridge.connection_lock:
+                            bridge.connections.pop(connection_id, None)
+                        bridge.event_callback({'type': 'disconnect', 'message': 'Extension disconnected.'})
+                        self._send({'ok': True})
+                    except Exception as error:
+                        self._send({'ok': False, 'error': str(error)}, 400)
+                    return
+                if self.path != '/extension-event':
+                    self._send({'ok': False, 'error': 'Not found'}, 404)
+                    return
+                try:
+                    length = int(self.headers.get('Content-Length', '0'))
+                    event = json.loads(self.rfile.read(length) or b'{}')
+                    connection_id = self.headers.get('X-EEMT-Connection', '')
+                    with bridge.connection_lock:
+                        if connection_id not in bridge.connections:
+                            self._send({'ok': False, 'error': 'Not connected'}, 401)
+                            return
+                    bridge.event_callback(event)
+                    self._send({'ok': True})
+                except Exception as error:
+                    self._send({'ok': False, 'error': str(error)}, 400)
+
+            def log_message(self, *_args):
+                return
+
+        try:
+            self.server = ThreadingHTTPServer(('127.0.0.1', self.port), Handler)
+        except OSError:
+            return False
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return True
+
+    def send(self, command):
+        self.commands.put(command)
+
+    def is_connected(self):
+        with self.connection_lock:
+            return bool(self.connections)
+
+    def stop(self):
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
+
+
 class ImageDisplayWidget(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,7 +197,7 @@ class ImageDisplayWidget(QLabel):
             }}
         """)
         self.setText("Drag & Drop Image Here\nor CLICK to Select File")
-        self.setMinimumSize(400, 120)
+        self.setMinimumSize(280, 100)
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.main_window = parent
     
@@ -96,10 +219,13 @@ class ImageDisplayWidget(QLabel):
 
 
 class EnvatoElementsMetadataDialog(QDialog):
+    extension_event_received = Signal(dict)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Envato Mockup Metadata Generator")
-        self.resize(1100, 700)
+        self.resize(860, 700)
+        self.setMinimumWidth(760)
         
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -111,6 +237,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         
         self.image_data = None
         self.processor_thread = None
+        self.extension_bridge = None
+        self.extension_port = 8765
         
         self.load_config()
         
@@ -120,6 +248,8 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.setWindowFlags(Qt.Window)
         
         self.setup_ui()
+        self.extension_event_received.connect(self.on_extension_event)
+        self.start_extension_bridge()
         self.setup_progress_timer()
         self.load_yaml_data()
         self.update_field_counts()
@@ -192,7 +322,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         content_splitter.addWidget(preview_panel)
         content_splitter.setStretchFactor(0, 1)
         content_splitter.setStretchFactor(1, 1)
-        content_splitter.setSizes([540, 540])
+        content_splitter.setSizes([400, 460])
         main_layout.addWidget(content_splitter)
         
         always_on_top_layout = QHBoxLayout()
@@ -337,7 +467,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         image_layout.setSpacing(2)
         
         self.image_display = ImageDisplayWidget(self)
-        self.image_display.setMinimumSize(400, 120)
+        self.image_display.setMinimumSize(280, 100)
         self.image_display.setMaximumHeight(150)
         image_layout.addWidget(self.image_display)
         
@@ -608,8 +738,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         preview_scroll.setWidget(listing_group)
         preview_layout.addWidget(preview_scroll, 1)
 
-        self.copy_json_btn = QPushButton("Copy JSON Metadata")
-        self.copy_json_btn.setIcon(qta.icon('fa6s.copy'))
+        self.copy_json_btn = QPushButton("Send Metadata")
+        self.copy_json_btn.setIcon(qta.icon('fa6s.paper-plane'))
         self.copy_json_btn.setMinimumHeight(46)
         self.copy_json_btn.setCursor(Qt.PointingHandCursor)
         self.copy_json_btn.setStyleSheet(f"""
@@ -629,8 +759,21 @@ class EnvatoElementsMetadataDialog(QDialog):
                 color: {theme.get_color('button_disabled_fg')};
             }}
         """)
-        self.copy_json_btn.clicked.connect(self.copy_json_metadata)
+        self.copy_json_btn.clicked.connect(self.send_metadata_to_extension)
         preview_layout.addWidget(self.copy_json_btn)
+
+        self.extension_status_label = QLabel(
+            f"App listener: waiting for extension on port {self.extension_port}"
+        )
+        self.extension_status_label.setStyleSheet(
+            f"color: {theme.get_color('text_light')}; font-size: 11px;"
+        )
+        preview_layout.addWidget(self.extension_status_label)
+        self.extension_log = QTextEdit()
+        self.extension_log.setReadOnly(True)
+        self.extension_log.setPlaceholderText("Extension activity log")
+        self.extension_log.setMaximumHeight(90)
+        preview_layout.addWidget(self.extension_log)
 
         return preview_panel
 
@@ -691,15 +834,53 @@ class EnvatoElementsMetadataDialog(QDialog):
             """)
             self.preview_tags_layout.addWidget(pill, index // columns, index % columns)
 
-    def copy_json_metadata(self):
-        self.update_preview()
-        payload = json.dumps(self.build_json_metadata(), ensure_ascii=False, indent=2)
-        QApplication.clipboard().setText(payload)
-        from PySide6.QtWidgets import QToolTip
-        QToolTip.showText(
-            self.copy_json_btn.mapToGlobal(self.copy_json_btn.rect().center()),
-            "Copied JSON metadata"
+    def start_extension_bridge(self):
+        self.extension_bridge = ExtensionBridge(
+            self.extension_port, self.extension_event_received.emit
         )
+        if self.extension_bridge.start():
+            self.extension_status_label.setText(
+                f"Extension bridge ready on 127.0.0.1:{self.extension_port}"
+            )
+        else:
+            self.extension_status_label.setText(
+                f"Extension bridge unavailable on port {self.extension_port}"
+            )
+
+    def on_extension_event(self, event):
+        event_type = event.get('type', 'status')
+        message = event.get('message', '')
+        if message:
+            self.extension_log.append(message)
+        if event_type == 'connection':
+            self.extension_status_label.setText(
+                f"Extension connected: {event.get('url', 'active tab')}"
+            )
+        elif event_type == 'disconnect':
+            self.extension_status_label.setText(
+                f"App listener: waiting for extension on port {self.extension_port}"
+            )
+        elif event_type == 'error':
+            self.extension_status_label.setText(f"Extension error: {message}")
+            self.status_label.setText(f"Extension error: {message}")
+        elif message:
+            self.extension_status_label.setText(f"Extension: {message}")
+            self.status_label.setText(message)
+
+    def send_metadata_to_extension(self):
+        self.update_preview()
+        if not self.extension_bridge or not self.extension_bridge.is_connected():
+            self.status_label.setText("Connect the extension first")
+            return
+        payload = self.build_json_metadata()
+        self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
+        self.status_label.setText("Sending metadata to the connected extension...")
+        self.extension_status_label.setText("Waiting for extension...")
+
+    def closeEvent(self, event):
+        if self.extension_bridge:
+            self.extension_bridge.stop()
+        super().closeEvent(event)
     
     def create_copy_button(self, widget, data_name):
         copy_btn = QPushButton()

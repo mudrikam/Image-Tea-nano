@@ -1,96 +1,90 @@
 (() => {
-  const $ = (id) => document.getElementById(id);
-  const metadata = $('metadata');
-  const status = $('status');
-  const log = $('log');
-  const paste = $('paste');
-  const fill = $('fill');
-  const clear = $('clear');
-  const STORAGE_KEY = 'eemt_state';
+  const portInput = document.getElementById('port');
+  const connect = document.getElementById('connect');
+  const status = document.getElementById('status');
+  const log = document.getElementById('log');
+  const stateKey = 'eemt_connection';
+  let connectionId = null;
+  let connected = false;
 
-  function setStatus(text, kind = '') {
-    status.textContent = text;
+  const write = (message, kind = '') => {
+    status.textContent = message;
     status.className = `status ${kind}`;
-  }
-
-  function renderState(state) {
-    if (!state) return;
-    if (state.metadata && !metadata.value) metadata.value = JSON.stringify(state.metadata, null, 2);
-    if (Array.isArray(state.logs)) log.textContent = state.logs.join('\n') + (state.logs.length ? '\n' : '');
-    if (state.status) setStatus(state.status, state.kind || '');
+    log.textContent += `${new Date().toLocaleTimeString()} ${message}\n`;
     log.scrollTop = log.scrollHeight;
-  }
+  };
 
-  metadata.addEventListener('input', () => {
-    const current = parseMetadata(metadata.value);
-    if (current) {
-      chrome.storage.local.set({ [STORAGE_KEY]: { metadata: current, status: status.textContent, kind: status.className.replace('status', '').trim(), logs: log.textContent.trim().split('\n').filter(Boolean) } });
-    }
-  });
-
-  chrome.storage.local.get(STORAGE_KEY, (result) => renderState(result[STORAGE_KEY]));
-
-  paste.addEventListener('click', async () => {
-    try {
-      metadata.value = await navigator.clipboard.readText();
-      chrome.storage.local.set({ [STORAGE_KEY]: { metadata: parseMetadata(metadata.value), status: 'JSON pasted from clipboard.', kind: 'success', logs: [] } });
-      setStatus('JSON pasted from clipboard.', 'success');
-    } catch (_) {
-      setStatus('Clipboard access failed. Use Ctrl+V in the JSON box.', 'error');
-      metadata.focus();
-    }
-  });
-
-  clear.addEventListener('click', async () => {
-    metadata.value = '';
-    log.textContent = '';
-    setStatus('Extension state cleared.');
-    await chrome.storage.local.remove(STORAGE_KEY);
-    metadata.focus();
-  });
-
-  fill.addEventListener('click', async () => {
-    let data;
-    try {
-      data = JSON.parse(metadata.value);
-    } catch (_) {
-      setStatus('Invalid JSON.', 'error');
+  async function connectToApp() {
+    const port = Number(portInput.value);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      write('Port harus antara 1024 dan 65535.', 'error');
       return;
     }
-    fill.disabled = true;
-    log.textContent = '';
-    setStatus('Starting form filling...');
-    chrome.storage.local.set({ [STORAGE_KEY]: { metadata: data, status: 'Starting form filling...', kind: '', logs: [] } });
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id || !/^https:\/\/elements(?:-contributors)?\.envato\.com\//.test(tab.url || '')) {
-        throw new Error('The active tab is not an Envato Elements contributor page.');
-      }
-      let response;
-      try {
-        response = await chrome.tabs.sendMessage(tab.id, { type: 'EEMT_FILL', metadata: data });
-      } catch (_) {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-        response = await chrome.tabs.sendMessage(tab.id, { type: 'EEMT_FILL', metadata: data });
-      }
-      if (!response?.ok) throw new Error(response?.error || 'Automation could not start.');
-      setStatus('Form filling completed.', 'success');
-      chrome.storage.local.set({ [STORAGE_KEY]: { metadata: data, status: 'Form filling completed.', kind: 'success', logs: log.textContent.trim().split('\n').filter(Boolean) } });
-    } catch (error) {
-      setStatus(error.message, 'error');
-      chrome.storage.local.set({ [STORAGE_KEY]: { metadata: data, status: error.message, kind: 'error', logs: log.textContent.trim().split('\n').filter(Boolean) } });
-    } finally {
-      fill.disabled = false;
-    }
-  });
+    connectionId = crypto.randomUUID();
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const response = await fetch(`http://127.0.0.1:${port}/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connection_id: connectionId, url: tab?.url || '', tab_id: tab?.id || null })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Connection rejected.');
+    await chrome.storage.local.set({ [stateKey]: {
+      port,
+      connectionId,
+      url: tab?.url || '',
+      tabId: tab?.id || null
+    } });
+    write(`Connected to Image Tea on port ${port}.`, 'success');
+    connected = true;
+    connect.textContent = 'Disconnect';
+    connect.classList.add('button-danger');
+    portInput.disabled = true;
+    await chrome.runtime.sendMessage({
+      type: 'EEMT_CONNECT',
+      connection: { port, connectionId }
+    });
+  }
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== 'EEMT_LOG') return;
-    log.textContent += `${message.message}\n`;
-    log.scrollTop = log.scrollHeight;
+    if (message?.type === 'EEMT_LOG') write(message.message);
   });
 
-  function parseMetadata(value) {
-    try { return JSON.parse(value); } catch (_) { return null; }
+  async function disconnectFromApp() {
+    if (!connectionId) return;
+    const port = Number(portInput.value);
+    try {
+      await fetch(`http://127.0.0.1:${port}/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId })
+      });
+    } catch (_) {}
+    await chrome.runtime.sendMessage({ type: 'EEMT_DISCONNECT' });
+    await chrome.storage.local.remove(stateKey);
+    connectionId = null;
+    connected = false;
+    connect.textContent = 'Connect';
+    connect.classList.remove('button-danger');
+    connect.disabled = false;
+    portInput.disabled = false;
+    write('Disconnected.');
   }
+
+  connect.addEventListener('click', () => {
+    const action = connected ? disconnectFromApp() : connectToApp();
+    action.catch((error) => write(error.message, 'error'));
+  });
+  chrome.storage.local.get(stateKey, (result) => {
+    const saved = result[stateKey];
+    if (saved?.port) {
+      portInput.value = saved.port;
+      connectionId = saved.connectionId;
+      connected = true;
+      connect.textContent = 'Disconnect';
+      connect.classList.add('button-danger');
+      portInput.disabled = true;
+      write(`Saved connection on port ${saved.port}. Reconnecting automatically...`);
+    }
+  });
 })();

@@ -283,6 +283,12 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== 'EEMT_FILL') return false;
+    if (!/^https:\/\/elements-contributors\.envato\.com\/item-submissions\/[0-9a-f-]+(?:[/?#]|$)/i.test(location.href)) {
+      const error = 'Buka halaman edit item Envato terlebih dahulu.';
+      report(`ERROR: ${error}`);
+      sendResponse({ ok: false, error });
+      return false;
+    }
     run(message.metadata || {}).then(() => sendResponse({ ok: true })).catch((error) => {
       report(`ERROR: ${error.message}`);
       sendResponse({ ok: false, error: error.message });

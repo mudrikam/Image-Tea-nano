@@ -6,7 +6,9 @@
   "permissions": ["activeTab", "tabs", "scripting", "clipboardRead", "storage", "sidePanel"],
   "host_permissions": [
     "https://elements.envato.com/*",
-    "https://elements-contributors.envato.com/*"
+    "https://elements-contributors.envato.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "action": {
     "default_title": "Envato Elements Mockup Metadata Tool",
