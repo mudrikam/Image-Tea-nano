@@ -442,15 +442,7 @@ def setup_main_toolbar(window: QWidget):
         window, icon_size, obj_name='toolbar_whatsapp')
 
     def open_documentation_toolbar():
-        if not hasattr(window, '_read_documentation_dialog') or not window._read_documentation_dialog:
-            from dialogs.read_documentation_dialog import ReadDocumentationDialog
-            window._read_documentation_dialog = ReadDocumentationDialog(None)
-            window._read_documentation_dialog.destroyed.connect(lambda: setattr(window, '_read_documentation_dialog', None))
-            if hasattr(window, 'windowIcon') and not window.windowIcon().isNull():
-                window._read_documentation_dialog.setWindowIcon(window.windowIcon())
-        window._read_documentation_dialog.show()
-        window._read_documentation_dialog.raise_()
-        window._read_documentation_dialog.activateWindow()
+        webbrowser.open(links["user_guide"])
 
     documentation_action = create_toolbar_button_with_label(
         make_icon('fa6s.book-open', icon_color),
