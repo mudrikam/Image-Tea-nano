@@ -6,6 +6,7 @@ import re
 from database.db_migration_manager import DBMigrationManager
 
 from ui.theme_system import theme
+from helpers.ai_helper.metadata_helper import normalize_tags
 
 def sanitize_metadata_text(text, allow_commas=False):
     """
@@ -138,7 +139,7 @@ class ImageTeaDB:
     def add_file(self, filepath, filename, title=None, description=None, tags=None, status=None, original_filename=None, file_prompt=None):
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
-        tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
+        tags_clean = sanitize_metadata_text(normalize_tags(tags), allow_commas=True) if tags else tags
 
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -151,7 +152,7 @@ class ImageTeaDB:
     def update_metadata(self, filepath, title, description, tags, status=None, prompt=None):
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
-        tags_clean = sanitize_metadata_text(tags, allow_commas=True) if tags else tags
+        tags_clean = sanitize_metadata_text(normalize_tags(tags), allow_commas=True) if tags else tags
 
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()

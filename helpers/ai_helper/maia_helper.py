@@ -11,6 +11,7 @@ from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_t
 from helpers.image_compression_helper import compress_and_save_image
 from helpers.video_proxy_helper import extract_video_frames
 from helpers.ai_helper.openai_stream_helper import consume_openai_stream
+from helpers.ai_helper.metadata_helper import normalize_tags
 
 try:
     _cfg_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
@@ -380,11 +381,7 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
             title = meta.get('title', '')
             description = meta.get('description', '')
             tags = meta.get('tags', [])
-            if isinstance(tags, list):
-                tags = ', '.join([str(tag).strip() for tag in tags])
-            else:
-                tags = str(tags)
-            tags = tags.lower()
+            tags = normalize_tags(tags)
             category = meta.get('category', {})
             filetype = meta.get('filetype', '')
             file_prompt = meta.get('file_prompt', '') or ''

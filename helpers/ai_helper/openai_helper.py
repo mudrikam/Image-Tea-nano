@@ -13,6 +13,7 @@ from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
 from helpers.ai_helper.openai_stream_helper import consume_openai_stream
+from helpers.ai_helper.metadata_helper import normalize_tags
 
 _generation_times_openai = []
 
@@ -595,11 +596,7 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             title = meta.get('title', '')
             description = meta.get('description', '')
             tags = meta.get('tags', [])
-            if isinstance(tags, list):
-                tags = ', '.join([str(tag).strip() for tag in tags])
-            else:
-                tags = str(tags)
-            tags = tags.lower()
+            tags = normalize_tags(tags)
             category = meta.get('category', {})
             filetype = meta.get('filetype', '')
             file_prompt = meta.get('file_prompt', '') or ''
