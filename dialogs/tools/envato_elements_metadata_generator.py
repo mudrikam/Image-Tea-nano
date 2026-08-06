@@ -647,7 +647,11 @@ class EnvatoElementsMetadataDialog(QDialog):
             'title': self.title_edit.text().strip(),
             'tagline': self.tagline_edit.text().strip(),
             'description': description,
-            'tags': tags
+            'tags': tags,
+            'dpi': self.dpi_edit.text().strip(),
+            'width': self.width_edit.text().strip(),
+            'height': self.height_edit.text().strip(),
+            'dimensionUnit': 'px'
         }
 
     def update_preview(self):
