@@ -284,7 +284,7 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== 'EEMT_FILL') return false;
     if (!/^https:\/\/elements-contributors\.envato\.com\/item-submissions\/[0-9a-f-]+(?:[/?#]|$)/i.test(location.href)) {
-      const error = 'Buka halaman edit item Envato terlebih dahulu.';
+      const error = 'Open an Envato item editing page first.';
       report(`ERROR: ${error}`);
       sendResponse({ ok: false, error });
       return false;

@@ -2,6 +2,7 @@ const ITEM_URL = /^https:\/\/elements-contributors\.envato\.com\/item-submission
 let bridgeConnection = null;
 let reconnectTimer = null;
 let wasConnected = false;
+let processingCommand = false;
 
 function startReconnectLoop() {
   if (reconnectTimer) return;
@@ -36,19 +37,25 @@ async function reconnect() {
     });
     if (response.ok && !wasConnected) {
       wasConnected = true;
-      await sendEvent('status', 'Extension otomatis terhubung ke Image Tea.');
+      await sendEvent('status', 'Extension automatically connected to Image Tea.');
     }
   } catch (_) {}
 }
 
 async function processCommand(command) {
   if (!command || command.type !== 'EEMT_FILL') return;
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !ITEM_URL.test(tab.url || '')) {
-    await sendEvent('error', 'Buka halaman edit item Envato terlebih dahulu. URL harus berbentuk /item-submissions/<id>.');
+  if (processingCommand) {
+    await sendEvent('status', 'Previous metadata is still being processed.');
     return;
   }
-  await sendEvent('status', 'Halaman item valid, memulai pengisian metadata.');
+  processingCommand = true;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !ITEM_URL.test(tab.url || '')) {
+    await sendEvent('error', 'Open an Envato item editing page first. The URL must match /item-submissions/<id>.');
+    processingCommand = false;
+    return;
+  }
+  await sendEvent('status', 'Valid item page detected. Starting metadata fill.');
   try {
     let response;
     try {
@@ -57,9 +64,12 @@ async function processCommand(command) {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
       response = await chrome.tabs.sendMessage(tab.id, command);
     }
-    if (!response?.ok) throw new Error(response?.error || 'Pengisian metadata gagal.');
+    if (!response?.ok) throw new Error(response?.error || 'Metadata fill failed.');
+    await sendEvent('status', 'Metadata successfully sent to Envato.');
   } catch (error) {
     await sendEvent('error', error.message);
+  } finally {
+    processingCommand = false;
   }
 }
 
@@ -80,7 +90,7 @@ chrome.runtime.onMessage.addListener((message) => {
     chrome.storage.local.set({ eemt_connection: bridgeConnection });
     startReconnectLoop();
     wasConnected = true;
-    sendEvent('status', 'Extension connected dan siap menerima metadata.');
+    sendEvent('status', 'Extension connected and ready to receive metadata.');
   }
   if (message?.type === 'EEMT_DISCONNECT') {
     wasConnected = false;

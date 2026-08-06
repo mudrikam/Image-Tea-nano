@@ -17,7 +17,7 @@
   async function connectToApp() {
     const port = Number(portInput.value);
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-      write('Port harus antara 1024 dan 65535.', 'error');
+      write('Port must be between 1024 and 65535.', 'error');
       return;
     }
     connectionId = crypto.randomUUID();

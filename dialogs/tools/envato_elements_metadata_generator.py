@@ -97,10 +97,7 @@ class ExtensionBridge:
                         if connection_id not in bridge.connections:
                             self._send({'ok': False, 'error': 'Not connected'}, 401)
                             return
-                    try:
-                        command = bridge.commands.get_nowait()
-                    except queue.Empty:
-                        command = None
+                    command = bridge.next_command(connection_id)
                     self._send({'ok': True, 'command': command})
                     return
                 self._send({'ok': False, 'error': 'Not found'}, 404)
@@ -163,7 +160,21 @@ class ExtensionBridge:
         return True
 
     def send(self, command):
-        self.commands.put(command)
+        with self.connection_lock:
+            connection_id = next(iter(self.connections), None)
+        if not connection_id:
+            return False
+        self.commands.put({'connection_id': connection_id, 'command': command})
+        return True
+
+    def next_command(self, connection_id):
+        while True:
+            try:
+                item = self.commands.get_nowait()
+            except queue.Empty:
+                return None
+            if item.get('connection_id') == connection_id:
+                return item.get('command')
 
     def is_connected(self):
         with self.connection_lock:
@@ -873,9 +884,14 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.status_label.setText("Connect the extension first")
             return
         payload = self.build_json_metadata()
-        self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
-        self.status_label.setText("Sending metadata to the connected extension...")
-        self.extension_status_label.setText("Waiting for extension...")
+        if not self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload}):
+            self.status_label.setText("Extension connection is not ready")
+            self.extension_status_label.setText(
+                f"App listener: waiting for extension on port {self.extension_port}"
+            )
+            return
+        self.status_label.setText("Metadata queued for the connected extension...")
+        self.extension_status_label.setText("Metadata queued")
 
     def closeEvent(self, event):
         if self.extension_bridge:
