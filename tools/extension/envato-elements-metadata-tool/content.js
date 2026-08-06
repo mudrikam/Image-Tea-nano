@@ -162,6 +162,62 @@
       ?.querySelector('.DeprecatedDropdown__select___BFZQ9');
   }
 
+  function multiSelectSection(label) {
+    const normalizedLabel = normalize(label);
+    const sections = [];
+    const labels = [...document.querySelectorAll('div, label, span')]
+      .filter((element) => normalize(element.textContent) === normalizedLabel);
+    for (const labelNode of labels) {
+      let section = labelNode.parentElement;
+      for (let level = 0; section && level < 6; level += 1, section = section.parentElement) {
+        if (visible(section) && section.querySelector('[class*="DeprecatedDropdown__control"]')) {
+          sections.push(section);
+          break;
+        }
+      }
+    }
+    return sections.find((section) => !section.querySelector('input[type="hidden"]')?.value) ||
+      sections[sections.length - 1] || null;
+  }
+
+  function multiSelectInput(label) {
+    const section = multiSelectSection(label);
+    const control = section?.querySelector('[class*="DeprecatedDropdown__control___"]');
+    const controlContent = control?.querySelector('[class*="DeprecatedDropdown__controlContent___"]');
+    const input = controlContent?.querySelector('[class*="DeprecatedDropdown__input___"]') ||
+      section?.querySelector('.DeprecatedDropdown__input___2Ujjh');
+    return { controlContent, input };
+  }
+
+  function dispatchKey(element, key, code, keyCode) {
+    const event = { key, code, keyCode, which: keyCode, bubbles: true, cancelable: true };
+    element.dispatchEvent(new KeyboardEvent('keydown', event));
+    element.dispatchEvent(new KeyboardEvent('keyup', event));
+  }
+
+  function selectMultiSelectByKeyboard(label, arrowDownCount = 0) {
+    const { controlContent, input } = multiSelectInput(label);
+    if (!controlContent || !input) throw new Error(`Could not find ${label} dropdown.`);
+    controlContent.click();
+    input.focus?.();
+    for (let index = 0; index < arrowDownCount; index += 1) {
+      dispatchKey(input, 'ArrowDown', 'ArrowDown', 40);
+    }
+    dispatchKey(input, 'Enter', 'Enter', 13);
+  }
+
+  function selectApplicationsSupported() {
+    selectMultiSelectByKeyboard('Applications Supported', 1);
+    report('Selected Applications Supported option.');
+  }
+
+  function selectFileTypes() {
+    selectMultiSelectByKeyboard('File Types', 14);
+    // Envato replaces the control content after each multi-select choice.
+    selectMultiSelectByKeyboard('File Types', 12);
+    report('Selected File Types options.');
+  }
+
   async function selectOption(label, option) {
     const directSelectors = {
       categories: '.item-submission-categories',
@@ -273,11 +329,9 @@
     await pasteField('DPI', metadata.dpi);
     await fillDimensions(metadata);
     await checkbox('Documentation', true);
-    // Fill tags before the remaining multi-select attributes. Envato rebuilds
-    // these controls after each selection, so keeping this order avoids stale
-    // dropdown instances and leaves the application field last to retry safely.
     await fillTags(metadata.tags);
-    report('Skipped File Types and Applications Supported temporarily.');
+    selectApplicationsSupported();
+    selectFileTypes();
     report('All requested metadata fields filled. Review before submitting.');
   }
 
