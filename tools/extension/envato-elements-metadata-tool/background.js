@@ -44,6 +44,9 @@ async function reconnect() {
 
 async function processCommand(command) {
   if (!command || command.type !== 'EEMT_FILL') return;
+  await sendEvent('command_received', 'Metadata command received.', {
+    command_id: command.command_id
+  });
   if (processingCommand) {
     await sendEvent('status', 'Previous metadata is still being processed.');
     return;

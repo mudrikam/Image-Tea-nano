@@ -3,6 +3,8 @@ import json
 import base64
 import threading
 import queue
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from PIL import Image
@@ -73,12 +75,17 @@ class ExtensionBridge:
         class Handler(BaseHTTPRequestHandler):
             def _send(self, payload, status=200):
                 body = json.dumps(payload).encode('utf-8')
-                self.send_response(status)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(body)
+                try:
+                    self.send_response(status)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                    # Chrome may cancel a polling request while changing focus
+                    # or restarting its extension service worker.
+                    return
 
             def do_OPTIONS(self):
                 self.send_response(204)
@@ -93,10 +100,9 @@ class ExtensionBridge:
                     return
                 if self.path.startswith('/next-command'):
                     connection_id = self.headers.get('X-EEMT-Connection', '')
-                    with bridge.connection_lock:
-                        if connection_id not in bridge.connections:
-                            self._send({'ok': False, 'error': 'Not connected'}, 401)
-                            return
+                    if not bridge.touch_connection(connection_id):
+                        self._send({'ok': False, 'error': 'Not connected'}, 401)
+                        return
                     command = bridge.next_command(connection_id)
                     self._send({'ok': True, 'command': command})
                     return
@@ -113,6 +119,7 @@ class ExtensionBridge:
                             return
                         with bridge.connection_lock:
                             is_new_connection = connection_id not in bridge.connections
+                            request['last_seen'] = time.monotonic()
                             bridge.connections[connection_id] = request
                         if is_new_connection:
                             bridge.event_callback({'type': 'connection', 'message': 'Extension connected.', **request})
@@ -139,17 +146,24 @@ class ExtensionBridge:
                     length = int(self.headers.get('Content-Length', '0'))
                     event = json.loads(self.rfile.read(length) or b'{}')
                     connection_id = self.headers.get('X-EEMT-Connection', '')
-                    with bridge.connection_lock:
-                        if connection_id not in bridge.connections:
-                            self._send({'ok': False, 'error': 'Not connected'}, 401)
-                            return
+                    if not bridge.touch_connection(connection_id):
+                        self._send({'ok': False, 'error': 'Not connected'}, 401)
+                        return
+                    if event.get('type') == 'command_received':
+                        bridge.acknowledge(event.get('command_id'), connection_id)
                     bridge.event_callback(event)
                     self._send({'ok': True})
                 except Exception as error:
                     self._send({'ok': False, 'error': str(error)}, 400)
 
-            def log_message(self, *_args):
-                return
+        def log_message(self, *_args):
+            return
+
+        def handle_one_request(self):
+            try:
+                return super().handle_one_request()
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return False
 
         try:
             self.server = ThreadingHTTPServer(('127.0.0.1', self.port), Handler)
@@ -160,21 +174,58 @@ class ExtensionBridge:
         return True
 
     def send(self, command):
-        with self.connection_lock:
-            connection_id = next(iter(self.connections), None)
+        connection_id = self.active_connection_id()
         if not connection_id:
             return False
-        self.commands.put({'connection_id': connection_id, 'command': command})
-        return True
+        command_id = uuid.uuid4().hex
+        self.commands.put({
+            'command_id': command_id,
+            'connection_id': connection_id,
+            'command': command
+        })
+        return command_id
 
     def next_command(self, connection_id):
-        while True:
-            try:
-                item = self.commands.get_nowait()
-            except queue.Empty:
-                return None
+        with self.commands.mutex:
+            items = list(self.commands.queue)
+        for item in items:
             if item.get('connection_id') == connection_id:
-                return item.get('command')
+                return {
+                    'command_id': item.get('command_id'),
+                    **item.get('command', {})
+                }
+
+    def active_connection_id(self):
+        now = time.monotonic()
+        with self.connection_lock:
+            for connection_id, connection in self.connections.items():
+                if now - connection.get('last_seen', 0) <= 5:
+                    return connection_id
+        return None
+
+    def touch_connection(self, connection_id):
+        with self.connection_lock:
+            connection = self.connections.get(connection_id)
+            if not connection:
+                return False
+            connection['last_seen'] = time.monotonic()
+            return True
+
+    def acknowledge(self, command_id, connection_id):
+        if not command_id:
+            return
+        with self.connection_lock:
+            remaining = []
+            while True:
+                try:
+                    item = self.commands.get_nowait()
+                except queue.Empty:
+                    break
+                if not (item.get('command_id') == command_id and
+                        item.get('connection_id') == connection_id):
+                    remaining.append(item)
+            for item in remaining:
+                self.commands.put(item)
 
     def is_connected(self):
         with self.connection_lock:
@@ -884,14 +935,15 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.status_label.setText("Connect the extension first")
             return
         payload = self.build_json_metadata()
-        if not self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload}):
+        command_id = self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
+        if not command_id:
             self.status_label.setText("Extension connection is not ready")
             self.extension_status_label.setText(
                 f"App listener: waiting for extension on port {self.extension_port}"
             )
             return
-        self.status_label.setText("Metadata queued for the connected extension...")
-        self.extension_status_label.setText("Metadata queued")
+        self.status_label.setText("Sending metadata to the connected extension...")
+        self.extension_status_label.setText("Sending metadata")
 
     def closeEvent(self, event):
         if self.extension_bridge:
