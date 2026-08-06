@@ -7,10 +7,11 @@ from PIL import Image
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel,
     QTextEdit, QLineEdit, QProgressBar, QFileDialog, QMessageBox,
-    QSpinBox, QScrollArea, QGroupBox, QCheckBox, QComboBox, QApplication
+    QSpinBox, QScrollArea, QGroupBox, QCheckBox, QComboBox, QApplication,
+    QSplitter, QTextBrowser, QGridLayout
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QBuffer, QIODevice, QByteArray
-from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon, QColor
+from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon, QColor, QFont
 import qtawesome as qta
 from config import BASE_PATH
 from database.db_operation import ImageTeaDB
@@ -97,8 +98,8 @@ class ImageDisplayWidget(QLabel):
 class EnvatoElementsMetadataDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Envato Elements Metadata Generator")
-        self.resize(300, 700)
+        self.setWindowTitle("Envato Mockup Metadata Generator")
+        self.resize(1100, 700)
         
         icon_path = os.path.join(BASE_PATH, 'res', 'image_tea.ico')
         if os.path.exists(icon_path):
@@ -178,6 +179,21 @@ class EnvatoElementsMetadataDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(2)
+
+        content_splitter = QSplitter(Qt.Horizontal)
+        content_splitter.setChildrenCollapsible(False)
+        editor_panel = QWidget()
+        editor_layout = QVBoxLayout(editor_panel)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(2)
+
+        preview_panel = self.create_preview_panel()
+        content_splitter.addWidget(editor_panel)
+        content_splitter.addWidget(preview_panel)
+        content_splitter.setStretchFactor(0, 1)
+        content_splitter.setStretchFactor(1, 1)
+        content_splitter.setSizes([540, 540])
+        main_layout.addWidget(content_splitter)
         
         always_on_top_layout = QHBoxLayout()
         self.always_on_top_check = QCheckBox("Always on Top")
@@ -185,11 +201,11 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.always_on_top_check.toggled.connect(self.toggle_always_on_top)
         always_on_top_layout.addWidget(self.always_on_top_check)
         always_on_top_layout.addStretch()
-        main_layout.addLayout(always_on_top_layout)
-        
-        self.create_api_selection_panel(main_layout)
-        self.create_image_panel(main_layout)
-        self.create_results_panel(main_layout)
+        editor_layout.addLayout(always_on_top_layout)
+
+        self.create_api_selection_panel(editor_layout)
+        self.create_image_panel(editor_layout)
+        self.create_results_panel(editor_layout)
     
     def setup_progress_timer(self):
         self.progress_timer = QTimer()
@@ -414,6 +430,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.title_edit.setMaximumHeight(24)
         self.title_edit.textChanged.connect(self.save_yaml_data)
         self.title_edit.textChanged.connect(self.update_field_counts)
+        self.title_edit.textChanged.connect(self.update_preview)
         title_copy_btn = self.create_copy_button(self.title_edit, "Title")
         title_input_layout.addWidget(self.title_edit)
         title_input_layout.addWidget(title_copy_btn)
@@ -430,6 +447,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.tagline_edit.setMaximumHeight(24)
         self.tagline_edit.textChanged.connect(self.save_yaml_data)
         self.tagline_edit.textChanged.connect(self.update_field_counts)
+        self.tagline_edit.textChanged.connect(self.update_preview)
         tagline_copy_btn = self.create_copy_button(self.tagline_edit, "Tagline")
         tagline_input_layout.addWidget(self.tagline_edit)
         tagline_input_layout.addWidget(tagline_copy_btn)
@@ -443,6 +461,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.dpi_edit.setMaximumHeight(24)
         self.dpi_edit.textChanged.connect(self.save_config_values)
         self.dpi_edit.textChanged.connect(self.update_description_realtime)
+        self.dpi_edit.textChanged.connect(self.update_preview)
         dpi_copy_btn = self.create_copy_button(self.dpi_edit, "DPI")
         dims_layout.addWidget(self.dpi_edit)
         dims_layout.addWidget(dpi_copy_btn)
@@ -453,6 +472,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.width_edit.setMaximumHeight(24)
         self.width_edit.textChanged.connect(self.save_config_values)
         self.width_edit.textChanged.connect(self.update_description_realtime)
+        self.width_edit.textChanged.connect(self.update_preview)
         width_copy_btn = self.create_copy_button(self.width_edit, "Width")
         dims_layout.addWidget(self.width_edit)
         dims_layout.addWidget(width_copy_btn)
@@ -463,6 +483,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.height_edit.setMaximumHeight(24)
         self.height_edit.textChanged.connect(self.save_config_values)
         self.height_edit.textChanged.connect(self.update_description_realtime)
+        self.height_edit.textChanged.connect(self.update_preview)
         height_copy_btn = self.create_copy_button(self.height_edit, "Height")
         dims_layout.addWidget(self.height_edit)
         dims_layout.addWidget(height_copy_btn)
@@ -480,6 +501,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.tags_edit.setMaximumHeight(60)
         self.tags_edit.textChanged.connect(self.save_yaml_data)
         self.tags_edit.textChanged.connect(self.update_field_counts)
+        self.tags_edit.textChanged.connect(self.update_preview)
         tags_copy_btn = self.create_copy_button(self.tags_edit, "Tags")
         tags_copy_btn.setMaximumHeight(60)
         tags_input_layout.addWidget(self.tags_edit)
@@ -494,6 +516,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.items_count_spin.setValue(defaults.get('items_count', 1))
         self.items_count_spin.setMaximumHeight(24)
         self.items_count_spin.valueChanged.connect(self.update_items_count)
+        self.items_count_spin.valueChanged.connect(self.update_preview)
         items_input_layout.addWidget(self.items_count_spin)
         items_input_layout.addStretch()
         scroll_layout.addLayout(items_input_layout)
@@ -507,6 +530,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.description_edit = QTextEdit()
         self.description_edit.setMinimumHeight(100)
         self.description_edit.textChanged.connect(self.save_yaml_data)
+        self.description_edit.textChanged.connect(self.update_preview)
         desc_copy_btn = self.create_copy_button(self.description_edit, "Description")
         desc_copy_btn.setMaximumHeight(100)
         desc_input_layout.addWidget(self.description_edit)
@@ -516,6 +540,162 @@ class EnvatoElementsMetadataDialog(QDialog):
         scroll.setWidget(scroll_widget)
         results_layout.addWidget(scroll)
         main_layout.addWidget(results_group)
+
+    def create_preview_panel(self):
+        preview_panel = QWidget()
+        preview_layout = QVBoxLayout(preview_panel)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(4)
+
+        listing_group = QGroupBox("Envato Elements Preview")
+        listing_layout = QVBoxLayout(listing_group)
+        listing_layout.setContentsMargins(8, 8, 8, 8)
+        listing_layout.setSpacing(4)
+
+        self.preview_title = QLabel("Title preview")
+        self.preview_title.setWordWrap(True)
+        self.preview_title.setStyleSheet(
+            f"font-size: 18px; font-weight: 700; color: {theme.get_color('foreground')}; "
+            "padding: 4px 2px 0 2px;"
+        )
+        listing_layout.addWidget(self.preview_title)
+
+        self.preview_tagline = QLabel("Tagline preview")
+        self.preview_tagline.setWordWrap(True)
+        self.preview_tagline.setStyleSheet(
+            f"font-size: 12px; color: {theme.get_color('text_light')}; "
+            "padding: 0 2px 6px 2px;"
+        )
+        listing_layout.addWidget(self.preview_tagline)
+
+        self.preview_description = QTextBrowser()
+        self.preview_description.setOpenExternalLinks(False)
+        self.preview_description.setReadOnly(True)
+        self.preview_description.setMinimumHeight(220)
+        self.preview_description.setPlaceholderText("Description preview")
+        self.preview_description.setFont(QFont("Segoe UI", 10))
+        self.preview_description.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: rgba(128, 128, 128, 0.06);
+                border: 1px solid {theme.get_color('gray')};
+                border-radius: 8px;
+                padding: 10px;
+                color: {theme.get_color('foreground')};
+            }}
+        """)
+        self.preview_description.document().setDefaultStyleSheet("""
+            body { margin: 4px; }
+            h1, h2, h3 { margin-top: 10px; margin-bottom: 6px; }
+            p { margin-top: 5px; margin-bottom: 8px; line-height: 150%; }
+            li { margin-bottom: 4px; }
+        """)
+        listing_layout.addWidget(self.preview_description)
+
+        tags_header = QLabel("Tags")
+        tags_header.setStyleSheet("font-size: 13px; font-weight: bold; margin-top: 6px;")
+        listing_layout.addWidget(tags_header)
+
+        self.preview_tags_widget = QWidget()
+        self.preview_tags_layout = QGridLayout(self.preview_tags_widget)
+        self.preview_tags_layout.setContentsMargins(0, 0, 0, 0)
+        self.preview_tags_layout.setHorizontalSpacing(6)
+        self.preview_tags_layout.setVerticalSpacing(6)
+        listing_layout.addWidget(self.preview_tags_widget)
+
+        preview_scroll = QScrollArea()
+        preview_scroll.setWidgetResizable(True)
+        preview_scroll.setFrameShape(QScrollArea.NoFrame)
+        preview_scroll.setWidget(listing_group)
+        preview_layout.addWidget(preview_scroll, 1)
+
+        self.copy_json_btn = QPushButton("Copy JSON Metadata")
+        self.copy_json_btn.setIcon(qta.icon('fa6s.copy'))
+        self.copy_json_btn.setMinimumHeight(46)
+        self.copy_json_btn.setCursor(Qt.PointingHandCursor)
+        self.copy_json_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {theme.get_color('primary')};
+                color: {theme.get_color('white')};
+                border: none;
+                border-radius: 8px;
+                padding: 10px 16px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}
+            QPushButton:pressed {{ background-color: {theme.get_color('primary_pressed')}; }}
+            QPushButton:disabled {{
+                background-color: {theme.get_color('button_disabled_bg')};
+                color: {theme.get_color('button_disabled_fg')};
+            }}
+        """)
+        self.copy_json_btn.clicked.connect(self.copy_json_metadata)
+        preview_layout.addWidget(self.copy_json_btn)
+
+        return preview_panel
+
+    def build_json_metadata(self):
+        tags = [tag.strip() for tag in self.tags_edit.toPlainText().split(',') if tag.strip()]
+        description = replace_placeholders(
+            self.description_edit.toPlainText().strip(),
+            self.items_count_spin.value(),
+            self.dpi_edit.text().strip(),
+            self.width_edit.text().strip(),
+            self.height_edit.text().strip()
+        )
+        return {
+            'title': self.title_edit.text().strip(),
+            'tagline': self.tagline_edit.text().strip(),
+            'description': description,
+            'tags': tags
+        }
+
+    def update_preview(self):
+        if not hasattr(self, 'preview_description'):
+            return
+        metadata = self.build_json_metadata()
+        self.preview_title.setText(metadata['title'] or "Title preview")
+        self.preview_tagline.setText(metadata['tagline'] or "Tagline preview")
+        self.preview_description.setMarkdown(metadata['description'])
+        self.render_tag_pills(metadata['tags'])
+
+    def render_tag_pills(self, tags):
+        while self.preview_tags_layout.count():
+            item = self.preview_tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not tags:
+            empty_label = QLabel("Tags preview")
+            empty_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
+            self.preview_tags_layout.addWidget(empty_label, 0, 0)
+            return
+
+        columns = 3
+        for index, tag in enumerate(tags):
+            pill = QLabel(tag)
+            pill.setAlignment(Qt.AlignCenter)
+            pill.setStyleSheet(f"""
+                QLabel {{
+                    background-color: rgba(128, 128, 128, 0.14);
+                    color: {theme.get_color('foreground')};
+                    border: 1px solid rgba(128, 128, 128, 0.32);
+                    border-radius: 6px;
+                    padding: 5px 9px;
+                    font-size: 10px;
+                }}
+            """)
+            self.preview_tags_layout.addWidget(pill, index // columns, index % columns)
+
+    def copy_json_metadata(self):
+        self.update_preview()
+        payload = json.dumps(self.build_json_metadata(), ensure_ascii=False, indent=2)
+        QApplication.clipboard().setText(payload)
+        from PySide6.QtWidgets import QToolTip
+        QToolTip.showText(
+            self.copy_json_btn.mapToGlobal(self.copy_json_btn.rect().center()),
+            "Copied JSON metadata"
+        )
     
     def create_copy_button(self, widget, data_name):
         copy_btn = QPushButton()
@@ -603,6 +783,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.description_edit.blockSignals(True)
         self.description_edit.setPlainText(final_desc.strip())
         self.description_edit.blockSignals(False)
+        self.update_preview()
     
     def load_yaml_data(self):
         yaml_data = load_data_yaml()
@@ -724,6 +905,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.title_edit.clear()
         self.tagline_edit.clear()
         self.tags_edit.clear()
+        self.description_edit.clear()
+        self.update_preview()
         
         yaml_data = load_data_yaml()
         yaml_data['image_data'] = None
@@ -848,6 +1031,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.description_edit.blockSignals(True)
         self.description_edit.setPlainText(final_desc.strip())
         self.description_edit.blockSignals(False)
+        self.update_preview()
         
         QTimer.singleShot(3000, lambda: self.status_label.setText("Ready"))
     

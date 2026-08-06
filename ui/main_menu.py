@@ -1270,7 +1270,7 @@ def setup_main_menu(window):
         dlg.exec()
     batch_audio_remover_action.triggered.connect(open_batch_audio_remover)
 
-    envato_elements_action = QAction(qta.icon('fa6s.tag'), "Envato Elements Metadata", window)
+    envato_elements_action = QAction(qta.icon('fa6s.tag'), "Envato Mockup Metadata Generator", window)
     envato_elements_action.setToolTip(MENU_TOOLTIPS["envato_elements_metadata"])
     envato_elements_action.setStatusTip(MENU_TOOLTIPS["envato_elements_metadata"])
     def open_envato_elements():
