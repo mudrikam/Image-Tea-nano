@@ -895,8 +895,9 @@ class EnvatoElementsMetadataDialog(QDialog):
         results_layout.addWidget(scroll)
 
         content_tab = self.create_content_files_tab()
-        result_tabs.addTab(results_tab, qta.icon('fa6s.list-check'), 'Results')
         result_tabs.addTab(content_tab, qta.icon('fa6s.folder-tree'), 'Content Files')
+        result_tabs.addTab(results_tab, qta.icon('fa6s.list-check'), 'Results')
+        result_tabs.setCurrentWidget(content_tab)
         main_layout.addWidget(result_tabs, 1)
 
     def create_content_files_tab(self):
@@ -1317,16 +1318,19 @@ class EnvatoElementsMetadataDialog(QDialog):
 
     def create_preview_heading(self, icon_name, text):
         heading = QWidget()
+        heading.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        heading.setMinimumWidth(0)
         layout = QHBoxLayout(heading)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
         icon = QLabel()
         icon.setPixmap(qta.icon(icon_name).pixmap(14, 14))
         label = QLabel(text)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        label.setMinimumWidth(0)
         label.setStyleSheet("font-size: 11px; font-weight: 700;")
         layout.addWidget(icon)
-        layout.addWidget(label)
-        layout.addStretch()
+        layout.addWidget(label, 1)
         return heading, label
 
     def start_extension_bridge(self):
