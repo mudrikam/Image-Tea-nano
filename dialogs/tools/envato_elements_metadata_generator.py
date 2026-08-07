@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel,
     QTextEdit, QLineEdit, QProgressBar, QFileDialog, QMessageBox,
     QSpinBox, QScrollArea, QGroupBox, QCheckBox, QComboBox, QApplication,
-    QSplitter, QTextBrowser, QGridLayout
+    QSplitter, QTextBrowser, QGridLayout, QTabWidget
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QBuffer, QIODevice, QByteArray
 from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon, QColor, QFont
@@ -299,6 +299,11 @@ class ImageDisplayWidget(QLabel):
             if self.main_window:
                 self.main_window.load_image(file_path)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.main_window:
+            self.main_window.refresh_image_preview()
+
 
 class EnvatoElementsMetadataDialog(QDialog):
     extension_event_received = Signal(dict)
@@ -318,6 +323,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.runtime_state_path = os.path.join(BASE_PATH, 'temp', 'elements_mockup', 'runtime_state.json')
         
         self.image_data = None
+        self.source_pixmap = None
         self.processor_thread = None
         self.extension_bridge = None
         self.extension_port = 8765
@@ -407,16 +413,18 @@ class EnvatoElementsMetadataDialog(QDialog):
         content_splitter.setSizes([400, 460])
         main_layout.addWidget(content_splitter)
         
-        always_on_top_layout = QHBoxLayout()
-        self.always_on_top_check = QCheckBox("Always on Top")
-        self.always_on_top_check.setChecked(self.config['always_on_top'])
-        self.always_on_top_check.toggled.connect(self.toggle_always_on_top)
-        always_on_top_layout.addWidget(self.always_on_top_check)
-        always_on_top_layout.addStretch()
-        editor_layout.addLayout(always_on_top_layout)
-
-        self.create_api_selection_panel(editor_layout)
-        self.create_image_panel(editor_layout)
+        input_tabs = QTabWidget()
+        image_tab = QWidget()
+        image_tab_layout = QVBoxLayout(image_tab)
+        image_tab_layout.setContentsMargins(4, 4, 4, 4)
+        api_tab = QWidget()
+        api_tab_layout = QVBoxLayout(api_tab)
+        api_tab_layout.setContentsMargins(4, 4, 4, 4)
+        self.create_image_panel(image_tab_layout)
+        self.create_api_selection_panel(api_tab_layout)
+        input_tabs.addTab(image_tab, qta.icon('fa6s.image'), "Image")
+        input_tabs.addTab(api_tab, qta.icon('fa6s.sliders'), "Configuration")
+        editor_layout.addWidget(input_tabs, 1)
         self.create_results_panel(editor_layout)
     
     def setup_progress_timer(self):
@@ -454,23 +462,28 @@ class EnvatoElementsMetadataDialog(QDialog):
             """)
     
     def create_api_selection_panel(self, main_layout):
-        api_group = QGroupBox("API Configuration")
+        api_group = QGroupBox("Configuration")
         api_layout = QVBoxLayout(api_group)
         api_layout.setContentsMargins(4, 4, 4, 4)
         api_layout.setSpacing(2)
         
         self.api_combo = QComboBox()
         self.api_combo.setMaximumHeight(24)
-        api_layout.addWidget(QLabel("Select API:"))
         api_layout.addWidget(self.api_combo)
-        
+
         settings_btn = QPushButton("Settings")
         settings_btn.setIcon(qta.icon('fa6s.gear'))
         settings_btn.setMaximumHeight(24)
         settings_btn.clicked.connect(self.open_api_settings)
         api_layout.addWidget(settings_btn)
+
+        self.always_on_top_check = QCheckBox("Always on Top")
+        self.always_on_top_check.setChecked(self.config['always_on_top'])
+        self.always_on_top_check.toggled.connect(self.toggle_always_on_top)
+        api_layout.addWidget(self.always_on_top_check)
+        api_layout.addStretch()
         
-        main_layout.addWidget(api_group)
+        main_layout.addWidget(api_group, 0, Qt.AlignTop)
         
         self.load_api_keys()
     
@@ -549,8 +562,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         image_layout.setSpacing(2)
         
         self.image_display = ImageDisplayWidget(self)
-        self.image_display.setMinimumSize(280, 100)
-        self.image_display.setMaximumHeight(150)
+        self.image_display.setMinimumSize(280, 240)
         image_layout.addWidget(self.image_display)
         
         buttons_layout = QHBoxLayout()
@@ -616,6 +628,14 @@ class EnvatoElementsMetadataDialog(QDialog):
         image_layout.addWidget(self.process_btn)
         
         main_layout.addWidget(image_group)
+
+    def refresh_image_preview(self):
+        if not getattr(self, 'source_pixmap', None) or self.image_display.size().isEmpty():
+            return
+        scaled = self.source_pixmap.scaled(
+            self.image_display.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+        )
+        self.image_display.setPixmap(scaled)
     
     def create_results_panel(self, main_layout):
         results_group = QGroupBox("Results")
@@ -764,21 +784,18 @@ class EnvatoElementsMetadataDialog(QDialog):
         listing_layout.setContentsMargins(8, 8, 8, 8)
         listing_layout.setSpacing(4)
 
-        self.preview_title = QLabel("Title preview")
+        title_heading, self.preview_title = self.create_preview_heading('fa6s.heading', 'Title preview')
         self.preview_title.setWordWrap(True)
-        self.preview_title.setStyleSheet(
-            f"font-size: 18px; font-weight: 700; color: {theme.get_color('foreground')}; "
-            "padding: 4px 2px 0 2px;"
-        )
-        listing_layout.addWidget(self.preview_title)
+        self.preview_title.setStyleSheet("font-size: 18px; font-weight: 700;")
+        listing_layout.addWidget(title_heading)
 
-        self.preview_tagline = QLabel("Tagline preview")
+        tagline_heading, self.preview_tagline = self.create_preview_heading('fa6s.quote-left', 'Tagline preview')
         self.preview_tagline.setWordWrap(True)
-        self.preview_tagline.setStyleSheet(
-            f"font-size: 12px; color: {theme.get_color('text_light')}; "
-            "padding: 0 2px 6px 2px;"
-        )
-        listing_layout.addWidget(self.preview_tagline)
+        self.preview_tagline.setStyleSheet("font-size: 12px; padding-bottom: 6px;")
+        listing_layout.addWidget(tagline_heading)
+
+        description_heading, _ = self.create_preview_heading('fa6s.align-left', 'Description')
+        listing_layout.addWidget(description_heading)
 
         self.preview_description = QTextBrowser()
         self.preview_description.setOpenExternalLinks(False)
@@ -792,19 +809,17 @@ class EnvatoElementsMetadataDialog(QDialog):
                 border: 1px solid {theme.get_color('gray')};
                 border-radius: 8px;
                 padding: 10px;
-                color: {theme.get_color('foreground')};
             }}
         """)
-        self.preview_description.document().setDefaultStyleSheet("""
-            body { margin: 4px; }
-            h1, h2, h3 { margin-top: 10px; margin-bottom: 6px; }
-            p { margin-top: 5px; margin-bottom: 8px; line-height: 150%; }
-            li { margin-bottom: 4px; }
+        self.preview_description.document().setDefaultStyleSheet(f"""
+            body {{ margin: 4px; }}
+            h1, h2, h3 {{ margin-top: 10px; margin-bottom: 6px; }}
+            p {{ margin-top: 5px; margin-bottom: 8px; line-height: 150%; }}
+            li {{ margin-bottom: 4px; }}
         """)
         listing_layout.addWidget(self.preview_description)
 
-        tags_header = QLabel("Tags")
-        tags_header.setStyleSheet("font-size: 13px; font-weight: bold; margin-top: 6px;")
+        tags_header, _ = self.create_preview_heading('fa6s.tags', 'Tags')
         listing_layout.addWidget(tags_header)
 
         self.preview_tags_widget = QWidget()
@@ -812,6 +827,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.preview_tags_layout.setContentsMargins(0, 0, 0, 0)
         self.preview_tags_layout.setHorizontalSpacing(6)
         self.preview_tags_layout.setVerticalSpacing(6)
+        self.preview_tag_pills = []
         listing_layout.addWidget(self.preview_tags_widget)
 
         preview_scroll = QScrollArea()
@@ -821,7 +837,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         preview_layout.addWidget(preview_scroll, 1)
 
         self.copy_json_btn = QPushButton("Send Metadata")
-        self.copy_json_btn.setIcon(qta.icon('fa6s.paper-plane'))
+        self.copy_json_btn.setIcon(qta.icon('fa6s.paper-plane', color=theme.get_color('white')))
         self.copy_json_btn.setMinimumHeight(46)
         self.copy_json_btn.setCursor(Qt.PointingHandCursor)
         self.copy_json_btn.setStyleSheet(f"""
@@ -834,6 +850,7 @@ class EnvatoElementsMetadataDialog(QDialog):
                 font-size: 13px;
                 font-weight: bold;
             }}
+            QPushButton::icon {{ width: 16px; height: 16px; }}
             QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}
             QPushButton:pressed {{ background-color: {theme.get_color('primary_pressed')}; }}
             QPushButton:disabled {{
@@ -893,10 +910,11 @@ class EnvatoElementsMetadataDialog(QDialog):
             item = self.preview_tags_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self.preview_tag_pills = []
 
         if not tags:
             empty_label = QLabel("Tags preview")
-            empty_label.setStyleSheet(f"color: {theme.get_color('text_dark')};")
+            empty_label.setStyleSheet("")
             self.preview_tags_layout.addWidget(empty_label, 0, 0)
             return
 
@@ -907,7 +925,6 @@ class EnvatoElementsMetadataDialog(QDialog):
             pill.setStyleSheet(f"""
                 QLabel {{
                     background-color: rgba(128, 128, 128, 0.14);
-                    color: {theme.get_color('foreground')};
                     border: 1px solid rgba(128, 128, 128, 0.32);
                     border-radius: 6px;
                     padding: 5px 9px;
@@ -915,6 +932,21 @@ class EnvatoElementsMetadataDialog(QDialog):
                 }}
             """)
             self.preview_tags_layout.addWidget(pill, index // columns, index % columns)
+            self.preview_tag_pills.append(pill)
+
+    def create_preview_heading(self, icon_name, text):
+        heading = QWidget()
+        layout = QHBoxLayout(heading)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(qta.icon(icon_name).pixmap(14, 14))
+        label = QLabel(text)
+        label.setStyleSheet("font-size: 11px; font-weight: 700;")
+        layout.addWidget(icon)
+        layout.addWidget(label)
+        layout.addStretch()
+        return heading, label
 
     def start_extension_bridge(self):
         self.extension_bridge = ExtensionBridge(
@@ -950,7 +982,6 @@ class EnvatoElementsMetadataDialog(QDialog):
         elif message:
             self.extension_status_label.setText(f"Extension: {message}")
             self.status_label.setText(message)
-
     def send_metadata_to_extension(self):
         self.update_preview()
         if not self.extension_bridge or not self.extension_bridge.is_connected():
@@ -1090,8 +1121,8 @@ class EnvatoElementsMetadataDialog(QDialog):
                 pixmap = QPixmap()
                 pixmap.loadFromData(image_bytes)
                 if not pixmap.isNull():
-                    scaled_pixmap = pixmap.scaled(400, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.image_display.setPixmap(scaled_pixmap)
+                    self.source_pixmap = pixmap
+                    self.refresh_image_preview()
                     self.image_display.setText("")
             except Exception as e:
                 print(f"Failed to load image from yaml: {e}")
@@ -1147,8 +1178,8 @@ class EnvatoElementsMetadataDialog(QDialog):
                 yaml_data['image_data'] = self.image_data
                 save_data_yaml(yaml_data)
                 
-                scaled_pixmap = pixmap.scaled(400, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.image_display.setPixmap(scaled_pixmap)
+                self.source_pixmap = pixmap
+                self.refresh_image_preview()
                 self.image_display.setText("")
                 
                 self.status_label.setText("Image pasted")
@@ -1171,8 +1202,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         
         pixmap = QPixmap(file_path)
         if not pixmap.isNull():
-            scaled_pixmap = pixmap.scaled(400, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.image_display.setPixmap(scaled_pixmap)
+            self.source_pixmap = pixmap
+            self.refresh_image_preview()
             self.image_display.setText("")
             
             self.status_label.setText("Image loaded")
@@ -1180,6 +1211,7 @@ class EnvatoElementsMetadataDialog(QDialog):
     
     def clear_all(self):
         self.image_data = None
+        self.source_pixmap = None
         self.image_display.clear()
         self.image_display.setText("Drag & Drop Image Here\nor CLICK to Select File")
         self.title_edit.clear()
