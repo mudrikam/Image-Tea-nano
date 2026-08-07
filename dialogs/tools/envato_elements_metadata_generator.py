@@ -459,7 +459,7 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.config = {
                 'limits': {
                     'title_min': 30,
-                    'title_max': 100,
+                    'title_max': 50,
                     'tagline_max': 100,
                     'tags_expected': 15,
                     'expected_features': 8
@@ -1783,8 +1783,10 @@ class EnvatoElementsMetadataDialog(QDialog):
         """)
         self.status_label.setText("Processing completed successfully!")
         
-        self.title_edit.setText(result.get('title', ''))
-        self.tagline_edit.setText(result.get('tagline', ''))
+        title = result.get('title', '')
+        tagline = result.get('tagline', '')
+        self.title_edit.setText(title)
+        self.tagline_edit.setText(tagline)
         
         tags = result.get('tags', [])
         self.tags_edit.setPlainText(', '.join(tags))
@@ -1800,8 +1802,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         yaml_data = load_data_yaml()
         yaml_data['ai_description'] = description
         yaml_data['ai_features'] = features
-        yaml_data['results']['title'] = result.get('title', '')
-        yaml_data['results']['tagline'] = result.get('tagline', '')
+        yaml_data['results']['title'] = title
+        yaml_data['results']['tagline'] = tagline
         yaml_data['results']['tags'] = tags
         yaml_data['results']['dpi'] = self.dpi_edit.text()
         yaml_data['results']['width'] = self.width_edit.text()
