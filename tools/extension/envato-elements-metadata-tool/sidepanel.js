@@ -4,14 +4,27 @@
   const status = document.getElementById('status');
   const log = document.getElementById('log');
   const stateKey = 'eemt_connection';
+  const logStateKey = 'eemt_state';
+  const MAX_LOGS = 100;
+  let logEntries = [];
   let connectionId = null;
   let connected = false;
+
+  const renderLogs = () => {
+    log.textContent = logEntries.join('\n') + (logEntries.length ? '\n' : '');
+    log.scrollTop = log.scrollHeight;
+  };
+
+  const appendLog = (message) => {
+    logEntries.push(`${new Date().toLocaleTimeString()} ${message}`);
+    if (logEntries.length > MAX_LOGS) logEntries = logEntries.slice(-MAX_LOGS);
+    renderLogs();
+  };
 
   const write = (message, kind = '') => {
     status.textContent = message;
     status.className = `status ${kind}`;
-    log.textContent += `${new Date().toLocaleTimeString()} ${message}\n`;
-    log.scrollTop = log.scrollHeight;
+    appendLog(message);
   };
 
   const setReadyState = (message, ready) => {
@@ -85,6 +98,14 @@
       connect.classList.add('button-danger');
       portInput.disabled = true;
       write('Waiting for Image Tea...', '');
+    }
+  });
+
+  chrome.storage.local.get(logStateKey, (result) => {
+    const savedLogs = result[logStateKey]?.logs;
+    if (Array.isArray(savedLogs)) {
+      logEntries = savedLogs.slice(-MAX_LOGS).map((message) => String(message));
+      renderLogs();
     }
   });
 })();

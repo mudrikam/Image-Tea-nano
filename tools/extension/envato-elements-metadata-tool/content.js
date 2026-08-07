@@ -12,10 +12,11 @@
     const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   };
+  const MAX_LOGS = 100;
   let runLogs = [];
   const report = (message) => {
     runLogs.push(message);
-    if (runLogs.length > 100) runLogs = runLogs.slice(-100);
+    if (runLogs.length > MAX_LOGS) runLogs = runLogs.slice(-MAX_LOGS);
     console.log('[EEMT]', message);
     try { chrome.runtime.sendMessage({ type: 'EEMT_LOG', message }); } catch (_) {}
     chrome.storage.local.set({ eemt_state: { status: message, kind: message.startsWith('ERROR:') ? 'error' : '', logs: runLogs } });
