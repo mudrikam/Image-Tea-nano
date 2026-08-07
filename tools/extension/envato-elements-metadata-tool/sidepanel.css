@@ -26,7 +26,8 @@ button, input { font: inherit; }
 .brand-copy { min-width: 0; }
 .brand-copy h1 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: -.01em; }
 .brand-copy p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
-.connection-dot { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 4px rgba(120, 173, 61, .14); }
+.connection-dot { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--error); box-shadow: 0 0 0 4px rgba(180, 35, 24, .14); }
+.bridge-ready .connection-dot { background: var(--success); box-shadow: 0 0 0 4px rgba(56, 114, 24, .14); }
 
 .workspace { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 10px; padding: 12px; }
 .card { border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.82); box-shadow: 0 5px 16px rgba(42, 70, 45, .05); }
@@ -48,7 +49,8 @@ label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px
 .button-danger { color: #fff; background: #c23b32; box-shadow: 0 3px 7px rgba(150,42,34,.18); }
 .button-danger:hover:not(:disabled) { background: #a92e27; }
 .status-card { display: flex; align-items: center; gap: 8px; min-height: 27px; margin-top: 10px; padding: 0 9px; border-radius: 7px; background: #f4f7f4; }
-.status-pulse { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--soft); }
+.status-pulse { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--error); }
+.bridge-ready .status-pulse { background: var(--success); box-shadow: 0 0 0 3px rgba(56,114,24,.12); }
 .status { min-height: 15px; margin: 0; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .status.error { color: var(--error); }
 .status.success { color: var(--success); }
@@ -58,7 +60,8 @@ label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px
 .logs-title { display: flex; align-items: center; gap: 7px; }
 .logs-title svg { width: 15px; height: 15px; fill: none; stroke: var(--primary-dark); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
 .live-label { display: inline-flex; align-items: center; gap: 5px; color: var(--soft); font-size: 10px; }
-.live-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 3px rgba(120,173,61,.12); }
+.live-label i { width: 6px; height: 6px; border-radius: 50%; background: var(--error); box-shadow: 0 0 0 3px rgba(180,35,24,.12); }
+.bridge-ready .live-label i { background: var(--success); box-shadow: 0 0 0 3px rgba(56,114,24,.12); }
 .log { flex: 1 1 auto; min-height: 0; margin: 0; padding: 11px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fbfdfb; color: #5f6d63; font: 10px/1.6 Consolas, "Cascadia Code", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log::-webkit-scrollbar { width: 7px; }
 .log::-webkit-scrollbar-track { background: #eef3ee; }

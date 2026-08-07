@@ -5,6 +5,7 @@ import threading
 import queue
 import time
 import uuid
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from PIL import Image
@@ -151,6 +152,8 @@ class ExtensionBridge:
                         return
                     if event.get('type') == 'command_received':
                         bridge.acknowledge(event.get('command_id'), connection_id)
+                    elif event.get('type') == 'command_failed':
+                        bridge.clear_pending(connection_id)
                     bridge.event_callback(event)
                     self._send({'ok': True})
                 except Exception as error:
@@ -227,9 +230,15 @@ class ExtensionBridge:
             for item in remaining:
                 self.commands.put(item)
 
+    def clear_pending(self, connection_id):
+        with self.commands.mutex:
+            self.commands.queue = deque(
+                item for item in self.commands.queue
+                if item.get('connection_id') != connection_id
+            )
+
     def is_connected(self):
-        with self.connection_lock:
-            return bool(self.connections)
+        return self.active_connection_id() is not None
 
     def stop(self):
         if self.server:
@@ -914,9 +923,9 @@ class EnvatoElementsMetadataDialog(QDialog):
         message = event.get('message', '')
         if message:
             self.extension_log.append(message)
-        if event_type == 'connection':
+        if event_type in ('connection', 'ready'):
             self.extension_status_label.setText(
-                f"Extension connected: {event.get('url', 'active tab')}"
+                "Extension receiver ready: waiting for metadata"
             )
         elif event_type == 'disconnect':
             self.extension_status_label.setText(
@@ -925,6 +934,8 @@ class EnvatoElementsMetadataDialog(QDialog):
         elif event_type == 'error':
             self.extension_status_label.setText(f"Extension error: {message}")
             self.status_label.setText(f"Extension error: {message}")
+        elif event_type == 'ready':
+            self.status_label.setText("Extension receiver ready")
         elif message:
             self.extension_status_label.setText(f"Extension: {message}")
             self.status_label.setText(message)

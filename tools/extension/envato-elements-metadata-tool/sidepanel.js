@@ -14,6 +14,12 @@
     log.scrollTop = log.scrollHeight;
   };
 
+  const setReadyState = (message, ready) => {
+    status.textContent = message;
+    status.className = `status ${ready ? 'success' : ''}`;
+    document.body.classList.toggle('bridge-ready', ready);
+  };
+
   async function connectToApp() {
     const port = Number(portInput.value);
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -22,32 +28,26 @@
     }
     connectionId = crypto.randomUUID();
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const response = await fetch(`http://127.0.0.1:${port}/connect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connection_id: connectionId, url: tab?.url || '', tab_id: tab?.id || null })
-    });
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.error || 'Connection rejected.');
     await chrome.storage.local.set({ [stateKey]: {
       port,
       connectionId,
       url: tab?.url || '',
       tabId: tab?.id || null
     } });
-    write(`Connected to Image Tea on port ${port}.`, 'success');
+    write('Waiting for Image Tea...', '');
     connected = true;
     connect.textContent = 'Disconnect';
     connect.classList.add('button-danger');
     portInput.disabled = true;
     await chrome.runtime.sendMessage({
       type: 'EEMT_CONNECT',
-      connection: { port, connectionId }
+      connection: { port, connectionId, url: tab?.url || '', tabId: tab?.id || null }
     });
   }
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'EEMT_LOG') write(message.message);
+    if (message?.type === 'EEMT_STATUS') setReadyState(message.message, message.ready);
   });
 
   async function disconnectFromApp() {
@@ -68,7 +68,7 @@
     connect.classList.remove('button-danger');
     connect.disabled = false;
     portInput.disabled = false;
-    write('Disconnected.');
+    write('Not ready. Click Connect to receive data.');
   }
 
   connect.addEventListener('click', () => {
@@ -84,7 +84,7 @@
       connect.textContent = 'Disconnect';
       connect.classList.add('button-danger');
       portInput.disabled = true;
-      write(`Saved connection on port ${saved.port}. Reconnecting automatically...`);
+      write('Waiting for Image Tea...', '');
     }
   });
 })();

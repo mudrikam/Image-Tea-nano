@@ -16,7 +16,7 @@
         <h1>Image Tea Connection</h1>
         <p>Envato metadata bridge</p>
       </div>
-      <span class="connection-dot" title="Side panel active"></span>
+      <span class="connection-dot" title="Connection readiness"></span>
     </header>
 
     <main class="workspace">
@@ -24,7 +24,7 @@
         <div class="section-heading">
           <div>
             <h2>Connection Settings</h2>
-            <p>Connect this Chrome profile to the running Image Tea app.</p>
+            <p>Enable this extension as a receiver for Image Tea metadata.</p>
           </div>
           <span class="format-badge">LOCAL</span>
         </div>
@@ -37,7 +37,7 @@
         </div>
         <div class="status-card">
           <span class="status-pulse"></span>
-          <p id="status" class="status">Not connected</p>
+          <p id="status" class="status">Not ready. Click Connect to receive data.</p>
         </div>
       </section>
 
@@ -47,7 +47,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 9h16M4 13h10M4 17h7"/></svg>
             <h2>Activity Logs</h2>
           </div>
-          <span class="live-label"><i></i> Live</span>
+          <span class="live-label"><i></i> <b>Receiver status</b></span>
         </div>
         <pre id="log" class="log" aria-live="polite"></pre>
       </section>
