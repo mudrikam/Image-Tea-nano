@@ -3,7 +3,7 @@
   "name": "Envato Elements Mockup Metadata Tool",
   "version": "1.0.0",
   "description": "Paste Envato mockup metadata and fill the submission form with human-like interactions.",
-  "permissions": ["activeTab", "tabs", "scripting", "clipboardRead", "storage", "alarms", "sidePanel"],
+  "permissions": ["activeTab", "tabs", "scripting", "clipboardRead", "storage", "alarms", "sidePanel", "debugger"],
   "host_permissions": [
     "https://elements.envato.com/*",
     "https://elements-contributors.envato.com/*",

@@ -147,7 +147,7 @@ class ExtensionBridge:
                 self.send_response(204)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-EEMT-Connection')
                 self.end_headers()
 
             def do_GET(self):
@@ -165,6 +165,24 @@ class ExtensionBridge:
                 self._send({'ok': False, 'error': 'Not found'}, 404)
 
             def do_POST(self):
+                if self.path == '/file-data':
+                    try:
+                        length = int(self.headers.get('Content-Length', '0'))
+                        request = json.loads(self.rfile.read(length) or b'{}')
+                        connection_id = self.headers.get('X-EEMT-Connection', '')
+                        if not bridge.touch_connection(connection_id):
+                            self._send({'ok': False, 'error': 'Not connected'}, 401)
+                            return
+                        path = request.get('path', '')
+                        if not path or not os.path.isfile(path):
+                            self._send({'ok': False, 'error': 'File not found'}, 404)
+                            return
+                        with open(path, 'rb') as content_file:
+                            data = base64.b64encode(content_file.read()).decode('ascii')
+                        self._send({'ok': True, 'data': data})
+                    except Exception as error:
+                        self._send({'ok': False, 'error': str(error)}, 400)
+                    return
                 if self.path == '/connect':
                     try:
                         length = int(self.headers.get('Content-Length', '0'))
@@ -494,7 +512,7 @@ class EnvatoElementsMetadataDialog(QDialog):
     
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(2)
 
         content_splitter = QSplitter(Qt.Horizontal)
@@ -1235,16 +1253,29 @@ class EnvatoElementsMetadataDialog(QDialog):
         if not covers:
             return None
         cover_path = covers[0]
-        try:
-            with open(cover_path, 'rb') as cover_file:
-                encoded = base64.b64encode(cover_file.read()).decode('ascii')
-        except OSError:
-            return None
         return {
             'name': os.path.basename(cover_path),
             'type': mimetypes.guess_type(cover_path)[0] or 'image/png',
-            'data': encoded,
+            'path': cover_path,
         }
+
+    def build_content_upload_payload(self):
+        source = self.content_source_edit.text().strip()
+        archive_path = os.path.join(source, 'Main File.zip') if source else ''
+        files = []
+        for path in self.content_files_scan.get('previews', []):
+            files.append(path)
+        if os.path.isfile(archive_path):
+            files.append(archive_path)
+        uploads = []
+        for path in files:
+            uploads.append({
+                'name': os.path.basename(path),
+                'type': mimetypes.guess_type(path)[0] or 'application/octet-stream',
+                'path': path,
+                'kind': 'zip' if path == archive_path else 'preview',
+            })
+        return uploads
 
     def update_preview(self):
         if not hasattr(self, 'preview_description'):
@@ -1364,6 +1395,12 @@ class EnvatoElementsMetadataDialog(QDialog):
         cover = self.build_cover_payload()
         if cover:
             payload['cover'] = cover
+        content_uploads = self.build_content_upload_payload()
+        payload['contentUploads'] = content_uploads
+        payload['fileBridge'] = {
+            'port': self.extension_port,
+            'connectionId': self.extension_bridge.active_connection_id(),
+        }
         command_id = self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
         if not command_id:
             self.update_send_button_state()

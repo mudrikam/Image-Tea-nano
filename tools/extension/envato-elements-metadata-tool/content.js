@@ -231,11 +231,26 @@
     return root?.querySelector('input[type="file"]') || null;
   }
 
-  function uploadCover(cover) {
-    if (!cover?.data) return false;
+  async function fetchFileData(fileData, bridge) {
+    const response = await fetch(`http://127.0.0.1:${bridge.port}/file-data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-EEMT-Connection': bridge.connectionId
+      },
+      body: JSON.stringify({ path: fileData.path })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `Could not read ${fileData.name}.`);
+    return result.data;
+  }
+
+  async function uploadCover(cover, bridge) {
+    if (!cover?.path) return false;
     const input = findCoverInput();
     if (!input) throw new Error('Could not find the cover image uploader.');
-    const bytes = Uint8Array.from(atob(cover.data), (character) => character.charCodeAt(0));
+    const data = await fetchFileData(cover, bridge);
+    const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
     const file = new File([bytes], cover.name || 'cover.png', { type: cover.type || 'image/png' });
     const transfer = new DataTransfer();
     transfer.items.add(file);
@@ -243,7 +258,96 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
     report(`Dropped cover image: ${file.name}`);
+    await waitForCoverUpload(file.name);
     return true;
+  }
+
+  async function fileFromPayload(fileData, bridge) {
+    const data = await fetchFileData(fileData, bridge);
+    const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+    return new File([bytes], fileData.name || 'upload', {
+      type: fileData.type || 'application/octet-stream'
+    });
+  }
+
+  function getPreviewItems() {
+    const root = document.querySelector(
+      '.PreviewImagesInput__root___1lV7a, [class*="PreviewImagesInput__root"]'
+    );
+    return [...(root?.querySelectorAll('ol[class*="PreviewImages__list"] > li') || [])];
+  }
+
+  async function waitForCoverUpload(fileName) {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const image = document.querySelector(
+        '.ItemSubmissionImage__root___34SL2.cover-image-input img.Image__ready___2In5n,' +
+        '[class*="ItemSubmissionImage__root"].cover-image-input img[class*="Image__ready"]'
+      );
+      if (image) {
+        report(`Cover upload ready: ${fileName}`);
+        return;
+      }
+      await sleep(500);
+    }
+    throw new Error(`Cover upload did not finish: ${fileName}`);
+  }
+
+  async function waitForPreviewUpload(previousCount, fileName) {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const items = getPreviewItems();
+      if (items.length > previousCount) {
+        const newest = items[items.length - 1];
+        const image = newest.querySelector('img');
+        if (image?.classList.contains('Image__ready___2In5n')) {
+          report(`Preview upload ready: ${fileName}`);
+          return;
+        }
+      }
+      await sleep(500);
+    }
+    throw new Error(`Preview upload did not finish: ${fileName}`);
+  }
+
+  async function uploadContentFiles(uploads, bridge) {
+    if (!Array.isArray(uploads)) return;
+    const previews = uploads.filter((item) => item.kind === 'preview');
+    const archive = uploads.find((item) => item.kind === 'zip');
+    if (previews.length) {
+      for (const item of previews) {
+        const previewRoot = document.querySelector(
+          '.PreviewImagesInput__root___1lV7a, [class*="PreviewImagesInput__root"]'
+        );
+        const currentPreviewInput = previewRoot?.querySelector('input[type="file"][multiple]');
+        if (!currentPreviewInput) throw new Error('Could not find the preview images uploader.');
+        const previousCount = getPreviewItems().length;
+        const transfer = new DataTransfer();
+        transfer.items.add(await fileFromPayload(item, bridge));
+        currentPreviewInput.files = transfer.files;
+        currentPreviewInput.dispatchEvent(new Event('input', { bubbles: true }));
+        currentPreviewInput.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitForPreviewUpload(previousCount, item.name);
+      }
+      // Envato still settles its preview gallery after the last image becomes
+      // ready. Leave a gap before starting the large asset upload.
+      for (let seconds = 10; seconds > 0; seconds -= 1) {
+        report(`All preview images are ready. Waiting ${seconds}s before Main File.zip.`);
+        await sleep(1000);
+      }
+    }
+    if (archive) {
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'EEMT_SET_NATIVE_FILE',
+          path: archive.path,
+          name: archive.name
+        }, (response) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else if (response?.ok === false) reject(new Error(response.error));
+          else resolve();
+        });
+      });
+      report(`Selected ${archive.name} using the native file input.`);
+    }
   }
 
   async function selectOption(label, option) {
@@ -363,7 +467,8 @@
     await fillTags(metadata.tags);
     selectApplicationsSupported();
     await selectFileTypes();
-    uploadCover(metadata.cover);
+    await uploadCover(metadata.cover, metadata.fileBridge);
+    await uploadContentFiles(metadata.contentUploads, metadata.fileBridge);
     report('All requested metadata fields filled. Review before submitting.');
   }
 
@@ -375,10 +480,12 @@
       sendResponse({ ok: false, error });
       return false;
     }
-    run(message.metadata || {}).then(() => sendResponse({ ok: true })).catch((error) => {
+    // A large ZIP upload can outlive the content-script message channel. Start
+    // the workflow without keeping tabs.sendMessage() open for its duration.
+    run(message.metadata || {}).catch((error) => {
       report(`ERROR: ${error.message}`);
-      sendResponse({ ok: false, error: error.message });
     });
-    return true;
+    sendResponse({ ok: true });
+    return false;
   });
 })();

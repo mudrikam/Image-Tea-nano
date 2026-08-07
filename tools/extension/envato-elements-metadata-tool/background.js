@@ -107,6 +107,27 @@ async function processCommand(command) {
   }
 }
 
+async function setNativeFileInput(tabId, path) {
+  const target = { tabId };
+  await chrome.debugger.attach(target, '1.3');
+  try {
+    await chrome.debugger.sendCommand(target, 'DOM.enable');
+    const document = await chrome.debugger.sendCommand(target, 'DOM.getDocument', { depth: -1 });
+    const selector = '.AssetUploader__root___1-2M0 input[type="file"], [class*="AssetUploader__root"] input[type="file"]';
+    const found = await chrome.debugger.sendCommand(target, 'DOM.querySelector', {
+      nodeId: document.root.nodeId,
+      selector
+    });
+    if (!found?.nodeId) throw new Error('Could not access the Main File.zip file input.');
+    await chrome.debugger.sendCommand(target, 'DOM.setFileInputFiles', {
+      nodeId: found.nodeId,
+      files: [path]
+    });
+  } finally {
+    await chrome.debugger.detach(target).catch(() => {});
+  }
+}
+
 async function pollBridge() {
   if (!bridgeConnection || pollingCommand) return;
   pollingCommand = true;
@@ -124,7 +145,7 @@ async function pollBridge() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'EEMT_CONNECT') {
     bridgeConnection = message.connection;
     chrome.storage.local.set({ eemt_connection: bridgeConnection });
@@ -139,6 +160,18 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message?.type === 'EEMT_LOG') {
     sendEvent(message.message?.startsWith('ERROR:') ? 'error' : 'log', message.message);
+  }
+  if (message?.type === 'EEMT_SET_NATIVE_FILE') {
+    setNativeFileInput(sender.tab?.id, message.path)
+      .then(() => {
+        sendEvent('log', `Selected ${message.name || 'Main File.zip'} using the native file input.`);
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendEvent('error', `Main File.zip upload failed: ${error.message}`);
+        sendResponse({ ok: false, error: error.message });
+      });
+    return true;
   }
 });
 
