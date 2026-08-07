@@ -5,6 +5,7 @@ import threading
 import queue
 import time
 import uuid
+import zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel,
     QTextEdit, QLineEdit, QProgressBar, QFileDialog, QMessageBox,
     QSpinBox, QScrollArea, QGroupBox, QCheckBox, QComboBox, QApplication,
-    QSplitter, QTextBrowser, QGridLayout, QTabWidget
+    QSplitter, QTextBrowser, QGridLayout, QTabWidget, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QBuffer, QIODevice, QByteArray
 from PySide6.QtGui import QPixmap, QClipboard, QCursor, QIcon, QColor, QFont
@@ -56,6 +57,57 @@ class ImageProcessor(QThread):
             self.result_ready.emit(result)
         else:
             self.error_occurred.emit(error if error else "Unknown error")
+
+
+class ContentZipWorker(QThread):
+    progress = Signal(int)
+    completed = Signal(str, int)
+    failed = Signal(str)
+
+    def __init__(self, archive_path, files_to_zip):
+        super().__init__()
+        self.archive_path = archive_path
+        self.files_to_zip = files_to_zip
+
+    def run(self):
+        temporary_path = f'{self.archive_path}.part'
+        try:
+            total = len(self.files_to_zip)
+            total_bytes = sum(os.path.getsize(path) for path in self.files_to_zip)
+            written_bytes = 0
+            self.progress.emit(0)
+            with zipfile.ZipFile(temporary_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for path in self.files_to_zip:
+                    if self.isInterruptionRequested():
+                        raise InterruptedError('ZIP operation cancelled.')
+                    with archive.open(os.path.basename(path), 'w', force_zip64=True) as entry:
+                        with open(path, 'rb') as source:
+                            while True:
+                                if self.isInterruptionRequested():
+                                    raise InterruptedError('ZIP operation cancelled.')
+                                chunk = source.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                entry.write(chunk)
+                                written_bytes += len(chunk)
+                                self.progress.emit(
+                                    int(written_bytes * 100 / total_bytes) if total_bytes else 100
+                                )
+            os.replace(temporary_path, self.archive_path)
+            self.completed.emit(self.archive_path, total)
+        except InterruptedError:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
+        except (OSError, ValueError, zipfile.BadZipFile) as error:
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
+            self.failed.emit(str(error))
 
 
 class ExtensionBridge:
@@ -161,8 +213,9 @@ class ExtensionBridge:
                 except Exception as error:
                     self._send({'ok': False, 'error': str(error)}, 400)
 
-        def log_message(self, *_args):
-            return
+            def log_message(self, *_args):
+                # Keep high-frequency extension polling out of the application log.
+                return
 
         def handle_one_request(self):
             try:
@@ -305,6 +358,37 @@ class ImageDisplayWidget(QLabel):
             self.main_window.refresh_image_preview()
 
 
+class FolderDropLineEdit(QLineEdit):
+    """Line edit that accepts only dropped directories."""
+
+    folder_dropped = Signal(str)
+
+    def __init__(self, placeholder, parent=None, file_mode=False):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setPlaceholderText(placeholder)
+        self.file_mode = file_mode
+
+    def dragEnterEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls and self._valid_path(urls[0].toLocalFile()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = event.mimeData().urls()[0].toLocalFile()
+        if self._valid_path(path):
+            self.setText(path)
+            self.folder_dropped.emit(path)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def _valid_path(self, path):
+        return os.path.isfile(path) if self.file_mode else os.path.isdir(path)
+
+
 class EnvatoElementsMetadataDialog(QDialog):
     extension_event_received = Signal(dict)
 
@@ -325,6 +409,9 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.image_data = None
         self.source_pixmap = None
         self.processor_thread = None
+        self.content_zip_worker = None
+        self.loaded_image_path = None
+        self.loaded_content_source = None
         self.extension_bridge = None
         self.extension_port = 8765
         
@@ -362,7 +449,11 @@ class EnvatoElementsMetadataDialog(QDialog):
                     'height': '3000'
                 },
                 'always_on_top': False,
-                'items_count': 1
+                'items_count': 1,
+                'content_files': {
+                    'source_folder': '',
+                    'pdf_guide': ''
+                }
             }
             self.save_config()
         
@@ -379,7 +470,11 @@ class EnvatoElementsMetadataDialog(QDialog):
             'limits': self.config['limits'],
             'defaults': self.config['defaults'],
             'always_on_top': self.config['always_on_top'],
-            'items_count': self.config['items_count']
+            'items_count': self.config['items_count'],
+            'content_files': self.config.get('content_files', {
+                'source_folder': '',
+                'pdf_guide': ''
+            })
         }
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
         with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -431,6 +526,10 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.progress_timer = QTimer()
         self.progress_timer.timeout.connect(self.update_progress_animation)
         self.button_blink_state = False
+        self.extension_state_timer = QTimer(self)
+        self.extension_state_timer.setInterval(1000)
+        self.extension_state_timer.timeout.connect(self.update_send_button_state)
+        self.extension_state_timer.start()
     
     def update_progress_animation(self):
         self.button_blink_state = not self.button_blink_state
@@ -638,8 +737,9 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.image_display.setPixmap(scaled)
     
     def create_results_panel(self, main_layout):
-        results_group = QGroupBox("Results")
-        results_layout = QVBoxLayout(results_group)
+        result_tabs = QTabWidget()
+        results_tab = QWidget()
+        results_layout = QVBoxLayout(results_tab)
         results_layout.setContentsMargins(4, 4, 4, 4)
         results_layout.setSpacing(2)
         
@@ -771,7 +871,234 @@ class EnvatoElementsMetadataDialog(QDialog):
         
         scroll.setWidget(scroll_widget)
         results_layout.addWidget(scroll)
-        main_layout.addWidget(results_group)
+
+        content_tab = self.create_content_files_tab()
+        result_tabs.addTab(results_tab, qta.icon('fa6s.list-check'), 'Results')
+        result_tabs.addTab(content_tab, qta.icon('fa6s.folder-tree'), 'Content Files')
+        main_layout.addWidget(result_tabs, 1)
+
+    def create_content_files_tab(self):
+        content_tab = QWidget()
+        layout = QVBoxLayout(content_tab)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
+
+        source_group = QGroupBox('Source Folder')
+        source_layout = QHBoxLayout(source_group)
+        self.content_source_edit = FolderDropLineEdit('Drop a folder here or choose one')
+        self.content_source_edit.setText(
+            self.config.get('content_files', {}).get('source_folder', '')
+        )
+        self.content_source_edit.folder_dropped.connect(self.on_content_source_changed)
+        self.content_source_edit.editingFinished.connect(
+            lambda: self.on_content_source_changed(self.content_source_edit.text().strip())
+        )
+        source_layout.addWidget(self.content_source_edit, 1)
+        source_browse = QPushButton()
+        source_browse.setIcon(qta.icon('fa6s.folder-open'))
+        source_browse.setToolTip('Open source folder')
+        source_browse.clicked.connect(self.browse_content_source)
+        source_layout.addWidget(source_browse)
+        layout.addWidget(source_group)
+
+        pdf_group = QGroupBox('PDF Guide')
+        pdf_layout = QHBoxLayout(pdf_group)
+        self.pdf_guide_edit = FolderDropLineEdit('Drop a PDF guide here or choose one', file_mode=True)
+        self.pdf_guide_edit.setText(
+            self.config.get('content_files', {}).get('pdf_guide', '')
+        )
+        self.pdf_guide_edit.folder_dropped.connect(self.on_pdf_guide_changed)
+        self.pdf_guide_edit.editingFinished.connect(
+            lambda: self.on_pdf_guide_changed(self.pdf_guide_edit.text().strip())
+        )
+        pdf_layout.addWidget(self.pdf_guide_edit, 1)
+        pdf_browse = QPushButton()
+        pdf_browse.setIcon(qta.icon('fa6s.file-pdf'))
+        pdf_browse.setToolTip('Open PDF guide')
+        pdf_browse.clicked.connect(self.browse_pdf_guide)
+        pdf_layout.addWidget(pdf_browse)
+        layout.addWidget(pdf_group)
+
+        self.content_status_label = QLabel('Select a source folder and PDF guide.')
+        self.content_status_label.setWordWrap(True)
+        layout.addWidget(self.content_status_label)
+        self.psd_status_label = QLabel('PSD not scanned')
+        self.preview_status_label = QLabel('Preview not scanned')
+        self.cover_status_label = QLabel('Cover not scanned')
+        self.pdf_status_label = QLabel('PDF not scanned')
+        for label in (
+            self.psd_status_label,
+            self.preview_status_label,
+            self.cover_status_label,
+            self.pdf_status_label
+        ):
+            layout.addWidget(label)
+
+        layout.addStretch()
+        self.content_progress_bar = QProgressBar()
+        self.content_progress_bar.setRange(0, 100)
+        self.content_progress_bar.setValue(0)
+        self.content_progress_bar.setFormat('Readiness: %p%')
+        self.content_progress_bar.setMaximumHeight(20)
+        layout.addWidget(self.content_progress_bar)
+        self.content_process_btn = QPushButton('Process Files')
+        self.content_process_btn.setIcon(qta.icon('fa6s.box-archive'))
+        self.content_process_btn.setMinimumHeight(34)
+        self.content_process_btn.clicked.connect(self.process_content_files)
+        layout.addWidget(self.content_process_btn)
+        self.content_clear_btn = QPushButton('Clear All')
+        self.content_clear_btn.setIcon(qta.icon('fa6s.broom'))
+        self.content_clear_btn.setMinimumHeight(30)
+        self.content_clear_btn.setToolTip('Reset metadata and content file state')
+        self.content_clear_btn.clicked.connect(self.clear_all)
+        layout.addWidget(self.content_clear_btn)
+        self.scan_content_files()
+        return content_tab
+
+    def _save_content_files_config(self):
+        self.config['content_files'] = {
+            'source_folder': self.content_source_edit.text().strip(),
+            'pdf_guide': self.pdf_guide_edit.text().strip()
+        }
+        self.save_config()
+
+    def on_content_source_changed(self, path):
+        self.content_source_edit.setText(path)
+        self._save_content_files_config()
+        self.scan_content_files()
+        self.load_content_cover(path)
+
+    def load_content_cover(self, source_folder):
+        if not os.path.isdir(source_folder):
+            return
+        if source_folder == self.loaded_content_source:
+            return
+        cover_paths = []
+        for root, _, names in os.walk(source_folder):
+            for name in names:
+                stem, extension = os.path.splitext(name)
+                if extension.lower() in ('.png', '.jpg', '.jpeg') and stem.lower().endswith('_cover'):
+                    cover_paths.append(os.path.join(root, name))
+        if not cover_paths:
+            self.content_status_label.setText('Source loaded, but no _cover image was found.')
+            return
+        cover_path = sorted(cover_paths, key=str.casefold)[0]
+        self.loaded_content_source = source_folder
+        self.status_label.setText(f'Loading cover: {os.path.basename(cover_path)}')
+        self.load_image(cover_path)
+
+    def on_pdf_guide_changed(self, path):
+        self.pdf_guide_edit.setText(path)
+        self._save_content_files_config()
+        self.scan_content_files()
+
+    def browse_content_source(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, 'Select Content Source Folder', self.content_source_edit.text().strip()
+        )
+        if folder:
+            self.on_content_source_changed(folder)
+
+    def browse_pdf_guide(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Select PDF Guide', self.pdf_guide_edit.text().strip(), 'PDF Files (*.pdf)'
+        )
+        if path:
+            self.on_pdf_guide_changed(path)
+
+    def scan_content_files(self):
+        source = self.content_source_edit.text().strip() if hasattr(self, 'content_source_edit') else ''
+        pdf = self.pdf_guide_edit.text().strip() if hasattr(self, 'pdf_guide_edit') else ''
+        files = []
+        if os.path.isdir(source):
+            files = [
+                os.path.join(root, name)
+                for root, _, names in os.walk(source)
+                for name in names
+            ]
+        lower_names = [(path, os.path.basename(path).lower()) for path in files]
+        psds = [path for path, name in lower_names if name.endswith('.psd')]
+        images = [path for path, name in lower_names if name.endswith(('.png', '.jpg', '.jpeg'))]
+        covers = [path for path, name in lower_names if name.rsplit('.', 1)[0].endswith('_cover')]
+        previews = [path for path in images if path not in covers]
+        self.content_files_scan = {
+            'psds': psds,
+            'previews': previews,
+            'covers': covers,
+            'pdf': pdf if os.path.isfile(pdf) and pdf.lower().endswith('.pdf') else ''
+        }
+        self._set_content_status(self.psd_status_label, bool(psds), f'PSD ready ({len(psds)})', 'PSD not ready')
+        self._set_content_status(self.preview_status_label, bool(previews), f'Preview ready ({len(previews)})', 'Preview not ready')
+        self._set_content_status(self.cover_status_label, bool(covers), f'Cover ready ({len(covers)})', 'Cover not ready')
+        pdf_ready = bool(self.content_files_scan['pdf'])
+        self._set_content_status(
+            self.pdf_status_label,
+            pdf_ready,
+            'PDF ready (1)',
+            'PDF not ready'
+        )
+        self.content_status_label.setText('Content files scanned.' if pdf_ready else 'PDF guide not ready')
+        ready = bool(psds and previews and covers and self.content_files_scan['pdf'])
+        self.content_process_btn.setEnabled(bool(source and os.path.isdir(source)))
+        self.content_progress_bar.setFormat('Readiness: %p%')
+        self.content_progress_bar.setValue(100 if ready else 0)
+        return ready
+
+    def _set_content_status(self, label, ready, success_text, warning_text):
+        label.setText(success_text if ready else warning_text)
+        label.setStyleSheet(
+            f"color: {theme.get_color('success' if ready else 'error')}; font-weight: bold;"
+        )
+
+    def process_content_files(self):
+        if self.content_zip_worker and self.content_zip_worker.isRunning():
+            return
+        ready = self.scan_content_files()
+        source = self.content_source_edit.text().strip()
+        archive_path = os.path.join(source, 'Main File.zip') if source else ''
+        if ready and os.path.isfile(archive_path):
+            self.content_status_label.setText('All content files are ready. Scan completed; ZIP was not recreated.')
+            return
+        scan = self.content_files_scan
+        if not source or not os.path.isdir(source):
+            self.content_status_label.setText('Select a valid source folder first.')
+            return
+        if not all((scan['psds'], scan['previews'], scan['covers'], scan['pdf'])):
+            self.content_status_label.setText('Content files are not ready. ZIP was not created.')
+            return
+        files_to_zip = scan['psds'] + scan['previews'] + scan['covers']
+        files_to_zip.append(scan['pdf'])
+        self.content_progress_bar.setFormat('Zipping: %p%')
+        self.content_progress_bar.setValue(0)
+        self.content_process_btn.setEnabled(False)
+        self.content_status_label.setText('Creating Main File.zip...')
+        self.content_zip_worker = ContentZipWorker(archive_path, files_to_zip)
+        self.content_zip_worker.progress.connect(self.content_progress_bar.setValue)
+        self.content_zip_worker.completed.connect(self.on_content_zip_completed)
+        self.content_zip_worker.failed.connect(self.on_content_zip_failed)
+        self.content_zip_worker.finished.connect(self.on_content_zip_finished)
+        self.content_zip_worker.start()
+
+    def on_content_zip_completed(self, archive_path, file_count):
+        self.content_progress_bar.setFormat('Zipping complete: %p%')
+        self.content_progress_bar.setValue(100)
+        self.content_status_label.setText(
+            f'Created {os.path.basename(archive_path)} with {file_count} files.'
+        )
+
+    def on_content_zip_failed(self, error):
+        self.content_progress_bar.setFormat('Zipping failed: %p%')
+        self.content_status_label.setText(f'Could not create Main File.zip: {error}')
+
+    def on_content_zip_finished(self):
+        worker = self.content_zip_worker
+        self.content_zip_worker = None
+        if worker:
+            worker.deleteLater()
+        self.content_process_btn.setEnabled(bool(
+            self.content_source_edit.text().strip()
+            and os.path.isdir(self.content_source_edit.text().strip())
+        ))
 
     def create_preview_panel(self):
         preview_panel = QWidget()
@@ -836,7 +1163,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         preview_scroll.setWidget(listing_group)
         preview_layout.addWidget(preview_scroll, 1)
 
-        self.copy_json_btn = QPushButton("Send Metadata")
+        self.copy_json_btn = QPushButton("Send Files")
         self.copy_json_btn.setIcon(qta.icon('fa6s.paper-plane', color=theme.get_color('white')))
         self.copy_json_btn.setMinimumHeight(46)
         self.copy_json_btn.setCursor(Qt.PointingHandCursor)
@@ -853,13 +1180,15 @@ class EnvatoElementsMetadataDialog(QDialog):
             QPushButton::icon {{ width: 16px; height: 16px; }}
             QPushButton:hover {{ background-color: {theme.get_color('primary_hover')}; }}
             QPushButton:pressed {{ background-color: {theme.get_color('primary_pressed')}; }}
-            QPushButton:disabled {{
-                background-color: {theme.get_color('button_disabled_bg')};
-                color: {theme.get_color('button_disabled_fg')};
-            }}
+             QPushButton:disabled {{
+                 background-color: {theme.get_color('gray')};
+                 border: 1px solid {theme.get_color('gray')};
+                 color: {theme.get_color('button_disabled_fg')};
+             }}
         """)
         self.copy_json_btn.clicked.connect(self.send_metadata_to_extension)
         preview_layout.addWidget(self.copy_json_btn)
+        self.update_send_button_state()
 
         self.extension_status_label = QLabel(
             f"App listener: waiting for extension on port {self.extension_port}"
@@ -960,12 +1289,24 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.extension_status_label.setText(
                 f"Extension bridge unavailable on port {self.extension_port}"
             )
+        self.update_send_button_state()
+
+    def update_send_button_state(self):
+        if not hasattr(self, 'copy_json_btn'):
+            return
+        connected = bool(self.extension_bridge and self.extension_bridge.is_connected())
+        self.copy_json_btn.setEnabled(connected)
+        self.copy_json_btn.setToolTip(
+            'Send files to the connected extension.'
+            if connected else 'Connect the extension to send files.'
+        )
 
     def on_extension_event(self, event):
         event_type = event.get('type', 'status')
         message = event.get('message', '')
         if message:
             self.extension_log.append(message)
+        self.update_send_button_state()
         if event_type in ('connection', 'ready'):
             self.extension_status_label.setText(
                 "Extension receiver ready: waiting for metadata"
@@ -985,11 +1326,13 @@ class EnvatoElementsMetadataDialog(QDialog):
     def send_metadata_to_extension(self):
         self.update_preview()
         if not self.extension_bridge or not self.extension_bridge.is_connected():
+            self.update_send_button_state()
             self.status_label.setText("Connect the extension first")
             return
         payload = self.build_json_metadata()
         command_id = self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
         if not command_id:
+            self.update_send_button_state()
             self.status_label.setText("Extension connection is not ready")
             self.extension_status_label.setText(
                 f"App listener: waiting for extension on port {self.extension_port}"
@@ -999,6 +1342,9 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.extension_status_label.setText("Sending metadata")
 
     def closeEvent(self, event):
+        if self.content_zip_worker and self.content_zip_worker.isRunning():
+            self.content_zip_worker.requestInterruption()
+            self.content_zip_worker.wait(2000)
         if self.extension_bridge:
             self.extension_bridge.stop()
         super().closeEvent(event)
@@ -1202,6 +1548,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         
         pixmap = QPixmap(file_path)
         if not pixmap.isNull():
+            self.loaded_image_path = file_path
             self.source_pixmap = pixmap
             self.refresh_image_preview()
             self.image_display.setText("")
@@ -1210,17 +1557,64 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.auto_process_image()
     
     def clear_all(self):
+        if self.content_zip_worker and self.content_zip_worker.isRunning():
+            self.content_status_label.setText('Wait for ZIP processing to finish before clearing.')
+            return
+        if self.processor_thread and self.processor_thread.isRunning():
+            self.status_label.setText('Wait for metadata processing to finish before clearing.')
+            return
+
         self.image_data = None
         self.source_pixmap = None
+        self.loaded_image_path = None
+        self.loaded_content_source = None
         self.image_display.clear()
         self.image_display.setText("Drag & Drop Image Here\nor CLICK to Select File")
-        self.title_edit.clear()
-        self.tagline_edit.clear()
-        self.tags_edit.clear()
-        self.description_edit.clear()
+        for widget in (self.title_edit, self.tagline_edit, self.tags_edit, self.description_edit):
+            widget.blockSignals(True)
+            widget.clear()
+            widget.blockSignals(False)
+        self.dpi_edit.setText(str(self.config['defaults']['dpi']))
+        self.width_edit.setText(str(self.config['defaults']['width']))
+        self.height_edit.setText(str(self.config['defaults']['height']))
+        self.items_count_spin.setValue(self.config['defaults'].get('items_count', 1))
         self.update_preview()
-        
+
+        self.content_source_edit.blockSignals(True)
+        self.content_source_edit.clear()
+        self.content_source_edit.blockSignals(False)
+        self.config['content_files'] = {'source_folder': '', 'pdf_guide': ''}
+        self.config['content_files']['pdf_guide'] = self.pdf_guide_edit.text().strip()
+        self.save_config()
+        saved_pdf = self.pdf_guide_edit.text().strip()
+        pdf_ready = os.path.isfile(saved_pdf) and saved_pdf.lower().endswith('.pdf')
+        self.content_files_scan = {'psds': [], 'previews': [], 'covers': [], 'pdf': saved_pdf if pdf_ready else ''}
+        self.content_status_label.setText('Select a source folder and PDF guide.')
+        for label, text in (
+            (self.psd_status_label, 'PSD not scanned'),
+            (self.preview_status_label, 'Preview not scanned'),
+            (self.cover_status_label, 'Cover not scanned'),
+            (self.pdf_status_label, 'PDF ready (1)' if pdf_ready else 'PDF not scanned')
+        ):
+            label.setText(text)
+            label.setStyleSheet(
+                f"color: {theme.get_color('success')}; font-weight: bold;"
+                if label is self.pdf_status_label and pdf_ready else ''
+            )
+        self.content_progress_bar.setFormat('Readiness: %p%')
+        self.content_progress_bar.setValue(0)
+        self.content_process_btn.setEnabled(False)
+
         yaml_data = load_data_yaml()
+        yaml_data['results'] = {
+            'title': '',
+            'tagline': '',
+            'tags': [],
+            'dpi': str(self.config['defaults']['dpi']),
+            'width': str(self.config['defaults']['width']),
+            'height': str(self.config['defaults']['height'])
+        }
+        yaml_data['items_count'] = self.items_count_spin.value()
         yaml_data['image_data'] = None
         save_data_yaml(yaml_data)
         
@@ -1229,6 +1623,8 @@ class EnvatoElementsMetadataDialog(QDialog):
     
     def auto_process_image(self):
         if not self.image_data:
+            return
+        if self.processor_thread and self.processor_thread.isRunning():
             return
         
         api_key, service, model, endpoint = self.get_current_api_credentials()

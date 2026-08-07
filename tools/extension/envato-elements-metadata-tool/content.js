@@ -212,11 +212,16 @@
     report('Selected Applications Supported option.');
   }
 
-  function selectFileTypes() {
+  async function selectFileTypes() {
+    // Select PSD first; Envato rebuilds the multi-select after each choice.
     selectMultiSelectByKeyboard('File Types', 14);
-    // Envato replaces the control content after each multi-select choice.
+    await sleep(100);
+    // Re-open the rebuilt control and select PDF.
     selectMultiSelectByKeyboard('File Types', 12);
-    report('Selected File Types options.');
+    await sleep(100);
+    // Re-open it once more and select PNG.
+    selectMultiSelectByKeyboard('File Types', 12);
+    report('Selected File Types options: PSD, PDF, and PNG.');
   }
 
   async function selectOption(label, option) {
@@ -332,7 +337,7 @@
     await checkbox('Documentation', true);
     await fillTags(metadata.tags);
     selectApplicationsSupported();
-    selectFileTypes();
+    await selectFileTypes();
     report('All requested metadata fields filled. Review before submitting.');
   }
 
