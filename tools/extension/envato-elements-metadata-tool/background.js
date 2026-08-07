@@ -4,6 +4,7 @@ let reconnectTimer = null;
 let wasConnected = false;
 let processingCommand = false;
 let activeCommandId = null;
+let pollingCommand = false;
 
 function notifyStatus(message, ready) {
   chrome.runtime.sendMessage({ type: 'EEMT_STATUS', message, ready }).catch(() => {});
@@ -107,7 +108,8 @@ async function processCommand(command) {
 }
 
 async function pollBridge() {
-  if (!bridgeConnection) return;
+  if (!bridgeConnection || pollingCommand) return;
+  pollingCommand = true;
   try {
     const response = await fetch(`http://127.0.0.1:${bridgeConnection.port}/next-command`, {
       headers: { 'X-EEMT-Connection': bridgeConnection.connectionId }
@@ -117,6 +119,9 @@ async function pollBridge() {
       if (activeCommandId !== data.command.command_id) await processCommand(data.command);
     }
   } catch (_) {}
+  finally {
+    pollingCommand = false;
+  }
 }
 
 chrome.runtime.onMessage.addListener((message) => {

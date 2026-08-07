@@ -106,7 +106,7 @@
     return element?.closest('[role="option"], [data-option-index], [data-name], li, button') || element;
   }
 
-  function selectWithKeyboard(control) {
+  function selectWithKeyboard(control, arrowDownCount = 1) {
     control.focus?.();
     const key = (value, code = value, keyCode = 0) => {
       control.dispatchEvent(new KeyboardEvent('keydown', {
@@ -116,7 +116,9 @@
         key: value, code, keyCode, which: keyCode, bubbles: true, cancelable: true
       }));
     };
-    key('ArrowDown', 'ArrowDown', 40);
+    for (let index = 0; index < arrowDownCount; index += 1) {
+      key('ArrowDown', 'ArrowDown', 40);
+    }
     key('Enter', 'Enter', 13);
   }
 
@@ -224,6 +226,26 @@
     report('Selected File Types options: PSD, PDF, and PNG.');
   }
 
+  function findCoverInput() {
+    const root = document.querySelector('.CoverImageInput__root___12GiU, [class*="CoverImageInput__root"]');
+    return root?.querySelector('input[type="file"]') || null;
+  }
+
+  function uploadCover(cover) {
+    if (!cover?.data) return false;
+    const input = findCoverInput();
+    if (!input) throw new Error('Could not find the cover image uploader.');
+    const bytes = Uint8Array.from(atob(cover.data), (character) => character.charCodeAt(0));
+    const file = new File([bytes], cover.name || 'cover.png', { type: cover.type || 'image/png' });
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    report(`Dropped cover image: ${file.name}`);
+    return true;
+  }
+
   async function selectOption(label, option) {
     const directSelectors = {
       categories: '.item-submission-categories',
@@ -269,7 +291,10 @@
     } else {
       // If the menu is rendered asynchronously, let the focused combo handle
       // the selection without blocking the rest of the form fill.
-      selectWithKeyboard(control);
+      // These controls open with the first option already highlighted. An
+      // extra ArrowDown moves RGB -> CMYK and px -> in.
+      const arrowDownCount = normalizedLabel === 'color space' || normalizedLabel === 'dimensions' ? 0 : 1;
+      selectWithKeyboard(control, arrowDownCount);
     }
     report(`Selected ${option} in ${label}`);
   }
@@ -338,6 +363,7 @@
     await fillTags(metadata.tags);
     selectApplicationsSupported();
     await selectFileTypes();
+    uploadCover(metadata.cover);
     report('All requested metadata fields filled. Review before submitting.');
   }
 

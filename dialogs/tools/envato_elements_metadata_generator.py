@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import mimetypes
 import threading
 import queue
 import time
@@ -206,6 +207,9 @@ class ExtensionBridge:
                         return
                     if event.get('type') == 'command_received':
                         bridge.acknowledge(event.get('command_id'), connection_id)
+                        # A repeated poll may have exposed duplicate copies of the
+                        # same queued command before the first one was acknowledged.
+                        bridge.clear_pending(connection_id)
                     elif event.get('type') == 'command_failed':
                         bridge.clear_pending(connection_id)
                     bridge.event_callback(event)
@@ -1042,6 +1046,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.content_process_btn.setEnabled(bool(source and os.path.isdir(source)))
         self.content_progress_bar.setFormat('Readiness: %p%')
         self.content_progress_bar.setValue(100 if ready else 0)
+        self.update_send_button_state()
         return ready
 
     def _set_content_status(self, label, ready, success_text, warning_text):
@@ -1225,6 +1230,22 @@ class EnvatoElementsMetadataDialog(QDialog):
             'dimensionUnit': 'px'
         }
 
+    def build_cover_payload(self):
+        covers = self.content_files_scan.get('covers', [])
+        if not covers:
+            return None
+        cover_path = covers[0]
+        try:
+            with open(cover_path, 'rb') as cover_file:
+                encoded = base64.b64encode(cover_file.read()).decode('ascii')
+        except OSError:
+            return None
+        return {
+            'name': os.path.basename(cover_path),
+            'type': mimetypes.guess_type(cover_path)[0] or 'image/png',
+            'data': encoded,
+        }
+
     def update_preview(self):
         if not hasattr(self, 'preview_description'):
             return
@@ -1295,10 +1316,20 @@ class EnvatoElementsMetadataDialog(QDialog):
         if not hasattr(self, 'copy_json_btn'):
             return
         connected = bool(self.extension_bridge and self.extension_bridge.is_connected())
-        self.copy_json_btn.setEnabled(connected)
+        scan = getattr(self, 'content_files_scan', {})
+        content_ready = bool(
+            scan.get('psds') and
+            scan.get('previews') and
+            scan.get('covers') and
+            scan.get('pdf')
+        )
+        self.copy_json_btn.setEnabled(connected and content_ready)
         self.copy_json_btn.setToolTip(
             'Send files to the connected extension.'
-            if connected else 'Connect the extension to send files.'
+            if connected and content_ready else
+            'Complete PSD, preview, cover, and PDF files before sending.'
+            if not content_ready else
+            'Connect the extension to send files.'
         )
 
     def on_extension_event(self, event):
@@ -1330,6 +1361,9 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.status_label.setText("Connect the extension first")
             return
         payload = self.build_json_metadata()
+        cover = self.build_cover_payload()
+        if cover:
+            payload['cover'] = cover
         command_id = self.extension_bridge.send({'type': 'EEMT_FILL', 'metadata': payload})
         if not command_id:
             self.update_send_button_state()
