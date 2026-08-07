@@ -71,6 +71,8 @@ class ExtensionBridge:
         self.thread = None
 
     def start(self):
+        if self.server:
+            return True
         bridge = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -168,8 +170,11 @@ class ExtensionBridge:
             except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                 return False
 
+        class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+            allow_reuse_address = True
+
         try:
-            self.server = ThreadingHTTPServer(('127.0.0.1', self.port), Handler)
+            self.server = ReusableThreadingHTTPServer(('127.0.0.1', self.port), Handler)
         except OSError:
             return False
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -241,10 +246,16 @@ class ExtensionBridge:
         return self.active_connection_id() is not None
 
     def stop(self):
-        if self.server:
-            self.server.shutdown()
-            self.server.server_close()
-            self.server = None
+        server = self.server
+        thread = self.thread
+        self.server = None
+        self.thread = None
+        if not server:
+            return
+        server.shutdown()
+        server.server_close()
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=2)
 
 
 class ImageDisplayWidget(QLabel):
@@ -960,6 +971,11 @@ class EnvatoElementsMetadataDialog(QDialog):
         if self.extension_bridge:
             self.extension_bridge.stop()
         super().closeEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.extension_bridge and not self.extension_bridge.server:
+            self.start_extension_bridge()
     
     def create_copy_button(self, widget, data_name):
         copy_btn = QPushButton()
