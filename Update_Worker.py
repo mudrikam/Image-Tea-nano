@@ -895,7 +895,6 @@ class UpdateWorkerDialog(QDialog):
         
         if system == "Windows":
             launcher_bat = os.path.join(SCRIPT_DIR, "Launcher.bat")
-            
             if os.path.exists(launcher_bat):
                 subprocess.Popen([launcher_bat], shell=False)
             else:

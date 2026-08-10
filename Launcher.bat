@@ -144,7 +144,7 @@ if "%CHECK_FAILED%"=="1" (
         echo  Dependency repair complete.
         echo  Launching Image Tea...
         echo ================================
-        start "" "%PYTHONW%" "%~dp0main.py"
+        start "" /b "%PYTHONW%" "%~dp0main.py"
     ) else (
         echo ERROR: install.bat not found!
         echo Embedded Python missing and automatic install is unavailable.
@@ -155,7 +155,7 @@ if "%CHECK_FAILED%"=="1" (
 )
 
 REM If all checks passed, run main.py as usual
-start "" "%PYTHONW%" "%~dp0main.py"
+start "" /b "%PYTHONW%" "%~dp0main.py"
 
 exit /b 0
 endlocal

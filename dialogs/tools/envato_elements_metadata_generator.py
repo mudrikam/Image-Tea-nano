@@ -432,6 +432,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.source_pixmap = None
         self.processor_thread = None
         self.content_zip_worker = None
+        self.pending_send = False
         self.loaded_image_path = None
         self.loaded_content_source = None
         self.extension_bridge = None
@@ -1103,6 +1104,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         self.content_zip_worker.completed.connect(self.on_content_zip_completed)
         self.content_zip_worker.failed.connect(self.on_content_zip_failed)
         self.content_zip_worker.finished.connect(self.on_content_zip_finished)
+        self.update_send_button_state()
         self.content_zip_worker.start()
 
     def on_content_zip_completed(self, archive_path, file_count):
@@ -1113,6 +1115,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         )
 
     def on_content_zip_failed(self, error):
+        self.pending_send = False
         self.content_progress_bar.setFormat('Zipping failed: %p%')
         self.content_status_label.setText(f'Could not create Main File.zip: {error}')
 
@@ -1125,6 +1128,10 @@ class EnvatoElementsMetadataDialog(QDialog):
             self.content_source_edit.text().strip()
             and os.path.isdir(self.content_source_edit.text().strip())
         ))
+        self.update_send_button_state()
+        if self.pending_send:
+            self.pending_send = False
+            QTimer.singleShot(0, self.send_metadata_to_extension)
 
     def create_preview_panel(self):
         preview_panel = QWidget()
@@ -1360,10 +1367,17 @@ class EnvatoElementsMetadataDialog(QDialog):
             scan.get('covers') and
             scan.get('pdf')
         )
-        self.copy_json_btn.setEnabled(connected and content_ready)
+        source = self.content_source_edit.text().strip() if hasattr(self, 'content_source_edit') else ''
+        archive_ready = bool(source and os.path.isfile(os.path.join(source, 'Main File.zip')))
+        zipping = bool(self.content_zip_worker and self.content_zip_worker.isRunning())
+        self.copy_json_btn.setEnabled(connected and content_ready and not zipping)
         self.copy_json_btn.setToolTip(
             'Send files to the connected extension.'
-            if connected and content_ready else
+            if connected and content_ready and archive_ready and not zipping else
+            'Creating Main File.zip before sending.'
+            if zipping else
+            'Main File.zip will be created before sending.'
+            if connected and content_ready and not archive_ready else
             'Complete PSD, preview, cover, and PDF files before sending.'
             if not content_ready else
             'Connect the extension to send files.'
@@ -1396,6 +1410,22 @@ class EnvatoElementsMetadataDialog(QDialog):
         if not self.extension_bridge or not self.extension_bridge.is_connected():
             self.update_send_button_state()
             self.status_label.setText("Connect the extension first")
+            return
+        source = self.content_source_edit.text().strip()
+        archive_path = os.path.join(source, 'Main File.zip') if source else ''
+        if self.content_zip_worker and self.content_zip_worker.isRunning():
+            self.pending_send = True
+            self.status_label.setText("Creating Main File.zip before sending...")
+            self.update_send_button_state()
+            return
+        if not os.path.isfile(archive_path):
+            if self.scan_content_files():
+                self.pending_send = True
+                self.status_label.setText("Creating Main File.zip before sending...")
+                self.process_content_files()
+            else:
+                self.status_label.setText("Complete the content files before sending")
+            self.update_send_button_state()
             return
         payload = self.build_json_metadata()
         cover = self.build_cover_payload()
