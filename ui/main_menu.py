@@ -54,6 +54,7 @@ MENU_TOOLTIPS = {
     "export_csv": "Export metadata to CSV file for external use",
     "import_csv": "Import metadata from CSV file into database",
     "chunk_size": "Configure chunk size for metadata writing operations",
+    "shutdown_on_complete": "Shut down the device after metadata generation completes",
     
     # Prompt menu
     "edit_prompt": "Configure AI prompt templates and settings",
@@ -870,6 +871,57 @@ def setup_main_menu(window):
 
     load_metadata_sanitize_menu()
     metadata_menu.addMenu(metadata_sanitize_submenu)
+
+    shutdown_submenu = QMenu("Shutdown on complete", metadata_menu)
+    shutdown_submenu.setIcon(qta.icon('fa6s.power-off'))
+    shutdown_submenu.setToolTipsVisible(True)
+
+    def _get_shutdown_on_complete():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return bool(cfg.get("shutdown_on_complete", False))
+        except (OSError, ValueError, TypeError) as e:
+            print(f"[Shutdown] Failed to read setting: {e}")
+            return False
+
+    def _set_shutdown_on_complete(value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            cfg["shutdown_on_complete"] = bool(value)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+            load_shutdown_menu()
+        except (OSError, ValueError, TypeError) as e:
+            print(f"[Shutdown] Failed to save setting: {e}")
+
+    def load_shutdown_menu():
+        shutdown_submenu.clear()
+        current = _get_shutdown_on_complete()
+
+        true_action = QAction("True", window)
+        true_action.setCheckable(True)
+        true_action.setChecked(current)
+        true_action.setIcon(qta.icon('fa6s.check') if current else qta.icon('fa6s.power-off'))
+        true_action.setToolTip(MENU_TOOLTIPS["shutdown_on_complete"])
+        true_action.setStatusTip(MENU_TOOLTIPS["shutdown_on_complete"])
+        true_action.triggered.connect(lambda: _set_shutdown_on_complete(True))
+        shutdown_submenu.addAction(true_action)
+
+        false_action = QAction("False", window)
+        false_action.setCheckable(True)
+        false_action.setChecked(not current)
+        false_action.setIcon(qta.icon('fa6s.check') if not current else qta.icon('fa6s.power-off'))
+        false_action.setToolTip("Keep the device running after metadata generation completes")
+        false_action.setStatusTip("Keep the device running after metadata generation completes")
+        false_action.triggered.connect(lambda: _set_shutdown_on_complete(False))
+        shutdown_submenu.addAction(false_action)
+
+    load_shutdown_menu()
+    metadata_menu.addMenu(shutdown_submenu)
 
     prompt_menu = QMenu("Prompt", edit_menu)
     prompt_menu.setIcon(qta.icon('fa6s.comment-dots'))

@@ -41,6 +41,7 @@
   "delay_interval": "Random",
   "max_retries": 5,
   "prompt_generation_enabled": false,
+  "shutdown_on_complete": false,
   "metadata_sanitization_enabled": true,
   "video_proxy_setting": "Auto",
   "video_proxy_presets": {
@@ -655,8 +656,7 @@
       "openai/gpt-5-pro",
       "openai/gpt-5.1"
     ],
-    "custom": [
-    ]
+    "custom": []
   },
   "shutterstock_category_map": {
     "1": "Abstract",

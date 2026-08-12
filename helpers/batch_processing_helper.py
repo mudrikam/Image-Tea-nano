@@ -3,6 +3,8 @@ import os
 import time
 import random
 import threading
+import platform
+import subprocess
 from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, QByteArray, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMessageBox, QApplication, QDialog
@@ -134,6 +136,33 @@ def get_fresh_ai_config():
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
     return config
+
+
+def is_shutdown_on_complete_enabled():
+    """Read the metadata completion shutdown setting with a safe default."""
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return bool(json.load(f).get("shutdown_on_complete", False))
+    except (OSError, ValueError, TypeError) as e:
+        print(f"[Shutdown] Failed to read setting: {e}")
+        return False
+
+
+def shutdown_device():
+    """Request an immediate operating-system shutdown after generation cleanup."""
+    try:
+        system = platform.system()
+        if system == "Windows":
+            command = ["shutdown.exe", "/s", "/t", "0"]
+        elif system == "Darwin":
+            command = ["shutdown", "-h", "now"]
+        else:
+            command = ["shutdown", "-h", "now"]
+        subprocess.Popen(command)
+        print(f"[Shutdown] Device shutdown requested: {system}")
+    except (OSError, ValueError) as e:
+        print(f"[Shutdown] Failed to request device shutdown: {e}")
 
 def is_typewriter_animation_enabled():
     config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
@@ -3143,6 +3172,12 @@ def _on_generation_finished(window, errors, stopped=False):
         dlg.exec()
     
     print("[CLEANUP] Generation finished cleanup completed.")
+
+    # Schedule shutdown only after a normal, fully finalized generation.
+    # The short delay lets the completion UI and queued signal handlers settle.
+    if not stopped and is_shutdown_on_complete_enabled():
+        print("[Shutdown] Metadata generation complete; shutting down in 1.5 seconds.")
+        QTimer.singleShot(1500, shutdown_device)
 
 def update_token_stats_ui(window):
     if hasattr(window, "stats_section") and hasattr(window.stats_section, "update_token_stats"):
