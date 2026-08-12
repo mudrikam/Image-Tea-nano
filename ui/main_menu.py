@@ -872,7 +872,7 @@ def setup_main_menu(window):
     load_metadata_sanitize_menu()
     metadata_menu.addMenu(metadata_sanitize_submenu)
 
-    shutdown_submenu = QMenu("Shutdown on complete", metadata_menu)
+    shutdown_submenu = QMenu("Shutdown on Complete", metadata_menu)
     shutdown_submenu.setIcon(qta.icon('fa6s.power-off'))
     shutdown_submenu.setToolTipsVisible(True)
 
