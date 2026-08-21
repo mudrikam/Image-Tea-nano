@@ -43,7 +43,19 @@ def extract_response_text(response) -> str:
         output = response.get("output")
         if output:
             if isinstance(output, list):
-                return content_to_text(output)
+                parts = []
+                for item in output:
+                    if not isinstance(item, dict):
+                        continue
+                    item_content = item.get("content")
+                    if item_content:
+                        parts.append(content_to_text(item_content))
+                    elif item.get("text"):
+                        parts.append(content_to_text(item.get("text")))
+                    elif item.get("output_text"):
+                        parts.append(content_to_text(item.get("output_text")))
+                if parts:
+                    return "".join(parts)
             return content_to_text(output)
         choices = response.get("choices") or []
         if choices:
@@ -70,6 +82,26 @@ def extract_response_text(response) -> str:
         if text:
             return text
         return content_to_text(_get(choice, "text"))
+    candidates = _get(response, "candidates") or []
+    if candidates:
+        candidate = candidates[0]
+        content = _get(candidate, "content")
+        text = content_to_text(_get(content, "parts")) if content else ""
+        if text:
+            return text
+        return content_to_text(_get(candidate, "text"))
+    output = _get(response, "output")
+    if output:
+        if isinstance(output, (list, tuple)) and output:
+            for item in output:
+                if not item:
+                    continue
+                item_content = _get(item, "content")
+                if item_content:
+                    text = content_to_text(item_content)
+                    if text:
+                        return text
+        return content_to_text(output)
     text = _get(response, "text")
     return content_to_text(text)
 
