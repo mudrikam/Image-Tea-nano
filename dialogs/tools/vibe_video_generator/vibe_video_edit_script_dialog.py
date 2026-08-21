@@ -90,12 +90,14 @@ class ScriptGeneratorWorker(QThread):
                     base_url = ai_config['provider_endpoints'][svc]
                     client = OpenAI(api_key=self.api_key, base_url=base_url)
                     response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                    text = response.choices[0].message.content
+                    from helpers.ai_helper.openai_stream_helper import extract_response_text
+                    text = extract_response_text(response)
                 elif svc == 'groq':
                     from groq import Groq
                     client = Groq(api_key=self.api_key)
                     response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                    text = response.choices[0].message.content
+                    from helpers.ai_helper.openai_stream_helper import extract_response_text
+                    text = extract_response_text(response)
                 else:
                     self.finished.emit(False, f"Unsupported service: {svc}")
                     return
@@ -182,12 +184,14 @@ class PromptRefinerWorker(QThread):
                 base_url = ai_config['provider_endpoints'][svc]
                 client = OpenAI(api_key=self.api_key, base_url=base_url)
                 response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
+                from helpers.ai_helper.openai_stream_helper import extract_response_text
+                text = extract_response_text(response)
             elif svc == 'groq':
                 from groq import Groq
                 client = Groq(api_key=self.api_key)
                 response = client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": full_prompt}])
-                text = response.choices[0].message.content
+                from helpers.ai_helper.openai_stream_helper import extract_response_text
+                text = extract_response_text(response)
             else:
                 self.finished.emit(False, f"Unsupported service: {svc}")
                 return

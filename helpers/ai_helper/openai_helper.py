@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
-from helpers.ai_helper.openai_stream_helper import consume_openai_stream
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream, extract_response_text, extract_usage
 from helpers.ai_helper.metadata_helper import normalize_tags
 
 _generation_times_openai = []
@@ -545,20 +545,12 @@ def generate_metadata_openai(api_key, model, image_path, prompt=None, stop_flag=
             print(response)
             print("="*80)
 
-            token_input = 0
-            token_output = 0
-            token_total = 0
-            usage = getattr(response, "usage", None)
-            if usage:
-                token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
-                token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
-                token_total = getattr(usage, "total_tokens", 0)
-            if not text and hasattr(response, "choices") and response.choices:
-                choice = response.choices[0]
-                if hasattr(choice, "message") and hasattr(choice.message, "content"):
-                    text = choice.message.content
+            if not any((token_input, token_output, token_total)):
+                token_input, token_output, token_total = extract_usage(getattr(response, "usage", None))
             if not text:
-                text = str(response)
+                text = extract_response_text(response)
+            if not text:
+                text = ''
         else:
             # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():

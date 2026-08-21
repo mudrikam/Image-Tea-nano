@@ -1,4 +1,86 @@
-"""Shared handling for OpenAI-compatible SDK streaming responses."""
+"""Shared handling for OpenAI-compatible SDK responses.
+
+Providers are not consistent about reasoning fields, content parts, or usage
+objects. Keep that compatibility code in one place so individual tools do not
+mistake a reasoning-only chunk (or an SDK repr) for the final answer.
+"""
+
+
+def _get(value, key, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def content_to_text(content) -> str:
+    """Convert common OpenAI/Gemini content representations to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (list, tuple)):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            else:
+                text = _get(part, "text")
+                if text is None:
+                    text = _get(part, "output_text")
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    return str(content)
+
+
+def extract_response_text(response) -> str:
+    """Extract answer text without exposing private reasoning or SDK reprs."""
+    if response is None:
+        return ""
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        output = response.get("output")
+        if output:
+            if isinstance(output, list):
+                return content_to_text(output)
+            return content_to_text(output)
+        choices = response.get("choices") or []
+        if choices:
+            choice = choices[0] or {}
+            message = choice.get("message") or {}
+            text = content_to_text(message.get("content"))
+            if text:
+                return text
+            return content_to_text(choice.get("text"))
+        candidates = response.get("candidates") or []
+        if candidates:
+            candidate = candidates[0] or {}
+            content = candidate.get("content") or {}
+            if isinstance(content, dict):
+                return content_to_text(content.get("parts") or content.get("text"))
+            return content_to_text(content)
+        return content_to_text(response.get("text") or response.get("output_text"))
+
+    choices = _get(response, "choices") or []
+    if choices:
+        choice = choices[0]
+        message = _get(choice, "message")
+        text = content_to_text(_get(message, "content")) if message else ""
+        if text:
+            return text
+        return content_to_text(_get(choice, "text"))
+    text = _get(response, "text")
+    return content_to_text(text)
+
+
+def extract_usage(usage) -> tuple:
+    if not usage:
+        return 0, 0, 0
+    token_input = _get(usage, "prompt_tokens", 0) or _get(usage, "input_tokens", 0) or 0
+    token_output = _get(usage, "completion_tokens", 0) or _get(usage, "output_tokens", 0) or 0
+    token_total = _get(usage, "total_tokens", 0) or (token_input + token_output)
+    return token_input, token_output, token_total
 
 
 def consume_openai_stream(response):
@@ -16,33 +98,36 @@ def consume_openai_stream(response):
     finish_reasons = []
 
     for chunk in response:
-        choices = getattr(chunk, "choices", None) or []
+        choices = _get(chunk, "choices", None) or []
         choice = choices[0] if choices else None
-        chunk_usage = getattr(chunk, "usage", None)
+        chunk_usage = _get(chunk, "usage", None)
         if chunk_usage:
-            usage = (
-                getattr(chunk_usage, "prompt_tokens", 0) or getattr(chunk_usage, "input_tokens", 0),
-                getattr(chunk_usage, "completion_tokens", 0) or getattr(chunk_usage, "output_tokens", 0),
-                getattr(chunk_usage, "total_tokens", 0),
-            )
+            usage = extract_usage(chunk_usage)
         if choice is None:
             continue
 
-        delta = getattr(choice, "delta", None)
-        reasoning = getattr(delta, "reasoning", None) if delta else None
+        delta = _get(choice, "delta", None)
+        reasoning = _get(delta, "reasoning", None) if delta else None
         if reasoning is None and delta:
-            reasoning = getattr(delta, "reasoning_content", None)
+            reasoning = _get(delta, "reasoning_content", None)
         if reasoning:
             reasoning_events += 1
             reasoning_chars += len(str(reasoning))
 
-        content = getattr(delta, "content", None) if delta else None
+        content = _get(delta, "content", None) if delta else None
         if content:
-            content_parts.append(str(content))
+            content_parts.append(content_to_text(content))
             content_events += 1
-            content_chars += len(str(content))
+            content_chars += len(content_to_text(content))
 
-        finish_reason = getattr(choice, "finish_reason", None)
+        # A few OpenAI-compatible servers put the answer in a message object
+        # even when stream=True, or expose it as output_text.
+        if not delta:
+            message_text = extract_response_text(chunk)
+            if message_text:
+                content_parts.append(message_text)
+
+        finish_reason = _get(choice, "finish_reason", None)
         if finish_reason is not None and finish_reason not in finish_reasons:
             finish_reasons.append(finish_reason)
 

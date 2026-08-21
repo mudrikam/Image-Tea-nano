@@ -93,7 +93,8 @@ class ScriptFixWorker(QThread):
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content
+            from helpers.ai_helper.openai_stream_helper import extract_response_text
+            return extract_response_text(response)
         elif svc == 'groq':
             from groq import Groq
             client = Groq(api_key=self.api_key)
@@ -101,7 +102,8 @@ class ScriptFixWorker(QThread):
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content
+            from helpers.ai_helper.openai_stream_helper import extract_response_text
+            return extract_response_text(response)
         else:
             raise ValueError(f"Unsupported service: {svc}")
 

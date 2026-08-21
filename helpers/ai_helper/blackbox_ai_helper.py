@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting, extract_video_frames
-from helpers.ai_helper.openai_stream_helper import consume_openai_stream
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream, extract_response_text
 from helpers.ai_helper.metadata_helper import normalize_tags
 
 _generation_times_blackbox = []
@@ -346,7 +346,7 @@ def generate_metadata_blackbox(api_key, model, image_path, prompt=None, stop_fla
             if any(stream_usage):
                 token_input, token_output, token_total = stream_usage
             if not text:
-                text = str(response)
+                text = extract_response_text(response)
         else:
             # custom endpoint path: text already provided by helper
             token_input = token_output = token_total = 0

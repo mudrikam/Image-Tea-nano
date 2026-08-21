@@ -133,7 +133,8 @@ class ImagePromptWorker(QThread):
                         messages=messages,
                         max_tokens=4000
                     )
-                    text = response.choices[0].message.content
+                    from helpers.ai_helper.openai_stream_helper import extract_response_text
+                    text = extract_response_text(response)
                 elif svc == 'gemini':
                     import google.genai as genai
                     from google.genai.types import Part

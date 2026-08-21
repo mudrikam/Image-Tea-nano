@@ -6,6 +6,7 @@ import re
 import requests
 from urllib.parse import urlparse
 from config import BASE_PATH
+from helpers.ai_helper.openai_stream_helper import content_to_text
 
 
 class CustomEndpointHelper:
@@ -103,22 +104,27 @@ class CustomEndpointHelper:
         if isinstance(resp_json, dict):
             out = resp_json.get("output")
             if isinstance(out, list) and out:
-                first = out[0]
-                if isinstance(first, dict):
-                    if "content" in first and isinstance(first["content"], list):
-                        for part in first["content"]:
-                            if isinstance(part, dict) and part.get("type") == "output_text":
-                                return part.get("text", "")
-                    return first.get("text") or str(first)
-                return str(first)
+                parts = []
+                for item in out:
+                    if not isinstance(item, dict):
+                        continue
+                    item_content = item.get("content")
+                    if isinstance(item_content, list):
+                        for part in item_content:
+                            if isinstance(part, dict) and part.get("type") in ("output_text", "text"):
+                                parts.append(content_to_text(part.get("text")))
+                    else:
+                        parts.append(content_to_text(item.get("text") or item.get("output_text")))
+                if parts:
+                    return "".join(parts)
 
             choices = resp_json.get("choices")
             if isinstance(choices, list) and choices:
                 c0 = choices[0]
                 if isinstance(c0, dict):
                     if "message" in c0 and isinstance(c0["message"], dict):
-                        return c0["message"].get("content") or c0.get("text") or str(c0["message"])
-                    return c0.get("text") or str(c0)
+                        return content_to_text(c0["message"].get("content")) or content_to_text(c0.get("text"))
+                    return content_to_text(c0.get("text"))
 
             candidates = resp_json.get("candidates")
             if isinstance(candidates, list) and candidates:
@@ -128,12 +134,13 @@ class CustomEndpointHelper:
                     if isinstance(content, dict):
                         for v in ("text", "output_text", "string"):
                             if v in content:
-                                return content[v]
-                    return cand.get("content") or cand.get("display") or str(cand)
+                                return content_to_text(content[v])
+                    return content_to_text(cand.get("content") or cand.get("display"))
 
             if "text" in resp_json:
-                return resp_json.get("text")
-        return json.dumps(resp_json) 
+                return content_to_text(resp_json.get("text"))
+            return content_to_text(resp_json.get("output_text"))
+        return ""
 
     @staticmethod
     def _build_multi_frame_content(prompt: str, frame_paths: list) -> list:
@@ -157,7 +164,6 @@ class CustomEndpointHelper:
             return token_input, token_output, token_total
         return 0, 0, 0
 
-    @staticmethod
     @staticmethod
     def _parse_openai_stream(response) -> tuple[str, tuple]:
         """Consume an OpenAI-compatible response, streamed or regular.
@@ -201,9 +207,18 @@ class CustomEndpointHelper:
 
             content = delta.get("content")
             if content:
-                content_parts.append(str(content))
+                content_text = content_to_text(content)
+                content_parts.append(content_text)
                 content_events += 1
-                content_chars += len(str(content))
+                content_chars += len(content_text)
+
+            if not delta:
+                message = choice.get("message") or {}
+                message_content = message.get("content") if isinstance(message, dict) else None
+                if message_content:
+                    content_parts.append(content_to_text(message_content))
+                elif choice.get("text"):
+                    content_parts.append(content_to_text(choice.get("text")))
 
             finish_reason = choice.get("finish_reason")
             if finish_reason is not None:
@@ -212,8 +227,10 @@ class CustomEndpointHelper:
 
             # Non-streaming OpenAI-compatible responses are also accepted.
             message = choice.get("message") or {}
-            if isinstance(message, dict) and message.get("content"):
-                content_parts.append(str(message["content"]))
+            if isinstance(message, dict) and message.get("content") and delta:
+                # Some servers include both delta and message in one event.
+                # Delta is the canonical streamed value; avoid duplication.
+                pass
 
         for raw_line in response.iter_lines(decode_unicode=True):
             if raw_line is None:
@@ -327,14 +344,21 @@ class CustomEndpointHelper:
             raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
 
         try:
+            # Cache the body before iterating. This supports both SSE and JSON
+            # responses and allows a reliable fallback after iter_lines().
+            raw_body = resp.content
             text, usage = CustomEndpointHelper._parse_openai_stream(resp)
             token_input, token_output, token_total = usage
             if not text:
-                j = resp.json()
-                text = CustomEndpointHelper._extract_text_from_response(j)
+                if raw_body:
+                    try:
+                        text = CustomEndpointHelper._extract_text_from_response(json.loads(raw_body.decode("utf-8")))
+                    except Exception:
+                        text = raw_body.decode("utf-8", errors="replace")
             return text, token_input, token_output, token_total
-        except Exception:
-            return resp.text or "", 0, 0, 0
+        except Exception as e:
+            print(f"[CustomEndpointHelper] Response parsing failed: {e}")
+            return "", 0, 0, 0
 
     @staticmethod
     def call_endpoint(api_key: str, endpoint: str, provider: str | None, model: str, prompt: str, image_path: str | None = None, frame_paths: list | None = None, timeout: int = 30) -> str:
@@ -431,10 +455,14 @@ class CustomEndpointHelper:
             raise RuntimeError(f"Custom endpoint returned status {resp.status_code}: {body}")
 
         try:
+            raw_body = resp.content
             text, _ = CustomEndpointHelper._parse_openai_stream(resp)
             if text:
                 return text
-            return CustomEndpointHelper._extract_text_from_response(resp.json())
+            try:
+                return CustomEndpointHelper._extract_text_from_response(json.loads(raw_body.decode("utf-8")))
+            except Exception:
+                return raw_body.decode("utf-8", errors="replace") if raw_body else ""
         except Exception:
             return resp.text or ""
 

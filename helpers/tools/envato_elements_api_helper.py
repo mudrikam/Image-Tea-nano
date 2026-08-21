@@ -8,6 +8,7 @@ from config import BASE_PATH
 from google import genai
 from google.genai import types
 from openai import OpenAI
+from helpers.ai_helper.openai_stream_helper import extract_response_text
 
 INSTRUCTION_PROMPT = """You are an Envato Elements metadata specialist for mockup products. Analyze the preview and create accurate, search-focused metadata that helps the right buyers discover and evaluate the item.
 
@@ -259,7 +260,7 @@ def process_image_with_openrouter(image_data, api_key, model, title_min, title_m
             if not response or not response.choices:
                 raise ValueError("Empty response from OpenRouter")
             
-            response_text = response.choices[0].message.content.strip()
+            response_text = extract_response_text(response).strip()
             
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
@@ -373,7 +374,7 @@ def process_image_with_blackbox(image_data, api_key, model, title_min, title_max
             if not response or not response.choices:
                 raise ValueError("Empty response from Blackbox")
 
-            response_text = response.choices[0].message.content.strip()
+            response_text = extract_response_text(response).strip()
 
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
@@ -486,7 +487,7 @@ def process_image_with_maia(image_data, api_key, model, title_min, title_max, ta
             if not response or not response.choices:
                 raise ValueError("Empty response from MAIA Router")
 
-            response_text = response.choices[0].message.content.strip()
+            response_text = extract_response_text(response).strip()
 
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
@@ -601,7 +602,7 @@ def process_image_with_custom(image_data, api_key, model, endpoint, title_min, t
             if not response or not response.choices:
                 raise ValueError("Empty response from custom endpoint")
             
-            response_text = response.choices[0].message.content.strip()
+            response_text = extract_response_text(response).strip()
             
             if response_text.startswith('```json'):
                 response_text = response_text[7:]

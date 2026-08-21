@@ -6,6 +6,7 @@ from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_t
 from config import BASE_PATH
 from helpers.ai_helper.maia_helper import create_maia_client
 from helpers.image_compression_helper import compress_and_save_image
+from helpers.ai_helper.openai_stream_helper import extract_response_text
 
 def get_delay_interval():
     """Get delay interval from config"""
@@ -268,11 +269,11 @@ def generate_prompts_with_gemini(api_key, model, image_path, prompt, aspect_rati
                 try:
                     text = response.candidates[0].content.parts[0].text
                 except Exception:
-                    text = str(response)
+                    text = extract_response_text(response)
             elif hasattr(response, "text"):
                 text = response.text
             else:
-                text = str(response)
+                text = extract_response_text(response)
             
             prompts = parse_ai_prompt_response(text, aspect_ratio)
             return prompts, token_input, token_output, token_total
@@ -305,6 +306,7 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
     
     try:
         import base64
+        from helpers.ai_helper.openai_stream_helper import extract_response_text, extract_usage
         from helpers.ai_helper.openai_helper import create_openai_client
 
         if provider_endpoint:
@@ -347,13 +349,9 @@ def generate_prompts_with_openai(api_key, model, image_path, prompt, aspect_rati
         token_input = 0
         token_output = 0
         token_total = 0
-        usage = getattr(response, "usage", None)
-        if usage:
-            token_input = getattr(usage, "prompt_tokens", 0)
-            token_output = getattr(usage, "completion_tokens", 0)
-            token_total = getattr(usage, "total_tokens", 0)
+        token_input, token_output, token_total = extract_usage(getattr(response, "usage", None))
         
-        text = response.choices[0].message.content if response.choices else ""
+        text = extract_response_text(response)
         
         prompts = parse_ai_prompt_response(text, aspect_ratio)
         return prompts, token_input, token_output, token_total
@@ -423,7 +421,7 @@ def generate_prompts_with_groq(api_key, model, image_path, prompt, aspect_ratio=
             if hasattr(choice, "message") and hasattr(choice.message, "content"):
                 text = choice.message.content
         if not text:
-            text = str(response)
+            text = extract_response_text(response)
 
         prompts = parse_ai_prompt_response(text, aspect_ratio)
         return prompts, token_input, token_output, token_total
@@ -492,7 +490,7 @@ def generate_prompts_with_blackbox(api_key, model, image_path, prompt, aspect_ra
             if hasattr(choice, "message") and hasattr(choice.message, "content"):
                 text = choice.message.content
         if not text:
-            text = str(response)
+            text = extract_response_text(response)
 
         prompts = parse_ai_prompt_response(text, aspect_ratio)
         return prompts, token_input, token_output, token_total
@@ -1012,11 +1010,11 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
                 try:
                     text = response.candidates[0].content.parts[0].text
                 except Exception:
-                    text = str(response)
+                    text = extract_response_text(response)
             elif hasattr(response, "text"):
                 text = response.text
             else:
-                text = str(response)
+                text = extract_response_text(response)
             return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
 
         elif service.lower() in ('openai', 'openrouter', 'blackbox', 'maia', 'custom'):
@@ -1066,7 +1064,7 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
                 if hasattr(choice, "message") and hasattr(choice.message, "content"):
                     text = choice.message.content
             if not text:
-                text = str(response)
+                text = extract_response_text(response)
             return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
 
         elif service.lower() == 'groq':

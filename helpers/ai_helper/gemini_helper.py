@@ -13,6 +13,7 @@ from helpers.image_compression_helper import compress_and_save_image
 from dialogs.video_proxy_dialog import VideoProxyDialog
 from helpers.video_proxy_helper import VideoProxyWorker, invoke_in_main_thread, get_video_proxy_invoker, create_video_proxy, get_video_proxy_setting
 from helpers.ai_helper.metadata_helper import normalize_tags
+from helpers.ai_helper.openai_stream_helper import extract_response_text
 
 _generation_times_gemini = []
 
@@ -423,13 +424,13 @@ def generate_metadata_gemini(api_key, model, image_path, prompt=None, stop_flag=
                 try:
                     text = response.candidates[0].content.parts[0].text
                 except Exception:
-                    text = str(response)
+                    text = extract_response_text(response)
             elif hasattr(response, "text"):
                 text = response.text
             elif isinstance(response, dict) and 'text' in response:
                 text = response['text']
             else:
-                text = str(response)
+                text = extract_response_text(response)
         else:
             # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():

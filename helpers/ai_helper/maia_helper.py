@@ -10,7 +10,7 @@ from config import BASE_PATH
 from helpers.ai_helper.ai_variation_helper import generate_timestamp, generate_token
 from helpers.image_compression_helper import compress_and_save_image
 from helpers.video_proxy_helper import extract_video_frames
-from helpers.ai_helper.openai_stream_helper import consume_openai_stream
+from helpers.ai_helper.openai_stream_helper import consume_openai_stream, extract_response_text
 from helpers.ai_helper.metadata_helper import normalize_tags
 
 try:
@@ -343,7 +343,7 @@ def generate_metadata_maia(api_key, model, image_path, prompt=None, stop_flag=No
             if any(stream_usage):
                 token_input, token_output, token_total = stream_usage
             if not text:
-                text = str(response)
+                text = extract_response_text(response)
         else:
             # custom endpoint path: text + usage already provided by call_endpoint_with_usage
             if 'text' not in locals():

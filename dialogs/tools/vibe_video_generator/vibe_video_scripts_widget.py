@@ -316,11 +316,15 @@ class ScriptRefineWorker(QThread):
             with open(config_path, 'r', encoding='utf-8') as f:
                 ai_config = json.load(f)
             client = OpenAI(api_key=self.api_key, base_url=ai_config['provider_endpoints'][svc])
-            content = client.chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2).choices[0].message.content
+            from helpers.ai_helper.openai_stream_helper import extract_response_text
+            response = client.chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2)
+            content = extract_response_text(response)
             return content if content is not None else ""
         elif svc == 'groq':
             from groq import Groq
-            content = Groq(api_key=self.api_key).chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2).choices[0].message.content
+            from helpers.ai_helper.openai_stream_helper import extract_response_text
+            response = Groq(api_key=self.api_key).chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2)
+            content = extract_response_text(response)
             return content if content is not None else ""
         else:
             raise ValueError(f'Unsupported service: {svc}')

@@ -171,7 +171,8 @@ def _call_openai(client, model: str, image_path: str, system_prompt: str, valid_
             max_tokens=300,
             temperature=0.2
         )
-        text = response.choices[0].message.content if response.choices else ""
+        from helpers.ai_helper.openai_stream_helper import extract_response_text
+        text = extract_response_text(response)
         return _parse_response(text, valid_folders)
     except Exception as e:
         print(f"[ImageSorterHelper] OpenAI call error: {e}")
@@ -231,11 +232,13 @@ def _call_gemini(api_key: str, model: str, image_path: str, system_prompt: str, 
             try:
                 text = response.candidates[0].content.parts[0].text
             except Exception:
-                text = str(response)
+                    from helpers.ai_helper.openai_stream_helper import extract_response_text
+                    text = extract_response_text(response)
         elif hasattr(response, "text"):
             text = response.text
         else:
-            text = str(response)
+                from helpers.ai_helper.openai_stream_helper import extract_response_text
+                text = extract_response_text(response)
 
         return _parse_response(text, valid_folders)
     except Exception as e:
