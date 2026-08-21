@@ -17,6 +17,7 @@ from config import BASE_PATH
 import time
 import csv
 import subprocess
+import tempfile
 from datetime import datetime
 import qtawesome as qta
 
@@ -88,6 +89,270 @@ def _extract_xmp_value(val):
 	if isinstance(val, dict):
 		return next(iter(val.values()), '')
 	return val if isinstance(val, str) else ''
+
+
+def _get_exiftool_path():
+	"""Return the bundled ExifTool executable, or a system installation."""
+	bundled = os.path.join(BASE_PATH, "tools", "exiftool", "exiftool.exe")
+	if os.path.isfile(bundled):
+		return bundled
+	return shutil.which("exiftool")
+
+
+def _run_exiftool_json(file_path, *tags):
+	"""Read selected tags through ExifTool without modifying the source file."""
+	exiftool_path = _get_exiftool_path()
+	if not exiftool_path:
+		raise RuntimeError("ExifTool is required to read EPS metadata")
+
+	startupinfo = None
+	creationflags = 0
+	if platform.system() == "Windows":
+		startupinfo = subprocess.STARTUPINFO()
+		startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+		startupinfo.wShowWindow = subprocess.SW_HIDE
+		creationflags = subprocess.CREATE_NO_WINDOW
+
+	result = subprocess.run(
+		[exiftool_path, "-j", "-G1", "-s", *tags, file_path],
+		capture_output=True,
+		text=True,
+		encoding="utf-8",
+		errors="replace",
+		startupinfo=startupinfo,
+		creationflags=creationflags,
+		check=False,
+	)
+	if result.returncode != 0:
+		raise RuntimeError(result.stderr.strip() or "ExifTool failed to read metadata")
+	try:
+		payload = json.loads(result.stdout)
+	except json.JSONDecodeError as exc:
+		raise RuntimeError("ExifTool returned invalid metadata JSON") from exc
+	return payload[0] if payload and isinstance(payload[0], dict) else {}
+
+
+def _eps_metadata_values(file_path):
+	return _run_exiftool_json(
+		file_path,
+		"-XMP-dc:Title",
+		"-XMP-dc:Description",
+		"-XMP-dc:Subject",
+		"-XMP-xmp:CreatorTool",
+	)
+
+
+def read_metadata_eps(file_path):
+	"""Read EPS XMP consistently, including EPS files with no metadata block."""
+	try:
+		data = _eps_metadata_values(file_path)
+		# ExifTool prefixes keys with the family when -G1 is used. Accept both
+		# forms so this remains stable if the command options change later.
+		def value_for(name):
+			return data.get(name) or data.get(f"XMP-dc:{name}")
+
+		title = value_for("Title")
+		description = value_for("Description")
+		tags = value_for("Subject")
+		if isinstance(tags, list):
+			tags = ",".join(str(tag).strip() for tag in tags if str(tag).strip())
+		elif tags is not None:
+			tags = str(tags)
+		return title or None, description or None, tags or None
+	except Exception as e:
+		print(f"[EPS READ ERROR] {file_path}: {e}")
+		return None, None, None
+
+
+def write_metadata_eps(file_path, title, description, tag_list):
+	"""Write XMP into any EPS variant while preserving its PostScript body."""
+	# Illustrator EPS files have a binary header with an embedded TIFF preview.
+	# Updating their XMP in place is essential: inserting bytes into the
+	# PostScript segment invalidates the offsets in that header and breaks
+	# Explorer/Illustrator thumbnail extraction.
+	if _write_illustrator_eps_xmp(file_path, title, description, tag_list):
+		return
+
+	exiftool_path = _get_exiftool_path()
+	if not exiftool_path:
+		raise RuntimeError("ExifTool is required to write EPS metadata")
+
+	title = _extract_xmp_value(title) or ""
+	description = _extract_xmp_value(description) or ""
+	if isinstance(tag_list, str):
+		tag_list = [tag.strip() for tag in tag_list.split(",") if tag.strip()]
+	elif not isinstance(tag_list, list):
+		tag_list = []
+	tag_list = [_sanitize_keyword(tag) for tag in tag_list]
+	tag_list = [tag for tag in tag_list if tag]
+
+	args = [
+		exiftool_path,
+		"-overwrite_original",
+		f"-XMP-dc:Title={title}",
+		f"-XMP-dc:Description={description}",
+		"-XMP-xmp:CreatorTool=Adobe Illustrator",
+	]
+	if tag_list:
+		args.extend(f"-XMP-dc:Subject={tag}" for tag in tag_list)
+	else:
+		args.append("-XMP-dc:Subject=")
+	args.append(file_path)
+
+	startupinfo = None
+	creationflags = 0
+	if platform.system() == "Windows":
+		startupinfo = subprocess.STARTUPINFO()
+		startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+		startupinfo.wShowWindow = subprocess.SW_HIDE
+		creationflags = subprocess.CREATE_NO_WINDOW
+	result = subprocess.run(
+		args,
+		capture_output=True,
+		text=True,
+		encoding="utf-8",
+		errors="replace",
+		startupinfo=startupinfo,
+		creationflags=creationflags,
+		check=False,
+	)
+	if result.returncode == 0:
+		# Illustrator can expose XMP but refuse an in-place update. Verify the
+		# requested fields and use the standard EPS XML block as a fallback.
+		try:
+			written = _eps_metadata_values(file_path)
+			if written.get("XMP-dc:Title") == title:
+				return
+		except Exception:
+			pass
+
+	_write_eps_xmp_block(file_path, title, description, tag_list)
+
+
+def _write_illustrator_eps_xmp(file_path, title, description, tag_list):
+	"""Update Illustrator's existing XMP packet without changing file offsets."""
+	try:
+		with open(file_path, "rb") as source:
+			data = source.read()
+		if len(data) < 32 or data[:4] != b"\xc5\xd0\xd3\xc6":
+			return False
+		ps_offset = int.from_bytes(data[4:8], "little")
+		ps_length = int.from_bytes(data[8:12], "little")
+		ps_end = ps_offset + ps_length
+		start = data.find(b"<?xpacket begin=", ps_offset, ps_end)
+		end_marker = b"<?xpacket end="
+		end = data.find(end_marker, start, ps_end)
+		if start < 0 or end < 0:
+			return False
+		end = data.find(b"?>", end, ps_end)
+		if end < 0:
+			return False
+		end += 2
+
+		packet = data[start:end]
+		root = _etree.fromstring(packet, _etree.XMLParser(huge_tree=True, remove_blank_text=False)) if _LXML_AVAILABLE else None
+		if root is None:
+			return False
+		ns = {"rdf": _RDF_NS, "dc": _DC_NS, "xmp": "http://ns.adobe.com/xap/1.0/"}
+		desc = root.find(".//rdf:Description", ns)
+		if desc is None:
+			return False
+
+		def set_text(namespace, name, value):
+			element = desc.find(f"{{{namespace}}}{name}")
+			if not value:
+				if element is not None:
+					desc.remove(element)
+				return
+			if element is None:
+				element = _etree.SubElement(desc, f"{{{namespace}}}{name}")
+			if name in ("title", "description"):
+				alt = element.find(f"{{{_RDF_NS}}}Alt")
+				if alt is None:
+					alt = _etree.SubElement(element, f"{{{_RDF_NS}}}Alt")
+				li = alt.find(f"{{{_RDF_NS}}}li")
+				if li is None:
+					li = _etree.SubElement(alt, f"{{{_RDF_NS}}}li")
+				li.set("{http://www.w3.org/XML/1998/namespace}lang", "x-default")
+				li.text = value
+
+		set_text(_DC_NS, "title", _extract_xmp_value(title) or "")
+		set_text(_DC_NS, "description", _extract_xmp_value(description) or "")
+		creator = desc.find(f"{{{ns['xmp']}}}CreatorTool")
+		if creator is None:
+			creator = _etree.SubElement(desc, f"{{{ns['xmp']}}}CreatorTool")
+		creator.text = "Adobe Illustrator"
+
+		subject = desc.find(f"{{{_DC_NS}}}subject")
+		if subject is None:
+			subject = _etree.SubElement(desc, f"{{{_DC_NS}}}subject")
+		bag = subject.find(f"{{{_RDF_NS}}}Bag")
+		if bag is None:
+			bag = _etree.SubElement(subject, f"{{{_RDF_NS}}}Bag")
+		for item in list(bag):
+			bag.remove(item)
+		if isinstance(tag_list, str):
+			tag_list = [tag.strip() for tag in tag_list.split(",") if tag.strip()]
+		for tag in [_sanitize_keyword(tag) for tag in (tag_list or [])]:
+			if tag:
+				_etree.SubElement(bag, f"{{{_RDF_NS}}}li").text = tag
+
+		prefix = b'<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+		suffix = b'<?xpacket end="w"?>'
+		available = end - start
+		body = prefix + _etree.tostring(root, encoding="utf-8")
+		padding = available - len(body) - len(suffix)
+		if padding < 0:
+			return False
+		new_packet = body + (b" " * padding) + suffix
+		with open(file_path, "wb") as target:
+			target.write(data[:start] + new_packet + data[end:])
+		return True
+	except Exception as e:
+		print(f"[Illustrator EPS XMP ERROR] {file_path}: {e}")
+		return False
+
+
+def _write_eps_xmp_block(file_path, title, description, tag_list):
+	"""Insert a standard EPS XMP block without rewriting its PostScript data."""
+	from xml.sax.saxutils import escape
+
+	items = "".join(f"<rdf:li>{escape(tag)}</rdf:li>" for tag in tag_list)
+	packet = (
+		'<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+		'<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core">'
+		'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+		'<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" '
+		'xmlns:xmp="http://ns.adobe.com/xap/1.0/">'
+		f'<dc:title><rdf:Alt><rdf:li xml:lang="x-default">{escape(title)}</rdf:li></rdf:Alt></dc:title>'
+		f'<dc:description><rdf:Alt><rdf:li xml:lang="x-default">{escape(description)}</rdf:li></rdf:Alt></dc:description>'
+		f'<dc:subject><rdf:Bag>{items}</rdf:Bag></dc:subject>'
+		'<xmp:CreatorTool>Adobe Illustrator</xmp:CreatorTool>'
+		'</rdf:Description></rdf:RDF></x:xmpmeta>'
+		'<?xpacket end="w"?>'
+	)
+	block = ("%%BeginXML\n" + packet + "\n%%EndXML\n").encode("utf-8")
+	with open(file_path, "rb") as source:
+		data = source.read()
+	begin = data.find(b"%%BeginXML")
+	end = data.find(b"%%EndXML", begin + 10) if begin >= 0 else -1
+	if begin >= 0 and end >= 0:
+		end += len(b"%%EndXML")
+		new_data = data[:begin] + block.rstrip(b"\n") + data[end:]
+	else:
+		eof = data.find(b"%%EOF")
+		insert_at = eof if eof >= 0 else len(data)
+		prefix = b"" if insert_at == 0 or data[insert_at - 1:insert_at] == b"\n" else b"\n"
+		new_data = data[:insert_at] + prefix + block + data[insert_at:]
+	fd, temp_path = tempfile.mkstemp(prefix=".image-tea-eps-", suffix=".eps", dir=os.path.dirname(file_path))
+	os.close(fd)
+	try:
+		with open(temp_path, "wb") as target:
+			target.write(new_data)
+		os.replace(temp_path, file_path)
+	finally:
+		if os.path.exists(temp_path):
+			os.remove(temp_path)
 
 class ProgressDialog(QDialog):
 	def __init__(self, parent, total, title):
@@ -806,7 +1071,9 @@ class ImageMetadataWriterThread(QThread):
 				try:
 					tag_list = [t.strip() for t in tags.split(',')] if tags else []
 					ext = os.path.splitext(filepath)[1].lower()
-					if ext in SVG_EXTS:
+					if ext == '.eps':
+						write_metadata_eps(filepath, title, description, tag_list)
+					elif ext in SVG_EXTS:
 						write_metadata_svg(filepath, title, description, tag_list)
 					else:
 						write_metadata_pyexiv2(filepath, title, description, tag_list)
