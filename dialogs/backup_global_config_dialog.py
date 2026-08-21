@@ -15,7 +15,10 @@ from dialogs.add_api_key_dialog import AddApiKeyDialog
 
 from ui.theme_system import theme
 
-EXCLUDED_FILES = { 'update_config.json', '__init__.py', 'backup_configs' }
+# These are application-owned definitions, not user settings. Keeping them
+# out of backups prevents restoring an old archive from overwriting the
+# definitions shipped by a newer application version.
+EXCLUDED_FILES = { 'update_config.json', 'tools_config.json', '__init__.py', 'backup_configs' }
 
 
 class BackupGlobalConfigDialog(QDialog):
