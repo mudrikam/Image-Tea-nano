@@ -1,4 +1,4 @@
-"""Script Fixer helper — extracted from vibe_code_actions_widget.py"""
+﻿"""Script Fixer helper — extracted from vibe_code_actions_widget.py"""
 
 import re
 import json
@@ -18,7 +18,7 @@ You can output MULTIPLE SEARCH/REPLACE blocks. Each block will be applied GLOBAL
 
 RULES:
 1. MINIMAL changes — only modify lines that are broken or requested to be updated
-2. SEARCH must be EXACT (same whitespace/indentation as in original). If unsure, include more context lines.
+2. SEARCH must be EXACT (same whitespace/indentation as in original). If unsure, include more context lines. Do NOT add or alter inline comments (e.g. `// note`) in SEARCH lines — copy them verbatim from the source, or omit them entirely.
 3. Do NOT import Composition or registerRoot — handled externally
 4. Do NOT use functions not in 'remotion' core. Valid: useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Audio, Img, Video, AbsoluteFill, Sequence, useCurrentScale
 5. interpolate() outputRange: numbers only, never strings
@@ -347,6 +347,7 @@ TOOLS AVAILABLE:
 2. read_function(function_name) — Extract a function/component definition by name.
 3. read_imports() — Get all import statements.
 4. compact_session(summary_prompt) — Condense accumulated context to save tokens; you provide how to summarize.
+5. find_text(query) — Find exact text occurrences and automatically return the surrounding source window for each match. Use this before editing when the requested label, color, or literal has not been located.
 
 BEST PRACTICES FOR TOOL USAGE:
 - Keep read_lines requests to 100-150 lines maximum per call. If you need more context, make multiple plan for the next request.
@@ -361,7 +362,8 @@ At the end of your response, append a JSON object wrapped in ```json``` fences, 
 {
   "tool_calls": [
     {"tool": "read_lines", "parameters": {"start_line": 1, "end_line": 100}},
-    {"tool": "read_function", "parameters": {"function_name": "render"}}
+                    {"tool": "read_function", "parameters": {"function_name": "render"}},
+                    {"tool": "find_text", "parameters": {"query": "LOADING..."}}
   ]
 }
 <<<TOOL_CALL_RESPONSE
@@ -394,7 +396,8 @@ def get_script_overview(script_content: str, max_lines: int = 30) -> str:
         if m:
             definitions.append(f"  Line {i}: {m.group(1)}")
     
-    # Collect key variable declarations that might hold strings (like text color)
+    # Collect exact declarations for constants and style/text values. The model
+    # needs source-shaped anchors, not only symbol names and line numbers.
     key_vars = []
     var_pattern = r'^\s*(?:const|let)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*='
     for i, line in enumerate(lines, 1):
@@ -402,9 +405,9 @@ def get_script_overview(script_content: str, max_lines: int = 30) -> str:
         if m:
             var_name = m.group(1)
             # Only include variables that look like style-related or text-related
-            style_related = any(keyword in var_name.lower() for keyword in ['color', 'text', 'style', 'bg', 'background', 'fill', 'stroke'])
+            style_related = any(keyword in var_name.lower() for keyword in ['color', 'text', 'style', 'bg', 'background', 'fill', 'stroke']) or var_name in {'FPS', 'DURATION'}
             if style_related and i <= 200:  # Only first 200 lines to avoid noise
-                key_vars.append(f"  Line {i}: {var_name} = {line.split('=')[1].strip()[:50]}")
+                key_vars.append(f"  {line.strip()}")
     
     overview_parts = []
     overview_parts.append(f"Script Overview ({len(lines)} lines total):")
@@ -446,13 +449,15 @@ def parse_tool_calls(ai_response: str) -> list[dict] | None:
         return None
     
     cleaned = ai_response.strip()
-    
-    # Must end with the marker
-    if not re.search(r'\n?<<<TOOL_CALL_RESPONSE\s*$', cleaned):
+
+    # Models place the marker either inside or immediately after the JSON fence.
+    marker = re.search(r'<<<TOOL_CALL_RESPONSE\s*', cleaned)
+    if not marker:
         return None
-    
-    # Remove marker
-    without_marker = re.sub(r'\n?<<<TOOL_CALL_RESPONSE\s*$', '', cleaned).strip()
+
+    # Remove the marker and any closing markdown fence around it.
+    without_marker = (cleaned[:marker.start()] + cleaned[marker.end():]).strip()
+    without_marker = re.sub(r'```\s*$', '', without_marker).strip()
     
     # Try to extract JSON from inside ```json ... ``` fences (if present)
     json_match = re.search(r'```json\s*(.*?)\s*```', without_marker, re.DOTALL)
@@ -598,6 +603,24 @@ def execute_tool_call(tool_name: str, params: dict, full_script: str, accumulate
         # Update accumulated_context with note that compaction was requested
         # The actual compaction will be done by AI on subsequent turn using the summary_prompt as guidance
         return result, accumulated_context + f"\n[Session compaction requested: {summary_prompt}]"
+
+    elif tool_name == "find_text":
+        query = str(params.get("query", "")).strip()
+        if not query:
+            return "Error: query parameter required.", accumulated_context
+        matches = []
+        for index, line in enumerate(lines, 1):
+            if query in line:
+                start = max(1, index - 12)
+                end = min(len(lines), index + 12)
+                source = "\n".join(lines[start - 1:end])
+                matches.append(
+                    f"MATCH line {index}: {line}\n"
+                    f"CONTEXT lines {start}-{end} of {len(lines)} (copy these lines exactly; no line numbers):\n"
+                    f"```typescript\n{source}\n```"
+                )
+        result = f"Text matches for {query!r}:\n" + ("\n\n".join(matches) if matches else "(no matches)")
+        return result, accumulated_context
     
     else:
         result = f"Unknown tool: {tool_name}"
@@ -619,10 +642,21 @@ USER INSTRUCTION:
 {instruction}
 
 TASK:
-Examine the script overview to understand structure. Use the available tools (read_lines, read_function, read_imports) to retrieve the code sections you need. After receiving tool results, output your SEARCH/REPLACE blocks to apply the changes.
+First analyze the user's instruction as a complete change request. Identify
+every source location that may be affected, including all repeated literals,
+style constants, component definitions, imports, and render composition usage.
+Use the available tools (read_lines, read_function, read_imports, find_text) to
+inspect ALL affected locations before editing. Do not make a partial patch based
+on only the first match. After the inspection phase is complete, output all
+required SEARCH/REPLACE blocks together.
 
 IMPORTANT:
-- Use tools proactively if the instruction is vague; do not guess code.
+- Use tools proactively if the instruction is vague or may affect multiple areas; do not guess code.
+- Before editing a named label, literal, color, or component, inspect every occurrence and use the exact source window returned by find_text or read_lines. SEARCH anchors must be copied from that returned source, without line-number prefixes.
+- If the user's request describes a visual transformation, inspect the current implementation of the relevant component and its parent composition before proposing the patch.
+- Do not stop after inspecting one occurrence when the instruction can apply globally.
+- A prose explanation or plan is not a completed response. After planning, continue with tool calls or output the actual SEARCH/REPLACE blocks.
+- Never end a response with only an explanation of intended changes.
 - Output SEARCH/REPLACE blocks wrapped in ```typescript``` fences.
 - If you need another turn, use the CONTEXT/TOOL_CALL_RESPONSE block at the end."""
     return prompt
@@ -644,22 +678,42 @@ def build_tool_aware_continuation_prompt(original_script: str, accumulated_chang
     # Determine task instructions based on state
     if after_tool_call:
         task_instructions = """TASK:
-You have received the requested code sections below. DO NOT request any more tools.
-USE THE PROVIDED CODE SECTIONS to write your SEARCH/REPLACE blocks. Ensure EXACT line matching including indentation.
+You are now writing the edit after the inspection phase. Before writing the
+patch, make sure the supplied context covers EVERY source location affected by
+the user's instruction. If any affected location is missing, request the
+additional exact source context first. Do not guess or reconstruct code from
+the overview.
 
-If you need another turn after this, use the CONTEXT/TOOL_CALL_RESPONSE block.
+Once all affected locations are covered, immediately write the SEARCH/REPLACE
+blocks. Copy every SEARCH anchor exactly from the supplied source context,
+including punctuation and indentation. If the change affects multiple distinct
+patterns, include one block for each pattern in this response. If one pattern
+occurs repeatedly, one block replaces all matching occurrences.
 
 CRITICAL:
-- DO NOT call any more tools in this turn. You already have the context you requested.
-- SEARCH blocks MUST match the provided code EXACTLY (including whitespace).
+- A patch is required as soon as the supplied context is sufficient; do not
+  return only prose or a continuation note.
+- SEARCH blocks MUST match the supplied source exactly.
+- Never use line-number labels such as `Line 42:` inside SEARCH anchors.
+- Tool calls are allowed when context is incomplete. Do not call tools merely to
+  re-read context that is already supplied.
 - Output SEARCH/REPLACE blocks wrapped in ```typescript``` code fences.
-- If this is your final step, just end after SEARCH/REPLACE without any CONTEXT block."""
+- If this is the final step, just end after SEARCH/REPLACE without any CONTEXT block."""
     else:
         task_instructions = """TASK:
-Execute your NEXT planned step. Use tools (read_lines, read_function, read_imports) to retrieve any code sections you need. After receiving tool results, output your SEARCH/REPLACE blocks. If you need another turn after this, use the CONTEXT/TOOL_CALL_RESPONSE block.
+This is the inspection-and-edit decision turn. Review ALL supplied tool
+results against the complete user instruction. If any affected source location
+is missing, call the appropriate tool now and inspect it before editing. If the
+supplied context covers every affected location, write ALL SEARCH/REPLACE
+blocks now. Never guess an anchor from the overview or from a partial match.
+
+After receiving additional tool results, write the patch using those exact
+source lines. If you need another turn after applying a partial planned change,
+use the CONTEXT/TOOL_CALL_RESPONSE block.
 
 CRITICAL:
-- If you call tools, DO NOT output SEARCH/REPLACE in this same response — wait for tool results.
+- If you call tools, do not output SEARCH/REPLACE in the same response; wait for the results.
+- If context is sufficient, a SEARCH/REPLACE patch is required in this response.
 - When ready to apply changes, output SEARCH/REPLACE blocks wrapped in ```typescript``` code fences.
 - If this is your final step, just end after SEARCH/REPLACE without any CONTEXT block."""
     
@@ -678,5 +732,11 @@ ORIGINAL INSTRUCTION:
 {user_error_msg}
 
 {task_instructions}
+
+RESPONSE CONTRACT:
+Your response must contain one of these machine-readable outcomes:
+1. A tool-call JSON payload followed by <<<TOOL_CALL_RESPONSE; or
+2. One or more SEARCH/REPLACE blocks.
+Plain-English analysis alone is an intermediate thought, not a valid final response. Continue to the next structured outcome.
 """
     return prompt

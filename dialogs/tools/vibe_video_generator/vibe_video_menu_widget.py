@@ -11,6 +11,7 @@ class MenuWidget(QMenuBar):
     new_collection_requested = Signal()
     render_collection_requested = Signal(object)
     render_script_requested = Signal()
+    update_remotion_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -111,7 +112,19 @@ class MenuWidget(QMenuBar):
         self.render_collection_action.triggered.connect(self._on_render_collection)
         render_menu.addAction(self.render_collection_action)
 
+        dev_menu = self.addMenu('Tools')
+
+        self.update_remotion_action = QAction(qta.icon('fa6s.download'), 'Update Remotion', self)
+        self.update_remotion_action.setToolTip('Reinstall / update the bundled Remotion tool')
+        self.update_remotion_action.triggered.connect(self._on_update_remotion)
+        dev_menu.addAction(self.update_remotion_action)
+
+        dev_menu.addSeparator()
+
         self._update_actions_state()
+
+    def _on_update_remotion(self):
+        self.update_remotion_requested.emit()
 
     def _update_actions_state(self, *args, **kwargs):
         """Enable/disable actions based on current selection."""

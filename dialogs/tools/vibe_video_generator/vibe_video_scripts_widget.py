@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QDialog, QLineEdit, QProgressBar, QGroupBox)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QMessageBox, QLabel, QApplication, QProgressBar, QGroupBox)
 from PySide6.QtCore import Qt, Signal, QRegularExpression, QThread, QTimer, QRect, QSize, QPoint
 from PySide6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter, QPalette, QPainter, QTextCursor, QShortcut, QKeySequence
 import qtawesome as qta
@@ -6,6 +6,7 @@ from ui.theme_system import theme
 from pygments import lex
 from pygments.lexers import TypeScriptLexer
 from pygments.token import Token
+import difflib
 
 # Modern blue-focused modern TypeScript theme - VS Code One Dark Pro style
 DARK_STYLES = {
@@ -281,7 +282,6 @@ class ScriptRefineWorker(QThread):
     finished = Signal(bool, str)
     progress = Signal(str)
     turn_completed = Signal(int, str)  # (turn_number, script_content)
-    MAX_RETRIES = 10  # Increased to accommodate tool-call cycles
 
     def __init__(self, api_key, endpoint, service, model, script_content, instruction):
         super().__init__()
@@ -293,360 +293,59 @@ class ScriptRefineWorker(QThread):
         self.instruction = instruction
 
     def _call_ai(self, prompt):
-        import os, json
-        svc = (self.service or '').lower()
-        ep = (self.endpoint or '').strip()
-        
-        # We use temperature=0.2 to significantly reduce hallucination and ensure strict adherence
-        # to the SEARCH/REPLACE protocol, reducing the chances of malformed output.
-        if ep:
-            from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-            content = CustomEndpointHelper.call_endpoint(self.api_key, ep, svc, self.model, prompt, timeout=120)
-            return content if content is not None else ""
-        elif svc == 'gemini':
-            import google.genai as genai
-            from google.genai import types
-            client = genai.Client(api_key=self.api_key)
-            config = types.GenerateContentConfig(temperature=0.2)
-            content = client.models.generate_content(model=self.model, contents=[prompt], config=config).text
-            return content if content is not None else ""
-        elif svc in ('openai', 'openrouter', 'maia', 'blackbox'):
-            from openai import OpenAI
-            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'configs', 'ai_config.json')
-            with open(config_path, 'r', encoding='utf-8') as f:
-                ai_config = json.load(f)
-            client = OpenAI(api_key=self.api_key, base_url=ai_config['provider_endpoints'][svc])
-            from helpers.ai_helper.openai_stream_helper import extract_response_text
-            response = client.chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2)
-            content = extract_response_text(response)
-            return content if content is not None else ""
-        elif svc == 'groq':
-            from groq import Groq
-            from helpers.ai_helper.openai_stream_helper import extract_response_text
-            response = Groq(api_key=self.api_key).chat.completions.create(model=self.model, messages=[{'role': 'user', 'content': prompt}], temperature=0.2)
-            content = extract_response_text(response)
-            return content if content is not None else ""
-        else:
-            raise ValueError(f'Unsupported service: {svc}')
+        from helpers.remotion_helper.remotion_ai_client import call_remotion_ai
+        return call_remotion_ai(
+            self.api_key, self.endpoint, self.service, self.model, prompt, timeout=45
+        )
 
     def run(self):
-        self.progress.emit("Preparing prompt and instructions...")
+        from helpers.remotion_helper.remotion_refine_agent import RemotionRefineAgent
+
+        def emit_step(step):
+            self.progress.emit(step.message)
+
         try:
-            from helpers.remotion_helper.script_fixer_helper import (
-                apply_search_replace, strip_continuation_block,
-                is_continuation_request,
-                parse_tool_calls, execute_tool_call,
-                build_tool_aware_initial_prompt, build_tool_aware_continuation_prompt,
-                extract_code_block
+            self.progress.emit('Agent: inspecting the current Remotion file.')
+            agent = RemotionRefineAgent(
+                self._call_ai,
+                self.script_content,
+                self.instruction,
+                emit_step=emit_step,
             )
-            
-            current_script = self.script_content
-            carryover_context = ""  # Context dari <<<CONTEXT untuk dibawa ke turn berikutnya
-            
-            MAX_TURNS = 10
-            
-            for turn in range(1, MAX_TURNS + 1):
-                self.progress.emit(f"Preparing turn {turn}...")
-                
-                # Reset per-turn state; carryover hanya dari <<<CONTEXT previous turn
-                accumulated_summary = carryover_context
-                pending_tool_results = []
-                carryover_context = ""  # Reset setelah diplomaiki ke accumulated_summary
-                tools_used_this_turn = False  # Track if AI already requested tools this turn
-                
-                # Build prompt for this turn
-                if turn == 1:
-                    full_prompt = build_tool_aware_initial_prompt(
-                        script_content=current_script,
-                        instruction=self.instruction
-                    )
-                else:
-                    full_prompt = build_tool_aware_continuation_prompt(
-                        original_script=current_script,
-                        accumulated_changes=accumulated_summary,
-                        user_error_msg=f"User instruction: {self.instruction}",
-                        tool_results=None,  # always None — we inject after tool exec via pending_tool_results
-                        after_tool_call=False
-                    )
-                
-                # === RETRY LOOP: increment only on actual failure ===
-                retry_count = 1
-                is_retry_after_tools = False  # flags if we are re-prompting with tool results
-                while retry_count <= self.MAX_RETRIES:
-                    if is_retry_after_tools:
-                        self.progress.emit(f"Re-prompting AI with tool results (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
-                        is_retry_after_tools = False
-                    else:
-                        self.progress.emit(f"Contacting AI (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
-                    
-                    print(f'[Vibe Video] Refine Turn {turn}, retry {retry_count}/{self.MAX_RETRIES}')
-                    
-                    print(f"[Vibe Video] Raw AI Request (Turn {turn}, Retry {retry_count}):\n{'-'*40}\n{full_prompt}\n{'-'*40}")
-                    
-                    text = self._call_ai(full_prompt)
+            result = agent.run()
+            if result.success:
+                self.progress.emit('Agent: validated edit and completed the refinement.')
+                self.turn_completed.emit(1, result.script)
+                self.finished.emit(True, result.script)
+            else:
+                self.finished.emit(False, result.message)
+        except Exception as exc:
+            self.progress.emit(f'Agent crashed: {exc}')
+            self.finished.emit(False, str(exc))
 
-                    print(f"[Vibe Video] Raw AI Response (Turn {turn}, Retry {retry_count}):\n{'-'*40}\n{text}\n{'-'*40}")
+class ScriptTextEdit(QTextEdit):
+    """QTextEdit that supports standard undo/redo shortcuts even when read-only."""
 
-                    self.progress.emit(f"Analyzing AI response (Turn {turn}/{MAX_TURNS})...")
-
-                    # --- TOOL CALL DETECTION (does NOT count as retry) ---
-                    tool_calls = parse_tool_calls(text)
-                    
-                    if tool_calls:
-                        # AI requested tool calls — max 1 tool-call sequence per turn
-                        if tools_used_this_turn:
-                            # AI already used tools this turn, requesting again is invalid → retry
-                            self.progress.emit(f"AI already requested tools this turn, requesting again is invalid. Incrementing retry...")
-                            retry_count += 1
-                            if retry_count > self.MAX_RETRIES:
-                                self.finished.emit(False, f'AI requested tools repeatedly without applying changes after {self.MAX_RETRIES} retries on turn {turn}')
-                                return
-                            full_prompt = build_tool_aware_continuation_prompt(
-                                original_script=current_script,
-                                accumulated_changes=accumulated_summary,
-                                user_error_msg=f"You already received tool results. DO NOT request more tools. Output SEARCH/REPLACE blocks now.",
-                                tool_results=None,
-                                after_tool_call=True
-                            )
-                            continue  # same retry count? Actually we already incremented, so loop continues with new count
-                        
-                        # Build readable summary of requested tools
-                        tool_summaries = []
-                        for tc in tool_calls:
-                            t = tc.get('tool')
-                            p = tc.get('parameters', {})
-                            if t == 'read_function':
-                                tool_summaries.append(f"read_function('{p.get('function_name','?')}')")
-                            elif t == 'read_lines':
-                                tool_summaries.append(f"read_lines({p.get('start_line','?')}-{p.get('end_line','?')})")
-                            elif t == 'read_imports':
-                                tool_summaries.append("read_imports()")
-                            elif t == 'compact_session':
-                                tool_summaries.append(f"compact_session('{p.get('summary_prompt','?')}')")
-                            else:
-                                tool_summaries.append(f"{t}({p})")
-                        
-                        self.progress.emit(f"AI requested context via: {', '.join(tool_summaries)}")
-                        print(f"[Vibe Video] Tool calls detected: {tool_summaries}")
-                        tools_used_this_turn = True  # mark as used
-                        
-                        # Execute each tool
-                        for tc in tool_calls:
-                            tool_name = tc.get('tool')
-                            params = tc.get('parameters', {})
-                            
-                            if tool_name == "compact_session":
-                                self.progress.emit("Compressing session context (compact_session)...")
-                                summary_prompt = params.get("summary_prompt", "Summarize current progress")
-                                summarizer_prompt = (
-                                    "You are a session summarizer. Condense the following accumulated context into a concise summary "
-                                    "preserving key decisions, changes made, and remaining tasks. Keep it brief but informative.\n\n"
-                                    f"Context to summarize:\n{accumulated_summary}\n\n"
-                                    f"Summary instructions: {summary_prompt}\n\n"
-                                    "Summary:"
-                                )
-                                try:
-                                    summary = self._call_ai(summarizer_prompt)
-                                    if not summary or not summary.strip():
-                                        summary = "[No summary generated]"
-                                    result = f"[Session compacted]\n{summary}"
-                                    accumulated_summary = summary
-                                except Exception as e:
-                                    result = f"[Compaction error: {e}]"
-                                pending_tool_results.append(f"[Tool: {tool_name}]\n{result}")
-                            else:
-                                self.progress.emit(f"Executing tool: {tool_name}...")
-                                result, new_context = execute_tool_call(
-                                    tool_name, params, current_script, accumulated_summary
-                                )
-                                pending_tool_results.append(f"[Tool: {tool_name}]\n{result}")
-                                accumulated_summary = new_context
-                        
-                        # Re-prompt with tool results — SAME retry count (no increment)
-                        full_prompt = build_tool_aware_continuation_prompt(
-                            original_script=current_script,
-                            accumulated_changes=accumulated_summary,
-                            user_error_msg=f"User instruction: {self.instruction}",
-                            tool_results=pending_tool_results,
-                            after_tool_call=True
-                        )
-                        pending_tool_results = []
-                        self.progress.emit("Tool results ready — re-prompting AI with context...")
-                        print(f"[Vibe Video] Re-prompting AI with tool results (same retry {retry_count})...")
-                        is_retry_after_tools = True
-                        continue  # same retry_count
-                    
-                    # --- NO TOOL CALLS: process SEARCH/REPLACE or continuation ---
-                    fix_content = extract_code_block(text)
-                    if not fix_content:
-                        is_continuation, context = is_continuation_request(text)
-                        fix_content = strip_continuation_block(text)
-                    else:
-                        is_continuation, context = is_continuation_request(fix_content)
-                        fix_content = strip_continuation_block(fix_content)
-                    
-                    patched = apply_search_replace(current_script, fix_content)
-                    if patched:
-                        print(f'[Vibe Video] Refine applied via SEARCH/REPLACE (Turn {turn}, retry {retry_count})')
-                        current_script = patched
-                        import re
-                        accumulated_summary += f"\n[Turn {turn}] Applied {len(re.findall(r'<<<SEARCH', fix_content))} block(s).\n"
-                        
-                        self.turn_completed.emit(turn, current_script)
-                        break  # exit retry while — success
-                    
-                    import re
-                    
-                    # Fallback: full code replacement
-                    if text and '<<<SEARCH' not in text:
-                        self.progress.emit(f"Checking for full code fallback (Turn {turn}, Retry {retry_count}/{self.MAX_RETRIES})...")
-                        for pattern in [r'```(?:tsx?|typescript|javascript)\s*\n(.*?)```', r'```\s*\n(.*?)```']:
-                            match = re.search(pattern, text, re.DOTALL)
-                            if match:
-                                code = match.group(1).strip()
-                                if 'import' in code or 'export' in code:
-                                    print(f'[Vibe Video] Refine applied via full code fallback (Turn {turn}, retry {retry_count})')
-                                    self.progress.emit("Applying refinements (Full code fallback)...")
-                                    self.finished.emit(True, code)
-                                    return
-                    else:
-                        print(f'[Vibe Video] Turn {turn}, Retry {retry_count} provided SEARCH/REPLACE blocks but failed to apply. Skipping fallback.')
-                    
-                    # === FAILURE: increment retry and retry ===
-                    retry_count += 1
-                    if retry_count > self.MAX_RETRIES:
-                        self.progress.emit("Failed to produce a valid refinement after max retries.")
-                        self.finished.emit(False, f'AI failed to apply changes after {self.MAX_RETRIES} retries on turn {turn}')
-                        return
-                    
-                    # Build retry prompt with error context
-                    full_prompt = build_tool_aware_continuation_prompt(
-                        original_script=current_script,
-                        accumulated_changes=accumulated_summary,
-                        user_error_msg=f"Your previous response could not be applied! Ensure exact matching for <<<SEARCH blocks.",
-                        tool_results=None,
-                        after_tool_call=tools_used_this_turn
-                    )
-                    print(f"[Vibe Video] Retrying with retry {retry_count}...")
-                    # continue to next while iteration automatically
-                
-                # === End of while retry loop (break due to success or returned on failure) ===
-                if retry_count > self.MAX_RETRIES:
-                    return
-                
-                # Success on this turn — check if AI wants continuation
-                if is_continuation:
-                    self.progress.emit(f"AI requested continuation (Turn {turn}). Proceeding with additional edits...")
-                    if context:
-                        accumulated_summary += f"AI context: {context}\n"
-                    continue  # next turn
-                else:
-                    self.progress.emit("Applying refinements (SEARCH/REPLACE completed)...")
-                    self.finished.emit(True, current_script)
-                    return
-                
-                # Success for this turn — check continuation
-                if is_continuation:
-                    self.progress.emit(f"AI requested continuation (Turn {turn}). Proceeding with additional edits...")
-                    if context:
-                        carryover_context = context  # carry context to next turn
-                    else:
-                        carryover_context = ""
-                    continue  # next turn
-                else:
-                    self.progress.emit("Applying refinements (SEARCH/REPLACE completed)...")
-                    self.finished.emit(True, current_script)
-                    return
-                    
-            self.progress.emit("Max continuation turns reached.")
-            self.finished.emit(True, current_script)
-            
-        except Exception as e:
-            self.progress.emit(f"An error occurred during refinement: {e}")
-            print(f'[Vibe Video] Refine error: {e}')
-            self.finished.emit(False, str(e))
-
-
-class ScriptRefineDialog(QDialog):
-    def __init__(self, parent=None, initial_text="", error_message=""):
-        super().__init__(parent)
-        self.setWindowTitle('Refine Script' if not error_message else 'Refine Failed')
-        self.setMinimumWidth(550)
-        self.setMaximumWidth(600)
-        layout = QVBoxLayout(self)
-
-        if error_message:
-            err_box = QWidget()
-            err_layout = QHBoxLayout(err_box)
-            err_layout.setContentsMargins(0, 0, 0, 0)
-            err_icon = QLabel()
-            err_icon.setPixmap(qta.icon('fa6s.circle-xmark', color='#e05555').pixmap(24, 24))
-            err_layout.addWidget(err_icon)
-            err_msg_label = QLabel(error_message)
-            err_msg_label.setWordWrap(True)
-            err_msg_label.setStyleSheet("color: #e05555; font-weight: bold;")
-            err_layout.addWidget(err_msg_label, 1)
-            layout.addWidget(err_box)
-            layout.addSpacing(10)
-
-        self.db = parent.db if parent else None
-        self.api_key_section = None
-        if self.db:
-            from ui.api_key_section import ApiKeySectionWidget
-            self.api_key_section = ApiKeySectionWidget(self.db, self)
-            if hasattr(parent, '_ai_key') and parent._ai_key:
-                from PySide6.QtCore import QTimer
-                def set_initial_key():
-                    self.api_key_section.set_current_api_by_details(
-                        parent._ai_key, parent._ai_service, parent._ai_model, skip_refresh=False
-                    )
-                QTimer.singleShot(50, set_initial_key)
-
-            layout.addWidget(self.api_key_section)
-
-        layout.addWidget(QLabel('Describe what you want to change or add:'))
-        self.prompt_input = QLineEdit()
-        self.prompt_input.setPlaceholderText('e.g. Add a pulsing red circle in the center')
-        if initial_text:
-            self.prompt_input.setText(initial_text)
-        self.prompt_input.setMinimumHeight(34)
-        layout.addWidget(self.prompt_input)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton('Cancel')
-        cancel_btn.setIcon(qta.icon('fa6s.xmark'))
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-        self.refine_btn = QPushButton('Refine' if not error_message else 'Try Again')
-        self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
-        self.refine_btn.setDefault(True)
-        self.refine_btn.clicked.connect(self._on_refine)
-        btn_row.addWidget(self.refine_btn)
-        layout.addLayout(btn_row)
-
-    def _on_refine(self):
-        if not self.prompt_input.text().strip():
-            self.prompt_input.setFocus()
+    def keyPressEvent(self, event):
+        ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        key = event.key()
+        if ctrl and key == Qt.Key.Key_Z:
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if self.document().isRedoAvailable():
+                    self.redo()
+            elif self.document().isUndoAvailable():
+                self.undo()
             return
-        self.accept()
-
-    def get_ai_credentials(self):
-        if self.api_key_section:
-            k = self.api_key_section.get_current_api_key()
-            s = self.api_key_section.get_current_service()
-            m = self.api_key_section.get_current_model()
-            e = self.api_key_section.api_key_map.get(k, {}).get('endpoint', '') if k else ''
-            return k, e, s, m
-        return None, None, None, None
-
-    def get_instruction(self):
-        return self.prompt_input.text().strip()
+        if ctrl and key == Qt.Key.Key_Y:
+            if self.document().isRedoAvailable():
+                self.redo()
+            return
+        super().keyPressEvent(event)
 
 
 class ScriptsWidget(QWidget):
     script_updated = Signal(object)
     script_selected = Signal(str)
-    api_key_changed_from_dialog = Signal(str, str, str)
     refine_started = Signal()
     refine_finished = Signal()
 
@@ -661,6 +360,12 @@ class ScriptsWidget(QWidget):
         self._ai_model = ''
         self._refine_worker = None
         self._last_instruction = ''
+        self._refine_previous_content = ''
+        self._refine_panel = None
+        self._refine_session_context = []
+        self._last_refine_error = ''
+        self._pending_preview_error = ''
+        self._fix_pass_active = False
         self._last_clicked_line = -1
         self._ctrl_selected_lines = set()  # Track lines selected with Ctrl
         self.line_number_area = None
@@ -675,21 +380,30 @@ class ScriptsWidget(QWidget):
         self._ai_service = service
         self._ai_model = model
 
+    def set_refine_panel(self, panel):
+        self._refine_panel = panel
+
+    def _get_generator_dialog(self):
+        parent = self.parentWidget()
+        while parent is not None:
+            if hasattr(parent, 'show_refine_panel'):
+                return parent
+            parent = parent.parentWidget()
+        return None
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
-        # Toolbar with Open in Browser button only (mirrors Preview tab)
-        toolbar = QHBoxLayout()
+        # Open in Browser button + action buttons on a single row
         self.open_browser_btn = QPushButton('Open in Browser')
         self.open_browser_btn.setIcon(qta.icon('fa6s.arrow-up-right-from-square'))
         self.open_browser_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_browser_btn.setEnabled(False)
         self.open_browser_btn.clicked.connect(self._on_open_browser)
-        toolbar.addWidget(self.open_browser_btn)
-        toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+
+        self._setup_action_buttons(layout)
 
         # Editor container with line numbers
         editor_container = QWidget()
@@ -697,7 +411,7 @@ class ScriptsWidget(QWidget):
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
 
-        self.script_content = QTextEdit()
+        self.script_content = ScriptTextEdit()
         self.script_content.setReadOnly(True)
         self.script_content.setFontFamily("Courier New")
         self.script_content.setFontPointSize(10)
@@ -752,13 +466,23 @@ class ScriptsWidget(QWidget):
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
+        # Keyboard shortcut for save (Ctrl+S)
+        self._save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        self._save_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._save_shortcut.activated.connect(self._on_save)
+
+    def _setup_action_buttons(self, layout):
+        """Create the action buttons (Refine, Undo, Redo, Clear, Paste, Save)."""
         btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.open_browser_btn)
         btn_layout.addStretch()
+
         self.refine_btn = QPushButton('Refine')
         self.refine_btn.setIcon(qta.icon('fa6s.wand-magic-sparkles'))
         self.refine_btn.setEnabled(False)
         self.refine_btn.clicked.connect(self._on_refine)
         btn_layout.addWidget(self.refine_btn)
+
         self.interrupt_btn = QPushButton('Interrupt')
         self.interrupt_btn.setIcon(qta.icon('fa6s.stop'))
         self.interrupt_btn.setEnabled(False)
@@ -769,7 +493,7 @@ class ScriptsWidget(QWidget):
         # Undo/Redo buttons for AI changes
         self.undo_btn = QPushButton('Undo')
         self.undo_btn.setIcon(qta.icon('fa6s.rotate-left'))
-        self.undo_btn.setToolTip('Undo last change (Ctrl+Alt+Z)')
+        self.undo_btn.setToolTip('Undo last change (Ctrl+Z)')
         self.undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.undo_btn.setEnabled(False)
         self.undo_btn.clicked.connect(self._on_undo)
@@ -777,7 +501,7 @@ class ScriptsWidget(QWidget):
 
         self.redo_btn = QPushButton('Redo')
         self.redo_btn.setIcon(qta.icon('fa6s.rotate-right'))
-        self.redo_btn.setToolTip('Redo undone change (Ctrl+Alt+Y)')
+        self.redo_btn.setToolTip('Redo undone change (Ctrl+Y)')
         self.redo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.redo_btn.setEnabled(False)
         self.redo_btn.clicked.connect(self._on_redo)
@@ -788,30 +512,20 @@ class ScriptsWidget(QWidget):
         self.clear_btn.setEnabled(False)
         self.clear_btn.clicked.connect(self._on_clear)
         btn_layout.addWidget(self.clear_btn)
+
         self.paste_btn = QPushButton('Paste')
         self.paste_btn.setIcon(qta.icon('fa6s.paste'))
         self.paste_btn.setEnabled(False)
         self.paste_btn.clicked.connect(self._on_paste)
         btn_layout.addWidget(self.paste_btn)
+
         self.save_btn = QPushButton('Save')
         self.save_btn.setIcon(qta.icon('fa6s.floppy-disk'))
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._on_save)
         btn_layout.addWidget(self.save_btn)
+
         layout.addLayout(btn_layout)
-
-        # Keyboard shortcuts for undo/redo (Ctrl+Alt+Z / Ctrl+Alt+Y)
-        self._undo_shortcut = QShortcut(QKeySequence('Ctrl+Alt+Z'), self)
-        self._undo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        self._undo_shortcut.activated.connect(self._on_undo)
-        self._redo_shortcut = QShortcut(QKeySequence('Ctrl+Alt+Y'), self)
-        self._redo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        self._redo_shortcut.activated.connect(self._on_redo)
-
-        # Keyboard shortcut for save (Ctrl+S)
-        self._save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
-        self._save_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        self._save_shortcut.activated.connect(self._on_save)
 
     def _apply_theme(self):
         styles, default_text, bg = get_theme_colors()
@@ -1045,42 +759,44 @@ class ScriptsWidget(QWidget):
         self.script_content.clear()
 
     def _on_refine(self):
-        self._open_refine_dialog()
+        if self._refine_panel:
+            dialog = self._get_generator_dialog()
+            if dialog:
+                dialog.show_refine_panel()
+            self._refine_panel.input.setFocus()
 
-    def _open_refine_dialog(self, initial_text="", error_message=""):
-        # Allow dialog to open even if parent._ai_key is missing, 
-        # so user can select an API key in the refine dialog natively.
-        dlg = ScriptRefineDialog(self, initial_text=initial_text, error_message=error_message)
-        if dlg.api_key_section:
-            dlg.api_key_section.api_key_changed.connect(
-                lambda key, svc, mod: self.api_key_changed_from_dialog.emit(key, svc, mod)
-            )
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            # If no retry was started from an error dialog, restore save button state based on current changes
-            if error_message and self._refine_worker is None:
-                self._update_save_button_state()
+    def refine_instruction(self, instruction, is_fix=False):
+        instruction = (instruction or '').strip()
+        current_code = self.script_content.toPlainText().strip()
+        if not self.current_script_id or not current_code:
+            if self._refine_panel:
+                self._refine_panel.add_status('Select a script with content before refining.', False)
+                self._refine_panel.set_busy(False)
             return
-
-        instruction = dlg.get_instruction()
-        
-        override_key, override_endpoint, override_service, override_model = None, None, None, None
-        if hasattr(dlg, 'get_ai_credentials'):
-            override_key, override_endpoint, override_service, override_model = dlg.get_ai_credentials()
-            
-        active_key = override_key if override_key else self._ai_key
-        active_endpoint = override_endpoint if override_endpoint else self._ai_endpoint
-        active_service = override_service if override_service else self._ai_service
-        active_model = override_model if override_model else self._ai_model
-
-        if not active_key:
-            QMessageBox.warning(self, 'API Key Required', 'Please select an API key first.')
+        if not self._ai_key:
+            if self._refine_panel:
+                self._refine_panel.add_status('Select an API key in the main window before refining.', False)
+                self._refine_panel.set_busy(False)
+            return
+        if self._refine_worker:
+            # Do not drop a preview error while an automatic/user refinement is
+            # still running. Queue the latest error and process it when the
+            # worker finishes instead of making Fix Errors appear unresponsive.
+            if self._last_refine_error:
+                self._pending_preview_error = self._last_refine_error
             return
 
         self._last_instruction = instruction
-        current_code = self.script_content.toPlainText().strip()
-        if not current_code:
-            return
+        self._last_refine_error = ''
+        self._fix_pass_active = is_fix
+        self._refine_previous_content = current_code
+        context = '\n'.join(self._refine_session_context[-8:])
+        worker_instruction = instruction
+        if context:
+            worker_instruction = (
+                'Previous refinement session context:\n'
+                f'{context}\n\nCurrent user instruction:\n{instruction}'
+            )
         self.refine_btn.setEnabled(False)
         self.refine_btn.setVisible(False)
         self.interrupt_btn.setEnabled(True)
@@ -1089,8 +805,8 @@ class ScriptsWidget(QWidget):
         self.save_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self._refine_worker = ScriptRefineWorker(
-            active_key, active_endpoint, active_service, active_model,
-            current_code, instruction
+            self._ai_key, self._ai_endpoint, self._ai_service, self._ai_model,
+            current_code, worker_instruction
         )
         self._refine_worker.progress.connect(self._on_refine_progress)
         self._refine_worker.turn_completed.connect(self._on_turn_completed)
@@ -1109,6 +825,8 @@ class ScriptsWidget(QWidget):
             display_msg = message if len(message) <= 60 else message[:57] + "..."
             
             self.script_name_label.setText(f"Script: {self.current_script_name}  |  {line_count} lines  |  {display_msg}")
+        if self._refine_panel:
+            self._refine_panel.add_step(message)
 
     def _on_turn_completed(self, turn, script):
         """Simpan progress tiap turn ke DB dan update preview."""
@@ -1128,12 +846,22 @@ class ScriptsWidget(QWidget):
                 self._update_save_button_state()
                 self._update_line_numbers()
                 self._update_line_count()
+                if self._refine_panel:
+                    old_lines = self._refine_previous_content.splitlines()
+                    new_lines = script.splitlines()
+                    added = sum(1 for change in difflib.ndiff(old_lines, new_lines) if change.startswith('+ '))
+                    removed = sum(1 for change in difflib.ndiff(old_lines, new_lines) if change.startswith('- '))
+                    self._refine_panel.add_change(turn, self._last_instruction, added, removed)
+                    self._refine_session_context.append(
+                        f'Turn {turn}: Added {added} lines, Removed {removed} lines.'
+                    )
+                self._refine_previous_content = script
                 print(f"[Vibe Video] Turn {turn} disimpan ke database.")
             except Exception as e:
                 print(f"[Vibe Video] Gagal simpan turn {turn}: {e}")
 
     def _on_interrupt(self):
-        """Handle interrupt button click: stop refinement and reopen dialog."""
+        """Handle interrupt button click."""
         if self._refine_worker:
             # Terminate the worker thread forcefully
             self._refine_worker.terminate()
@@ -1152,16 +880,10 @@ class ScriptsWidget(QWidget):
         self.clear_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
+        if self._refine_panel:
+            self._refine_panel.set_busy(False)
+            self._refine_panel.add_status('Refinement interrupted.', False)
         self.refine_finished.emit()
-        self.refine_finished.emit()
-
-        # Reopen refine dialog with current instruction
-        current_script_text = self.script_content.toPlainText()
-        if current_script_text.strip():
-            self._open_refine_dialog(
-                initial_text=self._last_instruction,
-                error_message="Refinement interrupted. You can modify the instruction and try again."
-            )
 
     def _on_refine_finished(self, success, result):
         if self._is_closing:
@@ -1181,13 +903,20 @@ class ScriptsWidget(QWidget):
         self.interrupt_btn.setVisible(False)
         self.clear_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
+        if self._refine_panel:
+            self._refine_panel.set_busy(False)
         self.refine_finished.emit()
         if not success:
             print(f'[Vibe Video] Refine failed: {result}')
-            self._open_refine_dialog(
-                initial_text=self._last_instruction, 
-                error_message=f"AI failed to refine the script.\nError: {result}"
-            )
+            if self._refine_panel:
+                self._refine_panel.add_status(f'AI failed to refine the script: {result}', False)
+                self._refine_panel.show_retry(True)
+            pending_error = self._pending_preview_error
+            self._pending_preview_error = ''
+            if pending_error and not self._fix_pass_active:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self.fix_preview_error(pending_error))
+            self._fix_pass_active = False
             return
         if self.db and self.current_script_id:
             self.db.update_remotion_script(script_id=self.current_script_id, script_content=result)
@@ -1196,6 +925,55 @@ class ScriptsWidget(QWidget):
             if script_data:
                 from PySide6.QtCore import QTimer
                 QTimer.singleShot(50, lambda: self._apply_refine_result(script_data))
+
+        if self._refine_panel:
+            self._refine_panel.add_status('Refinement completed.', True)
+        pending_error = self._pending_preview_error
+        self._pending_preview_error = ''
+        # Only re-trigger an error-fix pass for errors that arrived during a
+        # *normal* refinement. A fix pass that just finished must not re-queue
+        # the same error, otherwise the agent loops forever on an unresolved
+        # preview error.
+        if pending_error and not self._fix_pass_active:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self.fix_preview_error(pending_error))
+        self._fix_pass_active = False
+
+    def retry_refine(self):
+        if self._last_instruction and not self._refine_worker:
+            if self._refine_panel:
+                self._refine_panel.add_step('Retrying the last refinement instruction.')
+                self._refine_panel.set_busy(True)
+            self.refine_instruction(self._last_instruction)
+
+    def fix_preview_error(self, error):
+        error = (error or '').strip()
+        if not error:
+            return
+        self._last_refine_error = error
+        instruction = (
+            'Fix the current Remotion runtime error below. This is an error-repair pass, '
+            'not a visual redesign. Inspect the exact component and call site named by '
+            'the error, make the smallest safe change that removes the error, and keep '
+            'the existing visual behavior. For missing-parameter errors, verify the '
+            'function signature and pass the required runtime values such as frame, fps, '
+            'or width explicitly (for example render <MainScene frame={frame} /> when the '
+            'parent already has a frame variable). Use find_text to locate the named '
+            'component or call site if you are not certain where it is defined. The full '
+            'current component source is already provided. Return executable SEARCH/REPLACE '
+            'blocks that fix the error, not a plan or prose explanation.\n\n'
+            f'REMOTION ERROR:\n{error}'
+        )
+        if self._refine_panel:
+            self._refine_panel.add_step('Starting an error-fix pass from the latest Remotion error.')
+            self._refine_panel.set_busy(True)
+        self.refine_instruction(instruction, is_fix=True)
+
+    def clear_refine_session(self):
+        self._last_instruction = ''
+        self._refine_previous_content = self.script_content.toPlainText()
+        self._refine_session_context.clear()
+        self._last_refine_error = ''
 
     def _apply_refine_result(self, script_data):
         if self._is_closing:
@@ -1348,8 +1126,8 @@ class ScriptsWidget(QWidget):
         if not hasattr(self, '_preview_dir_for_studio') or not self._preview_dir_for_studio:
             return
         self._studio_port = self._find_free_port(3100)
-        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import StudioServerWorker
-        self._studio_worker = StudioServerWorker(self._preview_dir_for_studio, self._studio_port)
+        from dialogs.tools.vibe_video_generator.vibe_video_preview_tab import RemotionStudioWorker
+        self._studio_worker = RemotionStudioWorker(self._preview_dir_for_studio, self._studio_port)
         self._studio_worker.server_ready.connect(self._on_studio_ready)
         self._studio_worker.server_failed.connect(self._on_studio_failed)
         self._studio_worker.start()
@@ -1380,3 +1158,16 @@ class ScriptsWidget(QWidget):
                 self._refine_worker.wait()
             self._refine_worker.deleteLater()
             self._refine_worker = None
+
+        # Stop studio worker and retry timer
+        if self._studio_retry_timer:
+            self._studio_retry_timer.stop()
+            self._studio_retry_timer = None
+        if self._studio_worker:
+            self._studio_worker.quit()
+            if not self._studio_worker.wait(2000):
+                print("[Vibe Video] Studio worker still running after 2s, terminating.")
+                self._studio_worker.terminate()
+                self._studio_worker.wait()
+            self._studio_worker.deleteLater()
+            self._studio_worker = None

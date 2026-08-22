@@ -9,6 +9,7 @@ import webbrowser
 import time
 import json
 from PySide6.QtWidgets import QMessageBox, QApplication
+from PySide6.QtCore import QMetaObject, Qt, QThread
 
 # Import remotion helper constants for preview directory invalidation
 from helpers.remotion_helper.remotion_helper import PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME
@@ -912,6 +913,16 @@ def show_nodejs_install_dialog(parent=None):
     if app is None:
         raise RuntimeError("QApplication instance is required for GUI dialogs")
     
+    # This can be called from the background tools-init thread. GUI creation must
+    # happen in the main thread, so re-invoke there and block the caller until the
+    # user responds (BlockingQueuedConnection avoids cross-thread setParent crashes).
+    if QThread.currentThread() != app.thread():
+        result_box = []
+        def _run():
+            result_box.append(show_nodejs_install_dialog(parent))
+        QMetaObject.invokeMethod(app, _run, Qt.ConnectionType.BlockingQueuedConnection)
+        return result_box[0] if result_box else "cancelled"
+
     if parent is None:
         parent = app.activeWindow()
     if parent is None:
@@ -1123,6 +1134,7 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
             "@remotion/cli@latest",
             "@remotion/bundler@latest",
             "@remotion/renderer@latest",
+            "@remotion/studio@latest",
             "react",
             "react-dom"
         ]
@@ -1132,12 +1144,13 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
             f"@remotion/cli@{remotion_version}",
             f"@remotion/bundler@{remotion_version}",
             f"@remotion/renderer@{remotion_version}",
+            f"@remotion/studio@{remotion_version}",
             "react",
             "react-dom"
         ]
     
     remotion_install_attempts = 0
-    max_remotion_attempts = 2
+    max_remotion_attempts = 3
     install_success = False
     
     while remotion_install_attempts < max_remotion_attempts and not install_success:
@@ -1148,10 +1161,21 @@ def download_and_install_remotion(target_folder, reporter=None, progress_reporte
             print(f"Retrying Remotion installation (attempt {remotion_install_attempts})...")
             # Clean up before retry
             _cleanup_remotion_partial(target_folder)
+            # Clear npm metadata cache so transient ETARGET (registry propagation) errors
+            # don't persist across retries.
+            try:
+                import time as _time
+                _time.sleep(2)
+                _run_npm(["cache", "clean", "--force"], cwd=target_folder, timeout=60, env=env)
+            except Exception as e:
+                print(f"npm cache clean skipped during retry: {e}")
         
         try:
+            npm_args = ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-package-lock"]
+            if remotion_install_attempts > 1:
+                npm_args.append("--no-cache")
             install_result = _run_npm(
-                ["install", "--ignore-scripts", "--legacy-peer-deps"] + remotion_packages,
+                npm_args + remotion_packages,
                 cwd=target_folder,
                 timeout=600,
                 env=env
@@ -1246,6 +1270,18 @@ def show_remotion_error_dialog(error_details, parent=None):
     """Show an error dialog when Remotion installation fails."""
     app = QApplication.instance()
     if app is None:
+        return
+
+    # GUI objects must live in the main thread. This function can be called from
+    # the background tools-init thread; re-invoke on the main thread via a queued
+    # event to avoid "QObject::setParent: Cannot set parent, new parent is in a
+    # different thread" crashes and modal-dialog hangs.
+    if QThread.currentThread() != app.thread():
+        QMetaObject.invokeMethod(
+            app,
+            lambda: show_remotion_error_dialog(error_details, parent),
+            Qt.ConnectionType.QueuedConnection,
+        )
         return
     
     if parent is None:

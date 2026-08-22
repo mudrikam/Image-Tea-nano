@@ -393,6 +393,7 @@ class ToolsManagerDialog(QDialog):
         else:
             self._log(f"Failed to remove {tool_name}.")
         self._refresh_cards()
+        self._refresh_other_instances()
 
     def _open_tool_folder(self, tool_name):
         folder = os.path.join(BASE_PATH, 'tools', tool_name)
@@ -442,6 +443,7 @@ class ToolsManagerDialog(QDialog):
             self._log(f"{tool_name} installation failed.")
         self._set_busy(False)
         self._refresh_cards()
+        self._refresh_other_instances()
         QTimer.singleShot(3000, lambda: self.progress_bar.setVisible(False))
 
     def _on_batch_tool_done(self, tool_name, success):
@@ -452,7 +454,18 @@ class ToolsManagerDialog(QDialog):
         self._log("Batch installation complete.")
         self._set_busy(False)
         self._refresh_cards()
+        self._refresh_other_instances()
         QTimer.singleShot(3000, lambda: self.progress_bar.setVisible(False))
+
+    def _refresh_other_instances(self):
+        """Refresh any other live Tools Manager instances (standalone dialog or embedded tab)."""
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.allWidgets():
+            if isinstance(w, ToolsManagerDialog) and w is not self:
+                try:
+                    w._refresh_cards()
+                except Exception:
+                    pass
 
     # ─── Helpers ───
 
