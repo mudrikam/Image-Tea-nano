@@ -609,8 +609,8 @@ class AddApiKeyDialog(QDialog):
     
     # Central mapping for endpoints: display_name -> url
     ENDPOINT_MAP = {
+        'Ciora AI': 'https://api.ciora.my.id/v1',
         'KoboiLLM': 'https://api.koboillm.com/v1',
-        'Desainia API': 'https://api.desainia.my.id/v1',
         'OpenRouter Custom': 'https://openrouter.ai/api/v1',
         'Groq Custom': 'https://api.groq.com/openai/v1',
         'Together AI': 'https://api.together.xyz/v1',
@@ -897,7 +897,7 @@ class AddApiKeyDialog(QDialog):
         self.topup_btn.setText("Top Up API Key")
         self.topup_btn.setIcon(qta.icon('fa6s.coins', color=theme.get_color('white')))
         self.topup_btn.setIconSize(self.topup_btn.iconSize())
-        self.topup_btn.setToolTip("Top up Desainia API key balance")
+        self.topup_btn.setToolTip("Top up Ciora AI key balance")
         self.topup_btn.setStyleSheet(f"""
             QPushButton#topup_btn {{
                 background-color: {theme.get_color('primary')};
