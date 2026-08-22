@@ -15,8 +15,9 @@ from ui.theme_system import theme
 class TopupDesainiaDialog(QDialog):
     def __init__(self, topup_url: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Topup Desainia API Key")
-        self.setMinimumSize(720, 540)
+        self.setWindowTitle("Topup Ciora AI API Key")
+        self.setMinimumSize(500, 540)
+        self.setMaximumWidth(500)
         self._topup_url = topup_url
 
         icon_path = os.path.join(BASE_PATH, "res", "image_tea.ico")
