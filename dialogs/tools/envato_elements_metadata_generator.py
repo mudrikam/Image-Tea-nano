@@ -1093,7 +1093,7 @@ class EnvatoElementsMetadataDialog(QDialog):
         if not all((scan['psds'], scan['previews'], scan['covers'], scan['pdf'])):
             self.content_status_label.setText('Content files are not ready. ZIP was not created.')
             return
-        files_to_zip = scan['psds'] + scan['previews'] + scan['covers']
+        files_to_zip = list(scan['psds'])
         files_to_zip.append(scan['pdf'])
         self.content_progress_bar.setFormat('Zipping: %p%')
         self.content_progress_bar.setValue(0)
