@@ -208,7 +208,7 @@ class PromptRefinerWorker(QThread):
 class ScriptFileTextEdit(QTextEdit):
     """QTextEdit that accepts drag-and-drop of TypeScript/React script files."""
 
-    file_dropped = Signal(str)  # emits the path of the dropped script file
+    file_dropped = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)

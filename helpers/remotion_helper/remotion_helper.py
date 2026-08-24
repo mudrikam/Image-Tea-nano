@@ -529,20 +529,67 @@ def _setup_temp_dir(script_content: str, render_settings: dict) -> Tuple[str, st
     with open(os.path.join(temp_dir, "tsconfig.json"), 'w', encoding='utf-8') as f:
         json.dump(tsconfig_content, f, indent=2)
 
-    # Copy node_modules from tools/remotion (fast reuse)
-    src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
-    dst_node_modules = os.path.join(temp_dir, "node_modules")
-    if os.path.exists(src_node_modules):
+    # Share the canonical node_modules via a directory junction (Windows) or symlink
+    # (other OS). Copying it per-render is fragile on Windows: a locked browser binary
+    # leaves a partial .remotion, making Remotion try to re-download into the temp copy
+    # (EPERM) and the render dies with 'write EOF'. A junction points at the single
+    # pre-ensured browser so it is reused as-is.
+    if not _link_node_modules(temp_dir):
+        src_node_modules = os.path.join(TOOLS_REMOTION, "node_modules")
+        dst_node_modules = os.path.join(temp_dir, "node_modules")
         try:
             if os.path.exists(dst_node_modules):
-                print(f"[Remotion] Removing stale node_modules at {dst_node_modules}")
                 shutil.rmtree(dst_node_modules, ignore_errors=True)
-            shutil.copytree(src_node_modules, dst_node_modules, symlinks=False, ignore=shutil.ignore_patterns('.git', '.DS_Store'))
-            print("[Remotion] Copied node_modules from tools/remotion")
+            shutil.copytree(src_node_modules, dst_node_modules, symlinks=True, ignore=shutil.ignore_patterns('.git', '.DS_Store'))
         except Exception as e:
             print(f"[Remotion] Warning: Failed to copy node_modules: {e}")
 
     return temp_dir, entry_file
+
+
+def _link_node_modules(temp_dir: str) -> bool:
+    src = os.path.join(TOOLS_REMOTION, "node_modules")
+    dst = os.path.join(temp_dir, "node_modules")
+    if not os.path.isdir(src):
+        return False
+
+    if os.path.isjunction(dst):
+        try:
+            os.rmdir(dst)
+        except Exception:
+            pass
+    elif os.path.islink(dst):
+        try:
+            os.remove(dst)
+        except Exception:
+            pass
+    if os.path.exists(dst):
+        try:
+            shutil.rmtree(dst, ignore_errors=True)
+        except Exception:
+            pass
+        if os.path.exists(dst) and platform.system() == "Windows":
+            subprocess.run(["cmd", "/c", "rmdir", "/s", "/q", dst],
+                           capture_output=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+
+    try:
+        if platform.system() == "Windows":
+            res = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", dst, src],
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if res.returncode != 0:
+                print(f"[Remotion] Warning: mklink failed: {res.stderr.strip()}")
+                return False
+        else:
+            os.symlink(src, dst, target_is_directory=True)
+        return os.path.isdir(dst)
+    except Exception as e:
+        print(f"[Remotion] Warning: could not link node_modules: {e}")
+        return False
 
 
 def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tuple[str, str]:
@@ -554,6 +601,10 @@ def setup_preview_dir(script_content: str, render_settings: dict = None) -> Tupl
 
     if render_settings is None:
         render_settings = _load_active_preset_settings()
+
+    ok, msg = ensure_chrome(render_settings.get('chrome_mode') or 'headless-shell')
+    if not ok:
+        print(f"[Remotion] Warning: could not pre-ensure browser for preview: {msg}")
 
     preview_dir = os.path.join(PROJECT_TEMP_DIR, REMOTION_PREVIEW_DIR_NAME)
     src_dir = os.path.join(preview_dir, REMOTION_SRC_DIR)
@@ -811,7 +862,11 @@ def _build_render_args(
         args.extend(['--jpeg-quality', str(render_settings['jpeg_quality'])])
     if render_settings.get('prores_profile') and render_settings['prores_profile'] != 'auto' and codec_val == 'prores':
         args.extend(['--prores-profile', render_settings['prores_profile']])
-    if render_settings.get('x264_preset') and render_settings['x264_preset'] != 'medium' and codec_val in ['h264', 'h264-mkv']:
+    # --x264-preset is libx264-only; when hardware acceleration selects h264_nvenc/hevc_nvenc
+    # it rejects this preset (FFmpeg error). Only forward it for CPU encoding.
+    if (render_settings.get('x264_preset') and render_settings['x264_preset'] != 'medium'
+            and codec_val in ['h264', 'h264-mkv']
+            and render_settings.get('hardware_acceleration') in (None, '', 'disabled')):
         args.extend(['--x264-preset', render_settings['x264_preset']])
     if render_settings.get('gif_loops', 0) > 0:
         args.extend(['--number-of-gif-loops', str(render_settings['gif_loops'])])
@@ -895,11 +950,64 @@ def _cleanup_temp_dir(temp_dir: Optional[str]):
     try:
         if os.path.exists(temp_dir):
             node_modules_path = os.path.join(temp_dir, "node_modules")
-            if os.path.islink(node_modules_path) or os.path.isjunction(node_modules_path):
+            if os.path.isjunction(node_modules_path):
+                os.rmdir(node_modules_path)
+            elif os.path.islink(node_modules_path):
                 os.remove(node_modules_path)
             shutil.rmtree(temp_dir, ignore_errors=True)
+            _kill_browser_processes()
     except Exception as e:
         print(f"[WARN] Failed to cleanup temp directory: {e}")
+
+
+def _kill_browser_processes():
+    """Kill orphaned chrome-headless-shell processes left by crashed/cancelled renders.
+
+    These zombies keep the shared browser executable locked, which makes Remotion's
+    `browser ensure` fail with EPERM and the render die with 'write EOF'. The user's
+    real Chrome is 'chrome.exe', so only 'chrome-headless-shell' is targeted.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "chrome-headless-shell.exe"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception:
+        pass
+
+
+def ensure_chrome(chrome_mode: str = 'headless-shell') -> Tuple[bool, str]:
+    """Download the pinned Chrome (Remotion `browser ensure`) so renders have a valid binary."""
+    _kill_browser_processes()
+    node = _find_node()
+    if not node:
+        return False, "Node.js not found"
+    remotion_exe, exec_type = _find_remotion_executable()
+    if not remotion_exe:
+        return False, "Remotion executable not found"
+
+    cmd = [node, remotion_exe, 'browser', 'ensure', '--chrome-mode', chrome_mode]
+    env = os.environ.copy()
+    env['PATH'] = os.path.dirname(node) + os.pathsep + env.get('PATH', '')
+    env['NODE_ENV'] = 'production'
+    try:
+        res = subprocess.run(
+            cmd,
+            cwd=TOOLS_REMOTION,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0,
+        )
+        if res.returncode != 0:
+            return False, (res.stderr or res.stdout).strip()
+        return True, (res.stdout or '').strip()
+    except Exception as e:
+        return False, str(e)
 
 
 def _strip_video_metadata(file_path: str) -> None:
@@ -960,8 +1068,10 @@ def render_video(
     try:
         if progress_callback:
             progress_callback(5, "Setting up project...")
+        ok, msg = ensure_chrome(render_settings.get('chrome_mode') or 'headless-shell')
+        if not ok:
+            print(f"[Remotion] Warning: could not pre-ensure browser: {msg}")
         temp_dir, entry_file = _setup_temp_dir(script_content, render_settings)
-
         print(f"[Remotion] Temp directory: {temp_dir}")
         print(f"[Remotion] Entry file: {entry_file}")
 
@@ -1107,6 +1217,12 @@ def render_video(
             error_lines = output_lines[-30:] if output_lines else ["Unknown error"]
             error_msg = "\n".join(error_lines)
             print(f"[Remotion] Render failed with exit code {proc.returncode}")
+            if 'write EOF' in full_output or 'write EOF' in error_msg:
+                error_msg += (
+                    "\n\nThe headless browser crashed (write EOF). The browser is now ensured "
+                    "automatically before each render; if this persists, re-run the app once so "
+                    "`npx remotion browser ensure` can finish downloading it."
+                )
             return False, f"Render failed (exit code {proc.returncode}):\n{error_msg}"
 
     except Exception as e:

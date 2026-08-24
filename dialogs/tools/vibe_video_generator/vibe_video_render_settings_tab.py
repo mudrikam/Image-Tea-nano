@@ -563,7 +563,6 @@ class RenderSettingsTabWidget(QWidget):
 
         self.hardware_accel_combo = QComboBox()
         self.hardware_accel_combo.addItems(['if-possible', 'disabled', 'required'])
-        # Default to 'if-possible' to try GPU first, fallback to CPU automatically
         self.hardware_accel_combo.setCurrentText('if-possible')
         self.hardware_accel_combo.setToolTip("GPU hardware acceleration for encoding.\n"
                                                  "• if-possible: try GPU; fall back to CPU if unavailable\n"

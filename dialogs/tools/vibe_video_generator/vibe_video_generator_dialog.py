@@ -231,11 +231,8 @@ class VibeVideoGeneratorDialog(QDialog):
 
     def _on_preview_error(self, error):
         error = str(error or '').strip()
-        self.show_refine_panel()
         self.refine_panel.add_status(f'Remotion error: {error}', False)
         self.refine_panel.show_fix_errors(True)
-        # Repair is NOT automatic: the user must click "Fix Errors" to send the
-        # error to the AI. Only surface the error and enable the action button.
 
     def _fix_preview_errors(self):
         self.scripts_widget.fix_preview_error(self.preview_tab_widget._last_error)

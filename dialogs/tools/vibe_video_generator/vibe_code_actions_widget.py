@@ -575,23 +575,6 @@ class CodeActionsWidget(QWidget):
 
         layout.addLayout(bottom_row)
 
-        # AI Fix Log panel (initially hidden, shown during fix)
-        self.ai_log_group = QGroupBox("AI Fix Log")
-        self.ai_log_group.setVisible(False)
-        log_layout = QVBoxLayout(self.ai_log_group)
-        log_layout.setContentsMargins(8, 8, 8, 8)
-        log_layout.setSpacing(4)
-
-        self.ai_log_label = QLabel()
-        self.ai_log_label.setWordWrap(True)
-        self.ai_log_label.setMaximumHeight(200)
-        self.ai_log_label.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: Consolas; font-size: 9pt; padding: 4px;")
-        self.ai_log_label.setText("")
-        self.ai_log_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        log_layout.addWidget(self.ai_log_label)
-
-        layout.addWidget(self.ai_log_group)
-
     def _setup_queue_tab(self):
         layout = QVBoxLayout(self.queue_tab)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -1050,11 +1033,6 @@ class CodeActionsWidget(QWidget):
             QMessageBox.warning(self, 'Error', 'No script loaded to fix.')
             return
 
-        # Clear and show AI log panel
-        self.ai_log_label.setText("")
-        self.ai_log_group.setVisible(True)
-        self._append_log("Starting AI fix...")
-
         self.render_btn.setEnabled(False)
         self.render_btn.setText('Fixing...')
         self.render_btn.setIcon(qta.icon('fa6s.spinner', animation=qta.Spin(self.render_btn)))
@@ -1065,7 +1043,6 @@ class CodeActionsWidget(QWidget):
             self._ai_key, self._ai_endpoint, self._ai_service, self._ai_model,
             script_content, self._last_error_msg
         )
-        # Connect progress signal for real-time logging
         self._fix_worker.progress.connect(self._on_fix_progress)
         self._fix_worker.finished.connect(self._on_fix_finished)
         self._fix_worker.start()
@@ -1075,20 +1052,7 @@ class CodeActionsWidget(QWidget):
         self._append_log(message)
 
     def _append_log(self, message: str):
-        """Append a formatted message to the AI log panel."""
-        from datetime import datetime
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        entry = f"[{timestamp}] {message}"
-        current = self.ai_log_label.text()
-        if current:
-            new_text = current + "\n" + entry
-        else:
-            new_text = entry
-        # Limit to last 100 lines to prevent excessive growth
-        lines = new_text.split('\n')
-        if len(lines) > 100:
-            new_text = '\n'.join(lines[-100:])
-        self.ai_log_label.setText(new_text)
+        return
 
     def _on_fix_finished(self, success, result):
         worker = self._fix_worker
