@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QL
 from PySide6.QtCore import Qt, QThread, Signal, QUrl, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 import qtawesome as qta
 from ui.theme_system import theme
 
@@ -345,9 +345,33 @@ class RemotionStudioWorker(QThread):
 
 
 
+class _PreviewWebPage(QWebEnginePage):
+    console_error = Signal(str)
+
+    def javaScriptConsoleMessage(self, level, message, line_number, source_id):
+        text = str(message or '').strip()
+        low = text.lower()
+        # Browser autoplay/audio notices are expected in an embedded preview;
+        # they are not Remotion source errors and must not trigger AI fixes.
+        ignored = (
+            'audiocontext was not allowed to start',
+            'autoplay on an unmuted',
+            'remotion muted the <player />',
+        )
+        error_markers = (
+            'unexpected', 'syntaxerror', 'referenceerror', 'typeerror',
+            'render error', 'failed to compile', 'compilation failed',
+        )
+        if text and not any(item in low for item in ignored) and any(item in low for item in error_markers):
+            self.console_error.emit(text)
+
+
 class PreviewTabWidget(QWidget):
+    error_detected = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._last_error = ''
         self._scripts_widget = None
         self._server_worker = None
         self._server_port = None
@@ -453,6 +477,9 @@ class PreviewTabWidget(QWidget):
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         self.webview.setVisible(False)
+        self._web_page = _PreviewWebPage(self.webview)
+        self._web_page.console_error.connect(self._on_console_error)
+        self.webview.setPage(self._web_page)
         self.webview.loadFinished.connect(self._on_webview_load_finished)
         self.webview.page().fullScreenRequested.connect(self._on_fullscreen_requested)
         layout.addWidget(self.webview, 1)
@@ -522,17 +549,24 @@ class PreviewTabWidget(QWidget):
             self._exit_embedded_fullscreen()
             self._selection_timer.stop()
             self._preview_request_id += 1
-            # Abort any pending page load first
+            # Hide the preview view but keep the server running.
             self.webview.stop()
-            # Disconnect webview from server first to avoid renderer crash on server kill
             self.webview.setUrl(QUrl('about:blank'))
             self.webview.setVisible(False)
             self.placeholder.setVisible(True)
-            self.placeholder.setText('Select a script to open in Remotion Studio.')
-            # Now it's safe to stop the server
-            self._stop_server()
-            self._reset_ui('No script selected.')
-            self.toggle_server_btn.setEnabled(False)
+
+            if self._server_running:
+                self.placeholder.setText(
+                    'No script selected. Remotion Studio is still running, '
+                    'select a script to preview, or click "Stop Server".'
+                )
+                self.status_label.setText('Script: No script selected (server running).')
+                self._update_toggle_server_button()
+                self.open_browser_btn.setEnabled(True)
+            else:
+                self.placeholder.setText('Select a script to open in Remotion Studio.')
+                self._reset_ui('No script selected.')
+                self.toggle_server_btn.setEnabled(False)
             self._update_refine_buttons()
             return
 
@@ -568,6 +602,11 @@ class PreviewTabWidget(QWidget):
             self._update_script_only(script_content, request_id=request_id)
             script_name = name if name else 'Current script'
             self.status_label.setText(f'Script: {script_name} - Updated (HMR...)')
+            # Re-show the view if it was hidden when the selection was cleared.
+            if not self.webview.isVisible() and self._server_port:
+                self.placeholder.setVisible(False)
+                self.webview.setVisible(True)
+                self.webview.setUrl(QUrl(f'http://127.0.0.1:{self._server_port}'))
             # Server is running - toggle becomes "Stop" (enabled)
             self._update_toggle_server_button()
             self.open_browser_btn.setEnabled(True)
@@ -716,10 +755,23 @@ class PreviewTabWidget(QWidget):
                         self._enter_embedded_fullscreen()
                         self._send_auto_controls()
             else:
-                # Initial load failed; server might still be starting, ignore
-                print('[PreviewTab] Initial page load failed (will retry automatically)')
+                error = 'Remotion Studio page failed to load.'
+                self._last_error = error
+                print(f'[PreviewTab] {error}')
+                self.status_label.setText(error)
+                self.error_detected.emit(error)
         except Exception as e:
             print(f'[PreviewTab] Error in loadFinished: {e}')
+
+    def _on_console_error(self, error):
+        """Forward actual Remotion runtime errors to the refinement flow."""
+        error = str(error or '').strip()
+        if not error or error == self._last_error:
+            return
+        self._last_error = error
+        print(f'[PreviewTab] Runtime error: {error}')
+        self.status_label.setText(f'Remotion error: {error}')
+        self.error_detected.emit(error)
 
     def _send_auto_controls(self):
         self.webview.setFocus()
@@ -821,6 +873,8 @@ class PreviewTabWidget(QWidget):
     def _on_server_failed(self, error):
         if self._is_closing:
             return
+        self._last_error = str(error)
+        self.error_detected.emit(str(error))
         worker = self.sender()
         if worker is not self._server_worker:
             return

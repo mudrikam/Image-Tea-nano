@@ -1,11 +1,15 @@
+import os
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QTabWidget, QTextEdit, QWidget, QPushButton, QMessageBox,
                                QSplitter, QComboBox, QSizePolicy, QApplication)
 from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from dialogs.tools.vibe_video_generator.vibe_video_scripts_widget import TypeScriptHighlighter
 from dialogs.tools.vibe_video_generator.image_prompt_generator_dialog import ImagePromptGeneratorDialog
 from ui.api_key_section import ApiKeySectionWidget
 import qtawesome as qta
+
+SCRIPT_FILE_EXTENSIONS = ('.ts', '.tsx', '.js', '.jsx')
 
 REMOTION_SYSTEM_PROMPT = """You are a Remotion video script generator. Generate valid TypeScript/React code for Remotion.
 
@@ -201,6 +205,46 @@ class PromptRefinerWorker(QThread):
             self.finished.emit(False, str(e))
 
 
+class ScriptFileTextEdit(QTextEdit):
+    """QTextEdit that accepts drag-and-drop of TypeScript/React script files."""
+
+    file_dropped = Signal(str)  # emits the path of the dropped script file
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setToolTip('Drag & drop a .tsx/.ts file here, or use Paste')
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            paths = [url.toLocalFile() for url in event.mimeData().urls()]
+            if paths and self._is_supported(paths[0]):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.setToolTip('Drag & drop a .tsx/.ts file here, or use Paste')
+
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                path = urls[0].toLocalFile()
+                if self._is_supported(path):
+                    self.file_dropped.emit(path)
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    @staticmethod
+    def _is_supported(path: str) -> bool:
+        if not path:
+            return False
+        ext = os.path.splitext(path)[1].lower()
+        return ext in SCRIPT_FILE_EXTENSIONS
+
+
 class EditScriptDialog(QDialog):
     script_created = Signal(object)
     script_updated = Signal(object)
@@ -313,8 +357,9 @@ class EditScriptDialog(QDialog):
 
         self.script_tab = QWidget()
         script_layout = QVBoxLayout(self.script_tab)
-        self.script_edit = QTextEdit()
+        self.script_edit = ScriptFileTextEdit()
         self.script_edit.setPlaceholderText('Enter or paste TypeScript/React code here...')
+        self.script_edit.file_dropped.connect(self._on_script_file_dropped)
         self._highlighter = TypeScriptHighlighter(self.script_edit.document())
         script_layout.addWidget(self.script_edit)
         script_btn_row = QHBoxLayout()
@@ -326,9 +371,10 @@ class EditScriptDialog(QDialog):
         script_btn_row.addWidget(self.paste_script_btn)
         script_layout.addLayout(script_btn_row)
 
-        tabs.addTab(self.prompt_tab, qta.icon('fa6s.wand-magic-sparkles'), 'Generate with AI')
         tabs.addTab(self.script_tab, qta.icon('fa6s.code'), 'TypeScript')
+        tabs.addTab(self.prompt_tab, qta.icon('fa6s.wand-magic-sparkles'), 'Generate with AI')
         self.tabs = tabs
+        self.tabs.setCurrentIndex(self.tabs.indexOf(self.script_tab))
         layout.addWidget(tabs)
 
         btn_layout = QHBoxLayout()
@@ -441,7 +487,7 @@ class EditScriptDialog(QDialog):
 
         if success:
             self.script_edit.setPlainText(result)
-            self.tabs.setCurrentIndex(1)
+            self.tabs.setCurrentIndex(self.tabs.indexOf(self.script_tab))
         else:
             QMessageBox.critical(self, 'Generation Failed', f'Failed to generate script:\n{result}')
 
@@ -451,6 +497,22 @@ class EditScriptDialog(QDialog):
         if text:
             self.script_edit.setPlainText(text)
             self.script_edit.setFocus()
+
+    def _on_script_file_dropped(self, path: str):
+        """Load a dropped .tsx/.ts file's content into the TypeScript editor."""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as exc:
+            QMessageBox.warning(self, 'Load Error', f'Could not read script file:\n{path}\n\n{exc}')
+            return
+        self.script_edit.setPlainText(content)
+        self.script_edit.setFocus()
+        self.tabs.setCurrentIndex(self.tabs.indexOf(self.script_tab))
+        if not self.name_edit.text().strip():
+            base = os.path.splitext(os.path.basename(path))[0]
+            if base:
+                self.name_edit.setText(base)
 
     def _on_refine_prompt(self):
         prompt_text = self.prompt_edit.toPlainText().strip()
@@ -516,7 +578,7 @@ class EditScriptDialog(QDialog):
                     combined = generated_prompt
                 self.prompt_edit.setPlainText(combined)
                 # Switch to prompt tab
-                self.tabs.setCurrentIndex(0)
+                self.tabs.setCurrentIndex(self.tabs.indexOf(self.prompt_tab))
                 self.prompt_edit.setFocus()
 
     def _cleanup_workers(self):

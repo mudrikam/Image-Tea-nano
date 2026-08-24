@@ -591,7 +591,6 @@ class CodeActionsWidget(QWidget):
         log_layout.addWidget(self.ai_log_label)
 
         layout.addWidget(self.ai_log_group)
-        layout.addStretch()
 
     def _setup_queue_tab(self):
         layout = QVBoxLayout(self.queue_tab)
