@@ -204,26 +204,6 @@ class ToolsPickerWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        # Header dengan style sederhana
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(8)
-
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(2)
-
-        title_label = QLabel("<b>Tools Launcher</b>")
-        title_label.setStyleSheet("font-size: 16px;")
-        title_layout.addWidget(title_label)
-
-        subtitle_label = QLabel("Tools are easily accessible here. Click on a tool card to launch it or view documentation.")
-        subtitle_label.setStyleSheet(f"font-size: 11px; color: {theme.get_color('gray')};")
-        title_layout.addWidget(subtitle_label)
-
-        header_layout.addLayout(title_layout)
-        header_layout.addStretch()
-
-        layout.addLayout(header_layout)
-
         # Stats bar with visual chips
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(8)
