@@ -8,15 +8,44 @@ from database.db_migration_manager import DBMigrationManager
 from ui.theme_system import theme
 from helpers.ai_helper.metadata_helper import normalize_tags
 
+_CASE_EXCEPTIONS = {
+    "to","and","at","in","on","for","with","of","the",
+    "a","an","but","or","nor","so","yet","as","by",
+    "from","into","over","per","via",
+}
+
+def apply_case_format(text, case):
+    if not text:
+        return text
+    if case == 'lower':
+        return text.lower()
+    if case == 'sentence_case':
+        s = text.strip()
+        return s[0].upper() + s[1:] if s else s
+    if case == 'title_case':
+        words = text.split()
+        if not words:
+            return text
+        result = [words[0].capitalize()]
+        for w in words[1:]:
+            result.append(w.lower() if w.lower() in _CASE_EXCEPTIONS else w.capitalize())
+        return ' '.join(result)
+    return text
+
+def _get_case_settings():
+    config_path = os.path.join(BASE_PATH, 'configs', 'ai_config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        return (
+            cfg.get('metadata_title_case', 'title_case'),
+            cfg.get('metadata_description_case', 'sentence_case'),
+            cfg.get('metadata_tags_case', 'lower'),
+        )
+    except Exception:
+        return ('title_case', 'sentence_case', 'lower')
+
 def sanitize_metadata_text(text, allow_commas=False):
-    """
-    Sanitize metadata text by removing special characters.
-    Only allows: letters, numbers, spaces.
-    For tags, also allows commas if allow_commas=True
-    
-    Respects the metadata_sanitization_enabled setting in ai_config.json.
-    If disabled, returns the text unchanged.
-    """
     if not text:
         return text
     
@@ -140,6 +169,15 @@ class ImageTeaDB:
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
         tags_clean = sanitize_metadata_text(normalize_tags(tags), allow_commas=True) if tags else tags
+        t_case, d_case, tg_case = _get_case_settings()
+        if title_clean:
+            title_clean = apply_case_format(title_clean, t_case)
+        if description_clean:
+            description_clean = apply_case_format(description_clean, d_case)
+        if tags_clean:
+            tags_clean = ', '.join(
+                apply_case_format(t.strip(), tg_case) for t in tags_clean.split(',') if t.strip()
+            )
 
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -153,6 +191,15 @@ class ImageTeaDB:
         title_clean = sanitize_metadata_text(title, allow_commas=False) if title else title
         description_clean = sanitize_metadata_text(description, allow_commas=False) if description else description
         tags_clean = sanitize_metadata_text(normalize_tags(tags), allow_commas=True) if tags else tags
+        t_case, d_case, tg_case = _get_case_settings()
+        if title_clean:
+            title_clean = apply_case_format(title_clean, t_case)
+        if description_clean:
+            description_clean = apply_case_format(description_clean, d_case)
+        if tags_clean:
+            tags_clean = ', '.join(
+                apply_case_format(t.strip(), tg_case) for t in tags_clean.split(',') if t.strip()
+            )
 
         with sqlite3.connect(self.db_path) as conn:
             c = conn.cursor()
@@ -168,6 +215,31 @@ class ImageTeaDB:
             else:
                 c.execute('''UPDATE files SET title=?, description=?, tags=? WHERE filepath=?''',
                           (title_clean, description_clean, tags_clean, filepath))
+            conn.commit()
+
+    def bulk_apply_format_to_all(self):
+        rows = self.get_all_files()
+        t_case, d_case, tg_case = _get_case_settings()
+        with sqlite3.connect(self.db_path) as conn:
+            c = conn.cursor()
+            for row in rows:
+                filepath = row[1]
+                title = row[3]
+                description = row[4]
+                tags = row[5]
+                new_title = apply_case_format(sanitize_metadata_text(title, False), t_case) if title else title
+                new_desc = apply_case_format(sanitize_metadata_text(description, False), d_case) if description else description
+                if tags:
+                    norm = sanitize_metadata_text(normalize_tags(tags), True)
+                    new_tags = ', '.join(
+                        apply_case_format(t.strip(), tg_case) for t in norm.split(',') if t.strip()
+                    )
+                else:
+                    new_tags = tags
+                c.execute(
+                    'UPDATE files SET title=?, description=?, tags=? WHERE filepath=?',
+                    (new_title, new_desc, new_tags, filepath),
+                )
             conn.commit()
 
     def update_file_prompt(self, filepath, prompt):

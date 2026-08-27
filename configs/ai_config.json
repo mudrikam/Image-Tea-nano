@@ -43,6 +43,9 @@
   "prompt_generation_enabled": false,
   "shutdown_on_complete": false,
   "metadata_sanitization_enabled": true,
+  "metadata_title_case": "title_case",
+  "metadata_description_case": "sentence_case",
+  "metadata_tags_case": "lower",
   "video_proxy_setting": "Auto",
   "video_proxy_presets": {
     "High": {

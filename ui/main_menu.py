@@ -872,6 +872,85 @@ def setup_main_menu(window):
     load_metadata_sanitize_menu()
     metadata_menu.addMenu(metadata_sanitize_submenu)
 
+    formats_submenu = QMenu("Formats", metadata_menu)
+    formats_submenu.setIcon(qta.icon('fa6s.font'))
+    formats_submenu.setToolTipsVisible(True)
+
+    _CASE_LABELS = [
+        ("Title Case",    "title_case"),
+        ("Sentence Case", "sentence_case"),
+        ("Lower Case",    "lower"),
+    ]
+
+    def _get_format_settings():
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return {
+            "title":       cfg.get("metadata_title_case", "title_case"),
+            "description": cfg.get("metadata_description_case", "sentence_case"),
+            "tags":        cfg.get("metadata_tags_case", "lower"),
+        }
+
+    def _set_format_setting(field, value):
+        config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg[f"metadata_{field}_case"] = value
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        load_formats_menu()
+
+    def _apply_format_to_all():
+        reply = QMessageBox.question(
+            window,
+            "Apply Format to All Records",
+            "This will re-apply the current case settings to all title, description, and tags in the database.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            window.db.bulk_apply_format_to_all()
+            if hasattr(window, "table") and window.table:
+                window.table.refresh_table()
+            QMessageBox.information(window, "Done", "Format applied to all records.")
+        except Exception as e:
+            QMessageBox.critical(window, "Error", f"Failed to apply format:\n{e}")
+
+    _FIELD_ICONS = {
+        "title":       "fa6s.heading",
+        "description": "fa6s.align-left",
+        "tags":        "fa6s.tags",
+    }
+
+    def load_formats_menu():
+        formats_submenu.clear()
+        settings = _get_format_settings()
+
+        for field, label in (("title", "Title"), ("description", "Description"), ("tags", "Tags")):
+            sub = QMenu(label, formats_submenu)
+            sub.setIcon(qta.icon(_FIELD_ICONS[field]))
+            current = settings[field]
+            for case_label, case_val in _CASE_LABELS:
+                act = QAction(case_label, window)
+                act.setCheckable(True)
+                act.setChecked(current == case_val)
+                act.setIcon(qta.icon('fa6s.check') if current == case_val else QIcon())
+                act.triggered.connect(lambda checked, f=field, v=case_val: _set_format_setting(f, v))
+                sub.addAction(act)
+            formats_submenu.addMenu(sub)
+
+        formats_submenu.addSeparator()
+        apply_act = QAction("Apply to All Records", window)
+        apply_act.setIcon(qta.icon('fa6s.rotate'))
+        apply_act.setToolTip("Re-apply current case settings to all existing metadata in the database")
+        apply_act.triggered.connect(_apply_format_to_all)
+        formats_submenu.addAction(apply_act)
+
+    load_formats_menu()
+    metadata_menu.addMenu(formats_submenu)
+
     shutdown_submenu = QMenu("Shutdown on Complete", metadata_menu)
     shutdown_submenu.setIcon(qta.icon('fa6s.power-off'))
     shutdown_submenu.setToolTipsVisible(True)
