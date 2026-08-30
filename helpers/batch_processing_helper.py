@@ -2128,6 +2128,8 @@ def _preprocess_frames_for_batch(window):
         return
 
     print(f"[BATCH {state['current'] + 1}] Extracting frames for {len(video_files)} video(s)...")
+    from helpers.video_proxy_helper import get_hide_frame_extraction_dialog
+    hide_dialog = get_hide_frame_extraction_dialog()
     dlg = VideoProxyDialog(parent=window, batch_info={'total_files': len(video_files)}, mode='frame_extraction')
     worker = BatchFrameExtractionWorker(video_files)
 
@@ -2159,7 +2161,13 @@ def _preprocess_frames_for_batch(window):
         pass
     dlg.cancel_button.clicked.connect(on_cancel)
     worker.start()
-    dlg.exec()
+    if not hide_dialog:
+        dlg.exec()
+    else:
+        from PySide6.QtCore import QEventLoop
+        loop = QEventLoop()
+        worker.finished.connect(loop.quit)
+        loop.exec()
 
     if stop_flag and stop_flag.get('stop'):
         print(f"[BATCH {state['current'] + 1}] Frame extraction cancelled")

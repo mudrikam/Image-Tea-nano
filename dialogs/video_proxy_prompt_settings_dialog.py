@@ -107,6 +107,24 @@ class VideoProxyPromptSettingsDialog(QDialog):
         outer.addLayout(pfa_row)
         self._load_prefer_frame()
 
+        hfed_row = QHBoxLayout()
+        hfed_row.setSpacing(4)
+        hfed_ic = QLabel()
+        hfed_ic.setPixmap(qta.icon('fa6s.eye-slash').pixmap(14, 14))
+        hfed_ic.setFixedWidth(14)
+        hfed_row.addWidget(hfed_ic)
+        hfed_spacer = QLabel()
+        hfed_spacer.setFixedWidth(70)
+        hfed_row.addWidget(hfed_spacer)
+        self.hide_frame_dialog_check = QCheckBox('Hide frame extraction dialog')
+        self.hide_frame_dialog_check.setToolTip(
+            'When enabled, the frame extraction dialog/popup will be hidden during batch processing.'
+        )
+        hfed_row.addWidget(self.hide_frame_dialog_check)
+        hfed_row.addStretch()
+        outer.addLayout(hfed_row)
+        self._load_hide_frame_dialog()
+
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         self.save_btn = QPushButton('Save')
@@ -152,6 +170,16 @@ class VideoProxyPromptSettingsDialog(QDialog):
             print(f"Failed to load prefer_frame_analysis: {e}")
             self.prefer_frame_check.setChecked(True)
 
+    def _load_hide_frame_dialog(self):
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            hide_dialog = cfg.get('hide_frame_extraction_dialog', False)
+            self.hide_frame_dialog_check.setChecked(bool(hide_dialog))
+        except Exception as e:
+            print(f"Failed to load hide_frame_extraction_dialog: {e}")
+            self.hide_frame_dialog_check.setChecked(False)
+
     def _on_preset_changed(self, name):
         p = self.presets.get(name, {})
         self.label_edit.setText(p.get('label', ''))
@@ -180,6 +208,7 @@ class VideoProxyPromptSettingsDialog(QDialog):
         cfg['video_proxy_presets'] = presets
         cfg['video_frame_count'] = self.frame_count_spin.value()
         cfg['prefer_frame_analysis'] = self.prefer_frame_check.isChecked()
+        cfg['hide_frame_extraction_dialog'] = self.hide_frame_dialog_check.isChecked()
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=2, ensure_ascii=False)

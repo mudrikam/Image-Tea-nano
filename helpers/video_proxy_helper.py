@@ -73,6 +73,16 @@ def get_prefer_frame_analysis():
     return bool(config.get("prefer_frame_analysis", True))
 
 
+def get_hide_frame_extraction_dialog():
+    config_path = os.path.join(BASE_PATH, "configs", "ai_config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return bool(config.get("hide_frame_extraction_dialog", False))
+    except Exception:
+        return False
+
+
 def extract_video_frames(video_path, frame_count=None, output_dir=None):
     if frame_count is None:
         frame_count = get_video_frame_count()
@@ -1041,8 +1051,15 @@ def batch_extract_frames_with_dialog(video_files, stop_flag=None):
                 pass
             dlg.cancel_button.clicked.connect(on_cancel_clicked)
 
+            hide_dialog = get_hide_frame_extraction_dialog()
             worker.start()
-            dlg.exec()
+            if not hide_dialog:
+                dlg.exec()
+            else:
+                from PySide6.QtCore import QEventLoop
+                loop = QEventLoop()
+                worker.finished.connect(loop.quit)
+                loop.exec()
 
         except Exception as e:
             print(f"[BatchFrameExtraction] Dialog factory error: {e}")
