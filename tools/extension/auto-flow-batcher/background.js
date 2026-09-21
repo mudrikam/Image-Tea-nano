@@ -78,64 +78,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Handle CDP native click requests from content script
-// Uses Chrome DevTools Protocol to dispatch trusted mouse events
-// that React's event system will properly handle (isTrusted: true)
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'CDP_CLICK') {
-    const tabId = message.tabId || sender?.tab?.id;
-    if (!tabId) {
-      sendResponse({ ok: false, error: 'No tab ID' });
-      return true;
-    }
-    const { x, y } = message;
-    const debuggee = { tabId };
+// ─── Chrome Downloads Tracker (Vector-Assist True Source of Truth) ────────────
+if (chrome.downloads && chrome.downloads.onChanged) {
+  chrome.downloads.onChanged.addListener((delta) => {
+    if (!delta || !delta.state || !delta.state.current) return;
+    if (delta.state.current !== 'complete') return;
 
-    (async () => {
+    chrome.downloads.search({ id: delta.id }, (items) => {
+      const item = items && items[0];
+      if (!item) return;
+
+      console.log('[AFB-Download] Real file download confirmed complete:', item.filename, `(${item.fileSize || item.totalBytes || 0} bytes)`);
+
+      const payload = {
+        action: 'REAL_DOWNLOAD_COMPLETED',
+        type: 'REAL_DOWNLOAD_COMPLETED',
+        id: delta.id,
+        filename: item.filename,
+        url: item.url,
+        fileSize: item.fileSize || item.totalBytes || 0,
+        timestamp: Date.now()
+      };
+
+      // Broadcast to both sidepanel, background internal listeners, and all tabs
+      try { chrome.runtime.sendMessage(payload); } catch (_) {}
       try {
-        await chrome.debugger.attach(debuggee, '1.3');
-        await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
-          type: 'mousePressed', x, y, button: 'left', clickCount: 1
+        chrome.tabs.query({}, (tabs) => {
+          if (tabs && tabs.length > 0) {
+            tabs.forEach(t => {
+              if (t.id) {
+                chrome.tabs.sendMessage(t.id, payload).catch(() => {});
+              }
+            });
+          }
         });
-        await new Promise(r => setTimeout(r, 50));
-        await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
-          type: 'mouseReleased', x, y, button: 'left', clickCount: 1
-        });
-        await new Promise(r => setTimeout(r, 50));
-        await chrome.debugger.detach(debuggee);
-        sendResponse({ ok: true });
-      } catch (err) {
-        try { await chrome.debugger.detach(debuggee); } catch (_) {}
-        sendResponse({ ok: false, error: err.message });
-      }
-    })();
-    return true;
-  }
-});
+      } catch (_) {}
+    });
+  });
+}
 
 // Handle download requests from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'DOWNLOAD_CONTENT') {
+    lastDownloadRequestTs = Date.now();
     const url = message.url;
     const promptIndex = message.promptIndex || 0;
     const extension = message.extension || 'jpg';
     const prefix = message.prefix || 'Flow_Image';
     const promptWords = message.promptWords || '';
     const batchIndex = message.batchIndex || 0;
-    const timestamp = Date.now();
 
     // Build filename: Flow_Image_prompt1_batch1_2024-12-07_123456.jpg
     const date = new Date();
     const dateStr = date.toISOString().replace(/[:.]/g, '-').split('T')[0];
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-');
 
-    let filename;
-    if (promptWords) {
-      filename = `${prefix}_prompt${promptIndex + 1}_batch${batchIndex + 1}_${dateStr}_${timeStr}.${extension}`;
-    } else {
-      filename = `${prefix}_prompt${promptIndex + 1}_batch${batchIndex + 1}_${dateStr}_${timeStr}.${extension}`;
-    }
-
+    let filename = `${prefix}_prompt${promptIndex + 1}_batch${batchIndex + 1}_${dateStr}_${timeStr}.${extension}`;
     filename = filename.replace(/[<>:"/\\|?*]/g, '_');
 
     chrome.downloads.download({
@@ -144,14 +142,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       saveAs: false
     }).then((downloadId) => {
       console.log('[AFB] Download started:', downloadId, '→', filename);
+      sendResponse({ ok: true, downloadId });
     }).catch((err) => {
       console.error('[AFB] Download failed:', err);
+      sendResponse({ ok: false, error: err.message });
     });
+    return true;
   }
 
-  if (message.type === 'DOWNLOAD_DONE') {
-    const count = message.count || 0;
-    const sessionId = message.sessionId || '';
-    console.log(`[AFB] Download batch complete: ${count} media items, session ${sessionId}`);
+  if (message.type === 'STAMP_DOWNLOAD_START') {
+    lastDownloadRequestTs = Date.now();
+    sendResponse({ ok: true, ts: lastDownloadRequestTs });
+    return true;
   }
 });
