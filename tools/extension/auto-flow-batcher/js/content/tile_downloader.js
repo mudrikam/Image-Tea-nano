@@ -32,12 +32,13 @@
       const exactBtn = container.querySelector(`button[flowhotbarbutton][aria-label*="${moreLabel}" i], button[aria-label*="${moreLabel}" i]`);
       if (exactBtn) return exactBtn;
 
-      // 2. Button containing mat-icon with text "more_vert"
+      // 2. Button containing icon with text matching moreIcon
       const allButtons = Array.from(container.querySelectorAll('button'));
+      const iconSel = window.__AFB_RUNTIME_CONFIG__?.selectors?.iconElements || 'mat-icon, .google-symbols';
       const moreBtn = allButtons.find(b => {
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-        const matIcon = b.querySelector('mat-icon');
-        const iconText = (matIcon?.textContent || '').trim().toLowerCase();
+        const iconEl = b.querySelector(iconSel);
+        const iconText = (iconEl?.textContent || '').trim().toLowerCase();
         return aria.includes(moreLabel) || iconText === moreIconText;
       });
       if (moreBtn) return moreBtn;
@@ -55,7 +56,8 @@
       window.AFB_DOM.hoverElement(container, 'Tile container hover');
       await new Promise(r => setTimeout(r, 200));
 
-      const hotbar = container.querySelector('.hover-overlay, .hotbar-container, flow-image-hotbar');
+      const hotbarSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.hotbar;
+      const hotbar = hotbarSelector ? container.querySelector(hotbarSelector) : null;
       if (hotbar) {
         window.AFB_DOM.hoverElement(hotbar, 'Tile hotbar hover');
         await new Promise(r => setTimeout(r, 200));
@@ -70,7 +72,8 @@
      */
     async downloadViaFlowContextMenu(tileInfo, settings, log = console.log) {
       const quality = window.AFB_Downloader.normalizeDownloadQuality(settings);
-      const container = tileInfo.container || tileInfo.element?.closest('flow-grid-tile-container, flow-tile-container');
+      const tileContainers = window.__AFB_RUNTIME_CONFIG__?.selectors?.tileContainers;
+      const container = tileInfo.container || (tileContainers ? tileInfo.element?.closest(tileContainers) : null);
 
       if (!container) {
         throw new Error('[AFB-Downloader] Tile container not found for menu download');
@@ -88,14 +91,16 @@
       window.AFB_DOM.dispatchMouseSequence(moreBtn, 'Tile More options');
       await new Promise(r => setTimeout(r, 400));
 
-      // Wait for main context menu [role="menu"]
-      const openMenus = () => Array.from(document.querySelectorAll('[role="menu"], .mat-mdc-menu-panel, div[data-state="open"]')).filter(window.AFB_DOM.isVisibleElement);
+      // Wait for main context menu
+      const menuPanelsSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.menuPanels || '[role="menu"]';
+      const menuItemsSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.menuItems || '[role="menuitem"]';
+      const openMenus = () => Array.from(document.querySelectorAll(menuPanelsSelector)).filter(window.AFB_DOM.isVisibleElement);
       let downloadMenuItem = null;
 
       for (let attempt = 0; attempt < 10; attempt++) {
         const menus = openMenus();
         for (const menu of menus) {
-          const items = Array.from(menu.querySelectorAll('[role="menuitem"], button, .mat-mdc-menu-item'));
+          const items = Array.from(menu.querySelectorAll(menuItemsSelector));
           downloadMenuItem = items.find(item => {
             const txt = (item.textContent || '').trim().toLowerCase();
             const aria = (item.getAttribute('aria-label') || '').trim().toLowerCase();
@@ -123,7 +128,7 @@
       for (let attempt = 0; attempt < 12; attempt++) {
         const menus = openMenus();
         for (const menu of menus) {
-          const items = Array.from(menu.querySelectorAll('[role="menuitem"], button, .mat-mdc-menu-item, span'));
+          const items = Array.from(menu.querySelectorAll(menuItemsSelector));
           qualityMenuItem = items.find(item => {
             const txt = (item.textContent || '').trim().toLowerCase();
             const qLower = quality.toLowerCase();

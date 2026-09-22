@@ -834,6 +834,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.queueData[idx].status = msg.status || 'processing';
         if (msg.statusLabel) state.queueData[idx].statusLabel = msg.statusLabel;
         renderQueueTable();
+        renderPromptDisplay();
       }
     }
 
@@ -842,6 +843,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state.queueData[idx]) {
         state.queueData[idx].status = 'downloading';
         renderQueueTable();
+        renderPromptDisplay();
       }
     }
 

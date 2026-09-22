@@ -91,7 +91,7 @@ export function renderQueueTable() {
   });
 
   // Auto-scroll to currently processing row
-  const processingRow = queueTableBody.querySelector('tr.processing');
+  const processingRow = queueTableBody.querySelector('tr.processing, tr.generating, tr.typing, tr.configuring, tr.waiting, tr.downloading');
   if (processingRow) {
     processingRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -106,11 +106,13 @@ export function renderPromptDisplay() {
     return;
   }
 
+  const activeStatuses = ['processing', 'waiting', 'typing', 'configuring', 'generating', 'downloading'];
+
   let html = '';
   state.queueData.forEach((item) => {
     let statusClass = 'prompt-pending';
-    if (item.status === 'processing') {
-      statusClass = 'prompt-active';
+    if (activeStatuses.includes(item.status)) {
+      statusClass = `prompt-active prompt-active-${item.status}`;
     } else if (item.status === 'completed') {
       statusClass = 'prompt-completed';
     } else if (item.status === 'failed') {

@@ -107,7 +107,7 @@
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
         const txt = (b.textContent || '').trim().toLowerCase();
 
-        return textKeys.some(k => txt.includes(k)) || /\bx[1-4]\b/.test(txt) || aria.includes('settings');
+        return textKeys.some(k => txt.includes(k)) || /\bx[1-4]\b/.test(txt) || ariaKeys.some(k => aria.includes(k));
       }) || null;
     },
 
@@ -139,7 +139,8 @@
       const radios = Array.from(document.querySelectorAll('[role="radiogroup"] [role="radio"], [role="radio"], [role="tab"], [role="radiogroup"] button')).filter(isVisible);
       const radiogroups = Array.from(document.querySelectorAll('[role="radiogroup"]')).filter(isVisible);
       const modelTrigger = this.findModelTrigger();
-      const popoverDialogs = Array.from(document.querySelectorAll('[role="dialog"], .variant-popover, flow-variant-popover')).filter(isVisible);
+      const popoverDialogSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.popoverContainers;
+      const popoverDialogs = popoverDialogSelector ? Array.from(document.querySelectorAll(popoverDialogSelector)).filter(isVisible) : [];
 
       return (radios.length >= 2) || (radiogroups.length > 0 && radios.length > 0) || (popoverDialogs.length > 0 && radios.length > 0) || (modelTrigger !== null && radios.length > 0);
     },
@@ -207,11 +208,9 @@
              el.classList.contains('active') ||
              el.classList.contains('selected') ||
              el.classList.contains('checked') ||
-             el.classList.contains('mdc-radio--checked') ||
-             el.classList.contains('mat-mdc-radio-checked') ||
              Boolean(el.checked) ||
              Boolean(el.querySelector?.('input[type="radio"]:checked')) ||
-             Boolean(el.querySelector?.('[aria-checked="true"], .mdc-radio--checked'));
+             Boolean(el.querySelector?.('[aria-checked="true"]'));
     },
 
     /**
@@ -414,9 +413,10 @@
       await this.clickElementSafely(modelTrigger, 'Model dropdown trigger');
       await new Promise(r => setTimeout(r, 400));
 
-      // Wait for [role="menu"] or [role="menuitem"] to mount in DOM
+      // Wait for menu or menuitem to mount in DOM
+      const menuItemsSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.menuItems || '[role="menuitem"]';
       const menuItems = await waitForCondition(() => {
-        const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], div[role="menu"] button, [role="menu"] [role="button"], flow-menu-item')).filter(isVisible);
+        const items = Array.from(document.querySelectorAll(menuItemsSelector)).filter(isVisible);
         return items.length > 0 ? items : null;
       }, 3500);
 
@@ -429,34 +429,27 @@
       // Filter menu items to interactive leaf targets
       const leafMenuItems = menuItems.filter(el => {
         const isClickableRole = el.getAttribute('role') === 'menuitem' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'option';
-        const hasClickableChild = el.querySelector('button, [role="menuitem"], .mdc-list-item__primary-text');
+        const hasClickableChild = el.querySelector('button, [role="menuitem"]');
         return isClickableRole || !hasClickableChild;
       });
 
       const candidateList = leafMenuItems.length > 0 ? leafMenuItems : menuItems;
+      const aliases = window.__AFB_RUNTIME_CONFIG__?.popover?.modelAliases || {};
 
       const matchItem = candidateList.find(item => {
         const txt = normalizeText(item.textContent || '');
         const aria = normalizeText(item.getAttribute('aria-label') || '');
         const combined = `${txt} ${aria}`;
 
-        if (normTarget.includes('lite')) {
-          return combined.includes('lite');
-        }
-        if (normTarget.includes('pro')) {
-          return combined.includes('pro');
-        }
-        if (normTarget.includes('fast')) {
-          return combined.includes('fast');
-        }
-        if (normTarget.includes('quality')) {
-          return combined.includes('quality');
-        }
-        if (normTarget.includes('omni') || normTarget.includes('flash')) {
-          return combined.includes('omni') || combined.includes('flash');
-        }
-        if (normTarget.includes('banana 2') || normTarget.includes('nano 2') || normTarget === 'nano banana 2') {
-          return combined.includes('2') && !combined.includes('lite') && !combined.includes('pro');
+        // Match against dynamic aliases configured in CIORA Storage
+        for (const [key, rule] of Object.entries(aliases)) {
+          if (normTarget.includes(key)) {
+            const inc = rule.include || [];
+            const exc = rule.exclude || [];
+            const incPass = inc.length === 0 || inc.some(t => combined.includes(t));
+            const excPass = exc.length === 0 || !exc.some(t => combined.includes(t));
+            if (incPass && excPass) return true;
+          }
         }
 
         return txt === normTarget || aria === normTarget || txt.startsWith(normTarget);
@@ -468,7 +461,7 @@
       }
 
       // Find the deepest clickable button/span inside matchItem if available
-      const clickableTarget = matchItem.closest('[role="menuitem"], button') || matchItem.querySelector('[role="menuitem"], button, .mdc-list-item__primary-text') || matchItem;
+      const clickableTarget = matchItem.closest('[role="menuitem"], button') || matchItem.querySelector('[role="menuitem"], button, span') || matchItem;
       const itemLabel = (clickableTarget.textContent || matchItem.textContent || '').trim();
 
       log(`[AFB-Settings] 2. Selecting Model menuitem: "${itemLabel}"...`);
@@ -723,7 +716,8 @@
 
       // Step 2: Fallback to clicking canvas backdrop (coordinates 100, 100)
       log('[AFB-Settings] Popover still open after trigger click, clicking neutral canvas backdrop at (100, 100)');
-      const backdropTarget = document.querySelector('flow-canvas, main, .canvas-container') || document.body;
+      const backdropSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.backdrop;
+      const backdropTarget = (backdropSelector ? document.querySelector(backdropSelector) : null) || document.body;
 
       const clickEventInit = { bubbles: true, cancelable: true, composed: true, clientX: 100, clientY: 100, button: 0 };
       backdropTarget.dispatchEvent(new PointerEvent('pointerdown', { ...clickEventInit, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
@@ -749,7 +743,8 @@
      */
     async closePopupMenu(log = console.log) {
       log('[AFB-Settings] Closing open popup menu via neutral backdrop click');
-      const backdropTarget = document.querySelector('flow-canvas, main') || document.body;
+      const backdropSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.backdrop;
+      const backdropTarget = (backdropSelector ? document.querySelector(backdropSelector) : null) || document.body;
       const clickEventInit = { bubbles: true, cancelable: true, composed: true, clientX: 100, clientY: 100, button: 0 };
       backdropTarget.dispatchEvent(new PointerEvent('pointerdown', { ...clickEventInit, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
       backdropTarget.dispatchEvent(new MouseEvent('mousedown', clickEventInit));
@@ -766,9 +761,9 @@
     async applyVariantSettings(settings, log = console.log) {
       try {
         const targetType = (settings.type || 'image').toLowerCase();
-        const targetRatio = settings.ratio || (targetType === 'video' ? '16:9' : '16:9');
-        const targetModel = settings.model || (targetType === 'video' ? 'Omni 1.1 Flash' : 'Nano Banana 2');
-        const targetBatch = String(settings.batch || '4');
+        const targetRatio = settings.ratio;
+        const targetModel = settings.model;
+        const targetBatch = String(settings.batch || '1');
 
         log(`[AFB-Settings] Applying settings: Type=${targetType}, Ratio=${targetRatio}, Model=${targetModel}, Batch=x${targetBatch}`);
 

@@ -383,9 +383,65 @@
       box-shadow: 0 0 15px rgba(242, 125, 38, 0.3), inset 0 0 10px rgba(242, 125, 38, 0.1);
       animation: prompt-glow 1.5s ease-in-out infinite;
     }
+    .prompt-line.prompt-active-waiting {
+      color: #94a3b8;
+      background: rgba(100, 116, 139, 0.15);
+      border-color: #64748b;
+      box-shadow: 0 0 15px rgba(100, 116, 139, 0.35), inset 0 0 10px rgba(100, 116, 139, 0.15);
+      animation: prompt-glow-waiting 1.5s ease-in-out infinite;
+    }
+    .prompt-line.prompt-active-typing {
+      color: #38bdf8;
+      background: rgba(14, 165, 233, 0.15);
+      border-color: #0ea5e9;
+      box-shadow: 0 0 15px rgba(14, 165, 233, 0.35), inset 0 0 10px rgba(14, 165, 233, 0.15);
+      animation: prompt-glow-typing 1.5s ease-in-out infinite;
+    }
+    .prompt-line.prompt-active-configuring {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.15);
+      border-color: #f59e0b;
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.35), inset 0 0 10px rgba(245, 158, 11, 0.15);
+      animation: prompt-glow-configuring 1.5s ease-in-out infinite;
+    }
+    .prompt-line.prompt-active-generating {
+      color: #fde047;
+      background: rgba(234, 179, 8, 0.18);
+      border-color: #eab308;
+      box-shadow: 0 0 18px rgba(234, 179, 8, 0.4), inset 0 0 10px rgba(234, 179, 8, 0.2);
+      animation: prompt-glow-generating 1.5s ease-in-out infinite;
+    }
+    .prompt-line.prompt-active-downloading {
+      color: #c084fc;
+      background: rgba(168, 85, 247, 0.18);
+      border-color: #a855f7;
+      box-shadow: 0 0 18px rgba(168, 85, 247, 0.4), inset 0 0 10px rgba(168, 85, 247, 0.2);
+      animation: prompt-glow-downloading 1.5s ease-in-out infinite;
+    }
+
     @keyframes prompt-glow {
       0%, 100% { box-shadow: 0 0 15px rgba(242, 125, 38, 0.3), inset 0 0 10px rgba(242, 125, 38, 0.1); }
       50% { box-shadow: 0 0 25px rgba(242, 125, 38, 0.5), inset 0 0 15px rgba(242, 125, 38, 0.2); }
+    }
+    @keyframes prompt-glow-waiting {
+      0%, 100% { box-shadow: 0 0 15px rgba(100, 116, 139, 0.3), inset 0 0 10px rgba(100, 116, 139, 0.1); }
+      50% { box-shadow: 0 0 25px rgba(100, 116, 139, 0.5), inset 0 0 15px rgba(100, 116, 139, 0.2); }
+    }
+    @keyframes prompt-glow-typing {
+      0%, 100% { box-shadow: 0 0 15px rgba(14, 165, 233, 0.3), inset 0 0 10px rgba(14, 165, 233, 0.1); }
+      50% { box-shadow: 0 0 25px rgba(14, 165, 233, 0.55), inset 0 0 15px rgba(14, 165, 233, 0.25); }
+    }
+    @keyframes prompt-glow-configuring {
+      0%, 100% { box-shadow: 0 0 15px rgba(245, 158, 11, 0.3), inset 0 0 10px rgba(245, 158, 11, 0.1); }
+      50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.55), inset 0 0 15px rgba(245, 158, 11, 0.25); }
+    }
+    @keyframes prompt-glow-generating {
+      0%, 100% { box-shadow: 0 0 18px rgba(234, 179, 8, 0.35), inset 0 0 10px rgba(234, 179, 8, 0.15); }
+      50% { box-shadow: 0 0 28px rgba(234, 179, 8, 0.65), inset 0 0 16px rgba(234, 179, 8, 0.3); }
+    }
+    @keyframes prompt-glow-downloading {
+      0%, 100% { box-shadow: 0 0 18px rgba(168, 85, 247, 0.35), inset 0 0 10px rgba(168, 85, 247, 0.15); }
+      50% { box-shadow: 0 0 28px rgba(168, 85, 247, 0.65), inset 0 0 16px rgba(168, 85, 247, 0.3); }
     }
 
     textarea.manual-input {

@@ -228,6 +228,7 @@ export async function processQueue(settings, elements) {
 
       promptData.status = 'processing';
       renderQueueTable();
+      renderPromptDisplay();
 
       const repeatInfo = promptData.repeatTotal > 1 ? ` (repeat ${promptData.repeatIndex + 1}/${promptData.repeatTotal})` : '';
       const roundPrefix = currentRound > 1 ? `[Round ${currentRound}/${maxRetryRounds}] ` : '';

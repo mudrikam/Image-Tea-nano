@@ -52,7 +52,7 @@ if (window.top !== window.self) {
 
         // 0. Ensure Dynamic Runtime Configuration is initialized
         if (!window.__AFB_RUNTIME_CONFIG__) {
-          throw new Error('Runtime DOM signatures missing. CIORA device authorization required to initialize.');
+          throw new Error('Runtime configuration missing. Please ensure session is active.');
         }
 
         // 1. Ensure Flow project page is loaded and ready
@@ -111,6 +111,33 @@ if (window.top !== window.self) {
         // 7. Snapshot current tile IDs before triggering generation
         const beforeTileIds = window.AFB_Monitor.getCurrentTileIds();
         log(`[AFB] Pre-generation snapshot: ${beforeTileIds.size} existing tile IDs detected`);
+
+        // Post-popover input focus and space append to commit ProseMirror transaction
+        if (editor) {
+          editor.scrollIntoView({ behavior: 'instant', block: 'center' });
+          editor.focus();
+          await new Promise(r => setTimeout(r, 100));
+
+          // Move caret to the very end of editor
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false); // collapse to end
+          sel.removeAllRanges();
+          sel.addRange(range);
+
+          // Type a space at the end to activate ProseMirror input event
+          try {
+            document.execCommand('insertText', false, ' ');
+          } catch (_) {
+            editor.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: ' ', bubbles: true }));
+          }
+
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          editor.dispatchEvent(new Event('change', { bubbles: true }));
+          editor.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
+          log('[AFB] Post-settings space appended to editor content ✓');
+        }
 
         // Wait a brief tick to ensure ProseMirror state is 100% committed before submission
         await new Promise(r => setTimeout(r, 400));
@@ -192,7 +219,7 @@ if (window.top !== window.self) {
         if (msg.action === 'INITIALIZE_RUNTIME_CONFIG') {
           if (msg.config && msg.config.protocol && msg.config.selectors) {
             window.__AFB_RUNTIME_CONFIG__ = msg.config;
-            log(`[AFB] Dynamic runtime signatures loaded from CIORA Storage (Protocol: "${msg.config.protocol}") ✓`);
+            log(`[AFB] Runtime configuration loaded (Protocol: "${msg.config.protocol}") ✓`);
             sendResponse({ status: 'ok' });
           } else {
             sendResponse({ status: 'failed', message: 'Invalid runtime configuration signature' });

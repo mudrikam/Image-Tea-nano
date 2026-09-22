@@ -100,6 +100,8 @@
       const isVisible = window.AFB_DOM ? window.AFB_DOM.isVisibleElement : (el => el && el.getBoundingClientRect().width > 0);
       const buttons = Array.from(document.querySelectorAll('button, [role="button"]')).filter(isVisible);
 
+      const iconSel = window.__AFB_RUNTIME_CONFIG__?.selectors?.iconElements || 'i, span';
+
       // Strategy 1: Close button within sidebar/sidepanel container
       const sidepanelContainer = document.querySelector('aside, [role="complementary"], .side-panel, .sidebar, [class*="sidepanel" i], [class*="sidebar" i], [data-testid*="sidepanel" i]');
       if (sidepanelContainer) {
@@ -107,7 +109,7 @@
           if (!isVisible(b)) return false;
           const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
           const text = (b.textContent || '').trim().toLowerCase();
-          const icon = (b.querySelector('mat-icon, .google-symbols')?.textContent || '').trim().toLowerCase();
+          const icon = (b.querySelector(iconSel)?.textContent || '').trim().toLowerCase();
           return aria === 'close' || aria.includes('close side') || aria.includes('close panel') || text === 'close' || icon === 'close';
         });
         if (sideCloseBtn) return sideCloseBtn;
@@ -117,7 +119,7 @@
       return buttons.find(b => {
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
         const text = (b.textContent || '').trim().toLowerCase();
-        const icon = (b.querySelector('mat-icon, .google-symbols')?.textContent || '').trim().toLowerCase();
+        const icon = (b.querySelector(iconSel)?.textContent || '').trim().toLowerCase();
         return aria === 'close' || aria === 'close sidebar' || aria === 'close sidepanel' || aria === 'close panel' ||
                text === 'close' || icon === 'close';
       }) || null;

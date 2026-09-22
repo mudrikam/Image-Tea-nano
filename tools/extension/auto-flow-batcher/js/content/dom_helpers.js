@@ -32,16 +32,12 @@
      */
     findEditor() {
       const isVisible = window.AFB_DOM.isVisibleElement;
+      const editorSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.editor;
+      if (editorSelector) {
+        const customEl = Array.from(document.querySelectorAll(editorSelector)).filter(isVisible);
+        if (customEl.length > 0) return customEl[0];
+      }
 
-      // Strategy 1: Specific Flow custom elements hierarchy
-      const flowEditor = document.querySelector('flow-rich-text-editor .prosemirror-editor .ProseMirror[contenteditable="true"], flow-rich-text-editor .ProseMirror[contenteditable="true"]');
-      if (flowEditor && isVisible(flowEditor)) return flowEditor;
-
-      // Strategy 2: Any visible ProseMirror contenteditable container
-      const proseMirrors = Array.from(document.querySelectorAll('.ProseMirror[contenteditable="true"]')).filter(isVisible);
-      if (proseMirrors.length > 0) return proseMirrors[0];
-
-      // Strategy 3: Any contenteditable textbox within prompt container
       const promptEditors = Array.from(document.querySelectorAll('[role="textbox"][contenteditable="true"], div[contenteditable="true"]')).filter(isVisible);
       if (promptEditors.length > 0) return promptEditors[0];
 
@@ -61,10 +57,11 @@
 
       // Strategy 0.5: Search by looking at child mat-icon element content for "add" mapping to a button with "New project"
       const buttons = Array.from(document.querySelectorAll('button'));
+      const iconSel = window.__AFB_RUNTIME_CONFIG__?.selectors?.iconElements || 'mat-icon, .google-symbols';
       const exactMatchByDOM = buttons.find(button => {
         if (!isVisible(button) || button.disabled) return false;
-        const textSpan = button.querySelector('span.mdc-button__label');
-        const iconSpan = button.querySelector('mat-icon.google-symbols, mat-icon');
+        const textSpan = button.querySelector('span');
+        const iconSpan = button.querySelector(iconSel);
         return textSpan && textSpan.textContent.includes('New project') && iconSpan && (iconSpan.textContent.includes('add') || iconSpan.textContent.includes('add_2'));
       });
       if (exactMatchByDOM) return exactMatchByDOM;

@@ -155,4 +155,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true, ts: lastDownloadRequestTs });
     return true;
   }
+
+  // ─── CDP Trusted Hardware Click via Chrome Debugger (Ultra-Fast Instant Detach) ─────
+  if (message.type === 'TRIGGER_CDP_CLICK') {
+    const tabId = sender?.tab?.id || message.tabId;
+    const x = Math.round(message.x || 0);
+    const y = Math.round(message.y || 0);
+
+    if (!tabId || !x || !y) {
+      sendResponse({ ok: false, error: 'Invalid CDP click coordinates or tabId' });
+      return true;
+    }
+
+    const debuggee = { tabId };
+
+    (async () => {
+      try {
+        // 1. Attach debugger
+        await new Promise((resolve) => {
+          chrome.debugger.attach(debuggee, '1.3', () => resolve());
+        });
+
+        // 2. Dispatch mousePressed immediately
+        await new Promise((resolve) => {
+          chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: x,
+            y: y,
+            button: 'left',
+            clickCount: 1
+          }, () => resolve());
+        });
+
+        // 3. Ultra-short hold (15ms)
+        await new Promise(r => setTimeout(r, 15));
+
+        // 4. Dispatch mouseReleased
+        await new Promise((resolve) => {
+          chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: x,
+            y: y,
+            button: 'left',
+            clickCount: 1
+          }, () => resolve());
+        });
+
+        // 5. Immediate Detach — hides the banner instantly
+        chrome.debugger.detach(debuggee, () => {});
+
+        console.log(`[AFB-CDP] Ultra-fast trusted click dispatched at (${x}, ${y})`);
+        sendResponse({ ok: true });
+      } catch (err) {
+        try { chrome.debugger.detach(debuggee, () => {}); } catch (_) {}
+        console.error('[AFB-CDP] Error dispatching CDP click:', err);
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+
+    return true; // async response
+  }
 });

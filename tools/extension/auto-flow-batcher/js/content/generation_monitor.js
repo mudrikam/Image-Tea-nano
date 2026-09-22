@@ -13,17 +13,21 @@
       const tileContainers = Array.from(document.querySelectorAll(selector));
       const snapshot = new Map();
 
+      const mediaImgSel = conf.mediaImages || 'img';
+      const mediaVidSel = conf.mediaVideos || 'video';
+      const cdnHost = conf.cdnHost || '';
+
       tileContainers.forEach((container) => {
         // Look for completed media element
-        const img = container.querySelector('img.image, img[src*="flow-content.google/image"], img[data-media-id]');
-        const video = container.querySelector('video[src*="flow-content.google"], video[src*="media.getMediaUrlRedirect"], video');
+        const img = container.querySelector(mediaImgSel);
+        const video = container.querySelector(mediaVidSel);
 
         // Extract stable unique UUID or CDN identifier
         let mediaId = img?.getAttribute('data-media-id') || null;
-        if (!mediaId && img?.src && img.src.includes('flow-content.google/image/')) {
+        if (!mediaId && img?.src && cdnHost && img.src.includes(cdnHost)) {
           mediaId = img.src.split('?')[0].split('/').pop();
         }
-        if (!mediaId && video?.src && video.src.includes('flow-content.google')) {
+        if (!mediaId && video?.src && cdnHost && video.src.includes(cdnHost)) {
           mediaId = video.src.split('?')[0].split('/').pop();
         }
         if (!mediaId && container.getAttribute('data-tile-id')) {
@@ -35,11 +39,12 @@
         const textContent = (container.textContent || '');
         const isStillRendering = Boolean(progressEl) || textContent.includes('%') || textContent.includes('Generating');
 
-        const promptTitle = container.querySelector('.footer-title, flow-tile-hover-footer .footer-title, button[aria-label]')?.textContent?.trim() ||
+        const tileFooterSelector = conf?.tileFooter;
+        const promptTitle = (tileFooterSelector ? container.querySelector(tileFooterSelector)?.textContent?.trim() : '') ||
                             container.getAttribute('aria-label') || '';
 
         // Only register if media has a valid, non-empty stable ID and is NOT currently rendering
-        const hasValidSource = (img?.src && img.src.includes('flow-content.google')) || (video?.src && video.src.length > 5);
+        const hasValidSource = (img?.src && (!cdnHost || img.src.includes(cdnHost))) || (video?.src && video.src.length > 5);
         if (mediaId && !isStillRendering && hasValidSource) {
           snapshot.set(mediaId, {
             id: mediaId,
@@ -71,9 +76,10 @@
         if (!window.AFB_DOM.isVisibleElement(el)) return;
         const text = (el.textContent || '').trim().toLowerCase();
         
+        const iconSel = conf.iconElements || 'mat-icon, .google-symbols';
         const isFailedCard = (sigs[0] && text.includes(sigs[0])) ||
                              (sigs[1] && text.includes('failed') && text.includes(sigs[1])) ||
-                             (sigs[2] && text.includes('failed') && el.querySelector('mat-icon')?.textContent === sigs[2]) ||
+                             (sigs[2] && text.includes('failed') && el.querySelector(iconSel)?.textContent === sigs[2]) ||
                              (text.startsWith('failed') && text.length < 100);
         if (isFailedCard) {
           failures.push(el);
