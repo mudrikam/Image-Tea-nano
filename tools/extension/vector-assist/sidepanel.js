@@ -264,19 +264,27 @@
     });
   }
 
-  function initView() {
+  var _lastOnSiteState = null;
+
+  function initView(force) {
     return checkCurrentTab().then(function (onSite) {
       if (onSite) {
         landingPage.classList.add("hidden");
         mainInterface.classList.remove("hidden");
-        log("page", "On vectorizer.ai — main interface shown");
-        // Push saved settings to page so extension always overrides the web.
-        var root = document.querySelector(".settings");
-        if (root) pushSettingsToPage(root);
+        if (_lastOnSiteState !== true || force) {
+          _lastOnSiteState = true;
+          log("page", "On vectorizer.ai — main interface shown");
+          // Push saved settings to page so extension always overrides the web.
+          var root = document.querySelector(".settings");
+          if (root) pushSettingsToPage(root);
+        }
       } else {
         mainInterface.classList.add("hidden");
         landingPage.classList.remove("hidden");
-        log("page", "Not on vectorizer.ai — landing page shown");
+        if (_lastOnSiteState !== false || force) {
+          _lastOnSiteState = false;
+          log("page", "Not on vectorizer.ai — landing page shown");
+        }
       }
     });
   }
@@ -726,7 +734,30 @@ function doReset() {
 
   function setupControls() {
     if (btnStartProcess) {
-      btnStartProcess.onclick = function () {
+      btnStartProcess.onclick = async function () {
+        if (!authState.isPaired || !authState.cdeToken) {
+          logError("Authentication required: Please connect CIORA before starting.");
+          if (btnConnectCiora) btnConnectCiora.click();
+          return;
+        }
+
+        // Fetch dynamic runtime configuration from CIORA storage before running
+        try {
+          var cfg = await fetchRemoteCoreEngine(authState.cdeToken);
+          // Broadcast to active tab
+          var tab = await new Promise(function (resolve) {
+            chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+              resolve(tabs && tabs[0] ? tabs[0] : null);
+            });
+          });
+          if (tab && tab.id) {
+            chrome.tabs.sendMessage(tab.id, { type: "INITIALIZE_RUNTIME_CONFIG", config: cfg });
+          }
+        } catch (e) {
+          logError("Failed to fetch runtime signatures from CIORA: " + e.message);
+          return;
+        }
+
         var s = runnerState;
         if (s === "running") { runnerPause(); return; }
         if (s === "paused" || s === "captcha") { runnerResume(); return; }
@@ -1224,6 +1255,87 @@ function doReset() {
       }).catch(function () {});
     } catch (e) {}
 
+    // Tandem Badge status listener
+    var tandemBadge = document.getElementById("tandemBadge");
+    function updateTandemBadge(connected) {
+      if (tandemBadge) {
+        if (connected) {
+          tandemBadge.classList.add("active");
+          tandemBadge.classList.remove("hidden");
+        } else {
+          tandemBadge.classList.remove("active");
+          tandemBadge.classList.add("hidden");
+        }
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(function (msg) {
+      if (!msg) return;
+      if (msg.action === "TANDEM_STATUS_CHANGED") {
+        updateTandemBadge(Boolean(msg.connected));
+      }
+
+      // Tandem batch injection: clear previous files, add new files, and start batch processing
+      if (msg.action === "TANDEM_ADD_FILES_AND_START") {
+        var incomingFiles = msg.files || [];
+        if (!incomingFiles.length) return;
+
+        log("info", "[Tandem] Receiving " + incomingFiles.length + " file(s) from Flow...");
+
+        // Clean slate at start: reset runner state and clear old files from queue & storage
+        if (runnerState !== "idle") {
+          resetAppState();
+        }
+        var oldNames = files.map(function (f) { return f.name; });
+        oldNames.forEach(function (n) { dbDelete(n).catch(function () {}); });
+        files = [];
+        selectedName = null;
+
+        var addedNames = [];
+        var jobs = incomingFiles.map(function (f) {
+          var name = f.name;
+          addedNames.push(name);
+
+          var record = {
+            name: name,
+            type: f.type || "image/jpeg",
+            size: f.size || 0,
+            dataUrl: f.dataUrl,
+            status: "pending"
+          };
+          files.push(record);
+          return dbPut(record).catch(function () {});
+        });
+
+        Promise.all(jobs).then(async function () {
+          renderFileList();
+          log("info", "[Tandem] Cleared previous list. Added " + addedNames.length + " file(s) to queue. Starting vector batch...");
+
+          // Synchronize runtime config from CIORA if paired
+          if (authState.isPaired && authState.cdeToken) {
+            try {
+              var cfg = await fetchRemoteCoreEngine(authState.cdeToken);
+              var tab = await new Promise(function (resolve) {
+                chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+                  resolve(tabs && tabs[0] ? tabs[0] : null);
+                });
+              });
+              if (tab && tab.id) {
+                chrome.tabs.sendMessage(tab.id, { type: "INITIALIZE_RUNTIME_CONFIG", config: cfg });
+              }
+            } catch (_) {}
+          }
+
+          startBatch(addedNames);
+        });
+      }
+    });
+    try {
+      chrome.runtime.sendMessage({ type: "GET_TANDEM_STATUS" }, function (res) {
+        if (res && res.connected) updateTandemBadge(true);
+      });
+    } catch (_) {}
+
     if (btnOpenSite) btnOpenSite.onclick = openSite;
 
     var btnHelp = document.getElementById("btnHelp");
@@ -1247,6 +1359,7 @@ function doReset() {
     setupRunner();
     setupPagePhaseListener();
     setupDownloadListener();
+    setupCioraAuth();
     renderFileList();
     updateReadyLine();
     setupTabMonitoring();
@@ -1699,7 +1812,11 @@ function runnerSend(type, payload) {
       if (runnerAbortSignal) { resolve({ ok: false, error: "stopped" }); return; }
       tries++;
       try {
-        chrome.runtime.sendMessage(Object.assign({ type: type }, payload || {}), function (resp) {
+        var body = Object.assign({ type: type }, payload || {});
+        if (authState && authState.runtimeConfig && !body.config) {
+          body.config = authState.runtimeConfig;
+        }
+        chrome.runtime.sendMessage(body, function (resp) {
           if (requestRunId !== runnerFileRunId) {
             resolve({ ok: false, error: "stopped" });
             return;
@@ -2176,6 +2293,14 @@ async function runnerPump(sessionId) {
   updateReadyLine();
   if (!stoppedByUser && runnerFileDurations.length) {
     log("info", "Batch finished. " + runnerFileDurations.length + " files in " + ((Date.now() - runnerBatchStartTs) / 1000).toFixed(1) + "s");
+    // Broadcast batch completed to background tandem connector
+    try {
+      chrome.runtime.sendMessage({
+        type: "VECTOR_ASSIST_BATCH_COMPLETED",
+        count: runnerFileDurations.length,
+        durationSeconds: ((Date.now() - runnerBatchStartTs) / 1000)
+      });
+    } catch (_) {}
   }
   var failedCount = files.filter(function (f) { return f.status === "failed"; }).length;
   if (!stoppedByUser && failedCount > 0) {
@@ -2553,5 +2678,153 @@ function startRunnerProgressPolling() {
 
     refreshPresetList();
     setPresetState("idle");
+  }
+
+  /* --------------------------------------------------------------------------
+     CIORA Device Pairing & Auth Controls
+     -------------------------------------------------------------------------- */
+  function setupCioraAuth() {
+    var btnConnect = document.getElementById("btnConnectCiora");
+    var pairingStatus = document.getElementById("cioraPairingStatus");
+    var btnCancelPair = document.getElementById("btnCancelPair");
+    var profileBar = document.getElementById("cioraProfileBar");
+    var userAvatar = document.getElementById("cioraUserAvatar");
+    var userName = document.getElementById("cioraUserName");
+    var popover = document.getElementById("cioraProfilePopover");
+    var popoverName = document.getElementById("popoverFullName");
+    var popoverEmail = document.getElementById("popoverEmail");
+    var btnOpenDash = document.getElementById("btnOpenCioraDashboard");
+    var btnLogout = document.getElementById("btnLogoutCiora");
+
+    function updateAuthUI() {
+      if (authState.isPaired && authState.user) {
+        if (btnConnect) btnConnect.classList.add("hidden");
+        if (pairingStatus) pairingStatus.classList.add("hidden");
+        if (profileBar) profileBar.classList.remove("hidden");
+
+        var name = authState.user.name || (authState.user.email ? authState.user.email.split("@")[0] : "CIORA User");
+        var email = authState.user.email || "user@ciora.id";
+        var avatar = authState.user.imageUrl || authState.user.avatarUrl || authState.user.picture || "";
+
+        if (userName) userName.textContent = name;
+        if (userAvatar) {
+          if (avatar) {
+            userAvatar.src = avatar;
+          } else {
+            userAvatar.src = "https://ui-avatars.com/api/?name=" + encodeURIComponent(name) + "&background=00c2a2&color=000&size=36";
+          }
+        }
+        if (popoverName) popoverName.textContent = name;
+        if (popoverEmail) popoverEmail.textContent = email;
+
+        if (btnStartProcess) {
+          btnStartProcess.classList.remove("btn-disabled-gate");
+          btnStartProcess.removeAttribute("title");
+        }
+      } else if (authState.isPolling) {
+        if (btnConnect) btnConnect.classList.add("hidden");
+        if (pairingStatus) pairingStatus.classList.remove("hidden");
+        if (profileBar) profileBar.classList.add("hidden");
+        if (popover) popover.classList.add("hidden");
+
+        if (btnStartProcess) {
+          btnStartProcess.classList.add("btn-disabled-gate");
+          btnStartProcess.title = "Pairing with CIORA required to start vectorization.";
+        }
+      } else {
+        if (btnConnect) btnConnect.classList.remove("hidden");
+        if (pairingStatus) pairingStatus.classList.add("hidden");
+        if (profileBar) profileBar.classList.add("hidden");
+        if (popover) popover.classList.add("hidden");
+
+        if (btnStartProcess) {
+          btnStartProcess.classList.add("btn-disabled-gate");
+          btnStartProcess.title = "Please connect your CIORA account to start vectorization.";
+        }
+      }
+    }
+
+    if (btnConnect) {
+      btnConnect.onclick = function () {
+        initiateDevicePairing(function (status, data) {
+          if (status === "requesting_code") {
+            log("info", "Initiating CIORA device authorization...");
+          } else if (status === "waiting_approval") {
+            log("act", "Pairing code opened in browser: \"" + data.user_code + "\". Waiting for approval...");
+          } else if (status === "approved") {
+            log("success", "CIORA Account connected successfully: " + ((data.user && data.user.email) || "User") + " ✓");
+            // Automatically sync dynamic runtime config into tab
+            if (data.token) {
+              fetchRemoteCoreEngine(data.token).then(function (cfg) {
+                chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+                  if (tabs && tabs[0] && tabs[0].id) {
+                    chrome.tabs.sendMessage(tabs[0].id, { type: "INITIALIZE_RUNTIME_CONFIG", config: cfg });
+                  }
+                });
+              }).catch(function () {});
+            }
+          } else if (status === "denied") {
+            logWarn("CIORA device pairing was denied by user.");
+          } else if (status === "expired") {
+            logWarn("Pairing code expired. Please click Connect CIORA again.");
+          } else if (status === "error") {
+            logError("Pairing error: " + data.message);
+          }
+          updateAuthUI();
+        });
+        updateAuthUI();
+      };
+    }
+
+    if (btnCancelPair) {
+      btnCancelPair.onclick = function (e) {
+        e.stopPropagation();
+        cancelDevicePairing();
+        logWarn("CIORA device pairing cancelled.");
+        updateAuthUI();
+      };
+    }
+
+    if (profileBar) {
+      profileBar.onclick = function (e) {
+        e.stopPropagation();
+        if (popover) popover.classList.toggle("hidden");
+      };
+    }
+
+    document.addEventListener("click", function (e) {
+      if (profileBar && !profileBar.contains(e.target) && popover && !popover.contains(e.target)) {
+        popover.classList.add("hidden");
+      }
+    });
+
+    if (btnOpenDash) {
+      btnOpenDash.onclick = function () {
+        if (popover) popover.classList.add("hidden");
+        chrome.tabs.create({ url: "https://ciora.id/dashboard" });
+      };
+    }
+
+    if (btnLogout) {
+      btnLogout.onclick = async function () {
+        if (popover) popover.classList.add("hidden");
+        await logoutCioraSession();
+        logWarn("CIORA Account disconnected. Extension locked.");
+        updateAuthUI();
+      };
+    }
+
+    loadSavedAuthSession().then(function (sess) {
+      updateAuthUI();
+      if (sess && sess.token) {
+        fetchRemoteCoreEngine(sess.token).then(function (cfg) {
+          chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+            if (tabs && tabs[0] && tabs[0].id) {
+              chrome.tabs.sendMessage(tabs[0].id, { type: "INITIALIZE_RUNTIME_CONFIG", config: cfg });
+            }
+          });
+        }).catch(function () {});
+      }
+    });
   }
 })();

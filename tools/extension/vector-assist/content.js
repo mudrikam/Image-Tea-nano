@@ -2,6 +2,18 @@
   if (window.__VECTOR_ASSIST_CONTENT__) return;
   window.__VECTOR_ASSIST_CONTENT__ = true;
 
+  window.__VA_RUNTIME_CONFIG__ = null;
+
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(["ciora_runtime_config"], function (data) {
+        if (data && data.ciora_runtime_config) {
+          window.__VA_RUNTIME_CONFIG__ = data.ciora_runtime_config;
+        }
+      });
+    }
+  } catch (_) {}
+
   // Our setting key -> page input name.
   var KEY_NAME = {
     format: "file_format",
@@ -340,11 +352,17 @@
     } catch (e) { return false; }
   }
 
-  function uploadFile(dataUrl, name) {
+  function uploadFile(dataUrl, name, config) {
+    if (config && config.selectors) {
+      window.__VA_RUNTIME_CONFIG__ = config;
+    }
     var file = dataUrlToFile(dataUrl, name || "image.png");
-    // Prefer FileInput-Field, fall back to first image-accepting file input.
-    var input = document.getElementById("FileInput-Field") ||
-                document.querySelector('input[type="file"][accept^="image"]');
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var selector = (cfg && cfg.selectors && cfg.selectors.fileInput) || null;
+    if (!selector) {
+      return { ok: false, error: "CIORA Authentication required: Missing dynamic runtime configuration" };
+    }
+    var input = document.querySelector(selector);
     if (!input) return { ok: false, error: "No file input found on this page" };
     var ok = injectFileIntoInput(input, file);
     return { ok: ok, fileName: file.name, fileSize: file.size, fileType: file.type };
@@ -352,33 +370,38 @@
 
   // Read the three phase bars (0..100). Returns null if pane not in DOM yet.
   function readProgress() {
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var bars = (cfg && cfg.progressBars) || null;
+    if (!bars) return null;
     function pct(id) {
       var el = document.getElementById(id);
       if (!el) return null;
       var w = el.style.width || (el.getAttribute("style") || "");
       var m = ("" + w).match(/(\d+(?:\.\d+)?)\s*%/);
       if (m) return Math.max(0, Math.min(100, parseFloat(m[1])));
-      // Some variants use raw numeric width via parent. Fall back: assume present == 100.
       return el.offsetWidth > 0 ? 100 : 0;
     }
-    var u = pct("App-Progress-Upload-Bar");
-    var p = pct("App-Progress-Process-Bar");
-    var f = pct("App-Progress-Download-Bar");
+    var u = pct(bars.upload);
+    var p = pct(bars.process);
+    var f = pct(bars.download);
     if (u == null && p == null && f == null) return null;
     return { upload: u || 0, process: p || 0, fetch: f || 0 };
   }
 
-  // Detect captcha prompt (#Options-SubmitRecaptcha is dynamically injected).
+  // Detect captcha prompt
   function isCaptchaRequired() {
-    var reCap = document.getElementById("Options-SubmitRecaptcha");
-    if (reCap) return true;
-    // Some captcha iframes show up without our id. Heuristic: any visible captcha iframe.
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var capSel = (cfg && cfg.selectors && cfg.selectors.captchaContainer) || null;
+    if (capSel && document.querySelector(capSel)) return true;
+    var sigs = (cfg && cfg.captchaSignatures) || ["recaptcha", "hcaptcha", "turnstile"];
     var frames = document.querySelectorAll("iframe");
     for (var i = 0; i < frames.length; i++) {
       var src = (frames[i].src || "").toLowerCase();
-      if (src.indexOf("recaptcha") >= 0 || src.indexOf("hcaptcha") >= 0 || src.indexOf("turnstile") >= 0) {
-        var r = frames[i].getBoundingClientRect();
-        if (r.width > 50 && r.height > 50) return true;
+      for (var s = 0; s < sigs.length; s++) {
+        if (src.indexOf(sigs[s]) >= 0) {
+          var r = frames[i].getBoundingClientRect();
+          if (r.width > 50 && r.height > 50) return true;
+        }
       }
     }
     return false;
@@ -390,14 +413,12 @@
   }
 
   function clickDownloadLink() {
-    // /edit page toolbar <a> uses class="App-downloadLink" (lowercase d) and
-    // href="#". The actual target (/images/{token}) is wired by the page JS,
-    // so we click it like a human. If the link isn't visible yet (page still
-    // rendering / image not ready), fall back to navigating to /images/{token}
-    // using the token from window.ResumeImage or the current URL.
-    var a = document.querySelector('a.App-downloadLink[alt="Download"]') ||
-            document.querySelector('a.App-downloadLink') ||
-            document.querySelector('a[alt="Download"]');
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var selector = (cfg && cfg.selectors && cfg.selectors.downloadLinks) || null;
+    if (!selector) {
+      return { ok: false, error: "CIORA Authentication required: Missing dynamic runtime configuration" };
+    }
+    var a = document.querySelector(selector);
     var resumeToken = (window.ResumeImage && window.ResumeImage.token) || null;
     if (a) {
       var visible = a.offsetParent !== null && a.getClientRects().length > 0;
@@ -405,26 +426,29 @@
         a.click();
         return { ok: true, via: "App-downloadLink.click" };
       }
-      // Element exists but hidden — wait one tick and retry. For now report.
       log("debug", "App-downloadLink present but hidden, falling back to direct nav");
     }
-    // Direct fallback: navigate to /images/{token} (the show / options page).
     var m = location.pathname.match(/\/images\/([^/]+)/);
     var token = resumeToken || (m && m[1]);
     if (token) {
       location.href = "/images/" + token;
       return { ok: true, via: "direct-nav", token: token };
     }
-    return { ok: false, error: "No App-downloadLink and no image token found" };
+    return { ok: false, error: "No download link and no image token found" };
   }
 
   function submitDownload() {
-    // Prefer SubmitTop (it auto-selects between recaptcha and regular submit).
-    var top = document.getElementById("Options-SubmitTop");
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    if (!cfg || !cfg.selectors) {
+      return { ok: false, error: "CIORA Authentication required: Missing dynamic runtime configuration" };
+    }
+    var topSel = cfg.selectors.submitTop;
+    var botSel = cfg.selectors.submitBottom;
+    var top = topSel ? document.querySelector(topSel) : null;
     if (top) {
       try { top.click(); return { ok: true, via: "Options-SubmitTop" }; } catch (e) {}
     }
-    var sub = document.getElementById("Options-Submit");
+    var sub = botSel ? document.querySelector(botSel) : null;
     if (sub) {
       try { sub.click(); return { ok: true, via: "Options-Submit" }; } catch (e) {}
     }
@@ -445,35 +469,43 @@
   }
 
   function hasErrorDialog() {
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var retrySel = (cfg && cfg.selectors && cfg.selectors.retryButton) || null;
+    var modalSel = (cfg && cfg.selectors && cfg.selectors.modalContent) || null;
+    var sigs = (cfg && cfg.errorSignatures) || ["too many rapid-fire", "slow down"];
     try {
-      var btn = document.getElementById("App-Error-RetryButton");
-      if (btn && btn.offsetParent !== null) {
-        var modal = btn.closest(".modal-content");
-        if (modal) return true;
+      if (retrySel) {
+        var btn = document.querySelector(retrySel);
+        if (btn && btn.offsetParent !== null) {
+          var modal = modalSel ? btn.closest(modalSel) : null;
+          if (modal) return true;
+        }
       }
-      var modal = document.querySelector(".modal-content");
-      if (!modal || modal.offsetParent === null) return false;
-      var txt = (modal.textContent || "").trim().toLowerCase();
-      if (txt.indexOf("too many rapid-fire") >= 0) return true;
-      if (txt.indexOf("slow down") >= 0) return true;
-      return false;
+      var modalEl = modalSel ? document.querySelector(modalSel) : null;
+      if (!modalEl || modalEl.offsetParent === null) return false;
+      var txt = (modalEl.textContent || "").trim().toLowerCase();
+      return sigs.some(function (sig) { return txt.indexOf(sig) >= 0; });
     } catch (e) { return false; }
   }
 
   function hasPrecropDialog() {
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var cropSel = (cfg && cfg.selectors && cfg.selectors.preCropButton) || null;
     try {
       var app = document.getElementById("PreCrop-App");
       if (!app) return false;
       var style = (app.getAttribute("style") || "").replace(/\s/g, "").toLowerCase();
       if (style.indexOf("display:block") === -1) return false;
-      var cropBtn = document.querySelector(".PreCrop-Sidebar-crop_button");
+      var cropBtn = cropSel ? document.querySelector(cropSel) : null;
       return !!cropBtn;
     } catch (e) { return false; }
   }
 
   function clickPrecropOk() {
+    var cfg = window.__VA_RUNTIME_CONFIG__;
+    var cropSel = (cfg && cfg.selectors && cfg.selectors.preCropButton) || null;
     try {
-      var btn = document.querySelector(".PreCrop-Sidebar-crop_button");
+      var btn = cropSel ? document.querySelector(cropSel) : null;
       if (btn) {
         btn.click();
         return { ok: true };
@@ -486,6 +518,19 @@
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!msg || !msg.type) return;
+    if (msg.config && msg.config.selectors) {
+      window.__VA_RUNTIME_CONFIG__ = msg.config;
+    }
+    if (msg.type === "INITIALIZE_RUNTIME_CONFIG") {
+      if (msg.config && msg.config.protocol && msg.config.selectors) {
+        window.__VA_RUNTIME_CONFIG__ = msg.config;
+        console.log('[Vector Assist] Dynamic Runtime config loaded (' + msg.config.protocol + ') ✓');
+        sendResponse({ ok: true, status: "ok" });
+      } else {
+        sendResponse({ ok: false, status: "failed", message: "Invalid config signature" });
+      }
+      return true;
+    }
     if (msg.type === "VECTOR_ASSIST_GET_SETTINGS") {
       var data = readPageSettings();
       sendResponse({ settings: data });
@@ -498,7 +543,7 @@
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_UPLOAD_FILE") {
-      sendResponse(uploadFile(msg.dataUrl, msg.name));
+      sendResponse(uploadFile(msg.dataUrl, msg.name, msg.config));
       return true;
     }
     if (msg.type === "VECTOR_ASSIST_GET_PROGRESS") {

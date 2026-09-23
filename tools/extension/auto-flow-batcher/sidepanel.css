@@ -83,6 +83,48 @@
       color: var(--text-muted);
       letter-spacing: 0.5px;
     }
+    .version-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tandem-status-badge {
+      display: none;
+    }
+    .tandem-status-badge.active {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      font-weight: 600;
+      color: #4ade80;
+      background: rgba(74, 222, 128, 0.12);
+      border: 1px solid rgba(74, 222, 128, 0.3);
+      border-radius: 9999px;
+      padding: 1px 6px;
+      line-height: 1;
+      letter-spacing: 0.3px;
+    }
+    .tandem-dot {
+      width: 5px;
+      height: 5px;
+      background-color: #4ade80;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #4ade80;
+      animation: tandem-pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes tandem-pulse {
+      0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 4px #4ade80;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.4;
+        box-shadow: 0 0 10px #4ade80;
+        transform: scale(1.2);
+      }
+    }
     .badge {
       font-size: 10px;
       background-color: rgba(242, 125, 38, 0.1);

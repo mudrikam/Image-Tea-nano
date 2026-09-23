@@ -100,6 +100,12 @@ if (chrome.downloads && chrome.downloads.onChanged) {
         timestamp: Date.now()
       };
 
+      // Direct notify to Tandem Server connector if active (only Flow downloads, ignore vectorizer.ai)
+      const isFromVectorizer = (item.url || '').toLowerCase().includes('vectorizer.ai');
+      if (!isFromVectorizer && typeof self.broadcastTandemDownload === 'function') {
+        try { self.broadcastTandemDownload(item.filename, item.fileSize || item.totalBytes || 0); } catch (_) {}
+      }
+
       // Broadcast to both sidepanel, background internal listeners, and all tabs
       try { chrome.runtime.sendMessage(payload); } catch (_) {}
       try {
@@ -216,3 +222,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async response
   }
 });
+
+// ─── Tandem Connector Bridge ──────────────────────────────────────────────────
+try {
+  importScripts('tandem_connector.js');
+} catch (e) {
+  console.warn('[AFB] Tandem connector script import:', e);
+}

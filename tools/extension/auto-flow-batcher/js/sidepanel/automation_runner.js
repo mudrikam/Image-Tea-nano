@@ -378,6 +378,14 @@ export async function processQueue(settings, elements) {
     const finalFailed = state.queueData.filter(item => item.status === 'failed').length;
     if (finalFailed === 0) {
       appendLog('All prompts completed successfully!', 'success');
+      // Broadcast prompt batch finished with all downloaded files
+      try {
+        chrome.runtime.sendMessage({
+          action: 'AFB_PROMPT_ALL_DOWNLOADS_FINISHED',
+          downloadedCount: state.downloadedCount,
+          successCount: state.successCount
+        });
+      } catch (_) {}
     } else {
       appendLog(`Batch ended: ${state.successCount} completed, ${finalFailed} failed after ${currentRound} round(s).`, 'warn');
     }

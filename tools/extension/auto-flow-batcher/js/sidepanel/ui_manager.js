@@ -300,14 +300,21 @@ export function getSettings() {
   const promptDelayMs = getPromptDelayMs();
   const downloadDelayMs = getDownloadDelayMs();
   const selectedType = document.querySelector('input[name="type"]:checked')?.value || 'image';
-  return {
+  
+  // Current visible/active values
+  const currentRatio = document.querySelector('input[name="ratio"]:checked:not(:disabled)')?.value;
+  const currentModel = document.querySelector('input[name="model"]:checked:not(:disabled)')?.value;
+  const currentBatch = document.querySelector('input[name="batch"]:checked')?.value || '1';
+  const currentQuality = document.querySelector('input[name="downloadQuality"]:checked:not(:disabled)')?.value;
+
+  const res = {
     type: selectedType,
-    ratio: document.querySelector('input[name="ratio"]:checked')?.value || '16:9',
-    model: document.querySelector('input[name="model"]:checked:not(:disabled)')?.value || (selectedType === 'video' ? 'Omni 1.1 Flash' : 'Nano Banana 2'),
+    ratio: currentRatio || (selectedType === 'video' ? '16:9' : '4:3'),
+    model: currentModel || (selectedType === 'video' ? 'Omni 1.1 Flash' : 'Nano Banana 2'),
     videoDuration: document.querySelector('input[name="videoDuration"]:checked')?.value || '8s',
     videoResolution: document.querySelector('input[name="videoResolution"]:checked')?.value || '720p',
-    batch: document.querySelector('input[name="batch"]:checked')?.value || '1',
-    downloadQuality: document.querySelector('input[name="downloadQuality"]:checked')?.value || 'default',
+    batch: currentBatch,
+    downloadQuality: currentQuality || (selectedType === 'video' ? '720p' : '1K'),
     promptDelayMs,
     promptDelaySeconds: promptDelayMs / 1000,
     downloadDelayMs,
@@ -320,15 +327,107 @@ export function getSettings() {
     newProjectAfterPrompts: getNewProjectAfterPrompts(),
     repeatPerPrompt: getRepeatPerPrompt()
   };
+
+  return res;
 }
 
 export function saveSettingsToStorage() {
   try {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      const settings = getSettings();
-      chrome.storage.local.set({ afb_saved_settings: settings });
+      const current = getSettings();
+      chrome.storage.local.get(['afb_saved_settings'], (data) => {
+        const prev = data?.afb_saved_settings || {};
+        const activeType = current.type;
+
+        const imageSettings = prev.imageSettings || {
+          ratio: '16:9',
+          model: 'Nano Banana 2',
+          batch: '1',
+          downloadQuality: '1K'
+        };
+        const videoSettings = prev.videoSettings || {
+          ratio: '16:9',
+          model: 'Omni 1.1 Flash',
+          batch: '1',
+          downloadQuality: '720p',
+          videoDuration: '8s',
+          videoResolution: '720p'
+        };
+
+        if (activeType === 'image') {
+          imageSettings.ratio = current.ratio;
+          imageSettings.model = current.model;
+          imageSettings.batch = current.batch;
+          imageSettings.downloadQuality = current.downloadQuality;
+        } else if (activeType === 'video') {
+          videoSettings.ratio = current.ratio;
+          videoSettings.model = current.model;
+          videoSettings.batch = current.batch;
+          videoSettings.downloadQuality = current.downloadQuality;
+          videoSettings.videoDuration = current.videoDuration;
+          videoSettings.videoResolution = current.videoResolution;
+        }
+
+        const newSaved = {
+          ...current,
+          imageSettings,
+          videoSettings
+        };
+
+        chrome.storage.local.set({ afb_saved_settings: newSaved });
+      });
     }
   } catch (_) {}
+}
+
+export function restoreModeSettings(type, saved) {
+  if (!saved) return;
+  const bucket = type === 'video' ? saved.videoSettings : saved.imageSettings;
+  if (!bucket) return;
+
+  // Restore Ratio
+  if (bucket.ratio) {
+    const ratioEl = document.querySelector(`input[name="ratio"][value="${bucket.ratio}"]`);
+    if (ratioEl && !ratioEl.disabled) {
+      ratioEl.checked = true;
+    }
+  }
+
+  // Restore Model
+  if (bucket.model) {
+    const modelEl = document.querySelector(`input[name="model"][value="${bucket.model}"]`);
+    if (modelEl && !modelEl.disabled) {
+      modelEl.checked = true;
+    }
+  }
+
+  // Restore Batch
+  if (bucket.batch) {
+    const batchEl = document.querySelector(`input[name="batch"][value="${bucket.batch}"]`);
+    if (batchEl) {
+      batchEl.checked = true;
+    }
+  }
+
+  // Restore Quality
+  if (bucket.downloadQuality) {
+    const dqEl = document.querySelector(`input[name="downloadQuality"][value="${bucket.downloadQuality}"]`);
+    if (dqEl && !dqEl.disabled) {
+      dqEl.checked = true;
+    }
+  }
+
+  // Restore Video specific
+  if (type === 'video') {
+    if (bucket.videoDuration) {
+      const vdEl = document.querySelector(`input[name="videoDuration"][value="${bucket.videoDuration}"]`);
+      if (vdEl && !vdEl.disabled) vdEl.checked = true;
+    }
+    if (bucket.videoResolution) {
+      const vrEl = document.querySelector(`input[name="videoResolution"][value="${bucket.videoResolution}"]`);
+      if (vrEl && !vrEl.disabled) vrEl.checked = true;
+    }
+  }
 }
 
 export function loadSettingsFromStorage() {
@@ -351,62 +450,42 @@ export function loadSettingsFromStorage() {
       updateModelOptions(activeType);
       updateDownloadQualityOptions(activeType);
 
-      // 2. Restore Model first (before video duration/resolution sections are updated)
-      if (s.model) {
-        const modelEl = document.querySelector(`input[name="model"][value="${s.model}"]`);
-        if (modelEl && !modelEl.disabled) {
-          modelEl.checked = true;
+      // 2. Restore mode-specific bucket if present, otherwise legacy flat fields
+      if (s.imageSettings || s.videoSettings) {
+        restoreModeSettings(activeType, s);
+      } else {
+        if (s.model) {
+          const modelEl = document.querySelector(`input[name="model"][value="${s.model}"]`);
+          if (modelEl && !modelEl.disabled) modelEl.checked = true;
+        }
+        if (s.ratio) {
+          const ratioEl = document.querySelector(`input[name="ratio"][value="${s.ratio}"]`);
+          if (ratioEl && !ratioEl.disabled) ratioEl.checked = true;
+        }
+        if (s.batch) {
+          const batchEl = document.querySelector(`input[name="batch"][value="${s.batch}"]`);
+          if (batchEl) batchEl.checked = true;
+        }
+        if (s.downloadQuality) {
+          const dqEl = document.querySelector(`input[name="downloadQuality"][value="${s.downloadQuality}"]`);
+          if (dqEl && !dqEl.disabled) dqEl.checked = true;
+        }
+        if (s.videoDuration) {
+          const vdEl = document.querySelector(`input[name="videoDuration"][value="${s.videoDuration}"]`);
+          if (vdEl && !vdEl.disabled) vdEl.checked = true;
+        }
+        if (s.videoResolution) {
+          const vrEl = document.querySelector(`input[name="videoResolution"][value="${s.videoResolution}"]`);
+          if (vrEl && !vrEl.disabled) vrEl.checked = true;
         }
       }
+
       updateModelOptions(activeType);
 
-      // 3. Restore Ratio
-      if (s.ratio) {
-        const ratioEl = document.querySelector(`input[name="ratio"][value="${s.ratio}"]`);
-        if (ratioEl && !ratioEl.disabled) {
-          ratioEl.checked = true;
-        }
-      }
-
-      // 4. Restore Batch
-      if (s.batch) {
-        const batchEl = document.querySelector(`input[name="batch"][value="${s.batch}"]`);
-        if (batchEl) {
-          batchEl.checked = true;
-        }
-      }
-
-      // 5. Restore Quality
-      if (s.downloadQuality) {
-        const dqEl = document.querySelector(`input[name="downloadQuality"][value="${s.downloadQuality}"]`);
-        if (dqEl && !dqEl.disabled) {
-          dqEl.checked = true;
-        }
-      }
-
-      // 6. Restore Video Duration
-      if (s.videoDuration) {
-        const vdEl = document.querySelector(`input[name="videoDuration"][value="${s.videoDuration}"]`);
-        if (vdEl && !vdEl.disabled) {
-          vdEl.checked = true;
-        }
-      }
-
-      // 7. Restore Video Resolution
-      if (s.videoResolution) {
-        const vrEl = document.querySelector(`input[name="videoResolution"][value="${s.videoResolution}"]`);
-        if (vrEl && !vrEl.disabled) {
-          vrEl.checked = true;
-        }
-      }
-
-      // 8. Restore Numeric Controls
+      // 3. Restore Numeric Controls
       if (s.promptDelaySeconds !== undefined) {
         const el = document.getElementById('promptDelaySeconds');
         if (el) el.value = s.promptDelaySeconds;
-      } else if (s.globalDelaySeconds !== undefined) {
-        const el = document.getElementById('promptDelaySeconds');
-        if (el) el.value = s.globalDelaySeconds;
       }
       if (s.downloadDelaySeconds !== undefined) {
         const el = document.getElementById('downloadDelaySeconds');

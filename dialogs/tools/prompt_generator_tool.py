@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
 	QHeaderView, QPushButton, QLabel, QSpinBox, QSpacerItem, QSizePolicy,
 	QApplication, QProgressBar, QComboBox, QMessageBox, QFileDialog,
 	QWidget, QMenu, QToolTip, QTabWidget, QSplitter, QTextEdit,
-	QListWidget, QListWidgetItem, QScrollArea, QFrame
+	QListWidget, QListWidgetItem, QScrollArea, QFrame, QLineEdit, QGroupBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
 from PySide6.QtGui import QGuiApplication, QAction, QCursor, QKeySequence, QColor, QFont, QIcon
@@ -287,6 +287,7 @@ class PromptGeneratorDialog(QDialog):
 		self._random_requests_remaining = 0
 		self._random_original_num_requests = 1
 		self._random_total_generated = 0
+		self._active_tandem_prompt_id = None
 
 		from database import db_operation
 		self.db = db_operation.ImageTeaDB()
@@ -304,6 +305,19 @@ class PromptGeneratorDialog(QDialog):
 
 		self._stats_tick_timer = QTimer()
 		self._stats_tick_timer.timeout.connect(self.update_stats_display)
+
+		# Tandem Pipeline Coordinator Instance
+		from helpers.tools.tandem_coordinator_helper import TandemPipelineCoordinator
+		self.tandem_coordinator = TandemPipelineCoordinator(self.db, parent=self)
+		self.tandem_coordinator.status_changed.connect(self._on_tandem_status_changed)
+		self.tandem_coordinator.log_emitted.connect(self._append_log)
+		self.tandem_coordinator.pipeline_finished.connect(self._on_tandem_pipeline_finished)
+		self.tandem_coordinator.prompt_started.connect(self._on_tandem_prompt_started)
+		self.tandem_coordinator.prompt_completed.connect(self._on_tandem_prompt_completed)
+		self.tandem_coordinator.progress_updated.connect(self._on_tandem_progress_updated)
+		self._active_tandem_prompt_id = None
+		# Auto-start local bridge server on dialog load
+		QTimer.singleShot(100, self.tandem_coordinator.start_server)
 
 	def _build_ui(self):
 		main_layout = QVBoxLayout(self)
@@ -348,9 +362,11 @@ class PromptGeneratorDialog(QDialog):
 
 		ref_tab = self._build_reference_tab()
 		params_tab = self._build_parameters_tab()
+		tandem_tab = self._build_tandem_server_tab()
 
 		self.left_tabs.addTab(ref_tab, qta.icon('fa6s.image'), " By Reference")
 		self.left_tabs.addTab(params_tab, qta.icon('fa6s.sliders'), " By Parameters")
+		self.left_tabs.addTab(tandem_tab, qta.icon('fa6s.network-wired'), " Tandem Server")
 		return self.left_tabs
 
 	def _build_reference_tab(self):
@@ -786,6 +802,152 @@ class PromptGeneratorDialog(QDialog):
 
 		return widget
 
+	def _build_tandem_server_tab(self):
+		widget = QWidget()
+		layout = QVBoxLayout(widget)
+		layout.setSpacing(10)
+		layout.setContentsMargins(10, 10, 10, 10)
+
+		# 1. Server Hub Controller Box
+		hub_box = QGroupBox("Tandem Bridge Hub")
+		hub_layout = QVBoxLayout(hub_box)
+		hub_layout.setSpacing(8)
+
+		host_row = QHBoxLayout()
+		host_lbl = QLabel("Bridge Port:")
+		host_lbl.setMinimumWidth(100)
+		self.tandem_port_lbl = QLabel("48200 (Auto)")
+		self.tandem_port_lbl.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
+		host_row.addWidget(host_lbl)
+		host_row.addWidget(self.tandem_port_lbl, 1)
+		hub_layout.addLayout(host_row)
+
+		server_status_row = QHBoxLayout()
+		status_title_lbl = QLabel("Hub Status:")
+		status_title_lbl.setMinimumWidth(100)
+		self.tandem_server_status_lbl = QLabel("Active")
+		self.tandem_server_status_lbl.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
+		server_status_row.addWidget(status_title_lbl)
+		server_status_row.addWidget(self.tandem_server_status_lbl, 1)
+		hub_layout.addLayout(server_status_row)
+
+		layout.addWidget(hub_box)
+
+		# 2. Live Workers Monitor Box
+		workers_box = QGroupBox("Browser Workers Monitor")
+		workers_layout = QVBoxLayout(workers_box)
+		workers_layout.setSpacing(8)
+
+		# Auto Flow Batcher status row
+		w1_row = QHBoxLayout()
+		w1_lbl = QLabel("Auto Flow Batcher:")
+		w1_lbl.setMinimumWidth(130)
+		self.tandem_w1_badge = QLabel("Disconnected")
+		self.tandem_w1_badge.setStyleSheet("color: #9ca3af; font-weight: bold; font-size: 11px;")
+		w1_row.addWidget(w1_lbl)
+		w1_row.addWidget(self.tandem_w1_badge)
+		w1_row.addStretch()
+		workers_layout.addLayout(w1_row)
+
+		# Vector Assist status row
+		w2_row = QHBoxLayout()
+		w2_lbl = QLabel("Vector Assist:")
+		w2_lbl.setMinimumWidth(130)
+		self.tandem_w2_badge = QLabel("Disconnected")
+		self.tandem_w2_badge.setStyleSheet("color: #9ca3af; font-weight: bold; font-size: 11px;")
+		w2_row.addWidget(w2_lbl)
+		w2_row.addWidget(self.tandem_w2_badge)
+		w2_row.addStretch()
+		workers_layout.addLayout(w2_row)
+
+		layout.addWidget(workers_box)
+
+		# 3. Pipeline Info Box
+		pipeline_box = QGroupBox("Tandem Pipeline Execution")
+		p_layout = QVBoxLayout(pipeline_box)
+		p_layout.setSpacing(8)
+
+		handoff_info = QLabel("Workflow:\n1. Dispatches prompts from the table sequentially.\n2. Auto Flow renders and downloads all batch images.\n3. Physical files are automatically forwarded to Vector Assist.\n4. Vector Assist traces and downloads vector assets.\n5. Prompt status updates to 'copied' (green) upon completion.")
+		handoff_info.setStyleSheet("color: #9ca3af; font-size: 11px; line-height: 1.5;")
+		handoff_info.setWordWrap(True)
+		p_layout.addWidget(handoff_info)
+
+		layout.addWidget(pipeline_box)
+		layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+		return widget
+
+	def _on_tandem_status_changed(self, target, status_str):
+		is_active = (status_str.lower() != "disconnected" and status_str.lower() != "stopped")
+		color = "#4ade80" if is_active else "#9ca3af"
+		style = f"color: {color}; font-weight: bold; font-size: 11px;"
+
+		if target == "server":
+			self.tandem_server_status_lbl.setText(status_str)
+			self.tandem_server_status_lbl.setStyleSheet(style)
+		elif target == "auto_flow":
+			self.tandem_w1_badge.setText(status_str)
+			self.tandem_w1_badge.setStyleSheet(style)
+		elif target == "vector_assist":
+			self.tandem_w2_badge.setText(status_str)
+			self.tandem_w2_badge.setStyleSheet(style)
+
+	def _on_tandem_prompt_started(self, prompt_id, prompt_text):
+		self._active_tandem_prompt_id = prompt_id
+		self.refresh_table_immediately()
+
+	def _on_tandem_prompt_completed(self, prompt_id, prompt_text):
+		if self._active_tandem_prompt_id == prompt_id:
+			self._active_tandem_prompt_id = None
+		self.refresh_table_immediately()
+
+	def _on_tandem_progress_updated(self, current, total):
+		self._update_telemetry(current, total)
+
+	def _on_tandem_pipeline_finished(self, success_count):
+		self._active_tandem_prompt_id = None
+		self.is_generating = False
+		self._lock_left_tabs(False)
+		self.update_generate_button()
+		self.refresh_table_immediately()
+		self._append_log(f"[Tandem] Pipeline finished. Total {success_count} prompt(s) processed.")
+
+	def start_tandem_pipeline(self):
+		if not self.tandem_coordinator.is_server_running():
+			self.tandem_coordinator.start_server()
+
+		ready, reason = self.tandem_coordinator.is_ready_to_run()
+		if not ready:
+			self._append_log(f"[Tandem] Notice: {reason}")
+			QMessageBox.warning(self, "Tandem Workers Notice", f"{reason}\n\nPlease ensure both browser extensions are connected (green indicator).")
+			return
+
+		# Read non-copied prompts from DB / table
+		prompts_to_run = []
+		if self.db:
+			all_prompts = self.db.get_prompts_with_status_paginated(1, 1000)
+			for row in all_prompts:
+				p_id = row[0]
+				p_text = row[2]
+				p_status = row[4] if len(row) > 4 else 'pending'
+				if p_status != 'copied' and p_text and p_text.strip():
+					prompts_to_run.append({"id": p_id, "prompt": p_text.strip()})
+
+		if not prompts_to_run:
+			self._append_log("[Tandem] No uncopied prompts found in table. All prompts are either copied or table is empty.")
+			QMessageBox.information(self, "No Prompts", "All prompts in the table are already marked as 'copied' or the table is empty.\nUse 'Paste' or 'Import' to add new prompts.")
+			return
+
+		self.is_generating = True
+		self._lock_left_tabs(True)
+		self.update_generate_button()
+
+		ok = self.tandem_coordinator.start_pipeline(prompts_to_run)
+		if not ok:
+			self.is_generating = False
+			self._lock_left_tabs(False)
+			self.update_generate_button()
+
 	def _build_right_panel(self):
 		self.right_tabs = QTabWidget()
 		self.right_tabs.setTabPosition(QTabWidget.North)
@@ -806,42 +968,63 @@ class PromptGeneratorDialog(QDialog):
 		layout.setContentsMargins(4, 4, 4, 4)
 		layout.setSpacing(4)
 
-		toolbar_layout = QHBoxLayout()
-		toolbar_layout.setSpacing(4)
+		# Actions Row 1
+		actions_row1 = QHBoxLayout()
+		actions_row1.setSpacing(4)
 
 		self.refresh_btn = QPushButton(qta.icon('fa6s.rotate-right'), " Refresh")
 		self.refresh_btn.setToolTip("Refresh the prompts table")
 		self.refresh_btn.setIconSize(QSize(14, 14))
 		self.refresh_btn.clicked.connect(self.refresh_table_immediately)
-		toolbar_layout.addWidget(self.refresh_btn)
+		actions_row1.addWidget(self.refresh_btn)
 
-		self.clear_btn = QPushButton(qta.icon('fa6s.trash'), " Clear All")
-		self.clear_btn.setToolTip("Delete all generated prompts")
-		self.clear_btn.setIconSize(QSize(14, 14))
-		self.clear_btn.clicked.connect(self.clear_all_prompts)
-		toolbar_layout.addWidget(self.clear_btn)
-
-		self.clear_copied_btn = QPushButton(qta.icon('fa6s.trash-can'), " Clear Copied")
-		self.clear_copied_btn.setToolTip("Delete prompts that have been copied")
-		self.clear_copied_btn.setIconSize(QSize(14, 14))
-		self.clear_copied_btn.clicked.connect(self.clear_copied_prompts)
-		toolbar_layout.addWidget(self.clear_copied_btn)
-
-		self.export_btn = QPushButton(qta.icon('fa6s.file-export'), " Export")
-		self.export_btn.setToolTip("Export prompts to CSV or TXT file")
-		self.export_btn.setIconSize(QSize(14, 14))
-		self.export_btn.clicked.connect(self.export_to_csv)
-		toolbar_layout.addWidget(self.export_btn)
+		self.paste_prompts_btn = QPushButton(qta.icon('fa6s.paste'), " Paste")
+		self.paste_prompts_btn.setToolTip("Paste prompts from clipboard (supports numbered or line-separated prompts)")
+		self.paste_prompts_btn.setIconSize(QSize(14, 14))
+		self.paste_prompts_btn.clicked.connect(self.paste_prompts_from_clipboard)
+		actions_row1.addWidget(self.paste_prompts_btn)
 
 		self.import_btn = QPushButton(qta.icon('fa6s.file-import'), " Import")
 		self.import_btn.setToolTip("Import prompts from CSV or TXT file")
 		self.import_btn.setIconSize(QSize(14, 14))
 		self.import_btn.clicked.connect(self.import_from_csv)
-		toolbar_layout.addWidget(self.import_btn)
+		actions_row1.addWidget(self.import_btn)
 
-		toolbar_layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
-		layout.addLayout(toolbar_layout)
+		self.export_btn = QPushButton(qta.icon('fa6s.file-export'), " Export")
+		self.export_btn.setToolTip("Export prompts to CSV or TXT file")
+		self.export_btn.setIconSize(QSize(14, 14))
+		self.export_btn.clicked.connect(self.export_to_csv)
+		actions_row1.addWidget(self.export_btn)
 
+		actions_row1.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
+		layout.addLayout(actions_row1)
+
+		# Actions Row 2
+		actions_row2 = QHBoxLayout()
+		actions_row2.setSpacing(4)
+
+		self.reset_status_btn = QPushButton(qta.icon('fa6s.arrows-rotate'), " Reset Status")
+		self.reset_status_btn.setToolTip("Reset all prompt statuses back to pending without deleting the prompts")
+		self.reset_status_btn.setIconSize(QSize(14, 14))
+		self.reset_status_btn.clicked.connect(self.reset_all_prompt_status)
+		actions_row2.addWidget(self.reset_status_btn)
+
+		self.clear_copied_btn = QPushButton(qta.icon('fa6s.trash-can'), " Clear Copied")
+		self.clear_copied_btn.setToolTip("Delete prompts that have been copied")
+		self.clear_copied_btn.setIconSize(QSize(14, 14))
+		self.clear_copied_btn.clicked.connect(self.clear_copied_prompts)
+		actions_row2.addWidget(self.clear_copied_btn)
+
+		self.clear_btn = QPushButton(qta.icon('fa6s.trash'), " Clear All")
+		self.clear_btn.setToolTip("Delete all generated prompts")
+		self.clear_btn.setIconSize(QSize(14, 14))
+		self.clear_btn.clicked.connect(self.clear_all_prompts)
+		actions_row2.addWidget(self.clear_btn)
+
+		actions_row2.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
+		layout.addLayout(actions_row2)
+
+		# Pagination Row
 		paging_layout = QHBoxLayout()
 		paging_layout.setSpacing(4)
 
@@ -875,6 +1058,7 @@ class PromptGeneratorDialog(QDialog):
 		self.next_btn.setIconSize(QSize(16, 16))
 		self.next_btn.clicked.connect(self.go_next)
 		paging_layout.addWidget(self.next_btn)
+
 		layout.addLayout(paging_layout)
 
 		self.table = QTableWidget()
@@ -1166,9 +1350,12 @@ class PromptGeneratorDialog(QDialog):
 		if index == 0:
 			self.generate_btn.setText(" Generate Prompts by Reference")
 			self.generate_btn.setIcon(self.gen_icon)
-		else:
+		elif index == 1:
 			self.generate_btn.setText(" Generate Prompts by Parameters")
 			self.generate_btn.setIcon(self.gen_icon)
+		else:
+			self.generate_btn.setText(" Start Tandem Pipeline")
+			self.generate_btn.setIcon(qta.icon('fa6s.play'))
 		self.update_stats_display()
 
 	def _lock_left_tabs(self, locked):
@@ -1545,13 +1732,17 @@ class PromptGeneratorDialog(QDialog):
 			active_tab = self.left_tabs.currentIndex()
 			if active_tab == 0:
 				self.generate_prompts_by_reference()
-			else:
+			elif active_tab == 1:
 				self.generate_prompts_by_parameters()
+			else:
+				self.start_tandem_pipeline()
 
 	def stop_generation(self):
 		if self.worker and self.worker.isRunning():
 			self.worker.stop()
 			self.worker.wait(3000)
+		if hasattr(self, 'tandem_coordinator') and self.tandem_coordinator.is_running:
+			self.tandem_coordinator.stop_pipeline()
 		self.is_generating = False
 		self._gen_start_time = None
 		if hasattr(self, '_stats_tick_timer'):
@@ -1590,8 +1781,16 @@ class PromptGeneratorDialog(QDialog):
 			""")
 		else:
 			active_tab = self.left_tabs.currentIndex()
-			label = " Generate Prompts by Reference" if active_tab == 0 else " Generate Prompts by Parameters"
-			self.generate_btn.setIcon(self.gen_icon)
+			if active_tab == 0:
+				label = " Generate Prompts by Reference"
+				icon = self.gen_icon
+			elif active_tab == 1:
+				label = " Generate Prompts by Parameters"
+				icon = self.gen_icon
+			else:
+				label = " Start Tandem Pipeline"
+				icon = qta.icon('fa6s.play')
+			self.generate_btn.setIcon(icon)
 			self.generate_btn.setText(label)
 			self.generate_btn.setStyleSheet(f"""
 				QPushButton {{
@@ -2156,7 +2355,23 @@ class PromptGeneratorDialog(QDialog):
 
 				_copied_c = QColor(theme.get_color('success'))
 				_copied_c.setAlpha(int(0.3 * 255))
-				if status == 'copied':
+				_active_c = QColor(theme.get_color('primary'))
+				_active_c.setAlpha(int(0.35 * 255))
+
+				is_currently_processing = (self._active_tandem_prompt_id is not None and self._active_tandem_prompt_id == prompt_row[0])
+
+				if is_currently_processing:
+					for col in range(4):
+						item = self.table.item(r, col)
+						if item:
+							item.setBackground(_active_c)
+						else:
+							empty_item = QTableWidgetItem("")
+							empty_item.setBackground(_active_c)
+							self.table.setItem(r, col, empty_item)
+					copy_btn.setIcon(qta.icon('fa6s.spinner', color=theme.get_color('primary'), animation=qta.Spin(copy_btn)))
+					copy_btn.setToolTip("Processing in Tandem Pipeline...")
+				elif status == 'copied':
 					for col in range(4):
 						item = self.table.item(r, col)
 						if item:
@@ -2213,11 +2428,14 @@ class PromptGeneratorDialog(QDialog):
 			if hasattr(self, 'ref_stats_label'):
 				source_label = f"{total_files} folder image(s)" if use_folder else f"{total_files} DB file(s)"
 				self.ref_stats_label.setText(f"{source_label} | Target: {target_total} prompts")
-		else:
+		elif active_tab == 1:
 			prompts_per_batch = self.param_prompts_per_batch_spin.value() if hasattr(self, 'param_prompts_per_batch_spin') else 1
 			num_requests = self.param_num_requests_spin.value() if hasattr(self, 'param_num_requests_spin') else 1
 			target_total = prompts_per_batch * num_requests
 			gen_type = "By Parameters"
+		else:
+			target_total = self.total_prompts
+			gen_type = "Tandem Server (Flow -> Vector)"
 
 		if hasattr(self, 'stats_type_label'):
 			self.stats_type_label.setText(f"Type: {gen_type}")
@@ -2508,6 +2726,26 @@ class PromptGeneratorDialog(QDialog):
 			except Exception as e:
 				print(f"Failed to clear copied prompts: {e}")
 
+	def reset_all_prompt_status(self):
+		if not self.db:
+			return
+		reply = QMessageBox.question(
+			self, "Reset Prompt Status",
+			"Reset all prompt statuses back to pending?\n(This will turn green 'copied' rows back to normal without deleting any prompts).",
+			QMessageBox.Yes | QMessageBox.No,
+			QMessageBox.No
+		)
+		if reply == QMessageBox.Yes:
+			try:
+				if hasattr(self.db, 'clear_all_prompt_status'):
+					self.db.clear_all_prompt_status()
+				self.refresh_table_immediately()
+				self._append_log("All prompt statuses reset to pending.")
+				QToolTip.showText(QCursor.pos(), "Statuses reset", self, msecShowTime=2000)
+			except Exception as e:
+				self._append_log(f"Failed to reset prompt status: {e}")
+				QMessageBox.critical(self, "Reset Error", f"Failed to reset status:\n{e}")
+
 	def export_to_csv(self):
 		if not self.db:
 			QMessageBox.warning(self, "Error", "Database not available")
@@ -2591,9 +2829,43 @@ class PromptGeneratorDialog(QDialog):
 		except Exception as e:
 			print(f"Error refreshing table after import: {e}")
 
-	def on_import_error(self, error_message):
-		self._append_log(f"Import error: {error_message}")
-		QMessageBox.critical(self, "Import Error", f"Import failed:\n{error_message}")
+	def paste_prompts_from_clipboard(self):
+		try:
+			clipboard = QGuiApplication.clipboard()
+			if not clipboard:
+				QMessageBox.warning(self, "Clipboard Error", "Could not access system clipboard.")
+				return
+
+			raw_text = clipboard.text()
+			if not raw_text or not raw_text.strip():
+				QMessageBox.information(self, "Clipboard Empty", "No text found in clipboard to paste.")
+				return
+
+			if not self.db:
+				QMessageBox.critical(self, "Database Error", "Database connection is not available.")
+				return
+
+			from helpers.tools.tandem_coordinator_helper import parse_clipboard_prompts
+			parsed_prompts = parse_clipboard_prompts(raw_text)
+
+			if not parsed_prompts:
+				QMessageBox.warning(self, "No Valid Prompts", "No non-empty prompt lines found in clipboard.")
+				return
+
+			# Insert into database
+			inserted_count = 0
+			for p in parsed_prompts:
+				if hasattr(self.db, 'add_external_prompt'):
+					self.db.add_external_prompt(p)
+					inserted_count += 1
+
+			self.load_prompts_from_db()
+			self.update_pagination()
+			self._append_log(f"Pasted and added {inserted_count} prompt(s) from clipboard into table.")
+			QToolTip.showText(QCursor.pos(), f"Pasted {inserted_count} prompt(s)", self, msecShowTime=3000)
+		except Exception as e:
+			self._append_log(f"Error pasting prompts from clipboard: {e}")
+			QMessageBox.critical(self, "Paste Error", f"Failed to paste prompts:\n{str(e)}")
 
 	def on_new_prompt_added(self):
 		if hasattr(self, 'table'):
@@ -2635,6 +2907,8 @@ class PromptGeneratorDialog(QDialog):
 			self.refresh_timer.stop()
 		if hasattr(self, '_member_check_timer'):
 			self._member_check_timer.stop()
+		if hasattr(self, 'tandem_coordinator'):
+			self.tandem_coordinator.stop_server()
 		if self.worker and self.worker.isRunning():
 			self.worker.stop()
 			self.worker.wait()

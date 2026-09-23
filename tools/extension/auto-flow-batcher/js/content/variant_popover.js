@@ -413,18 +413,26 @@
       await this.clickElementSafely(modelTrigger, 'Model dropdown trigger');
       await new Promise(r => setTimeout(r, 400));
 
-      // Wait for menu or menuitem to mount in DOM
+      // Wait for menu or menuitem to mount inside active open menu panel
+      const menuPanelsSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.menuPanels || '[role="menu"]';
       const menuItemsSelector = window.__AFB_RUNTIME_CONFIG__?.selectors?.menuItems || '[role="menuitem"]';
+
       const menuItems = await waitForCondition(() => {
-        const items = Array.from(document.querySelectorAll(menuItemsSelector)).filter(isVisible);
-        return items.length > 0 ? items : null;
+        const panels = Array.from(document.querySelectorAll(menuPanelsSelector)).filter(isVisible);
+        if (panels.length > 0) {
+          const lastPanel = panels[panels.length - 1];
+          const items = Array.from(lastPanel.querySelectorAll(menuItemsSelector)).filter(isVisible);
+          if (items.length > 0) return items;
+        }
+        const allItems = Array.from(document.querySelectorAll(`[role="menu"] ${menuItemsSelector}, [role="menuitem"]`)).filter(isVisible);
+        return allItems.length > 0 ? allItems : null;
       }, 3500);
 
       if (!menuItems || menuItems.length === 0) {
         throw new Error('[AFB-Settings] Model dropdown menu [role="menu"] failed to open in DOM');
       }
 
-      log(`[AFB-Settings] Found ${menuItems.length} menuitems in dropdown: [${menuItems.map(m => (m.textContent || '').trim().replace(/\s+/g, ' ')).join(' | ')}]`);
+      log(`[AFB-Settings] Found ${menuItems.length} menuitems in active dropdown: [${menuItems.map(m => (m.textContent || '').trim().replace(/\s+/g, ' ')).join(' | ')}]`);
 
       // Filter menu items to interactive leaf targets
       const leafMenuItems = menuItems.filter(el => {
@@ -436,23 +444,16 @@
       const candidateList = leafMenuItems.length > 0 ? leafMenuItems : menuItems;
       const aliases = window.__AFB_RUNTIME_CONFIG__?.popover?.modelAliases || {};
 
+      // Match strictly by full normalized name (no partial keyword leakage)
       const matchItem = candidateList.find(item => {
         const txt = normalizeText(item.textContent || '');
         const aria = normalizeText(item.getAttribute('aria-label') || '');
-        const combined = `${txt} ${aria}`;
-
-        // Match against dynamic aliases configured in CIORA Storage
-        for (const [key, rule] of Object.entries(aliases)) {
-          if (normTarget.includes(key)) {
-            const inc = rule.include || [];
-            const exc = rule.exclude || [];
-            const incPass = inc.length === 0 || inc.some(t => combined.includes(t));
-            const excPass = exc.length === 0 || !exc.some(t => combined.includes(t));
-            if (incPass && excPass) return true;
-          }
-        }
-
-        return txt === normTarget || aria === normTarget || txt.startsWith(normTarget);
+        return txt === normTarget || aria === normTarget;
+      }) || candidateList.find(item => {
+        // Fallback only if exact match didn't find: startsWith or includes
+        const txt = normalizeText(item.textContent || '');
+        const aria = normalizeText(item.getAttribute('aria-label') || '');
+        return txt.startsWith(normTarget) || aria.startsWith(normTarget) || txt.includes(normTarget);
       });
 
       if (!matchItem) {
@@ -465,20 +466,44 @@
       const itemLabel = (clickableTarget.textContent || matchItem.textContent || '').trim();
 
       log(`[AFB-Settings] 2. Selecting Model menuitem: "${itemLabel}"...`);
-      await this.clickElementSafely(clickableTarget, `Model ${itemLabel}`);
+      // Use trusted CDP click if available, otherwise synthetic click
+      try {
+        const rect = clickableTarget.getBoundingClientRect();
+        const cx = Math.round(rect.left + rect.width / 2);
+        const cy = Math.round(rect.top + rect.height / 2);
+        const cdpRes = await new Promise(resolve => {
+          chrome.runtime.sendMessage({
+            type: 'TRIGGER_CDP_CLICK',
+            x: cx,
+            y: cy
+          }, resp => resolve(resp));
+        });
+        if (!cdpRes || !cdpRes.ok) {
+          await this.clickElementSafely(clickableTarget, `Model ${itemLabel}`);
+        }
+      } catch (_) {
+        await this.clickElementSafely(clickableTarget, `Model ${itemLabel}`);
+      }
       await new Promise(r => setTimeout(r, 600));
 
-      // Wait for dropdown to close and verify trigger label updated
+      // Wait for dropdown to close and verify trigger label updated (check both inside popover and main settings trigger)
       log('[AFB-Settings] 3. Verifying Model selection in DOM...');
       const verified = await waitForCondition(() => {
         const currTrigger = this.findModelTrigger();
-        if (!currTrigger) return false;
-        const txt = normalizeText(currTrigger.textContent || '');
-        return txt.includes(normTarget) || normTarget.includes(txt);
+        if (currTrigger) {
+          const t = normalizeText(currTrigger.textContent || '');
+          if (t.includes(normTarget) || normTarget.includes(t)) return true;
+        }
+        const mainSettingsTrigger = this.findSettingsTrigger();
+        if (mainSettingsTrigger) {
+          const mainTxt = normalizeText(mainSettingsTrigger.textContent || '');
+          if (mainTxt.includes(normTarget) || normTarget.includes(mainTxt)) return true;
+        }
+        return false;
       }, 3000);
 
       if (!verified) {
-        const currentAfter = this.findModelTrigger()?.textContent?.trim() || 'unknown';
+        const currentAfter = this.findModelTrigger()?.textContent?.trim() || this.findSettingsTrigger()?.textContent?.trim() || 'unknown';
         throw new Error(`[AFB-Settings] Failed to verify Model update to "${targetModel}" (current: "${currentAfter}")`);
       }
 

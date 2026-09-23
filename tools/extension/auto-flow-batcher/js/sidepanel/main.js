@@ -19,6 +19,7 @@ import {
   getSettings, 
   saveSettingsToStorage,
   loadSettingsFromStorage,
+  restoreModeSettings,
   getRepeatPerPrompt,
   setStepMode, 
   updateStepButton 
@@ -53,6 +54,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     console.warn('Could not load manifest version:', e);
   }
+
+  // ─── Tandem Mode Live Badge ─────────────────────────────────────────────
+  const tandemBadge = document.getElementById('tandemBadge');
+  function updateTandemBadge(connected) {
+    if (tandemBadge) {
+      if (connected) {
+        tandemBadge.classList.add('active');
+        tandemBadge.classList.remove('hidden');
+      } else {
+        tandemBadge.classList.remove('active');
+        tandemBadge.classList.add('hidden');
+      }
+    }
+  }
+  // Check initial tandem connection state
+  try {
+    chrome.runtime.sendMessage({ type: 'GET_TANDEM_STATUS' }, (res) => {
+      if (res?.connected) updateTandemBadge(true);
+    });
+  } catch (_) {}
 
   const elements = getUIElements();
   const {
@@ -215,7 +236,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateRatioOptions(selectedType);
         updateModelOptions(selectedType);
         updateDownloadQualityOptions(selectedType);
-        saveSettingsToStorage();
+
+        // Instantly restore the specific settings saved for this mode!
+        chrome.storage.local.get(['afb_saved_settings'], (data) => {
+          if (data && data.afb_saved_settings) {
+            restoreModeSettings(selectedType, data.afb_saved_settings);
+            updateModelOptions(selectedType);
+          }
+          saveSettingsToStorage();
+        });
       }
     });
   }
@@ -873,6 +902,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (msg.action === "DOWNLOAD_COOLDOWN_END" || msg.action === "BATCH_COMPLETE") {
       stopCountdown();
     }
+
+    if (msg.action === "TANDEM_STATUS_CHANGED") {
+      updateTandemBadge(Boolean(msg.connected));
+    }
+
+    if (msg.action === "TANDEM_EXECUTE_PROMPT") {
+      const promptText = (msg.prompt || '').trim();
+      if (promptText && manualInput) {
+        // Enforce Image mode for Tandem pipeline if currently in Video
+        const typeImage = document.getElementById('typeImage');
+        const activeType = document.querySelector('input[name="type"]:checked')?.value;
+        if (activeType !== 'image' && typeImage) {
+          typeImage.click(); // Triggers existing UI listeners cleanly
+          appendLog('[Tandem] Switched mode to Image for vector pipeline.', 'info');
+        }
+
+        // Clear old prompt cleanly
+        if (state.isRunning) {
+          stopProcess(elements);
+        }
+        if (elements.btnClearInput) {
+          elements.btnClearInput.click();
+        } else {
+          manualInput.value = '';
+          state.currentPrompts = [];
+        }
+        state.currentIndex = 0;
+
+        // Set new prompt and start
+        manualInput.value = promptText;
+        state.currentPrompts = parsePrompts(promptText);
+        updateQueue(getRepeatPerPrompt(), () => updateStepButton(elements));
+        updateStats();
+        appendLog(`[Tandem] Received remote prompt: "${promptText}"`, 'act');
+
+        if (btnStart) {
+          setTimeout(() => {
+            btnStart.click();
+          }, 200);
+        }
+      }
+    }
   });
 
   appendLog('Extension loaded. Ready to attach to page.', 'info');
@@ -887,7 +958,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveSettingsToStorage();
     });
   });
-  ['globalDelaySeconds', 'refreshAfterPrompts', 'newProjectAfterPrompts', 'repeatPerPrompt'].forEach(id => {
+  ['promptDelaySeconds', 'downloadDelaySeconds', 'autoRetryRounds', 'retryCooldownSeconds', 'refreshAfterPrompts', 'newProjectAfterPrompts', 'repeatPerPrompt'].forEach(id => {
     const el = document.getElementById(id);
     el?.addEventListener('input', () => {
       saveSettingsToStorage();
@@ -899,7 +970,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   window.addEventListener('focus', () => {
     initView();
-    loadSettingsFromStorage();
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

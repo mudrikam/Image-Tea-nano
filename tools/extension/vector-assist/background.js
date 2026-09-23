@@ -67,8 +67,18 @@ if (chrome.downloads && chrome.downloads.onChanged) {
     chrome.downloads.search({ id: delta.id }, function (items) {
       var item = items && items[0];
       if (!item) return;
+
+      // Strictly ignore downloads that did not originate from vectorizer.ai
+      var dlUrl = (item.url || item.finalUrl || "").toLowerCase();
+      if (!dlUrl.includes("vectorizer.ai")) return;
+
       var startedAt = Date.parse(item.startTime || "") || 0;
       if (startedAt + 1500 < lastSubmitTs) return;
+      // Direct notify to Tandem Server connector if active
+      if (typeof self.broadcastVectorTandemDownload === "function") {
+        try { self.broadcastVectorTandemDownload(item.filename || (item.suggestedFilename || ""), item.totalBytes || 0); } catch (_) {}
+      }
+
       chrome.runtime.sendMessage({
         type: "VECTOR_ASSIST_DOWNLOAD_COMPLETE",
         id: delta.id,
@@ -192,6 +202,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   }
 
   var FORWARD_TYPES = {
+    INITIALIZE_RUNTIME_CONFIG: true,
     VECTOR_ASSIST_UPLOAD_FILE: true,
     VECTOR_ASSIST_GET_PROGRESS: true,
     VECTOR_ASSIST_GET_PAGE_INFO: true,
@@ -239,3 +250,10 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     return true;
   }
 });
+
+// ─── Tandem Connector Bridge ──────────────────────────────────────────────────
+try {
+  importScripts('tandem_connector.js');
+} catch (e) {
+  console.warn('[Vector-Assist] Tandem connector script import:', e);
+}
