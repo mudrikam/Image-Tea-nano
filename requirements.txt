@@ -16,3 +16,4 @@ pynput
 PyYAML
 onnxruntime-gpu
 Pygments
+aiohttp
