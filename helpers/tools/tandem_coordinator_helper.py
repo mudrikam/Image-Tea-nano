@@ -108,6 +108,13 @@ class TandemPipelineCoordinator(QObject):
             self.server_thread = None
             self.log_emitted.emit("[Tandem] Bridge server stopped.")
 
+    def restart_server(self):
+        """Cleanly stops and restarts the Tandem Bridge Server with brief socket release."""
+        self.stop_server()
+        self.status_changed.emit("server", "Restarting...")
+        self.log_emitted.emit("[Tandem] Restarting local bridge server...")
+        QTimer.singleShot(400, self.start_server)
+
     def _on_server_status(self, is_running, message):
         status = message if is_running else "Stopped"
         self.status_changed.emit("server", status)

@@ -741,6 +741,11 @@ function doReset() {
           return;
         }
 
+        if (!window.cioraLicense || !window.cioraLicense.isValid) {
+          logError("Access locked: Akun kamu belum memiliki lisensi aktif untuk Vector Assist.");
+          return;
+        }
+
         // Fetch dynamic runtime configuration from CIORA storage before running
         try {
           var cfg = await fetchRemoteCoreEngine(authState.cdeToken);
@@ -2696,6 +2701,67 @@ function startRunnerProgressPolling() {
     var btnOpenDash = document.getElementById("btnOpenCioraDashboard");
     var btnLogout = document.getElementById("btnLogoutCiora");
 
+    // ─── CIORA License Authority & UI Lock State ───
+    var licenseTierBadge = document.getElementById("licenseTierBadge");
+    var licenseTierText = document.getElementById("licenseTierText");
+    var licenseNoticeBanner = document.getElementById("licenseNoticeBanner");
+    var licenseNoticeText = document.getElementById("licenseNoticeText");
+
+    function renderLicenseState() {
+      if (!authState.isPaired) {
+        document.body.classList.add("license-locked");
+        if (licenseTierBadge) licenseTierBadge.classList.add("hidden");
+        if (licenseNoticeBanner) {
+          licenseNoticeBanner.classList.remove("hidden");
+          if (licenseNoticeText) {
+            licenseNoticeText.textContent = "Hubungkan akun CIORA untuk memvalidasi lisensi software.";
+          }
+        }
+        return;
+      }
+
+      if (window.cioraLicense && window.cioraLicense.isValid) {
+        document.body.classList.remove("license-locked");
+        if (licenseNoticeBanner) {
+          licenseNoticeBanner.classList.add("hidden");
+        }
+
+        if (licenseTierBadge) {
+          var tier = (window.cioraLicense.tier || "pro").toLowerCase();
+          licenseTierBadge.className = "license-tier-badge tier-" + tier;
+          if (licenseTierText) {
+            licenseTierText.textContent = tier.toUpperCase();
+          }
+          licenseTierBadge.title = "CIORA License Active: " + tier.toUpperCase();
+          licenseTierBadge.classList.remove("hidden");
+        }
+      } else {
+        document.body.classList.add("license-locked");
+        if (licenseTierBadge) licenseTierBadge.classList.add("hidden");
+        if (licenseNoticeBanner) {
+          licenseNoticeBanner.classList.remove("hidden");
+          if (licenseNoticeText) {
+            licenseNoticeText.textContent = "Akun belum memiliki lisensi untuk Vector Assist.";
+          }
+        }
+      }
+    }
+
+    async function checkAppLicense() {
+      if (!authState.cdeToken || !window.cioraLicense) {
+        if (window.cioraLicense) window.cioraLicense.isValid = false;
+        renderLicenseState();
+        return;
+      }
+
+      var result = await window.cioraLicense.verifyAppLicense(authState.cdeToken, "vector-assist");
+      renderLicenseState();
+
+      if (!result.valid) {
+        logWarn("Perhatian: Akun CIORA kamu belum memiliki lisensi aktif untuk Vector Assist.");
+      }
+    }
+
     function updateAuthUI() {
       if (authState.isPaired && authState.user) {
         if (btnConnect) btnConnect.classList.add("hidden");
@@ -2753,6 +2819,7 @@ function startRunnerProgressPolling() {
             log("act", "Pairing code opened in browser: \"" + data.user_code + "\". Waiting for approval...");
           } else if (status === "approved") {
             log("success", "CIORA Account connected successfully: " + ((data.user && data.user.email) || "User") + " ✓");
+            checkAppLicense();
             // Automatically sync dynamic runtime config into tab
             if (data.token) {
               fetchRemoteCoreEngine(data.token).then(function (cfg) {
@@ -2809,6 +2876,8 @@ function startRunnerProgressPolling() {
       btnLogout.onclick = async function () {
         if (popover) popover.classList.add("hidden");
         await logoutCioraSession();
+        if (window.cioraLicense) window.cioraLicense.isValid = false;
+        renderLicenseState();
         logWarn("CIORA Account disconnected. Extension locked.");
         updateAuthUI();
       };
@@ -2816,6 +2885,7 @@ function startRunnerProgressPolling() {
 
     loadSavedAuthSession().then(function (sess) {
       updateAuthUI();
+      checkAppLicense();
       if (sess && sess.token) {
         fetchRemoteCoreEngine(sess.token).then(function (cfg) {
           chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {

@@ -39,6 +39,10 @@ import {
   logoutCioraSession, 
   fetchRemoteCoreEngine 
 } from './auth_manager.js';
+import { 
+  licenseState, 
+  verifyAppLicense 
+} from './license_manager.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Load extension version from manifest
@@ -102,6 +106,70 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnOpenCioraDashboard = document.getElementById('btnOpenCioraDashboard');
   const btnLogoutCiora = document.getElementById('btnLogoutCiora');
 
+  // ─── CIORA License Authority & UI Lock State ─────────────────────────────
+  const licenseTierBadge = document.getElementById('licenseTierBadge');
+  const licenseTierText = document.getElementById('licenseTierText');
+  const licenseNoticeBanner = document.getElementById('licenseNoticeBanner');
+  const licenseNoticeText = document.getElementById('licenseNoticeText');
+
+  function renderLicenseState() {
+    if (!authState.isPaired) {
+      // 1. Unpaired: Lock GUI, hide tier pill, show pairing notice
+      document.body.classList.add('license-locked');
+      licenseTierBadge?.classList.add('hidden');
+      if (licenseNoticeBanner) {
+        licenseNoticeBanner.classList.remove('hidden');
+        if (licenseNoticeText) {
+          licenseNoticeText.textContent = 'Hubungkan akun CIORA untuk memvalidasi lisensi software.';
+        }
+      }
+      return;
+    }
+
+    if (licenseState.isValid) {
+      // 2. Valid License: Unlock GUI, show tier pill, hide notice banner
+      document.body.classList.remove('license-locked');
+      if (licenseNoticeBanner) {
+        licenseNoticeBanner.classList.add('hidden');
+      }
+
+      if (licenseTierBadge) {
+        const tier = (licenseState.tier || 'pro').toLowerCase();
+        licenseTierBadge.className = `license-tier-badge tier-${tier}`;
+        if (licenseTierText) {
+          licenseTierText.textContent = tier.toUpperCase();
+        }
+        licenseTierBadge.title = `CIORA License Active: ${tier.toUpperCase()}`;
+        licenseTierBadge.classList.remove('hidden');
+      }
+    } else {
+      // 3. Paired but No Matching License: Lock GUI with blur, show missing license notice
+      document.body.classList.add('license-locked');
+      licenseTierBadge?.classList.add('hidden');
+      if (licenseNoticeBanner) {
+        licenseNoticeBanner.classList.remove('hidden');
+        if (licenseNoticeText) {
+          licenseNoticeText.textContent = 'Akun belum memiliki lisensi untuk Auto Flow Batcher.';
+        }
+      }
+    }
+  }
+
+  async function checkAppLicense() {
+    if (!authState.cdeToken) {
+      licenseState.isValid = false;
+      renderLicenseState();
+      return;
+    }
+
+    const result = await verifyAppLicense(authState.cdeToken, 'auto-flow-batcher');
+    renderLicenseState();
+
+    if (!result.valid) {
+      appendLog('Perhatian: Akun CIORA kamu belum memiliki lisensi aktif untuk Auto Flow Batcher.', 'warn');
+    }
+  }
+
   function updateAuthUI() {
     if (authState.isPaired && authState.user) {
       // Paired state
@@ -158,9 +226,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Load persistent auth session
+  // Load persistent auth session & verify app license
   await loadSavedAuthSession();
   updateAuthUI();
+  await checkAppLicense();
 
   // Connect button click
   btnConnectCiora?.addEventListener('click', () => {
@@ -171,6 +240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         appendLog(`Pairing code opened in browser: "${data.user_code}". Waiting for approval...`, 'act');
       } else if (status === 'approved') {
         appendLog(`CIORA Account connected successfully: ${data.user?.email || 'User'} ✓`, 'success');
+        checkAppLicense();
       } else if (status === 'denied') {
         appendLog('CIORA device pairing was denied by user.', 'warn');
       } else if (status === 'expired') {
@@ -214,6 +284,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnLogoutCiora?.addEventListener('click', async () => {
     cioraProfilePopover?.classList.add('hidden');
     await logoutCioraSession();
+    licenseState.isValid = false;
+    renderLicenseState();
     appendLog('CIORA Account disconnected. Extension locked.', 'warn');
     updateAuthUI();
   });
@@ -511,10 +583,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      // 0. Gatecheck: Must be paired with CIORA
+      // 0. Gatecheck: Must be paired with CIORA and possess valid license
       if (!authState.isPaired || !authState.cdeToken) {
         appendLog('Access locked: Please connect your CIORA account at the bottom footer to start.', 'warn');
         btnConnectCiora?.click();
+        return;
+      }
+
+      if (!licenseState.isValid) {
+        appendLog('Access locked: Akun kamu belum memiliki lisensi aktif untuk Auto Flow Batcher.', 'error');
         return;
       }
 

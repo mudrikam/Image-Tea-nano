@@ -127,6 +127,39 @@ body {
   display: none;
 }
 
+/* ─── CIORA License Tier Badge ─── */
+.license-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  line-height: 1;
+  padding: 1.5px 5.5px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.license-tier-badge.tier-standard {
+  background: rgba(161, 161, 170, 0.12);
+  color: #d4d4d8;
+  border: 1px solid rgba(161, 161, 170, 0.3);
+}
+.license-tier-badge.tier-pro {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+.license-tier-badge.tier-studio,
+.license-tier-badge.tier-enterprise {
+  background: rgba(168, 85, 247, 0.14);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
 .tandem-status-badge.active {
   display: inline-flex;
   align-items: center;
@@ -1546,6 +1579,116 @@ body {
   flex-shrink: 0;
   position: relative;
 }
+
+/* ─── Footer License Banner ─── */
+.footer-license-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+.footer-license-banner.hidden {
+  display: none !important;
+}
+.license-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.license-lock-icon {
+  flex-shrink: 0;
+  color: #ef4444;
+}
+.license-notice-text {
+  font-size: 10px;
+  line-height: 1.25;
+  color: #fca5a5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.license-btn-action {
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #ef4444;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+.license-btn-action:hover {
+  background: #dc2626;
+}
+
+/* ─── License Lock Effect: Pure Typography & Font Blur (Components & Landing Untouched) ─── */
+body.license-locked #mainInterface p,
+body.license-locked #mainInterface span,
+body.license-locked #mainInterface label,
+body.license-locked #mainInterface h1,
+body.license-locked #mainInterface h2,
+body.license-locked #mainInterface h3,
+body.license-locked #mainInterface h4,
+body.license-locked #mainInterface td,
+body.license-locked #mainInterface th,
+body.license-locked #mainInterface code,
+body.license-locked #mainInterface pre,
+body.license-locked #mainInterface small,
+body.license-locked #mainInterface b,
+body.license-locked #mainInterface strong,
+body.license-locked #mainInterface input,
+body.license-locked #mainInterface textarea,
+body.license-locked #mainInterface select,
+body.license-locked #mainInterface .control-start-label,
+body.license-locked #mainInterface .dnd-text,
+body.license-locked #mainInterface .dnd-hint,
+body.license-locked #mainInterface .tab,
+body.license-locked #mainInterface .set-title,
+body.license-locked #mainInterface .set-opt span,
+body.license-locked #mainInterface .file-name,
+body.license-locked #mainInterface .file-size,
+body.license-locked #mainInterface .log-line {
+  color: transparent !important;
+  text-shadow: 0 0 5px rgba(220, 225, 235, 0.75) !important;
+  user-select: none !important;
+}
+
+body.license-locked #mainInterface input::placeholder,
+body.license-locked #mainInterface textarea::placeholder {
+  color: transparent !important;
+  text-shadow: 0 0 5px rgba(220, 225, 235, 0.5) !important;
+}
+
+/* SVG icons inside main interface remain visible and crisp */
+body.license-locked #mainInterface svg {
+  color: #a1a1aa !important;
+  filter: none !important;
+}
+
+/* Landing page, Header, Footer, Popovers, & Modals stay 100% crisp and interactive */
+#landingPage,
+.landing-page,
+body.license-locked #landingPage,
+.header,
+.footer,
+.ciora-popover,
+.help-modal,
+.restart-modal {
+  filter: none !important;
+  pointer-events: auto !important;
+}
+
 .footer-bar {
   display: flex;
   align-items: center;

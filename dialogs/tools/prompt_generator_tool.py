@@ -273,6 +273,7 @@ class PromptGeneratorDialog(QDialog):
 		self.is_generating = False
 		self.current_generating_file = None
 		self.gen_icon = qta.icon('fa6s.wand-magic-sparkles', color=theme.get_color('white'))
+		self.tandem_play_icon = qta.icon('fa6s.play', color=theme.get_color('white'))
 		self.stop_icon = qta.icon('fa6s.stop', color=theme.get_color('white'))
 		self.last_prompt_count = 0
 		self.api_key = None
@@ -817,7 +818,7 @@ class PromptGeneratorDialog(QDialog):
 		host_lbl = QLabel("Bridge Port:")
 		host_lbl.setMinimumWidth(100)
 		self.tandem_port_lbl = QLabel("48200 (Auto)")
-		self.tandem_port_lbl.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
+		self.tandem_port_lbl.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; font-size: 11px;")
 		host_row.addWidget(host_lbl)
 		host_row.addWidget(self.tandem_port_lbl, 1)
 		hub_layout.addLayout(host_row)
@@ -826,7 +827,7 @@ class PromptGeneratorDialog(QDialog):
 		status_title_lbl = QLabel("Hub Status:")
 		status_title_lbl.setMinimumWidth(100)
 		self.tandem_server_status_lbl = QLabel("Active")
-		self.tandem_server_status_lbl.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
+		self.tandem_server_status_lbl.setStyleSheet(f"color: {theme.get_color('primary')}; font-weight: bold; font-size: 11px;")
 		server_status_row.addWidget(status_title_lbl)
 		server_status_row.addWidget(self.tandem_server_status_lbl, 1)
 		hub_layout.addLayout(server_status_row)
@@ -843,7 +844,7 @@ class PromptGeneratorDialog(QDialog):
 		w1_lbl = QLabel("Auto Flow Batcher:")
 		w1_lbl.setMinimumWidth(130)
 		self.tandem_w1_badge = QLabel("Disconnected")
-		self.tandem_w1_badge.setStyleSheet("color: #9ca3af; font-weight: bold; font-size: 11px;")
+		self.tandem_w1_badge.setStyleSheet(f"color: {theme.get_color('gray')}; font-weight: bold; font-size: 11px;")
 		w1_row.addWidget(w1_lbl)
 		w1_row.addWidget(self.tandem_w1_badge)
 		w1_row.addStretch()
@@ -854,7 +855,7 @@ class PromptGeneratorDialog(QDialog):
 		w2_lbl = QLabel("Vector Assist:")
 		w2_lbl.setMinimumWidth(130)
 		self.tandem_w2_badge = QLabel("Disconnected")
-		self.tandem_w2_badge.setStyleSheet("color: #9ca3af; font-weight: bold; font-size: 11px;")
+		self.tandem_w2_badge.setStyleSheet(f"color: {theme.get_color('gray')}; font-weight: bold; font-size: 11px;")
 		w2_row.addWidget(w2_lbl)
 		w2_row.addWidget(self.tandem_w2_badge)
 		w2_row.addStretch()
@@ -868,18 +869,31 @@ class PromptGeneratorDialog(QDialog):
 		p_layout.setSpacing(8)
 
 		handoff_info = QLabel("Workflow:\n1. Dispatches prompts from the table sequentially.\n2. Auto Flow renders and downloads all batch images.\n3. Physical files are automatically forwarded to Vector Assist.\n4. Vector Assist traces and downloads vector assets.\n5. Prompt status updates to 'copied' (green) upon completion.")
-		handoff_info.setStyleSheet("color: #9ca3af; font-size: 11px; line-height: 1.5;")
+		handoff_info.setStyleSheet(f"color: {theme.get_color('gray')}; font-size: 11px; line-height: 1.5;")
 		handoff_info.setWordWrap(True)
 		p_layout.addWidget(handoff_info)
 
 		layout.addWidget(pipeline_box)
 		layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
+		# Bottom-Right Reconnect Button (Outside groupbox frames, bottom-right of Tandem tab)
+		reconnect_bottom_layout = QHBoxLayout()
+		reconnect_bottom_layout.setContentsMargins(0, 0, 0, 0)
+		reconnect_bottom_layout.addStretch()
+
+		self.btn_reconnect_tandem = QPushButton(qta.icon('fa6s.arrows-rotate'), " Reconnect")
+		self.btn_reconnect_tandem.setCursor(Qt.PointingHandCursor)
+		self.btn_reconnect_tandem.setToolTip("Restart Tandem Bridge Server & re-detect connected browser workers")
+		self.btn_reconnect_tandem.clicked.connect(self._on_reconnect_tandem_clicked)
+		reconnect_bottom_layout.addWidget(self.btn_reconnect_tandem)
+
+		layout.addLayout(reconnect_bottom_layout)
+
 		return widget
 
 	def _on_tandem_status_changed(self, target, status_str):
 		is_active = (status_str.lower() != "disconnected" and status_str.lower() != "stopped")
-		color = "#4ade80" if is_active else "#9ca3af"
+		color = theme.get_color('primary') if is_active else theme.get_color('gray')
 		style = f"color: {color}; font-weight: bold; font-size: 11px;"
 
 		if target == "server":
@@ -891,6 +905,10 @@ class PromptGeneratorDialog(QDialog):
 		elif target == "vector_assist":
 			self.tandem_w2_badge.setText(status_str)
 			self.tandem_w2_badge.setStyleSheet(style)
+
+	def _on_reconnect_tandem_clicked(self):
+		self._append_log("[Tandem] Reconnecting Tandem Bridge Server...")
+		self.tandem_coordinator.restart_server()
 
 	def _on_tandem_prompt_started(self, prompt_id, prompt_text):
 		self._active_tandem_prompt_id = prompt_id
@@ -1355,7 +1373,7 @@ class PromptGeneratorDialog(QDialog):
 			self.generate_btn.setIcon(self.gen_icon)
 		else:
 			self.generate_btn.setText(" Start Tandem Pipeline")
-			self.generate_btn.setIcon(qta.icon('fa6s.play'))
+			self.generate_btn.setIcon(self.tandem_play_icon)
 		self.update_stats_display()
 
 	def _lock_left_tabs(self, locked):
@@ -1789,7 +1807,7 @@ class PromptGeneratorDialog(QDialog):
 				icon = self.gen_icon
 			else:
 				label = " Start Tandem Pipeline"
-				icon = qta.icon('fa6s.play')
+				icon = self.tandem_play_icon
 			self.generate_btn.setIcon(icon)
 			self.generate_btn.setText(label)
 			self.generate_btn.setStyleSheet(f"""

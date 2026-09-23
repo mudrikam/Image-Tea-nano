@@ -49,7 +49,7 @@ class TandemServerThread(QThread):
 
         self.runner = web.AppRunner(app)
         await self.runner.setup()
-        self.site = web.TCPSite(self.runner, self.host, self.port)
+        self.site = web.TCPSite(self.runner, self.host, self.port, reuse_address=True)
         await self.site.start()
 
         msg = f"Running on {self.host}:{self.port}"

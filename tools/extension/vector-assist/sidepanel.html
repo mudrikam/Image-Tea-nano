@@ -14,6 +14,9 @@
         <h1>Vector Assist</h1>
         <div class="version-row">
           <span class="version" id="extensionVersion"></span>
+          <span id="licenseTierBadge" class="license-tier-badge hidden" title="CIORA License Active">
+            <span class="tier-text" id="licenseTierText">PRO</span>
+          </span>
           <span id="tandemBadge" class="tandem-status-badge hidden" title="Connected to Image-Tea Tandem Pipeline">
             <span class="tandem-dot"></span>
             Tandem Mode
@@ -515,6 +518,20 @@
   </div>
 
   <footer class="footer">
+    <!-- License Notice Banner (Shown when user has no license for this tool) -->
+    <div id="licenseNoticeBanner" class="footer-license-banner hidden">
+      <div class="license-banner-left">
+        <svg class="license-lock-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span id="licenseNoticeText" class="license-notice-text">Akun kamu belum memiliki lisensi untuk aplikasi ini.</span>
+      </div>
+      <a id="btnGetLicense" href="https://ciora.id/dashboard" target="_blank" rel="noopener noreferrer" class="license-btn-action">
+        Dapatkan Lisensi
+      </a>
+    </div>
+
     <div class="footer-bar">
       <!-- Left Side: CIORA Auth State -->
       <div class="footer-left-group">
@@ -577,6 +594,7 @@
   </footer>
 
   <script src="auth_manager.js"></script>
+  <script src="license_manager.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

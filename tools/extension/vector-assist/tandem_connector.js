@@ -183,10 +183,19 @@
     });
   };
 
-  // Handle sidepanel status request
+  // Handle sidepanel status & reconnect request
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message && message.type === 'GET_TANDEM_STATUS') {
       sendResponse({ connected: _isConnected });
+      return true;
+    }
+    if (message && (message.type === 'RECONNECT_TANDEM' || message.action === 'RECONNECT_TANDEM')) {
+      if (_ws) {
+        try { _ws.close(); } catch (_) {}
+        _ws = null;
+      }
+      connectTandem();
+      sendResponse({ status: 'reconnecting' });
       return true;
     }
   });
