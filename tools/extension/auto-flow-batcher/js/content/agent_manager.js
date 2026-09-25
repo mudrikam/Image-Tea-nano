@@ -9,21 +9,28 @@
      */
     findAgentButton() {
       const isVisible = window.AFB_DOM ? window.AFB_DOM.isVisibleElement : (el => el && el.getBoundingClientRect().width > 0);
+
+      // Strategy 0: Direct tag and specific class match (Google Flow Custom Element)
+      const directChipBtn = document.querySelector('flow-agent-mode-toggle-chip button, button.agent-mode-chip');
+      if (directChipBtn && isVisible(directChipBtn)) return directChipBtn;
+
       const buttons = Array.from(document.querySelectorAll('button, [role="button"], [role="switch"]')).filter(isVisible);
 
-      // Strategy 1: Exact aria-label match
+      // Strategy 1: Exact aria-label match (English & Indonesian)
       const exactAria = buttons.find(b => {
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-        return aria === 'agent' || aria === 'toggle agent' || aria === 'agent mode';
+        return aria === 'agent' || aria === 'toggle agent' || aria === 'agent mode' ||
+               aria === 'agen' || aria === 'alihkan agen' || aria === 'mode agen';
       });
       if (exactAria) return exactAria;
 
-      // Strategy 2: Button text or child text matching "Agent"
+      // Strategy 2: Button text or child text matching "Agent" / "Agen"
       const exactText = buttons.find(b => {
-        const text = (b.textContent || '').replace(/\s+/g, ' ').trim();
-        if (text.toLowerCase() === 'agent') return true;
-        const labelSpan = b.querySelector('.mdc-button__label, span, div');
-        return labelSpan && labelSpan.textContent.trim().toLowerCase() === 'agent';
+        const text = (b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (text === 'agent' || text === 'agen') return true;
+        const labelSpan = b.querySelector('.agent-mode-chip-label, .mdc-button__label, span, div');
+        const spanText = (labelSpan?.textContent || '').trim().toLowerCase();
+        return spanText === 'agent' || spanText === 'agen';
       });
       if (exactText) return exactText;
 
@@ -35,8 +42,10 @@
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
         const text = (b.textContent || '').toLowerCase();
 
-        return (testId.includes('agent') || id.includes('agent') || className.includes('agent-button') || className.includes('agent-toggle')) &&
-               (text.includes('agent') || aria.includes('agent'));
+        return (testId.includes('agent') || testId.includes('agen') ||
+                id.includes('agent') || id.includes('agen') ||
+                className.includes('agent') || className.includes('agen')) &&
+               (text.includes('agent') || text.includes('agen') || aria.includes('agent') || aria.includes('agen'));
       });
       if (attrMatch) return attrMatch;
 
@@ -44,8 +53,13 @@
       return buttons.find(b => {
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
         const text = (b.textContent || '').trim().toLowerCase();
-        const hasAgent = aria.includes('agent') || text.includes('agent');
-        const isExcluded = aria.includes('close') || aria.includes('settings') || aria.includes('create') || aria.includes('help');
+        const hasAgent = aria.includes('agent') || aria.includes('agen') || text.includes('agent') || text.includes('agen');
+        const isExcluded = aria.includes('close') || aria.includes('tutup') ||
+                           aria.includes('settings') || aria.includes('setelan') ||
+                           aria.includes('create') || aria.includes('buat') ||
+                           aria.includes('help') || aria.includes('bantuan') ||
+                           aria.includes('petunjuk') || text.includes('petunjuk') ||
+                           aria.includes('instruction') || text.includes('instruction');
         return hasAgent && !isExcluded;
       }) || null;
     },
@@ -64,12 +78,20 @@
       const ariaPressed = agentBtn.getAttribute('aria-pressed');
       const dataState = agentBtn.getAttribute('data-state');
       const ariaChecked = agentBtn.getAttribute('aria-checked');
-      const hasActiveClass = agentBtn.classList.contains('active') || agentBtn.classList.contains('selected') || agentBtn.classList.contains('on');
+      const chipParent = agentBtn.closest('flow-agent-mode-toggle-chip');
+      const isChipChecked = agentBtn.classList.contains('agent-mode-chip-checked') ||
+                            (chipParent && chipParent.classList.contains('checked'));
+
+      const hasActiveClass = agentBtn.classList.contains('active') ||
+                             agentBtn.classList.contains('selected') ||
+                             agentBtn.classList.contains('on') ||
+                             isChipChecked;
 
       return ariaPressed === 'true' ||
              dataState === 'on' ||
              dataState === 'checked' ||
              ariaChecked === 'true' ||
+             isChipChecked ||
              (hasActiveClass && ariaPressed !== 'false' && dataState !== 'off');
     },
 
@@ -110,7 +132,8 @@
           const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
           const text = (b.textContent || '').trim().toLowerCase();
           const icon = (b.querySelector(iconSel)?.textContent || '').trim().toLowerCase();
-          return aria === 'close' || aria.includes('close side') || aria.includes('close panel') || text === 'close' || icon === 'close';
+          return aria === 'close' || aria.includes('close side') || aria.includes('close panel') || text === 'close' || icon === 'close' ||
+                 aria === 'tutup' || aria.includes('tutup') || text === 'tutup' || icon === 'tutup';
         });
         if (sideCloseBtn) return sideCloseBtn;
       }
@@ -121,7 +144,8 @@
         const text = (b.textContent || '').trim().toLowerCase();
         const icon = (b.querySelector(iconSel)?.textContent || '').trim().toLowerCase();
         return aria === 'close' || aria === 'close sidebar' || aria === 'close sidepanel' || aria === 'close panel' ||
-               text === 'close' || icon === 'close';
+               text === 'close' || icon === 'close' ||
+               aria === 'tutup' || aria.includes('tutup') || text === 'tutup' || icon === 'tutup';
       }) || null;
     },
 

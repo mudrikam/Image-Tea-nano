@@ -111,45 +111,135 @@ document.addEventListener('DOMContentLoaded', async () => {
   const licenseTierText = document.getElementById('licenseTierText');
   const licenseNoticeBanner = document.getElementById('licenseNoticeBanner');
   const licenseNoticeText = document.getElementById('licenseNoticeText');
+  const btnGetLicense = document.getElementById('btnGetLicense');
+  const popoverLicTier = document.getElementById('popoverLicTier');
+  const popoverLicExpiry = document.getElementById('popoverLicExpiry');
+  const popoverLicExpiryRow = document.getElementById('popoverLicExpiryRow');
 
   function renderLicenseState() {
+    // Update Popover Details
+    if (popoverLicTier) {
+      if (licenseState.isValid) {
+        popoverLicTier.textContent = `${(licenseState.tier || 'PRO').toUpperCase()} (${(licenseState.licenseType || 'ACTIVE').toUpperCase()})`;
+      } else if (licenseState.isExpired) {
+        popoverLicTier.textContent = 'EXPIRED';
+      } else {
+        popoverLicTier.textContent = 'NO LICENSE';
+      }
+    }
+
+    if (popoverLicExpiry && popoverLicExpiryRow) {
+      if (licenseState.expiresAt) {
+        const expDate = new Date(licenseState.expiresAt).toLocaleDateString('en-US', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+        popoverLicExpiry.textContent = expDate;
+        popoverLicExpiryRow.style.display = 'flex';
+      } else if (licenseState.isValid && licenseState.licenseType === 'lifetime') {
+        popoverLicExpiry.textContent = 'Lifetime';
+        popoverLicExpiryRow.style.display = 'flex';
+      } else {
+        popoverLicExpiryRow.style.display = 'none';
+      }
+    }
     if (!authState.isPaired) {
       // 1. Unpaired: Lock GUI, hide tier pill, show pairing notice
       document.body.classList.add('license-locked');
       licenseTierBadge?.classList.add('hidden');
       if (licenseNoticeBanner) {
+        licenseNoticeBanner.className = 'footer-license-banner';
         licenseNoticeBanner.classList.remove('hidden');
         if (licenseNoticeText) {
-          licenseNoticeText.textContent = 'Hubungkan akun CIORA untuk memvalidasi lisensi software.';
+          licenseNoticeText.textContent = 'Connect your CIORA account to validate software license.';
+        }
+        if (btnGetLicense) {
+          btnGetLicense.textContent = 'Connect';
+          btnGetLicense.onclick = (e) => {
+            e.preventDefault();
+            btnConnectCiora?.click();
+          };
         }
       }
       return;
     }
 
     if (licenseState.isValid) {
-      // 2. Valid License: Unlock GUI, show tier pill, hide notice banner
+      // 2. Valid License (Active & Not Expired): Unlock GUI, show tier pill, hide notice banner
       document.body.classList.remove('license-locked');
       if (licenseNoticeBanner) {
         licenseNoticeBanner.classList.add('hidden');
       }
 
       if (licenseTierBadge) {
+        const isTrial = licenseState.licenseType === 'trial';
         const tier = (licenseState.tier || 'pro').toLowerCase();
-        licenseTierBadge.className = `license-tier-badge tier-${tier}`;
+        licenseTierBadge.className = `license-tier-badge tier-${isTrial ? 'trial' : tier}`;
         if (licenseTierText) {
-          licenseTierText.textContent = tier.toUpperCase();
+          if (isTrial) {
+            licenseTierText.textContent = licenseState.daysRemaining !== null && licenseState.daysRemaining !== undefined
+              ? `TRIAL · ${licenseState.daysRemaining}D`
+              : 'TRIAL';
+          } else {
+            licenseTierText.textContent = tier.toUpperCase();
+          }
         }
-        licenseTierBadge.title = `CIORA License Active: ${tier.toUpperCase()}`;
+
+        let titleStr = `CIORA License Active: ${tier.toUpperCase()}`;
+        if (licenseState.expiresAt) {
+          const expDate = new Date(licenseState.expiresAt).toLocaleDateString('en-US', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          });
+          const remainStr = licenseState.daysRemaining !== null ? ` · ${licenseState.daysRemaining} days remaining` : '';
+          titleStr += ` (Valid until: ${expDate}${remainStr})`;
+        }
+        licenseTierBadge.title = titleStr;
         licenseTierBadge.classList.remove('hidden');
       }
     } else {
-      // 3. Paired but No Matching License: Lock GUI with blur, show missing license notice
+      // 3. Invalid License (Expired or Not Owned): Lock GUI with blur, show accurate footer banner
       document.body.classList.add('license-locked');
-      licenseTierBadge?.classList.add('hidden');
-      if (licenseNoticeBanner) {
-        licenseNoticeBanner.classList.remove('hidden');
-        if (licenseNoticeText) {
-          licenseNoticeText.textContent = 'Akun belum memiliki lisensi untuk Auto Flow Batcher.';
+
+      if (licenseState.isExpired) {
+        // Expired State: Show red EXPIRED pill in header and clear alert in footer
+        if (licenseTierBadge) {
+          licenseTierBadge.className = 'license-tier-badge tier-expired';
+          if (licenseTierText) {
+            licenseTierText.textContent = 'EXPIRED';
+          }
+          licenseTierBadge.title = licenseState.message || 'License period has expired';
+          licenseTierBadge.classList.remove('hidden');
+        }
+
+        if (licenseNoticeBanner) {
+          licenseNoticeBanner.className = 'footer-license-banner banner-expired';
+          licenseNoticeBanner.classList.remove('hidden');
+          if (licenseNoticeText) {
+            licenseNoticeText.textContent = licenseState.message || 'Your license has expired.';
+          }
+          if (btnGetLicense) {
+            btnGetLicense.textContent = 'Renew';
+            btnGetLicense.onclick = null;
+            btnGetLicense.href = 'https://ciora.id/dashboard';
+          }
+        }
+      } else {
+        // No license found for this tool
+        licenseTierBadge?.classList.add('hidden');
+        if (licenseNoticeBanner) {
+          licenseNoticeBanner.className = 'footer-license-banner';
+          licenseNoticeBanner.classList.remove('hidden');
+          if (licenseNoticeText) {
+            licenseNoticeText.textContent = licenseState.message || 'Account does not have a license for Auto Flow Batcher.';
+          }
+          if (btnGetLicense) {
+            btnGetLicense.textContent = 'Get License';
+            btnGetLicense.onclick = null;
+            btnGetLicense.href = 'https://ciora.id/dashboard';
+          }
         }
       }
     }
@@ -158,6 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function checkAppLicense() {
     if (!authState.cdeToken) {
       licenseState.isValid = false;
+      licenseState.isExpired = false;
       renderLicenseState();
       return;
     }
@@ -166,7 +257,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderLicenseState();
 
     if (!result.valid) {
-      appendLog('Perhatian: Akun CIORA kamu belum memiliki lisensi aktif untuk Auto Flow Batcher.', 'warn');
+      if (result.reason === 'expired') {
+        appendLog(`[License] Warning: ${licenseState.message}`, 'error');
+      } else {
+        appendLog('Warning: Your CIORA account does not have an active license for Auto Flow Batcher.', 'warn');
+      }
     }
   }
 
@@ -289,6 +384,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     appendLog('CIORA Account disconnected. Extension locked.', 'warn');
     updateAuthUI();
   });
+
+  // Auto-refresh and expire monitor for CIORA License
+  window.addEventListener('focus', () => {
+    if (authState.cdeToken) checkAppLicense();
+  });
+
+  setInterval(() => {
+    if (licenseState.isValid && licenseState.expiresAt) {
+      if (new Date(licenseState.expiresAt).getTime() <= Date.now()) {
+        licenseState.isValid = false;
+        licenseState.isExpired = true;
+        licenseState.status = 'expired';
+        const typeLabel = licenseState.licenseType === 'trial' ? 'Trial period' : 'Subscription period';
+        licenseState.message = `Your ${typeLabel.toLowerCase()} has expired.`;
+        renderLicenseState();
+        appendLog(`[License] ${licenseState.message}`, 'error');
+      }
+    }
+  }, 30000);
 
   // Clear logs on every sidepanel open
   if (logArea) logArea.innerHTML = '';
@@ -591,7 +705,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (!licenseState.isValid) {
-        appendLog('Access locked: Akun kamu belum memiliki lisensi aktif untuk Auto Flow Batcher.', 'error');
+        if (licenseState.isExpired) {
+          appendLog(`Access locked: ${licenseState.message || 'Your license has expired.'}`, 'error');
+        } else {
+          appendLog('Access locked: Your CIORA account does not have an active license for Auto Flow Batcher.', 'error');
+        }
         return;
       }
 

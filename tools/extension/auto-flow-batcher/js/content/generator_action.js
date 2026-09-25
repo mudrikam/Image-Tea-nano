@@ -38,7 +38,10 @@
       const explicit = buttons.find(b => {
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
         const txt = (b.textContent || '').trim().toLowerCase();
-        const isExcluded = aria.includes('agent') || txt === 'agent' || aria.includes('settings') || aria.includes('clear prompt');
+        const isExcluded = aria.includes('agent') || aria.includes('agen') ||
+                           txt === 'agent' || txt === 'agen' ||
+                           aria.includes('settings') || aria.includes('setelan') ||
+                           aria.includes('clear prompt') || aria.includes('hapus perintah');
         if (isExcluded) return false;
         return (act1 && (aria.includes(act1) || txt.includes(act1))) ||
                (act2 && (aria === act2 || txt === act2));
@@ -50,7 +53,10 @@
         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
         const txt = (b.textContent || '').trim().toLowerCase();
         const html = b.innerHTML || '';
-        const isExcluded = aria.includes('agent') || txt === 'agent' || aria.includes('settings') || aria.includes('clear prompt');
+        const isExcluded = aria.includes('agent') || aria.includes('agen') ||
+                           txt === 'agent' || txt === 'agen' ||
+                           aria.includes('settings') || aria.includes('setelan') ||
+                           aria.includes('clear prompt') || aria.includes('hapus perintah');
         if (isExcluded) return false;
         return (iconKey && (txt.includes(iconKey) || html.includes(iconKey)));
       });

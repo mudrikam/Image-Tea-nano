@@ -55,11 +55,15 @@
    */
   function isAgentButton(el) {
     if (!el || !(el instanceof HTMLElement)) return false;
+    if (el.closest('flow-agent-mode-toggle-chip') || el.classList.contains('agent-mode-chip')) return true;
     const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
     const txt = (el.textContent || '').trim().toLowerCase();
     const id = (el.id || '').toLowerCase();
     const className = (el.className || '').toString().toLowerCase();
-    return aria.includes('agent') || txt === 'agent' || id.includes('agent') || className.includes('agent');
+    return aria.includes('agent') || aria.includes('agen') ||
+           txt === 'agent' || txt === 'agen' ||
+           id.includes('agent') || id.includes('agen') ||
+           className.includes('agent') || className.includes('agen');
   }
 
   /**

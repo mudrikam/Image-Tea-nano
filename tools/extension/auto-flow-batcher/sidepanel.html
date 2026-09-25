@@ -405,10 +405,10 @@
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
           </svg>
-          <span id="licenseNoticeText" class="license-notice-text">Akun kamu belum memiliki lisensi untuk aplikasi ini.</span>
+          <span id="licenseNoticeText" class="license-notice-text">Your account does not have a license for this tool.</span>
         </div>
         <a id="btnGetLicense" href="https://ciora.id/dashboard" target="_blank" rel="noopener noreferrer" class="license-btn-action">
-          Dapatkan Lisensi
+          Get License
         </a>
       </div>
 
@@ -445,6 +445,17 @@
             <div class="ciora-popover-header">
               <div class="popover-user-name" id="popoverFullName">User</div>
               <div class="popover-user-email" id="popoverEmail">user@ciora.id</div>
+            </div>
+            <div class="ciora-popover-divider"></div>
+            <div id="popoverLicenseSection" class="popover-license-info">
+              <div class="popover-lic-row">
+                <span class="popover-lic-label">License</span>
+                <span class="popover-lic-value" id="popoverLicTier">--</span>
+              </div>
+              <div class="popover-lic-row" id="popoverLicExpiryRow">
+                <span class="popover-lic-label">Expires</span>
+                <span class="popover-lic-value" id="popoverLicExpiry">--</span>
+              </div>
             </div>
             <div class="ciora-popover-divider"></div>
             <button class="ciora-popover-item" id="btnOpenCioraDashboard">
