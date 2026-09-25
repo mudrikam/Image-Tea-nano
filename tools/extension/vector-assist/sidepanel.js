@@ -2706,15 +2706,53 @@ function startRunnerProgressPolling() {
     var licenseTierText = document.getElementById("licenseTierText");
     var licenseNoticeBanner = document.getElementById("licenseNoticeBanner");
     var licenseNoticeText = document.getElementById("licenseNoticeText");
+    var btnGetLicense = document.getElementById("btnGetLicense");
+    var popoverLicTier = document.getElementById("popoverLicTier");
+    var popoverLicExpiry = document.getElementById("popoverLicExpiry");
+    var popoverLicExpiryRow = document.getElementById("popoverLicExpiryRow");
 
     function renderLicenseState() {
+      // Update popover license info if elements exist
+      if (popoverLicTier && window.cioraLicense) {
+        if (window.cioraLicense.isValid) {
+          const typeStr = window.cioraLicense.licenseType === 'trial' ? ' (TRIAL)' : window.cioraLicense.licenseType === 'lifetime' ? ' (LIFETIME)' : '';
+          popoverLicTier.textContent = (window.cioraLicense.tier || 'PRO').toUpperCase() + typeStr;
+        } else if (window.cioraLicense.isExpired) {
+          const typeStr = window.cioraLicense.licenseType === 'trial' ? ' (TRIAL EXPIRED)' : ' (EXPIRED)';
+          popoverLicTier.textContent = (window.cioraLicense.tier || 'PRO').toUpperCase() + typeStr;
+        } else {
+          popoverLicTier.textContent = 'None';
+        }
+      }
+
+      if (popoverLicExpiry && window.cioraLicense) {
+        if (window.cioraLicense.formattedExpiresAt) {
+          popoverLicExpiry.textContent = window.cioraLicense.formattedExpiresAt;
+          if (popoverLicExpiryRow) popoverLicExpiryRow.style.display = 'flex';
+        } else if (window.cioraLicense.licenseType === 'lifetime') {
+          popoverLicExpiry.textContent = 'Never (Lifetime)';
+          if (popoverLicExpiryRow) popoverLicExpiryRow.style.display = 'flex';
+        } else {
+          if (popoverLicExpiryRow) popoverLicExpiryRow.style.display = 'none';
+        }
+      }
+
       if (!authState.isPaired) {
         document.body.classList.add("license-locked");
         if (licenseTierBadge) licenseTierBadge.classList.add("hidden");
         if (licenseNoticeBanner) {
+          licenseNoticeBanner.className = "footer-license-banner";
           licenseNoticeBanner.classList.remove("hidden");
           if (licenseNoticeText) {
-            licenseNoticeText.textContent = "Hubungkan akun CIORA untuk memvalidasi lisensi software.";
+            licenseNoticeText.textContent = "Connect your CIORA account to validate software license.";
+          }
+          if (btnGetLicense) {
+            btnGetLicense.textContent = "Connect";
+            btnGetLicense.href = "https://ciora.id/dashboard";
+            btnGetLicense.onclick = function (e) {
+              e.preventDefault();
+              if (btnConnect) btnConnect.click();
+            };
           }
         }
         return;
@@ -2727,21 +2765,78 @@ function startRunnerProgressPolling() {
         }
 
         if (licenseTierBadge) {
+          var isTrial = window.cioraLicense.licenseType === 'trial';
+          var isSubscription = window.cioraLicense.licenseType === 'subscription';
           var tier = (window.cioraLicense.tier || "pro").toLowerCase();
-          licenseTierBadge.className = "license-tier-badge tier-" + tier;
+          licenseTierBadge.className = "license-tier-badge tier-" + (isTrial ? "trial" : tier);
+
           if (licenseTierText) {
-            licenseTierText.textContent = tier.toUpperCase();
+            if (isTrial) {
+              licenseTierText.textContent = window.cioraLicense.daysRemaining !== null && window.cioraLicense.daysRemaining !== undefined
+                ? "TRIAL · " + window.cioraLicense.daysRemaining + "D"
+                : "TRIAL";
+            } else if (isSubscription) {
+              licenseTierText.textContent = window.cioraLicense.daysRemaining !== null && window.cioraLicense.daysRemaining !== undefined
+                ? tier.toUpperCase() + " · " + window.cioraLicense.daysRemaining + "D"
+                : tier.toUpperCase() + " · SUBS";
+            } else {
+              licenseTierText.textContent = tier.toUpperCase();
+            }
           }
-          licenseTierBadge.title = "CIORA License Active: " + tier.toUpperCase();
+
+          var typeTitle = isTrial ? "Trial" : isSubscription ? "Subscription" : "Lifetime";
+          var titleStr = "CIORA License Active: " + tier.toUpperCase() + " (" + typeTitle + ")";
+          if (window.cioraLicense.expiresAt) {
+            var expDate = new Date(window.cioraLicense.expiresAt).toLocaleDateString("en-US", {
+              day: "numeric",
+              month: "short",
+              year: "numeric"
+            });
+            var remainStr = window.cioraLicense.daysRemaining !== null ? " · " + window.cioraLicense.daysRemaining + " days remaining" : "";
+            titleStr += " (Valid until: " + expDate + remainStr + ")";
+          }
+          licenseTierBadge.title = titleStr;
           licenseTierBadge.classList.remove("hidden");
         }
       } else {
         document.body.classList.add("license-locked");
-        if (licenseTierBadge) licenseTierBadge.classList.add("hidden");
-        if (licenseNoticeBanner) {
-          licenseNoticeBanner.classList.remove("hidden");
-          if (licenseNoticeText) {
-            licenseNoticeText.textContent = "Akun belum memiliki lisensi untuk Vector Assist.";
+
+        if (window.cioraLicense && window.cioraLicense.isExpired) {
+          if (licenseTierBadge) {
+            licenseTierBadge.className = "license-tier-badge tier-expired";
+            if (licenseTierText) {
+              var isTrial = window.cioraLicense.licenseType === 'trial';
+              licenseTierText.textContent = isTrial ? "TRIAL EXPIRED" : "SUBS EXPIRED";
+            }
+            licenseTierBadge.title = window.cioraLicense.message || "License period has expired";
+            licenseTierBadge.classList.remove("hidden");
+          }
+
+          if (licenseNoticeBanner) {
+            licenseNoticeBanner.className = "footer-license-banner banner-expired";
+            licenseNoticeBanner.classList.remove("hidden");
+            if (licenseNoticeText) {
+              licenseNoticeText.textContent = window.cioraLicense.message || "Your license period has expired.";
+            }
+            if (btnGetLicense) {
+              btnGetLicense.textContent = "Renew";
+              btnGetLicense.href = "https://ciora.id/dashboard";
+              btnGetLicense.onclick = null;
+            }
+          }
+        } else {
+          if (licenseTierBadge) licenseTierBadge.classList.add("hidden");
+          if (licenseNoticeBanner) {
+            licenseNoticeBanner.className = "footer-license-banner";
+            licenseNoticeBanner.classList.remove("hidden");
+            if (licenseNoticeText) {
+              licenseNoticeText.textContent = (window.cioraLicense && window.cioraLicense.message) || "Account does not have a license for Vector Assist.";
+            }
+            if (btnGetLicense) {
+              btnGetLicense.textContent = "Get License";
+              btnGetLicense.href = "https://ciora.id/dashboard";
+              btnGetLicense.onclick = null;
+            }
           }
         }
       }
@@ -2758,7 +2853,11 @@ function startRunnerProgressPolling() {
       renderLicenseState();
 
       if (!result.valid) {
-        logWarn("Perhatian: Akun CIORA kamu belum memiliki lisensi aktif untuk Vector Assist.");
+        if (result.reason === 'expired') {
+          logWarn("[License] Warning: " + (window.cioraLicense.message || "Your Vector Assist license has expired."));
+        } else {
+          logWarn("[License] Warning: Your CIORA account does not have an active license for Vector Assist.");
+        }
       }
     }
 
@@ -2896,5 +2995,20 @@ function startRunnerProgressPolling() {
         }).catch(function () {});
       }
     });
+
+    // Re-check license on window focus and every 30 seconds to lock immediately if expired
+    window.addEventListener("focus", function () {
+      if (authState.isPaired && authState.cdeToken) {
+        checkAppLicense();
+      }
+    });
+
+    setInterval(function () {
+      if (window.cioraLicense && window.cioraLicense.expiresAt && window.cioraLicense.isValid) {
+        if (new Date(window.cioraLicense.expiresAt).getTime() <= Date.now()) {
+          checkAppLicense();
+        }
+      }
+    }, 30000);
   }
 })();
