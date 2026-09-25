@@ -174,6 +174,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (licenseTierBadge) {
         const isTrial = licenseState.licenseType === 'trial';
+        const isSubscription = licenseState.licenseType === 'subscription';
         const tier = (licenseState.tier || 'pro').toLowerCase();
         licenseTierBadge.className = `license-tier-badge tier-${isTrial ? 'trial' : tier}`;
         if (licenseTierText) {
@@ -181,12 +182,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             licenseTierText.textContent = licenseState.daysRemaining !== null && licenseState.daysRemaining !== undefined
               ? `TRIAL · ${licenseState.daysRemaining}D`
               : 'TRIAL';
+          } else if (isSubscription) {
+            licenseTierText.textContent = licenseState.daysRemaining !== null && licenseState.daysRemaining !== undefined
+              ? `${tier.toUpperCase()} · ${licenseState.daysRemaining}D`
+              : `${tier.toUpperCase()} · SUBS`;
           } else {
             licenseTierText.textContent = tier.toUpperCase();
           }
         }
 
-        let titleStr = `CIORA License Active: ${tier.toUpperCase()}`;
+        const typeTitle = isTrial ? 'Trial' : isSubscription ? 'Subscription' : 'Lifetime';
+        let titleStr = `CIORA License Active: ${tier.toUpperCase()} (${typeTitle})`;
         if (licenseState.expiresAt) {
           const expDate = new Date(licenseState.expiresAt).toLocaleDateString('en-US', {
             day: 'numeric',
@@ -208,7 +214,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (licenseTierBadge) {
           licenseTierBadge.className = 'license-tier-badge tier-expired';
           if (licenseTierText) {
-            licenseTierText.textContent = 'EXPIRED';
+            const isTrial = licenseState.licenseType === 'trial';
+            licenseTierText.textContent = isTrial ? 'TRIAL EXPIRED' : 'SUBS EXPIRED';
           }
           licenseTierBadge.title = licenseState.message || 'License period has expired';
           licenseTierBadge.classList.remove('hidden');
