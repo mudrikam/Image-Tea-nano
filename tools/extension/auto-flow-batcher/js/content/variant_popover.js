@@ -74,6 +74,12 @@
     const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
     const txt = (b.textContent || '').trim().toLowerCase();
     const title = (b.getAttribute('title') || '').trim().toLowerCase();
+    const matTooltip = (b.getAttribute('mattooltip') || '').trim().toLowerCase();
+
+    // Explicit exclusions for card grid settings / petak kartu
+    if (aria.includes('petak kartu') || aria.includes('card grid') || aria.includes('setelan petak') || matTooltip.includes('petak') || b.querySelector('mat-icon')?.textContent?.trim() === 'settings_2') {
+      return true;
+    }
 
     const excludedKeywords = window.__AFB_RUNTIME_CONFIG__?.popover?.excludedControls || [];
     return excludedKeywords.some(kw => aria.includes(kw) || txt === kw || title.includes(kw));
@@ -90,11 +96,17 @@
      * Strict exclusion: NEVER targets Agent or execution buttons.
      */
     findSettingsTrigger() {
+      // Strategy 0: Direct structural target by Angular component classes / attributes
+      const directTrigger = document.querySelector('button.settings-trigger-button, button[aria-label="Settings trigger"], button[aria-label="Pemicu setelan"], button:has([settingstriggercontent]), button:has(.settings-summary)');
+      if (directTrigger && isVisible(directTrigger) && !isExcludedControl(directTrigger)) {
+        return directTrigger;
+      }
+
       const buttons = Array.from(document.querySelectorAll('button')).filter(isVisible);
       const conf = window.__AFB_RUNTIME_CONFIG__?.popover;
       if (!conf) return null;
 
-      const ariaKeys = conf.triggerAriaKeys || [];
+      const ariaKeys = (conf.triggerAriaKeys || []).concat(['pemicu setelan', 'setelan pemicu']);
       const textKeys = conf.triggerTextKeys || [];
 
       // Strategy 1: Explicit aria-label matching

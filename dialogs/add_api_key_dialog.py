@@ -609,7 +609,7 @@ class AddApiKeyDialog(QDialog):
     
     # Central mapping for endpoints: display_name -> url
     ENDPOINT_MAP = {
-        'Ciora AI': 'https://api.ciora.my.id/v1',
+        'Ciora AI': 'https://ciora.id/v1',
         'KoboiLLM': 'https://api.koboillm.com/v1',
         'OpenRouter Custom': 'https://openrouter.ai/api/v1',
         'Groq Custom': 'https://api.groq.com/openai/v1',

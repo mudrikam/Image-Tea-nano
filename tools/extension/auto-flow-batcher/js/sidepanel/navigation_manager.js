@@ -8,12 +8,12 @@ import { authState, fetchRemoteCoreEngine } from './auth_manager.js';
 
 export function isFlowLandingUrl(url = '') {
   if (!url) return false;
-  return /^https?:\/\/flow\.google\.com\/?(?:[?#].*)?$/i.test(url);
+  return /^https?:\/\/flow\.google\.com(?:\/(?:u\/\d+\/?)?)?(?:[?#].*)?$/i.test(url);
 }
 
 export function isFlowProjectUrl(url) {
   if (!url) return false;
-  return /flow\.google\.com\/project\//i.test(url);
+  return /(?:flow\.google\.com|labs\.google.*\/tools\/flow)\/(?:u\/\d+\/)?project\//i.test(url);
 }
 
 export async function checkCurrentTab() {

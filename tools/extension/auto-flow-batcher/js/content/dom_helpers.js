@@ -20,10 +20,11 @@
 
     /**
      * Verifies if current location is a Flow project workspace.
+     * Supports multi-account user paths (e.g. flow.google.com/u/5/project/...)
      * @returns {boolean}
      */
     isFlowProjectPage() {
-      return location.href.includes('flow.google.com/project/');
+      return /(?:flow\.google\.com|labs\.google.*\/tools\/flow)\/(?:u\/\d+\/)?project\//i.test(location.href);
     },
 
     /**

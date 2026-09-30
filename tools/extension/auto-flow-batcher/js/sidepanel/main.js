@@ -27,6 +27,7 @@ import {
 import { 
   checkCurrentTab, 
   isFlowLandingUrl, 
+  isFlowProjectUrl, 
   ensureContentScript, 
   prepareFlowProjectIfNeeded 
 } from './navigation_manager.js';
@@ -746,7 +747,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (isFlowLandingUrl(tabUrl)) {
         appendLog('[Check] Detected: Flow HOME page → Will click New Project', 'info');
-      } else if (/flow\.google\.com\/project\//i.test(tabUrl) || /labs\.google.*\/tools\/flow\/project\//i.test(tabUrl)) {
+      } else if (isFlowProjectUrl(tabUrl)) {
         appendLog('[Check] Detected: Flow PROJECT page → Skipping New Project', 'info');
       } else {
         appendLog('[Check] Warning: URL is not a recognized Flow page!', 'warn');
@@ -889,7 +890,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (isFlowLandingUrl(tabUrl)) {
           appendLog('[Check] Detected: Flow HOME page → Will click New Project', 'info');
-        } else if (/flow\.google\.com\/project\//i.test(tabUrl) || /labs\.google.*\/tools\/flow\/project\//i.test(tabUrl)) {
+        } else if (isFlowProjectUrl(tabUrl)) {
           appendLog('[Check] Detected: Flow PROJECT page → Skipping New Project', 'info');
         } else {
           appendLog('[Check] Warning: URL is not a recognized Flow page!', 'warn');
