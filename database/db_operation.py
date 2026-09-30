@@ -77,11 +77,26 @@ def get_db_path():
 
 DB_PATH = get_db_path()
 
+def natural_sort_key(s):
+    if s is None:
+        return []
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+
+def natural_collation(val1, val2):
+    k1 = natural_sort_key(val1)
+    k2 = natural_sort_key(val2)
+    return (k1 > k2) - (k1 < k2)
+
 class ImageTeaDB:
     def __init__(self):
         self.config_path = os.path.join(BASE_PATH, 'configs', 'db_config.json')
         self._load_config()
         self._ensure_database()
+    
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.create_collation('NATURALSORT', natural_collation)
+        return conn
     
     def _load_config(self):
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -322,9 +337,9 @@ class ImageTeaDB:
             row = c.fetchone()
             return row[0] if row else 0
 
-    def get_files_paginated(self, page=1, page_size=20, search_text=None, status_filter=None):
-        """Get files with pagination support and optional status filter"""
-        with sqlite3.connect(self.db_path) as conn:
+    def get_files_paginated(self, page=1, page_size=20, search_text=None, status_filter=None, sort_order="natural"):
+        """Get files with pagination support, optional status filter, and configurable sort order"""
+        with self._get_connection() as conn:
             c = conn.cursor()
             offset = (page - 1) * page_size
             
@@ -343,7 +358,18 @@ class ImageTeaDB:
             query = 'SELECT id, filepath, filename, title, description, tags, status, original_filename, file_prompt FROM files'
             if conditions:
                 query += f" WHERE {' AND '.join(conditions)}"
-            query += ' ORDER BY filename COLLATE NOCASE ASC, filepath ASC'
+
+            if sort_order == "drop_order":
+                query += ' ORDER BY id ASC'
+            elif sort_order == "name_asc":
+                query += ' ORDER BY filename COLLATE NOCASE ASC, id ASC'
+            elif sort_order == "name_desc":
+                query += ' ORDER BY filename COLLATE NOCASE DESC, id ASC'
+            elif sort_order == "newest":
+                query += ' ORDER BY id DESC'
+            else:  # default 'natural'
+                query += ' ORDER BY filename COLLATE NATURALSORT ASC, id ASC'
+
             query += ' LIMIT ? OFFSET ?'
             
             params.extend([page_size, offset])

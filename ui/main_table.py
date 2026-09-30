@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QSpacerItem, QSizePolicy, QSpinBox, QSlider, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, QPoint, QTimer, QRect, QSize, QPoint as QtQPoint, QEvent, QItemSelectionModel, QThread
-from PySide6.QtGui import QColor, QBrush, QAction, QGuiApplication, QPixmap, QImage, QFont
+from PySide6.QtGui import QColor, QBrush, QAction, QActionGroup, QGuiApplication, QPixmap, QImage, QFont
 from dialogs.file_metadata_dialog import FileMetadataDialog
 from dialogs.donation_dialog import DonateDialog, is_donation_optout_today
 from ui.file_dnd_widget import DragDropWidget
@@ -15,11 +15,123 @@ import qtawesome as qta
 import os
 import html
 import json
+import re
 
 from ui.theme_system import theme
 from config import BASE_PATH
 from helpers.video_proxy_helper import VIDEO_EXTENSIONS
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+class CombinedSortFilterComboBox(QComboBox):
+    """Integrated status filter and sorting mode dropdown with section headers."""
+    filter_or_sort_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.addItem("All Files")
+        self._current_filter = "All Files"
+        self._current_sort = "natural"
+        self._update_display_text()
+
+    def current_filter(self):
+        return self._current_filter
+
+    def current_sort(self):
+        return self._current_sort
+
+    def _update_display_text(self):
+        sort_names = {
+            "natural": "Natural",
+            "drop_order": "Drop Order",
+            "name_asc": "A → Z",
+            "name_desc": "Z → A",
+            "newest": "Newest",
+        }
+        s_lbl = sort_names.get(self._current_sort, "Natural")
+        
+        if self._current_filter == "All Files" and self._current_sort == "natural":
+            display = "All Files"
+        elif self._current_filter == "All Files":
+            display = f"All ({s_lbl})"
+        elif self._current_sort == "natural":
+            display = self._current_filter
+        else:
+            short_filter = self._current_filter.replace(" Only", "")
+            display = f"{short_filter} ({s_lbl})"
+            
+        self.setItemText(0, display)
+        self.setToolTip(f"Filter: {self._current_filter} | Sort: {sort_names.get(self._current_sort, self._current_sort)}")
+
+    def showPopup(self):
+        menu = QMenu(self)
+
+        # Header 1: Filter Status
+        act_h1 = menu.addAction("FILTER STATUS")
+        act_h1.setEnabled(False)
+        h_font = QFont()
+        h_font.setBold(True)
+        h_font.setPointSize(8)
+        act_h1.setFont(h_font)
+
+        filter_group = QActionGroup(menu)
+        filter_group.setExclusive(True)
+
+        filters = [
+            ("All Files", "All Files"),
+            ("Success Only", "Success Only"),
+            ("Failed Only", "Failed Only"),
+            ("Draft Only", "Draft Only"),
+        ]
+        for label, val in filters:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(self._current_filter == val)
+            filter_group.addAction(act)
+            def make_f_handler(v=val):
+                return lambda: self._on_filter_selected(v)
+            act.triggered.connect(make_f_handler(val))
+
+        menu.addSeparator()
+
+        # Header 2: Sort Order
+        act_h2 = menu.addAction("SORT ORDER")
+        act_h2.setEnabled(False)
+        act_h2.setFont(h_font)
+
+        sort_group = QActionGroup(menu)
+        sort_group.setExclusive(True)
+
+        sorts = [
+            ("Natural (1, 2, 10...)", "natural"),
+            ("Drop Order (As Added)", "drop_order"),
+            ("File Name (A → Z)", "name_asc"),
+            ("File Name (Z → A)", "name_desc"),
+            ("Newest First", "newest"),
+        ]
+        for label, val in sorts:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(self._current_sort == val)
+            sort_group.addAction(act)
+            def make_s_handler(v=val):
+                return lambda: self._on_sort_selected(v)
+            act.triggered.connect(make_s_handler(val))
+
+        pos = self.mapToGlobal(self.rect().bottomLeft())
+        menu.exec(pos)
+
+    def _on_filter_selected(self, val):
+        if self._current_filter != val:
+            self._current_filter = val
+            self._update_display_text()
+            self.filter_or_sort_changed.emit()
+
+    def _on_sort_selected(self, val):
+        if self._current_sort != val:
+            self._current_sort = val
+            self._update_display_text()
+            self.filter_or_sort_changed.emit()
 
 
 class NoDataWidget(QWidget):
@@ -1027,12 +1139,9 @@ class ImageTableWidget(QWidget):
         self.page_size_combo.setToolTip("Items per page")
         self.page_size_combo.currentTextChanged.connect(self._on_page_size_changed)
         
-        self.sort_filter_combo = QComboBox(self)
-        self.sort_filter_combo.addItems(["All Files", "Success Only", "Failed Only", "Draft Only"])
-        self.sort_filter_combo.setCurrentText("All Files")
-        self.sort_filter_combo.setFixedWidth(120)
-        self.sort_filter_combo.setToolTip("Filter files by status")
-        self.sort_filter_combo.currentTextChanged.connect(self._on_sort_filter_changed)
+        self.sort_filter_combo = CombinedSortFilterComboBox(self)
+        self.sort_filter_combo.setFixedWidth(130)
+        self.sort_filter_combo.filter_or_sort_changed.connect(self._on_sort_filter_changed)
         
         search_layout.addWidget(search_icon_btn)
         search_layout.addWidget(self.search_edit)
@@ -1540,7 +1649,7 @@ class ImageTableWidget(QWidget):
             self._load_page_data()
             self._update_pagination_ui()
     
-    def _on_sort_filter_changed(self, filter_text):
+    def _on_sort_filter_changed(self):
         self.current_page = 1
         self.page_spinner.setValue(1)
         self._page_cache.clear()
@@ -1689,8 +1798,9 @@ class ImageTableWidget(QWidget):
         self.next_btn.setEnabled(self.current_page < total_pages)
 
     def _load_page_data(self):
-        """Load data for current page"""
-        filter_text = self.sort_filter_combo.currentText()
+        """Load data for current page with status filter and sort order"""
+        filter_text = self.sort_filter_combo.current_filter() if hasattr(self.sort_filter_combo, 'current_filter') else self.sort_filter_combo.currentText()
+        sort_order = self.sort_filter_combo.current_sort() if hasattr(self.sort_filter_combo, 'current_sort') else 'natural'
         
         status_filter = None
         if filter_text == "Success Only":
@@ -1700,7 +1810,7 @@ class ImageTableWidget(QWidget):
         elif filter_text == "Draft Only":
             status_filter = "draft"
         
-        cache_key = (self.current_page, self.page_size, self.search_text, filter_text)
+        cache_key = (self.current_page, self.page_size, self.search_text, filter_text, sort_order)
         
         if cache_key in self._page_cache:
             self._current_rows = self._page_cache[cache_key]
@@ -1709,7 +1819,8 @@ class ImageTableWidget(QWidget):
                 page=self.current_page, 
                 page_size=self.page_size, 
                 search_text=self.search_text if self.search_text.strip() else None,
-                status_filter=status_filter
+                status_filter=status_filter,
+                sort_order=sort_order
             ))
             self._page_cache[cache_key] = self._current_rows
         
@@ -2549,11 +2660,29 @@ class ImageTableWidget(QWidget):
                     item.setToolTip(tooltip)
 
     def refresh_table(self):
+        # Preserve user selection and scroll position across background/table refreshes
+        selected_filepath = None
+        current_row_idx = self.table.currentRow()
+        if current_row_idx >= 0:
+            fp_item = self.table.item(current_row_idx, 1)
+            if fp_item:
+                selected_filepath = fp_item.data(Qt.UserRole) or fp_item.text()
+        scroll_val = self.table.verticalScrollBar().value()
+
         self.total_count = self.db.get_files_count(self.search_text if self.search_text else None)
         self._page_cache.clear()                          
         self._load_page_data()
         self._update_pagination_ui()
         self._update_zoom_controls_visibility()
+
+        # Restore user selection and scroll position
+        if selected_filepath:
+            for r in range(self.table.rowCount()):
+                it = self.table.item(r, 1)
+                if it and (it.data(Qt.UserRole) == selected_filepath or it.text() == selected_filepath):
+                    self.table.selectRow(r)
+                    break
+        self.table.verticalScrollBar().setValue(scroll_val)
         
                                                         
         if self.total_count >= 100:
