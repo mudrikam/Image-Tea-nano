@@ -130,6 +130,9 @@ class ApiKeySectionWidget(QWidget):
         else:
             self._refresh_api_key_combo(None)
 
+    def setVisible(self, visible):
+        super().setVisible(visible)
+        
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
         if obj == self.model_combo and event.type() == QEvent.MouseButtonPress:

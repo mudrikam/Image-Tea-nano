@@ -307,6 +307,13 @@ class PromptGeneratorDialog(QDialog):
 		self._stats_tick_timer = QTimer()
 		self._stats_tick_timer.timeout.connect(self.update_stats_display)
 
+		# Connect to main window's member_status_changed signal (no polling)
+		main_window = self.parent()
+		while main_window and not hasattr(main_window, 'member_status_changed'):
+			main_window = main_window.parent() if hasattr(main_window, 'parent') and callable(main_window.parent) else None
+		if main_window and hasattr(main_window, 'member_status_changed'):
+			main_window.member_status_changed.connect(lambda _: self._check_member_mode())
+
 		# Tandem Pipeline Coordinator Instance
 		from helpers.tools.tandem_coordinator_helper import TandemPipelineCoordinator
 		self.tandem_coordinator = TandemPipelineCoordinator(self.db, parent=self)
@@ -325,6 +332,7 @@ class PromptGeneratorDialog(QDialog):
 		main_layout.setSpacing(6)
 
 		self._member_mode = False
+		self.api_key_section = None
 		if self.db:
 			self.api_key_section = ApiKeySectionWidget(self.db, self)
 			main_layout.addWidget(self.api_key_section)
@@ -1699,44 +1707,55 @@ class PromptGeneratorDialog(QDialog):
 		print("Combo lists reloaded successfully")
 
 	def _check_member_mode(self):
-		from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_member_secret_valid, is_membership_expired
-		if not is_logged_in():
-			if self._member_mode:
-				self._member_mode = False
+		from helpers.members_helper.members_helper import is_logged_in, get_member_api_config, is_membership_expired
+		
+		was_member = getattr(self, '_member_mode', False)
+		logged_in = is_logged_in()
+		
+		if not logged_in:
+			self._member_mode = False
+			if hasattr(self, 'api_key_section') and self.api_key_section is not None:
 				self.api_key_section.setVisible(True)
-				self.api_key = self.api_key_section.get_current_api_key()
-				self.selected_service = self.api_key_section.get_current_service()
-				self.selected_model_name = self.api_key_section.get_current_model()
-				self._append_log("Member logged out, reverted to DB API keys.")
+				if was_member:
+					self.api_key = self.api_key_section.get_current_api_key()
+					self.selected_service = self.api_key_section.get_current_service()
+					self.selected_model_name = self.api_key_section.get_current_model()
+					self._append_log("Member logged out, reverted to DB API keys.")
 			return
+		
 		if is_membership_expired():
-			if self._member_mode:
-				self._member_mode = False
+			self._member_mode = False
+			if hasattr(self, 'api_key_section') and self.api_key_section is not None:
 				self.api_key_section.setVisible(True)
-				self.api_key = self.api_key_section.get_current_api_key()
-				self.selected_service = self.api_key_section.get_current_service()
-				self.selected_model_name = self.api_key_section.get_current_model()
-				self._append_log("Membership expired, reverted to DB API keys.")
-			else:
-				self._append_log("Membership expired. Please renew to use member mode.")
+				if was_member:
+					self.api_key = self.api_key_section.get_current_api_key()
+					self.selected_service = self.api_key_section.get_current_service()
+					self.selected_model_name = self.api_key_section.get_current_model()
+					self._append_log("Membership expired, reverted to DB API keys.")
 			return
-		if not is_member_secret_valid():
-			if self._member_mode:
-				self._member_mode = False
+		
+		# Member is logged in and not expired — activate member mode
+		member_cfg = get_member_api_config()
+		
+		if not member_cfg or not member_cfg.get("api_key"):
+			self._member_mode = False
+			if hasattr(self, 'api_key_section') and self.api_key_section is not None:
 				self.api_key_section.setVisible(True)
-				self._append_log("Member secret invalid, reverted to DB API keys.")
+			if was_member:
+				self._append_log("Member API config unavailable, reverted to DB API keys.")
 			return
-		if not self._member_mode:
-			self._member_mode = True
+		
+		self._member_mode = True
+		if hasattr(self, 'api_key_section') and self.api_key_section is not None:
 			self.api_key_section.setVisible(False)
-			member_cfg = get_member_api_config()
-			self.api_key = member_cfg["api_key"]
-			self.selected_service = member_cfg["service_type"] or "custom"
-			self.selected_model_name = member_cfg["model"]
+		self.api_key = member_cfg["api_key"]
+		self.selected_service = member_cfg["service_type"] or "custom"
+		self.selected_model_name = member_cfg["model"]
+		if not was_member:
 			self._append_log(f"Member mode active: {self.selected_service} - {self.selected_model_name}")
 
 	def on_api_key_changed(self, api_key, service, model):
-		if self._member_mode:
+		if getattr(self, '_member_mode', False):
 			return
 		self.api_key = api_key
 		self.selected_service = service
@@ -1744,6 +1763,9 @@ class PromptGeneratorDialog(QDialog):
 		print(f"API key changed: {service} - {model} - {api_key[-10:] if api_key else 'None'}")
 
 	def toggle_generation(self):
+		# Re-check member mode right before generating
+		self._check_member_mode()
+		
 		if self.is_generating:
 			self.stop_generation()
 		else:
@@ -1832,7 +1854,7 @@ class PromptGeneratorDialog(QDialog):
 			print("Error: Database not available for prompt generation")
 			return
 		if not self.api_key or not self.selected_service or not self.selected_model_name:
-			if self._member_mode:
+			if getattr(self, '_member_mode', False):
 				print("Error: Member API configuration invalid")
 			else:
 				print("Error: API key and model must be selected for prompt generation")
@@ -1876,7 +1898,7 @@ class PromptGeneratorDialog(QDialog):
 		print(f"Starting prompt generation by reference ({source_label})...")
 
 		member_endpoint = None
-		if self._member_mode:
+		if getattr(self, '_member_mode', False):
 			try:
 				from helpers.members_helper.members_helper import get_member_api_config
 				member_cfg = get_member_api_config()
@@ -1902,7 +1924,7 @@ class PromptGeneratorDialog(QDialog):
 			print("Error: Database not available for prompt generation")
 			return
 		if not self.api_key or not self.selected_service or not self.selected_model_name:
-			if self._member_mode:
+			if getattr(self, '_member_mode', False):
 				print("Error: Member API configuration invalid")
 			else:
 				print("Error: API key and model must be selected for prompt generation")
@@ -1947,7 +1969,7 @@ class PromptGeneratorDialog(QDialog):
 		self._launch_parameters_worker_bare()
 
 	def _get_member_endpoint(self):
-		if self._member_mode:
+		if getattr(self, '_member_mode', False):
 			try:
 				from helpers.members_helper.members_helper import get_member_api_config
 				member_cfg = get_member_api_config()
@@ -2015,6 +2037,23 @@ class PromptGeneratorDialog(QDialog):
 		if total_generated > 0:
 			self.load_prompts_from_db()
 			self.update_pagination()
+			
+			if getattr(self, '_member_mode', False):
+				try:
+					from helpers.members_helper.members_helper import increment_member_usage, get_usage_info
+					from dialogs.member_limit_dialog import MemberLimitDialog
+					
+					# 1 request = 1 credit used for prompt generation (can be adjusted)
+					credits_used = 1
+					
+					increment_member_usage(credits_used)
+					
+					# Optional: force UI update if needed
+					if hasattr(self.parent(), 'statusbar') and hasattr(self.parent().statusbar, 'update_member_status'):
+						self.parent().statusbar.update_member_status()
+						
+				except Exception as e:
+					print(f"Failed to track member usage for prompt generation: {e}")
 
 		if self._random_mode_active:
 			self._random_total_generated += total_generated
@@ -2923,8 +2962,6 @@ class PromptGeneratorDialog(QDialog):
 	def closeEvent(self, event):
 		if hasattr(self, 'refresh_timer'):
 			self.refresh_timer.stop()
-		if hasattr(self, '_member_check_timer'):
-			self._member_check_timer.stop()
 		if hasattr(self, 'tandem_coordinator'):
 			self.tandem_coordinator.stop_server()
 		if self.worker and self.worker.isRunning():

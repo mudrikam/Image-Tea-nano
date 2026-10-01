@@ -1018,7 +1018,11 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
             return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
 
         elif service.lower() in ('openai', 'openrouter', 'blackbox', 'maia', 'custom'):
-            if service.lower() == 'openai' or service.lower() == 'openrouter':
+            # If we have a provider_endpoint, always use it as base_url (member mode or custom endpoint)
+            if provider_endpoint:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key, base_url=provider_endpoint)
+            elif service.lower() == 'openai' or service.lower() == 'openrouter':
                 from helpers.ai_helper.openai_helper import create_openai_client
                 client = create_openai_client(api_key)
             elif service.lower() == 'blackbox':
@@ -1027,21 +1031,12 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
             elif service.lower() == 'maia':
                 from helpers.ai_helper.maia_helper import create_maia_client
                 client = create_maia_client(api_key)
+            elif service.lower() == 'custom':
+                print("Custom text-only: no endpoint provided")
+                return [], 0, 0, 0
             else:
-                if not provider_endpoint:
-                    print("Custom text-only: no endpoint provided")
-                    return [], 0, 0, 0
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key, base_url=provider_endpoint)
-
-            if provider_endpoint and service.lower() not in ('openai', 'openrouter'):
-                try:
-                    from helpers.ai_helper.custom_endpoint_helper import CustomEndpointHelper
-                    text = CustomEndpointHelper.call_endpoint(api_key, provider_endpoint, service, model, prompt_text, image_path=None, timeout=120)
-                    return parse_ai_prompt_response(text, aspect_ratio), 0, 0, 0
-                except Exception as e:
-                    print(f"{service} custom endpoint text-only error: {e}")
-                    return [], 0, 0, 0
+                from helpers.ai_helper.openai_helper import create_openai_client
+                client = create_openai_client(api_key)
 
             messages = [{"role": "user", "content": prompt_text}]
             if stop_flag and stop_flag.get('stop'):
@@ -1065,6 +1060,10 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
                     text = choice.message.content
             if not text:
                 text = extract_response_text(response)
+            
+            # DEBUG: Print raw response to diagnose if AI returns something that fails parsing
+            print(f"DEBUG {service} raw text: {text[:500]}...")
+            
             return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
 
         elif service.lower() == 'groq':
@@ -1085,20 +1084,37 @@ def generate_prompts_text_only(api_key, service, model, prompt_text, aspect_rati
                 token_input = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
                 token_output = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
                 token_total = getattr(usage, "total_tokens", 0)
+            
             text = None
             if hasattr(response, "choices") and response.choices:
                 choice = response.choices[0]
-                if hasattr(choice, "message"):
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
                     text = choice.message.content
             if not text:
                 text = str(response)
-            return parse_ai_prompt_response(text, aspect_ratio), token_input, token_output, token_total
+                
+            prompts = []
+            if text:
+                # Check for API error response formats wrapped in JSON
+                try:
+                    import json
+                    resp_json = json.loads(text)
+                    if isinstance(resp_json, dict) and "error" in resp_json:
+                        print(f"API returned error: {resp_json['error']}")
+                        return [], 0, 0, 0
+                except json.JSONDecodeError:
+                    pass
+                prompts = parse_ai_prompt_response(text, aspect_ratio)
+
+            return prompts, token_input, token_output, token_total
 
         else:
             print(f"Unsupported service for text-only generation: {service}")
             return [], 0, 0, 0
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Text-only prompt generation error ({service}): {e}")
         return [], 0, 0, 0
 

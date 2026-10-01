@@ -22,6 +22,7 @@ class ImageTeaMainWindow(QMainWindow):
     show_ai_unsupported_dialog = Signal(str)
     background_status = Signal(str)
     trigger_show_update_dialog = Signal()
+    member_status_changed = Signal(bool)  # True = logged in, False = logged out
 
     def __init__(self):
         super().__init__()

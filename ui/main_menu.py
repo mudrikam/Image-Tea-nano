@@ -289,6 +289,8 @@ def _setup_member_menu_items(window, member_menu, menubar):
             window.api_key_section.setVisible(False)
         if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
             window.statusbar.update_member_status()
+        if hasattr(window, 'member_status_changed'):
+            window.member_status_changed.emit(True)
     
     def _remove_member_mode():
         with open(os.path.join(BASE_PATH, 'configs', 'app_config.json'), 'r', encoding='utf-8') as _f:
@@ -298,6 +300,8 @@ def _setup_member_menu_items(window, member_menu, menubar):
             window.api_key_section.setVisible(True)
         if hasattr(window, 'statusbar') and hasattr(window.statusbar, 'update_member_status'):
             window.statusbar.update_member_status()
+        if hasattr(window, 'member_status_changed'):
+            window.member_status_changed.emit(False)
     
     window._apply_member_mode = _apply_member_mode
     
