@@ -765,7 +765,14 @@ def compress_and_save_image(image_path):
     quality = get_compression_quality()
     max_size = get_compression_max_size()
     ext = os.path.splitext(image_path)[1].lower()
-    filename = os.path.splitext(os.path.basename(image_path))[0] + ".jpg"
+    raw_stem = os.path.splitext(os.path.basename(image_path))[0]
+    # Strip non-ASCII characters so the temp file path stays ASCII-safe.
+    # The Google Gemini client encodes filenames as ASCII in HTTP headers and
+    # will raise UnicodeEncodeError if the path contains characters like '…'.
+    ascii_stem = raw_stem.encode("ascii", errors="ignore").decode("ascii").strip()
+    if not ascii_stem:
+        ascii_stem = "compressed"
+    filename = ascii_stem + ".jpg"
     save_path = os.path.join(temp_folder, filename)
 
     if ext in (".eps", ".pdf", ".ai"):
