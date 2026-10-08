@@ -15,7 +15,8 @@ import {
   stopCountdown, 
   updateRatioOptions, 
   updateModelOptions,
-  updateDownloadQualityOptions, 
+  applyDynamicModelLabels,
+  updateDownloadQualityOptions,
   getSettings, 
   saveSettingsToStorage,
   loadSettingsFromStorage,
@@ -333,6 +334,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSavedAuthSession();
   updateAuthUI();
   await checkAppLicense();
+
+  // Dynamically synchronize UI model labels from CIORA Server signature on boot
+  if (authState.isPaired && authState.cdeToken) {
+    fetchRemoteCoreEngine(authState.cdeToken).then(cfg => {
+      if (cfg) applyDynamicModelLabels(cfg);
+    }).catch(() => {});
+  }
 
   // Connect button click
   btnConnectCiora?.addEventListener('click', () => {

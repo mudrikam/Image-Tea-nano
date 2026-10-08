@@ -191,6 +191,37 @@ export function updateRatioOptions(type) {
   }
 }
 
+export function applyDynamicModelLabels(runtimeConfig) {
+  if (!runtimeConfig?.popover?.modelAliases) return;
+  const aliases = runtimeConfig.popover.modelAliases;
+
+  // Dynamically update UI labels in modelGroup according to server aliases
+  const modelInputs = document.querySelectorAll('#modelGroup input[name="model"]');
+  modelInputs.forEach(input => {
+    const val = input.value;
+    const targetModel = aliases[val] || val;
+    const label = document.querySelector(`label[for="${input.id}"]`);
+    if (!label) return;
+
+    // Check specific known families to format aesthetic emoji label
+    if (val.includes('Banana 2') || targetModel.includes('Banana 2')) {
+      const verMatch = targetModel.match(/Banana\s*([0-9\.]+)/i);
+      const ver = verMatch ? verMatch[1] : '2.1';
+      label.textContent = `🍌 Banana ${ver}`;
+    } else if (val.includes('Banana Pro') || targetModel.includes('Banana Pro')) {
+      label.textContent = `🍌 Banana Pro`;
+    } else if (val.includes('Banana Lite') || targetModel.includes('Banana Lite')) {
+      label.textContent = `🍌 Banana Lite`;
+    } else if (val.includes('Omni') || targetModel.includes('Omni')) {
+      label.textContent = `Omni Flash`;
+    } else if (val.includes('Veo') || targetModel.includes('Veo')) {
+      if (val.includes('Lite')) label.textContent = `Veo Lite`;
+      else if (val.includes('Fast')) label.textContent = `Veo Fast`;
+      else if (val.includes('Quality')) label.textContent = `Veo Quality`;
+    }
+  });
+}
+
 export function updateModelOptions(type) {
   const modelPills = document.querySelectorAll('#modelGroup .radio-pill');
   modelPills.forEach(pill => {
@@ -310,7 +341,7 @@ export function getSettings() {
   const res = {
     type: selectedType,
     ratio: currentRatio || (selectedType === 'video' ? '16:9' : '4:3'),
-    model: currentModel || (selectedType === 'video' ? 'Omni 1.1 Flash' : 'Nano Banana 2'),
+    model: currentModel || (selectedType === 'video' ? 'Omni 1.1 Flash' : 'Nano Banana 2.1'),
     videoDuration: document.querySelector('input[name="videoDuration"]:checked')?.value || '8s',
     videoResolution: document.querySelector('input[name="videoResolution"]:checked')?.value || '720p',
     batch: currentBatch,
@@ -341,7 +372,7 @@ export function saveSettingsToStorage() {
 
         const imageSettings = prev.imageSettings || {
           ratio: '16:9',
-          model: 'Nano Banana 2',
+          model: 'Nano Banana 2.1',
           batch: '1',
           downloadQuality: '1K'
         };

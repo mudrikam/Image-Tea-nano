@@ -409,7 +409,14 @@
      */
     async selectModel(targetModel, log = console.log) {
       if (!targetModel) return true;
-      const normTarget = normalizeText(targetModel);
+
+      // Resolve dynamic model alias from CIORA Server remote signature (fallback to built-in defaults)
+      const aliases = Object.assign({
+        'Nano Banana 2': 'Nano Banana 2.1'
+      }, window.__AFB_RUNTIME_CONFIG__?.popover?.modelAliases || {});
+      const resolvedModel = aliases[targetModel] || targetModel;
+
+      const normTarget = normalizeText(resolvedModel);
 
       const modelTrigger = this.findModelTrigger();
       if (!modelTrigger) {
@@ -424,7 +431,7 @@
         return true;
       }
 
-      log(`[AFB-Settings] Model diff: current="${currentRawModel}" ➔ target="${targetModel}"`);
+      log(`[AFB-Settings] Model diff: current="${currentRawModel}" ➔ target="${resolvedModel}" (requested="${targetModel}")`);
       log('[AFB-Settings] 1. Opening model dropdown menu...');
       await this.clickElementSafely(modelTrigger, 'Model dropdown trigger');
       await new Promise(r => setTimeout(r, 400));
@@ -458,7 +465,6 @@
       });
 
       const candidateList = leafMenuItems.length > 0 ? leafMenuItems : menuItems;
-      const aliases = window.__AFB_RUNTIME_CONFIG__?.popover?.modelAliases || {};
 
       // Match strictly by full normalized name (no partial keyword leakage)
       const matchItem = candidateList.find(item => {
@@ -474,7 +480,7 @@
 
       if (!matchItem) {
         const available = menuItems.map(m => (m.textContent || '').trim()).filter(Boolean).slice(0, 10).join(', ');
-        throw new Error(`[AFB-Settings] Model option "${targetModel}" not found in dropdown menu. Available: [${available}]`);
+        throw new Error(`[AFB-Settings] Model option "${resolvedModel}" (from "${targetModel}") not found in dropdown menu. Available: [${available}]`);
       }
 
       // Find the deepest clickable button/span inside matchItem if available
