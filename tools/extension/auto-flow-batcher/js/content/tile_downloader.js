@@ -132,7 +132,7 @@
           qualityMenuItem = items.find(item => {
             const txt = (item.textContent || '').trim().toLowerCase();
             const qLower = quality.toLowerCase();
-            return txt.startsWith(qLower) || txt.includes(qLower);
+            return txt.startsWith(qLower) || txt.includes(qLower) || (qLower === '1k' && (txt.includes('1k') || txt.includes('original size')));
           });
           if (qualityMenuItem) break;
         }

@@ -24,10 +24,10 @@
 
         // Extract stable unique UUID or CDN identifier
         let mediaId = img?.getAttribute('data-media-id') || null;
-        if (!mediaId && img?.src && cdnHost && img.src.includes(cdnHost)) {
+        if (!mediaId && img?.src) {
           mediaId = img.src.split('?')[0].split('/').pop();
         }
-        if (!mediaId && video?.src && cdnHost && video.src.includes(cdnHost)) {
+        if (!mediaId && video?.src) {
           mediaId = video.src.split('?')[0].split('/').pop();
         }
         if (!mediaId && container.getAttribute('data-tile-id')) {
@@ -44,7 +44,9 @@
                             container.getAttribute('aria-label') || '';
 
         // Only register if media has a valid, non-empty stable ID and is NOT currently rendering
-        const hasValidSource = (img?.src && (!cdnHost || img.src.includes(cdnHost))) || (video?.src && video.src.length > 5);
+        // Supports both flow-content.google CDN and new flow.google.com/asb/ internal paths
+        const hasValidSource = (img?.src && (img.src.includes('flow.google.com/asb') || img.src.includes('flow-content.google') || !cdnHost || img.src.includes(cdnHost) || img.src.length > 20)) ||
+                               (video?.src && video.src.length > 5);
         if (mediaId && !isStillRendering && hasValidSource) {
           snapshot.set(mediaId, {
             id: mediaId,
