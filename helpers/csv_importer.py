@@ -148,7 +148,7 @@ def import_csv_metadata(csv_path):
                     tags = row[fmt['fields'].index(keyname)].strip()
                     break
             file_prompt = ''
-            for keyname in ['file_prompt', 'prompt', 'image prompt', 'ai prompt']:
+            for keyname in ['file_prompt', 'prompt', 'ai_prompt', 'image prompt', 'ai prompt']:
                 if keyname in fmt['fields']:
                     try:
                         file_prompt = row[fmt['fields'].index(keyname)].strip()

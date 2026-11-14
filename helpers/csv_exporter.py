@@ -29,9 +29,9 @@ def _sanitize_text_for_csv(text):
 SHARED_FORMATS = {
     "Magnific": {
         "delimiter": ";",
-        "header": ['File name', 'Title', 'Keywords', 'Prompt', 'Model'],
-        "fields": ['filename', 'title', 'keywords', 'prompt', 'model'],
-        "quote_fields": "all",
+        "header": ['filename', 'title', 'tags', 'is_ai', 'ai_prompt', 'ai_model', 'people_count'],
+        "fields": ['filename', 'title', 'tags', 'is_ai', 'ai_prompt', 'ai_model', 'people_count'],
+        "quote_fields": "none",
         "quote_header": False
     },
     "Adobe Stock": {
@@ -166,12 +166,15 @@ def generate_export_filename(base_name, output_path):
         raise
 
 def _magnific_format(file):
+    prompt = file[8] if len(file) > 8 and file[8] is not None else ""
     return {
         'filename': file[2],
         'title': _sanitize_text_for_csv(file[3] if file[3] is not None else ""),
-        'keywords': file[5] if file[5] is not None else "",
-        'prompt': file[8] if len(file) > 8 and file[8] is not None else "",
-        'model': ""
+        'tags': file[5] if file[5] is not None else "",
+        'is_ai': "no",
+        'ai_prompt': prompt,
+        'ai_model': "",
+        'people_count': "0"
     }
 
 def _adobe_stock_format(file, adobe_map, category_mapping):
